@@ -222,25 +222,29 @@ class _LegacySurvivalSoftContrastiveLoss(nn.Module):
 
 
 class SurvivalSoftContrastiveLoss(nn.Module):
-    """Survival-soft contrastive loss with principled censoring weights.
+    """Survival-soft contrastive loss with KM event-mass similarity.
 
     Admin-censored patients are encoded as a conditional distribution over
-    plausible future primary-event quantiles instead of receiving fixed
-    reliability constants. Competing deaths are explicit event types; by
-    default they structure death-death pairs but do not create primary-event
-    similarity unless ``competing_event_weight`` is raised in a sensitivity run.
+    plausible future primary-event locations under the Kaplan-Meier event-time
+    mass. Competing deaths are explicit event types; by default they structure
+    death-death pairs but do not create primary-event similarity unless
+    ``competing_event_weight`` is raised in a sensitivity run.
     """
 
     def __init__(
         self,
         temperature: float = 0.07,
-        cdf_scale: float = 0.25,
+        km_time_scale: float = 0.25,
+        cdf_scale: Optional[float] = None,
         min_weight_threshold: float = 1e-4,
         competing_event_weight: float = 0.0,
     ):
         super().__init__()
         self.temperature = temperature
-        self.cdf_scale = cdf_scale
+        if cdf_scale is not None:
+            km_time_scale = cdf_scale
+        self.km_time_scale = km_time_scale
+        self.cdf_scale = km_time_scale
         self.min_weight_threshold = min_weight_threshold
         self.competing_event_weight = competing_event_weight
 
@@ -250,6 +254,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         event_time_probs: Optional[torch.Tensor],
         device: torch.device,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return event times, KM cumulative event-mass grid, and event masses."""
         times = sorted_event_times.to(device).float().contiguous()
         if times.numel() == 0:
             probs = torch.tensor([1.0], device=device)
@@ -268,25 +273,25 @@ class SurvivalSoftContrastiveLoss(nn.Module):
                     f"got {probs.numel()} and {times.numel()}."
                 )
             probs = probs / probs.sum().clamp_min(1e-12)
-        q_grid = torch.cat(
+        km_grid = torch.cat(
             [
                 torch.tensor([0.0], device=device),
                 torch.cumsum(probs, dim=0).clamp(0.0, 1.0),
             ]
         )
         prob_grid = torch.cat([torch.tensor([0.0], device=device), probs])
-        return times, q_grid, prob_grid
+        return times, km_grid, prob_grid
 
     def _patient_quantile_distributions(
         self,
         times: torch.Tensor,
         events: torch.Tensor,
         event_time_grid: torch.Tensor,
-        q_grid: torch.Tensor,
+        km_grid: torch.Tensor,
         event_time_probs: torch.Tensor,
     ) -> torch.Tensor:
         B = times.numel()
-        G = q_grid.numel()
+        G = km_grid.numel()
         dist = torch.zeros((B, G), device=times.device, dtype=torch.float32)
         positions = torch.searchsorted(
             event_time_grid,
@@ -330,22 +335,22 @@ class SurvivalSoftContrastiveLoss(nn.Module):
                 torch.zeros((times.numel(), times.numel()), device=device),
                 torch.tensor(0.0, device=device),
             )
-        event_time_grid, q_grid, event_time_probs = self._event_grid(
+        event_time_grid, km_grid, event_time_probs = self._event_grid(
             sorted_event_times,
             event_time_probs,
             device,
         )
-        q_dist = self._patient_quantile_distributions(
+        km_dist = self._patient_quantile_distributions(
             times.float(),
             events.long(),
             event_time_grid,
-            q_grid,
+            km_grid,
             event_time_probs,
         )
-        q_kernel = torch.exp(
-            -torch.abs(q_grid.unsqueeze(1) - q_grid.unsqueeze(0)) / self.cdf_scale
+        km_kernel = torch.exp(
+            -torch.abs(km_grid.unsqueeze(1) - km_grid.unsqueeze(0)) / self.km_time_scale
         )
-        pair_weights = q_dist @ q_kernel @ q_dist.t()
+        pair_weights = km_dist @ km_kernel @ km_dist.t()
 
         comp = events == 2
         if comp.any():

@@ -7,8 +7,7 @@ import pandas as pd
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
-from bonsai.functional.collate import dynamic_padding
-from bonsai.functional.subject_data import filter_subject_data
+from opera.compat.bonsai import dynamic_padding, filter_subject_data
 from opera.modules.datasets.HybridDataset import HybridDataset
 
 

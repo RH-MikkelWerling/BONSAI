@@ -107,6 +107,11 @@ def check_sweep_config(config_path: str, require_existing_paths: bool = False) -
             issues.append(f"Cohort {cohort!r} is missing data_dir.")
         elif require_existing_paths and not Path(data_dir).exists():
             issues.append(f"Cohort {cohort!r} data_dir does not exist: {data_dir}")
+        if cohort_cfg.get("registry_start_date") in (None, "", "null"):
+            print(
+                f"Cohort {cohort!r} has no registry_start_date; supervised "
+                "analyses will include all prediction dates for now."
+            )
         if require_existing_paths and data_dir:
             for outcome_name, outcome_cfg in normalized_outcomes.items():
                 outcome_path = Path(

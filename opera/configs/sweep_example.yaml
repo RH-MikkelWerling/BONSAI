@@ -15,22 +15,32 @@ seeds: [42, 43, 44]
 # ipi_score_col: column in population_full.csv containing the pre-computed
 #                IPI score for this cohort (null if unavailable).
 #                Reported as a competing baseline — NOT used in training.
+# registry_start_date: optional first date where outcome/RKKP registry coverage
+#                      is considered complete for supervised analyses. Patients
+#                      with earlier prediction times can still contribute to MLM
+#                      pretraining, but should not be treated as supervised
+#                      non-events or RKKP-missing rows.
 cohorts:
   dlbcl:
     data_dir: ${BONSAI_PROCESSED_DATA}/dlbcl
     ipi_score_col: nccn_ipi          # NCCN-IPI from RKKP
+    registry_start_date: null
   cll:
     data_dir: ${BONSAI_PROCESSED_DATA}/cll
     ipi_score_col: cll_ipi
+    registry_start_date: null
   mds:
     data_dir: ${BONSAI_PROCESSED_DATA}/mds
     ipi_score_col: null
+    registry_start_date: null
   myeloma:
     data_dir: ${BONSAI_PROCESSED_DATA}/myeloma
     ipi_score_col: null
+    registry_start_date: null
   fl:
     data_dir: ${BONSAI_PROCESSED_DATA}/fl
     ipi_score_col: flipi2
+    registry_start_date: null
 
 # ── Outcomes ──────────────────────────────────────────────────────────
 # `outcome_file` points to the event-time parquet in each cohort's outcomes/ dir.
@@ -73,6 +83,10 @@ model_variants:
     predictions_file: /results/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
 
   # ── Tier 3: Foundation model variants ─────────────────────────────
+  no_pretraining:
+    encoder_source: random_init
+    training_stage: no_pretraining_finetune
+
   base_pretrain:
     encoder_ckpt: /ckpts/pretrain/best.ckpt
     encoder_source: pretrain

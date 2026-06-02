@@ -24,6 +24,7 @@ outcomes:
     path: ${paths.dir}/outcomes/treatment_failure.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
+    registry_start_date: null
   # mortality:
   #   path: ${paths.dir}/outcomes/mortality.parquet
   #   n_hours_start_include: 1
@@ -39,6 +40,8 @@ model:
   temperature: 0.07             # TUNE: SupCon temperature
   freeze_encoder: false         # TUNE: true → only train projection head
   pooling: cls_last             # "cls_last" or "bigru"
+  # Time similarity is computed on Kaplan-Meier cumulative event-mass positions,
+  # not raw time or unweighted empirical CDF ranks.
   # DAPT cosine similarity is optional and only modulates outcome pair weights.
   # Set to 1.0 to disable the DAPT-prior modulation for ablations.
   dapt_lambda_floor: 0.3

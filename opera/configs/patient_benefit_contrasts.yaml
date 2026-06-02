@@ -52,10 +52,10 @@ contrasts:
 cohorts:
   - dlbcl
   - cll
-  - mm
+  - myeloma
   - mds
   - fl
 
 outcomes:
   - mortality_1y
-  - treatment_failure_1y
+  - treatment_failure

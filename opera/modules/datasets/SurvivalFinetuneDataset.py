@@ -2,7 +2,7 @@
 
 import torch
 
-from bonsai.modules.datasets.FinetuneDataset import FinetuneDataset
+from opera.compat.bonsai import FinetuneDataset
 
 
 class SurvivalFinetuneDataset(FinetuneDataset):

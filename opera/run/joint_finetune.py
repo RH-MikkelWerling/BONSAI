@@ -124,7 +124,10 @@ def main(cfg: DictConfig) -> None:
     # event) are loaded too but simply ignored by JointFinetuneModel.
     data_module = MultiCohortContrastiveDataModule(
         cohort_configs={
-            name: {"data_dir": c["data_dir"]}
+            name: {
+                "data_dir": c["data_dir"],
+                "registry_start_date": c.get("registry_start_date"),
+            }
             for name, c in cfg.cohorts.items()
         },
         outcome_configs=cfg.outcomes,

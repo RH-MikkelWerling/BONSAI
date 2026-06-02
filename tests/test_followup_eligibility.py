@@ -6,6 +6,7 @@ from bonsai.functional.outcomes import (
     split_and_binarize_outcomes,
     summarize_binarized_split_outputs,
 )
+from opera.functional.outcomes import filter_registry_eligible_outcomes
 
 
 def test_split_specific_min_followup_exclusions():
@@ -193,3 +194,31 @@ def test_find_does_not_mutate_input_dataframe():
     )
 
     assert "_prio" not in source.columns
+
+
+def test_registry_start_date_filters_supervised_outcome_rows():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2020-01-01", None, "2023-01-01"),
+            _make_outcome_row(2, "train", "2022-01-01", None, "2023-01-01"),
+            _make_outcome_row(3, "train", "2022-01-01", "2022-02-01", "2023-01-01"),
+        ]
+    )
+
+    eligible = filter_registry_eligible_outcomes(
+        outcomes,
+        "2021-01-01",
+        cohort="example",
+        outcome_name="registry_outcome",
+    )
+    result = binarize_outcomes(
+        eligible,
+        n_hours_start_include=0,
+        n_hours_end_include=24 * 365,
+        require_min_followup=True,
+    )
+
+    assert set(eligible["subject_id"]) == {2, 3}
+    assert set(result) == {2, 3}
+    assert result[2]["label"] == 0
+    assert result[3]["label"] == 1

@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from bonsai.functional.outcomes import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.compat.bonsai import binarize_outcomes
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 from opera.evaluation.metrics import (
     full_evaluation,
     format_evaluation_summary,
@@ -50,6 +50,9 @@ def build_eval_frame(
     n_hours_end_include,
     require_min_followup: bool,
     competing_outcome_path: str = None,
+    registry_start_date=None,
+    cohort: str = None,
+    outcome_name: str = None,
 ) -> pd.DataFrame:
     if "subject_id" not in predictions.columns:
         raise ValueError("Prediction file must contain subject_id.")
@@ -62,6 +65,12 @@ def build_eval_frame(
     outcomes = pd.read_parquet(outcome_path)
     outcomes = outcomes[outcomes["split"] == split].copy()
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
 
     competing_df = None
     if competing_outcome_path:
@@ -111,10 +120,19 @@ def outcome_window_size_metadata(
     n_hours_start_include: int,
     n_hours_end_include,
     competing_outcome_path: str = None,
+    registry_start_date=None,
+    cohort: str = None,
+    outcome_name: str = None,
 ) -> dict:
     """Compute split sizes/events for the same horizon used in evaluation."""
     outcomes = pd.read_parquet(outcome_path)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     competing_df = None
     if competing_outcome_path:
         competing_df = pd.read_parquet(competing_outcome_path)
@@ -175,6 +193,8 @@ def main() -> None:
                         choices=["full", "ipi_complete"])
     parser.add_argument("--competing_outcome", default=None,
                         help="Optional path to competing-event (death) parquet for event=2 annotation")
+    parser.add_argument("--registry_start_date", default=None,
+                        help="Optional first date with reliable registry outcome coverage")
     parser.add_argument("--subgroups", default=None,
                         help="Optional CSV/parquet with subject_id plus subgroup columns")
     parser.add_argument("--subgroup_columns", default="",
@@ -193,6 +213,9 @@ def main() -> None:
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=args.n_hours_end_include is not None,
         competing_outcome_path=args.competing_outcome,
+        registry_start_date=args.registry_start_date,
+        cohort=args.cohort,
+        outcome_name=args.outcome_name,
     )
     if eval_df.empty:
         raise ValueError("No evaluable prediction rows after joining labels/outcomes.")
@@ -255,6 +278,9 @@ def main() -> None:
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
         competing_outcome_path=args.competing_outcome,
+        registry_start_date=args.registry_start_date,
+        cohort=args.cohort,
+        outcome_name=args.outcome_name,
     )
     size_metadata.update(
         {
@@ -273,6 +299,7 @@ def main() -> None:
         "evaluation_subset": args.evaluation_subset,
         "seed": args.seed,
         "labels": {"n_hours_end_include": args.n_hours_end_include},
+        "registry_start_date": args.registry_start_date,
         "rarity": {
             "mode": args.rarity_mode,
             "baseline_model": args.baseline_model,

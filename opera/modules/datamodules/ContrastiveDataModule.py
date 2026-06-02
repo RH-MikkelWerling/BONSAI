@@ -12,10 +12,11 @@ import pandas as pd
 import lightning as L
 import torch
 from torch.utils.data import DataLoader
-from bonsai.functional.collate import dynamic_padding
-from bonsai.functional.subject_data import filter_subject_data
-from bonsai.functional.outcomes import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.compat.bonsai import dynamic_padding, filter_subject_data, binarize_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 from opera.functional.stratified_sampling import build_stratified_sampler, log_bucket_stats
 
@@ -42,8 +43,9 @@ def compute_sorted_event_times(
     """
     Read training event times from each outcome parquet and return sorted tensors.
 
-    The returned tensors define the empirical CDF reference used by
-    SurvivalSoftContrastiveLoss.
+    Legacy helper returning unweighted event-time locations. New OPERA runs
+    should prefer ``compute_event_time_probability_grids`` so the contrastive
+    loss receives Kaplan-Meier event-time masses.
     """
     result: Dict[str, torch.Tensor] = {}
     for name, ocfg in outcome_configs.items():
@@ -54,6 +56,11 @@ def compute_sorted_event_times(
         try:
             df = pd.read_parquet(path)
             df = attach_prediction_censor_abspos(df)
+            df = filter_registry_eligible_outcomes(
+                df,
+                ocfg.get("registry_start_date"),
+                outcome_name=name,
+            )
             split_df = df[df["split"] == split].copy()
             competing_df = None
             competing_path = ocfg.get("competing_outcome_path")
@@ -80,7 +87,7 @@ def compute_sorted_event_times(
 
 
 def _km_event_time_probabilities(records: List[dict]) -> tuple[torch.Tensor, torch.Tensor]:
-    """Estimate event-time mass with Kaplan-Meier censoring adjustment."""
+    """Estimate primary-event time mass with Kaplan-Meier censoring adjustment."""
     if not records:
         empty = torch.tensor([], dtype=torch.float32)
         return empty, empty
@@ -116,7 +123,7 @@ def compute_event_time_probability_grids(
     outcome_configs: Dict[str, dict],
     split: str = "train",
 ) -> tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
-    """Return KM-adjusted event-time grids and probability masses per outcome."""
+    """Return KM-adjusted event-time locations and primary-event masses."""
     time_grids: Dict[str, torch.Tensor] = {}
     prob_grids: Dict[str, torch.Tensor] = {}
     for name, ocfg in outcome_configs.items():
@@ -129,6 +136,11 @@ def compute_event_time_probability_grids(
         try:
             df = pd.read_parquet(path)
             df = attach_prediction_censor_abspos(df)
+            df = filter_registry_eligible_outcomes(
+                df,
+                ocfg.get("registry_start_date"),
+                outcome_name=name,
+            )
             split_df = df[df["split"] == split].copy()
             competing_df = None
             competing_path = ocfg.get("competing_outcome_path")
@@ -196,6 +208,11 @@ class ContrastiveDataModule(L.LightningDataModule):
         for name, ocfg in self.outcome_configs.items():
             df = pd.read_parquet(ocfg["path"])
             df = attach_prediction_censor_abspos(df)
+            df = filter_registry_eligible_outcomes(
+                df,
+                ocfg.get("registry_start_date"),
+                outcome_name=name,
+            )
             split_df = df[df["split"] == split_key].copy()
 
             if len(split_df) == 0:

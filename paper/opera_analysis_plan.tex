@@ -159,7 +159,7 @@ directly usable in the paper.
 \section{Model Variants}
 \label{sec:variants}
 
-The experimental design has four tiers, designed so that each tier
+The experimental design has five tiers, designed so that each tier
 answers a specific question by comparison with the tier below.
 
 \medskip
@@ -179,13 +179,25 @@ answers a specific question by comparison with the tier below.
     Trained per cohort per outcome.
     \emph{Contrast}: What does a foundation model need to beat to justify its complexity?
 
-  \item[Tier 3 — Foundation model variants]
-    Shared encoder, evaluated under four adaptation conditions:
+  \item[Tier 3 -- Foundation model pretraining ladder]
+    Shared encoder, evaluated under explicit pretraining conditions:
     \begin{enumerate}[leftmargin=1.5em, itemsep=2pt, label=(\alph*)]
-      \item \textbf{Pretrain only} — general 3M-patient encoder, no
-            haematology-specific adaptation. Lower bound for FMs.
+      \item \textbf{No pretraining / finetune only} -- randomly initialised
+            BONSAI architecture finetuned within each cohort. This is a
+            sanity floor, not expected to be competitive.
+      \item \textbf{General pretrain only} -- general-population EHR encoder,
+            no haematology-specific adaptation.
+      \item \textbf{Haematology-only pretrain} -- MLM pretraining only on the
+            DALY-CARE haematology cohort. This tests whether the extra general
+            population patients add clinically useful structure beyond scale
+            within haematology.
       \item \textbf{DAPT} — continued MLM pretraining on DALY-CARE.
             Tests domain shift correction alone.
+    \end{enumerate}
+
+  \item[Tier 4 -- OPERA outcome-guided adaptation]
+    Survival-informed contrastive adaptation, evaluated under two scopes:
+    \begin{enumerate}[leftmargin=1.5em, itemsep=2pt, label=(\alph*)]
       \item \textbf{OPERA (contrastive, per-cohort)} — DAPT + survival-informed
             multi-outcome contrastive adaptation. Tests outcome-guided
             representation learning within a single disease.
@@ -193,7 +205,7 @@ answers a specific question by comparison with the tier below.
             all cohorts simultaneously. Tests cross-disease transfer.
     \end{enumerate}
 
-  \item[Tier 4 — Joint multi-task finetuning (bonus)]
+  \item[Tier 5 -- Joint multi-task finetuning]
     Single model finetuned on all cohorts and all outcomes jointly.
     Evaluated per cohort × outcome cell.
     \emph{Contrast}: Does joint finetuning further improve on separately
@@ -209,6 +221,12 @@ answers a specific question by comparison with the tier below.
   \toprule
   \textbf{Comparison} & \textbf{What it answers} & \textbf{Expected direction} \\
   \midrule
+  General pretrain $>$ no pretraining
+    & Does the foundation model prior matter beyond architecture?
+    & \yes \\
+  General pretrain $>$ haematology-only pretrain
+    & Do broad-population patients add useful structure for unusual haematology patients?
+    & \yes\ (especially complex patients) \\
   DAPT $>$ Pretrain only
     & Is haematology domain shift real and correctable?
     & \yes \\
@@ -378,7 +396,8 @@ The learned $\sigma_k$ values from (a) the contrastive stage and
 
 A three-panel diagram showing the full OPERA pipeline:
 \begin{enumerate}[leftmargin=2em, itemsep=2pt]
-  \item \textbf{Left}: General pretraining on $\sim$3M patients (MLM).
+  \item \textbf{Left}: General pretraining on $\sim$10M patients (MLM),
+        with haematology-only pretraining as the key scale/scope contrast.
   \item \textbf{Centre}: DAPT on DALY-CARE haematology cohort +
         OPERA contrastive stage with survival-informed soft loss and
         DAPT-prior cohort similarity weights.
@@ -397,10 +416,13 @@ $\sigma_k$ position in the loss.
 
 A 2×2 patient grid illustrating how pair weights are computed:
 \begin{itemize}[leftmargin=2em, itemsep=1pt]
-  \item Axes: time similarity (x) × censoring reliability (y).
-  \item Four quadrants: both observed + similar times (weight $\approx$1),
-        both observed + distant times (weight low),
-        one censored (weight $\approx$0.5), both censored (weight $\approx$0.1).
+  \item Axes: Kaplan-Meier event-mass similarity (x) $\times$ censoring support (y).
+  \item Observed events are placed on the KM cumulative primary-event mass
+        scale, so dense event regions get finer resolution than sparse tails.
+  \item Administrative censoring contributes a conditional tail distribution
+        over plausible future event-mass positions rather than a fixed constant.
+  \item Competing deaths are explicit event type 2 and are conservative by
+        default; primary-vs-competing pairs enter only in gamma sensitivity.
   \item Overlay: DAPT-prior modulation shifts all weights by cohort similarity.
 \end{itemize}
 
@@ -451,7 +473,22 @@ for each cohort × outcome cell.
   delta (right).
 \end{tcolorbox}
 
-\subsection{Figure 6 — Clinician uncertainty validation}
+\subsection{Figure 6 -- Patient benefit analysis: for whom does OPERA work?}
+
+Two-panel figure generated by \code{opera.run.patient\_benefit\_analysis}:
+\begin{itemize}[leftmargin=2em, itemsep=1pt]
+  \item \textbf{Panel A}: baseline embedding projection with patient-level
+        Brier gain heatmap for the richer model.
+  \item \textbf{Panel B}: baseline-space atypicality versus Brier gain, with
+        LOESS trend and Spearman correlation.
+\end{itemize}
+Primary contrasts: general pretraining vs.\ haematology-only pretraining
+uses nearest-centroid atypicality; joint OPERA vs.\ per-cohort OPERA uses
+within-disease atypicality. This is the mechanistic ``for whom'' figure:
+OPERA should help patients who were peripheral in the baseline model's
+embedding space.
+
+\subsection{Figure 7 — Clinician uncertainty validation}
 
 Scatter plot: model uncertainty (x-axis, embedding variance from MC
 Dropout) vs.\ clinician uncertainty rating (y-axis, proportion of
@@ -462,7 +499,7 @@ Annotate with: Spearman $\rho$, $p$-value, $n$ cases.
 Expected shape: positive correlation. Highlight 3--5 representative
 cases in the margin with brief clinical descriptions.
 
-\subsection{Figure 7 — Label efficiency curves (supplementary)}
+\subsection{Figure 8 — Label efficiency curves (supplementary)}
 
 Learning curves showing AUROC vs.\ number of labelled training
 examples for (a) OPERA encoder and (b) tabular XGBoost, evaluated on
@@ -480,6 +517,45 @@ pretraining and is a strong practical argument for the approach.
 \end{tcolorbox}
 
 % ════════════════════════════════════════════════════════════════════
+\section{Operational Ownership and Registry Coverage}
+
+\subsection{Collaborator-side prerequisites}
+
+The collaborator-facing dependency is intentionally small. The remaining
+items needed from collaborators are:
+
+\begin{enumerate}[leftmargin=2em, itemsep=2pt]
+  \item Final laboratory value representation, including cases where a
+        numeric value and a qualification flag must be encoded together.
+  \item Full-cohort foundation-model pretraining, producing the base
+        checkpoint used by the OPERA ladder.
+\end{enumerate}
+
+\subsection{OPERA-side responsibilities}
+
+The OPERA analysis controls cohort directory names, cohort configuration,
+registry start dates, final outcome parquets, RKKP feature discovery,
+tabular baselines, supervised finetuning, evaluation, calibration, IPCW
+metrics, patient-benefit plots, and embedding/prediction visualisations.
+
+\subsection{Registry coverage rule}
+
+Patients whose prediction date precedes reliable registry coverage should
+remain eligible for MLM/DAPT pretraining if they have pre-index EHR data.
+They should not, however, be counted as supervised cases, supervised
+controls, or ordinary RKKP-missing rows for an outcome whose registry was
+not yet live. In code this is represented by a per-cohort
+\code{registry\_start\_date}; supervised outcome rows with
+\code{index\_date < registry\_start\_date} are filtered before
+binarisation. This keeps the pretraining denominator broad while keeping
+the supervised denominator scientifically interpretable.
+
+For multi-outcome OPERA, this rule is outcome-specific: a patient may still
+contribute to other outcome heads if those labels are registry-covered at
+the prediction date. Coverage denominators must be reported per
+cohort--outcome cell: number of MLM-eligible patients, number supervised
+eligible, number registry-ineligible, and the registry coverage fraction.
+
 \section{Analysis Checklist}
 
 \begin{center}
@@ -490,8 +566,14 @@ pretraining and is a strong practical argument for the approach.
   \square & DAPT embedding store
     & Run \code{build\_dapt\_embedding\_store()} once after DAPT checkpoint
     & $\square$ \\
+  \square & Haematology-only pretraining
+    & Run \code{opera.run.hematology\_pretrain} and include it as a main comparison
+    & $\square$ \\
   \square & Outcome parquets
     & Add \code{time\_days} and \code{event} columns to all outcome parquets
+    & $\square$ \\
+  \square & Registry coverage dates
+    & Fill \code{registry\_start\_date} per cohort before supervised finetuning/evaluation
     & $\square$ \\
   \square & IPI scores
     & Compute IPI per cohort, add to \code{population\_full.csv}
@@ -517,6 +599,9 @@ pretraining and is a strong practical argument for the approach.
   \square & Sigma analysis
     & Extract and compare $\sigma_k$ from contrastive and joint finetune
     & $\square$ \\
+  \square & Patient benefit analysis
+    & Run \code{opera.run.patient\_benefit\_analysis} for the contrast ladder
+    & $\square$ \\
   \square & Uncertainty extraction
     & Run \code{extract\_uncertainty()} on held-out set, $N=30$ passes
     & $\square$ \\
@@ -527,7 +612,7 @@ pretraining and is a strong practical argument for the approach.
     & Generate Fig.\ 3 from DAPT and OPERA checkpoints
     & $\square$ \\
   \square & Label efficiency
-    & Run subsampled finetunes for Fig.\ 7
+    & Run subsampled finetunes for Fig.\ 8
     & $\square$ \\
   \bottomrule
 \end{tabularx}
@@ -548,6 +633,12 @@ The paper's argument structure, in order of evidence:
         The DAPT $\to$ OPERA gap is our main methodological contribution.
         (Table 1, all cohorts)
 
+  \item \textbf{General pretraining $>$ haematology-only pretraining}
+        especially for baseline-atypical haematology patients.
+        Establishes that the ``irrelevant'' general-population patients
+        contribute reusable clinical structure, not merely scale.
+        (Patient benefit analysis, Figure 6)
+
   \item \textbf{FM EHR-only approaches tabular RKKP}.
         The gap should be small or close on several outcomes.
         This is the strong version of the claim: the FM reconstructs
@@ -559,6 +650,12 @@ The paper's argument structure, in order of evidence:
         variants and near-zero or negative for XGBoost.
         This is the collaborator's hypothesis and the paper's novel
         empirical finding. (Figure 5, Table 3)
+
+  \item \textbf{OPERA helps the patients baseline models handle worst}.
+        Patient-level gain should increase with atypicality measured in
+        the baseline embedding space. This provides a mechanistic account
+        of transfer rather than only a model-level performance delta.
+        (Figure 6)
 
   \item \textbf{$\sigma_k$ values are clinically coherent}.
         Mortality and AKI get low $\sigma$ (clean, shared signal);
@@ -599,7 +696,7 @@ The paper's argument structure, in order of evidence:
   \textbf{Challenge} & \textbf{Response} \\
   \midrule
   ``Why not train from scratch?''
-    & Label efficiency curves (Fig.~7) show FM reaches tabular
+    & Label efficiency curves (Fig.~8) show FM reaches tabular
       performance with $\sim$10--20\% of labelled data. \\[4pt]
   ``DALY-CARE is one registry — does it generalise?''
     & Cross-cohort transfer within registry tests internal
@@ -614,10 +711,11 @@ The paper's argument structure, in order of evidence:
       the FM needs to close. The hybrid model tests whether
       giving the FM RKKP closes the gap. \\[4pt]
   ``How do you handle censoring?''
-    & Reliability weights (1.0 / 0.5 / 0.1) based on whether
-      ordering is known. Only pairs where at least one event
-      is observed contribute full signal. Report censoring
-      fraction per cohort × outcome as a sensitivity table. \\
+    & Pair weights are computed on Kaplan-Meier cumulative primary-event
+      mass. Administrative censoring contributes a conditional future-event
+      tail distribution; competing deaths are explicit event type 2 and are
+      conservative by default, with gamma sensitivity in the appendix. Report
+      censoring and competing-event fractions per cohort $\times$ outcome. \\
   \bottomrule
 \end{tabularx}
 \end{center}

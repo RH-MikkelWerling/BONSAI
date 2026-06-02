@@ -20,6 +20,7 @@ import pandas as pd
 import hydra
 import lightning as L
 import torch
+from typing import Optional
 from dotenv import load_dotenv
 from omegaconf import DictConfig
 from transformers import ModernBertConfig
@@ -42,12 +43,12 @@ from bonsai.functional.checkpointing import (
     save_checkpoint_metadata_sidecar,
 )
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 
 load_dotenv()
 
 
-def load_encoder_state_dict(ckpt_path: str, source: str) -> dict:
+def load_encoder_state_dict(ckpt_path: str, source: str, model_config: Optional[dict] = None) -> dict:
     """
     Extract encoder weights from different checkpoint types.
 
@@ -55,8 +56,13 @@ def load_encoder_state_dict(ckpt_path: str, source: str) -> dict:
     ----------
     ckpt_path : str
     source : str
-        One of "pretrain", "dapt", "contrastive", "mol".
+        One of "pretrain", "dapt", "contrastive", "mol", "random_init".
     """
+    if source in {"random_init", "none", "scratch", "no_pretraining"}:
+        if model_config is None:
+            raise ValueError("random_init finetuning requires model architecture config.")
+        return {}, dict(model_config)
+
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
     hparams = ckpt["hyper_parameters"]
@@ -96,12 +102,20 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load encoder ─────────────────────────────────────────────────
     encoder_state, pretrain_hparams = load_encoder_state_dict(
-        cfg.encoder_ckpt, cfg.encoder_source
+        cfg.encoder_ckpt,
+        cfg.encoder_source,
+        model_config=OmegaConf.to_container(cfg.model, resolve=True),
     )
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        cfg.labels.get("registry_start_date"),
+        cohort=cfg.dataset,
+        outcome_name=cfg.outcome,
+    )
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")
@@ -183,9 +197,12 @@ def main(cfg: DictConfig) -> None:
         ),
     )
 
-    # Load encoder weights (strict=False because BonsaiFinetune has extra cls head)
-    missing, unexpected = model.load_state_dict(encoder_state, strict=False)
-    print(f"Loaded encoder weights. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+    if encoder_state:
+        # Load encoder weights (strict=False because BonsaiFinetune has extra cls head)
+        missing, unexpected = model.load_state_dict(encoder_state, strict=False)
+        print(f"Loaded encoder weights. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+    else:
+        print("No encoder checkpoint loaded; using random initialization.")
     linear_probe_metadata = {}
     if cfg.model.get("freeze_encoder", False):
         linear_probe_metadata = freeze_encoder_for_linear_probe(

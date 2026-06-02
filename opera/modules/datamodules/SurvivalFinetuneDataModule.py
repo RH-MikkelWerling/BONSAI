@@ -5,8 +5,7 @@ from typing import Literal
 import torch
 from torch.utils.data import DataLoader
 
-from bonsai.functional.collate import dynamic_padding
-from bonsai.functional.subject_data import filter_subject_data
+from opera.compat.bonsai import dynamic_padding, filter_subject_data
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from opera.modules.datasets.SurvivalFinetuneDataset import SurvivalFinetuneDataset
 

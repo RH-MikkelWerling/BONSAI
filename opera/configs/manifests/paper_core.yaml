@@ -13,6 +13,16 @@ split:
   val_key: tuning
   test_key: held_out
 
+registry_coverage_policy:
+  mlm_pretraining: include_all_patients_with_pre_index_ehr
+  supervised_finetuning: require_outcome_registry_eligible_at_prediction_time
+  tabular_rkkp: require_rkkp_available_at_prediction_time
+  report:
+    - n_mlm_patients
+    - n_supervised_eligible
+    - n_registry_ineligible
+    - registry_coverage_fraction
+
 stages:
   - name: general_denmark_pretraining
     script: bonsai.run.pretrain
@@ -47,6 +57,10 @@ stages:
     artifact: checkpoint
 
 comparisons:
+  - name: no_pretraining
+    encoder_source: random_init
+    training_stage: no_pretraining_finetune
+    display_name: "No pretraining"
   - name: base_pretrained
     encoder_source: pretrain
   - name: hematology_only_pretrained

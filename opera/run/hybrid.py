@@ -37,7 +37,7 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 
 from opera.run.finetune import load_encoder_state_dict
 from opera.modules.networks.hybrid_net import HybridClassifier
@@ -77,6 +77,12 @@ def main(cfg: DictConfig) -> None:
     # ── Outcomes ─────────────────────────────────────────────────────
     outcomes = pd.read_parquet(cfg.paths.outcome)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        cfg.labels.get("registry_start_date"),
+        cohort=cfg.get("dataset"),
+        outcome_name=cfg.get("outcome"),
+    )
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")

@@ -74,7 +74,7 @@ import yaml
 
 from opera.evaluation.results_schema import build_result_row, write_result_artifacts
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 
 
 def _expand_config_values(value):
@@ -175,6 +175,9 @@ def compute_ipi_auroc(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_parquet: Optional[str] = None,
+    registry_start_date: Optional[str] = None,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     Compute binary and survival metrics for an IPI-style score.
@@ -188,12 +191,18 @@ def compute_ipi_auroc(
     """
     try:
         from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
-        from bonsai.functional.outcomes import binarize_outcomes
+        from opera.compat.bonsai import binarize_outcomes
         from opera.evaluation.metrics import compute_survival_metrics
 
         population = pd.read_csv(population_csv)
         outcomes   = pd.read_parquet(outcome_parquet)
         outcomes   = attach_prediction_censor_abspos(outcomes)
+        outcomes = filter_registry_eligible_outcomes(
+            outcomes,
+            registry_start_date,
+            cohort=cohort,
+            outcome_name=outcome_name,
+        )
         test_df    = outcomes[outcomes["split"] == split].copy()
 
         # Merge IPI score
@@ -280,6 +289,9 @@ def prepare_ipi_subset_predictions(
     ipi_score_col: str,
     output_dir: Path,
     split: str = "held_out",
+    registry_start_date: Optional[str] = None,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[float], set]:
     """
     Write rank-normalized IPI predictions for IPI-complete test patients.
@@ -290,6 +302,12 @@ def prepare_ipi_subset_predictions(
     """
     population = pd.read_csv(population_csv)
     outcomes = pd.read_parquet(outcome_parquet)
+    outcomes = filter_registry_eligible_outcomes(
+        attach_prediction_censor_abspos(outcomes),
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     test_df = outcomes[outcomes["split"] == split][["subject_id"]].copy()
     if test_df.empty or ipi_score_col not in population.columns:
         return None, None, set()
@@ -375,6 +393,7 @@ def run_finetune(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
+    registry_start_date: Optional[str] = None,
     training_mode: Optional[str] = None,
     extra_overrides: Optional[List[str]] = None,
     log_dir: Optional[Path] = None,
@@ -393,6 +412,7 @@ def run_finetune(
         f"paths.outcome={outcome_path}",
         f"labels.n_hours_start_include={n_hours_start_include}",
         f"labels.n_hours_end_include={'null' if n_hours_end_include is None else n_hours_end_include}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"hydra.run.dir={output_dir}",
     ]
     if competing_outcome_path:
@@ -433,6 +453,7 @@ def run_evaluate(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
+    registry_start_date: Optional[str] = None,
     model_family: Optional[str] = None,
     training_stage: str = "evaluation",
     encoder_frozen: Optional[bool] = None,
@@ -451,6 +472,7 @@ def run_evaluate(
         f"output_dir={output_dir}",
         f"labels.n_hours_start_include={n_hours_start_include}",
         f"labels.n_hours_end_include={'null' if n_hours_end_include is None else n_hours_end_include}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"training_stage={training_stage}",
     ]
     if model_family:
@@ -490,6 +512,7 @@ def run_prediction_evaluate(
     n_hours_start_include: int,
     n_hours_end_include,
     competing_outcome_path: Optional[str] = None,
+    registry_start_date: Optional[str] = None,
     rarity_mode: str = "none",
     baseline_model: Optional[str] = None,
     ipi_coverage: Optional[float] = None,
@@ -532,6 +555,8 @@ def run_prediction_evaluate(
         cmd.extend(["--n_hours_end_include", end_value])
     if competing_outcome_path:
         cmd.extend(["--competing_outcome", competing_outcome_path])
+    if registry_start_date is not None:
+        cmd.extend(["--registry_start_date", registry_start_date])
     if subgroup_path and subgroup_columns:
         cmd.extend(["--subgroups", subgroup_path])
         cmd.extend(["--subgroup_columns", ",".join(subgroup_columns)])
@@ -799,6 +824,7 @@ def run_sweep(
     for cohort_name, cohort_cfg in cohorts.items():
         data_dir   = cohort_cfg["data_dir"]
         ipi_col    = cohort_cfg.get("ipi_score_col")
+        registry_start_date = cohort_cfg.get("registry_start_date")
         pop_file   = cohort_cfg.get("population_file",
                                     str(Path(data_dir) / "population_full.csv"))
 
@@ -825,6 +851,9 @@ def run_sweep(
                     outcome_parquet,
                     ipi_col,
                     output_dir / cohort_name / outcome_name / "ipi",
+                    registry_start_date=registry_start_date,
+                    cohort=cohort_name,
+                    outcome_name=outcome_name,
                 )
                 if subset_path is not None:
                     for seed in seeds:
@@ -838,6 +867,7 @@ def run_sweep(
                             n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
                             n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
                             competing_outcome_path=competing_parquet,
+                            registry_start_date=registry_start_date,
                             rarity_mode=rarity_mode,
                             baseline_model=baseline_model,
                             ipi_coverage=ipi_coverage,
@@ -901,6 +931,9 @@ def run_sweep(
                     n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
                     n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
                     competing_outcome_parquet=competing_parquet,
+                    registry_start_date=registry_start_date,
+                    cohort=cohort_name,
+                    outcome_name=outcome_name,
                 )
                 if ipi_metrics:
                     prepare_ipi_subset_predictions(
@@ -908,6 +941,9 @@ def run_sweep(
                         outcome_parquet,
                         ipi_col,
                         output_dir / cohort_name / outcome_name / "ipi",
+                        registry_start_date=registry_start_date,
+                        cohort=cohort_name,
+                        outcome_name=outcome_name,
                     )
                     all_results.append({
                         "cohort":  cohort_name,
@@ -1061,6 +1097,7 @@ def run_sweep(
                             n_hours_start_include=n_hours_start,
                             n_hours_end_include=n_hours_end,
                             competing_outcome_path=competing_outcome,
+                            registry_start_date=registry_start_date,
                             rarity_mode=rarity_mode,
                             baseline_model=baseline_model,
                             seed=seed,
@@ -1095,6 +1132,9 @@ def run_sweep(
                                     outcome_file_path(data_dir, outcome_name, outcome_cfg),
                                     ipi_col,
                                     output_dir / cohort_name / outcome_name / "ipi",
+                                    registry_start_date=registry_start_date,
+                                    cohort=cohort_name,
+                                    outcome_name=outcome_name,
                                 )
                                 if ipi_path is not None:
                                     subset_pred = write_prediction_subset(
@@ -1113,6 +1153,7 @@ def run_sweep(
                                             n_hours_start_include=n_hours_start,
                                             n_hours_end_include=n_hours_end,
                                             competing_outcome_path=competing_outcome,
+                                            registry_start_date=registry_start_date,
                                             rarity_mode=rarity_mode,
                                             baseline_model=baseline_model,
                                             ipi_coverage=ipi_coverage,
@@ -1239,11 +1280,37 @@ def run_sweep(
                     )
                     continue
 
-                encoder_ckpt = format_variant_path(
-                    variant_cfg["encoder_ckpt"],
-                    cohort_name,
-                    outcome_name,
-                    seed,
+                encoder_ckpt_template = variant_cfg.get("encoder_ckpt")
+                if encoder_ckpt_template is None and encoder_source not in {
+                    "random_init",
+                    "none",
+                    "scratch",
+                    "no_pretraining",
+                }:
+                    print("  Missing encoder_ckpt for checkpointed variant, skipping.")
+                    append_cell_status(
+                        cell_status,
+                        cohort=cohort_name,
+                        outcome=outcome_name,
+                        variant=result_variant,
+                        seed=seed,
+                        stage="configuration",
+                        status="failed",
+                        output_dir=str(cell_dir),
+                        reason="missing encoder_ckpt",
+                    )
+                    if fail_fast:
+                        raise ValueError(f"Variant {result_variant!r} is missing encoder_ckpt.")
+                    continue
+                encoder_ckpt = (
+                    format_variant_path(
+                        encoder_ckpt_template,
+                        cohort_name,
+                        outcome_name,
+                        seed,
+                    )
+                    if encoder_ckpt_template is not None
+                    else "null"
                 )
                 if encoder_source == "joint":
                     ckpt_path = Path(encoder_ckpt)
@@ -1262,6 +1329,7 @@ def run_sweep(
                         n_hours_start_include=n_hours_start,
                         n_hours_end_include=n_hours_end,
                         competing_outcome_path=competing_outcome,
+                        registry_start_date=registry_start_date,
                         training_mode=training_mode,
                         extra_overrides=[*(variant_cfg.get("extra_overrides") or []), f"seed={seed}"],
                         log_dir=cell_dir / "logs",
@@ -1296,6 +1364,7 @@ def run_sweep(
                     n_hours_start_include=n_hours_start,
                     n_hours_end_include=n_hours_end,
                     competing_outcome_path=competing_outcome,
+                    registry_start_date=registry_start_date,
                     model_family=result_variant,
                     training_stage=(
                         "survival_finetuning"
@@ -1338,6 +1407,9 @@ def run_sweep(
                             outcome_file_path(data_dir, outcome_name, outcome_cfg),
                             ipi_col,
                             output_dir / cohort_name / outcome_name / "ipi",
+                            registry_start_date=registry_start_date,
+                            cohort=cohort_name,
+                            outcome_name=outcome_name,
                         )
                         if ipi_path is not None:
                             subset_pred = write_npz_prediction_subset(
@@ -1356,6 +1428,7 @@ def run_sweep(
                                     n_hours_start_include=n_hours_start,
                                     n_hours_end_include=n_hours_end,
                                     competing_outcome_path=competing_outcome,
+                                    registry_start_date=registry_start_date,
                                     rarity_mode=rarity_mode,
                                     baseline_model=baseline_model,
                                     ipi_coverage=ipi_coverage,

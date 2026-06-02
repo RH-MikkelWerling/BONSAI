@@ -97,9 +97,9 @@ def main(cfg: DictConfig) -> None:
         outcome_configs,
         split="train",
     )
-    print(f"Sorted event times computed for {len(outcome_sorted_event_times)} outcomes.")
+    print(f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes.")
     for name, t in outcome_sorted_event_times.items():
-        print(f"  {name}: {len(t)} pooled training events")
+        print(f"  {name}: {len(t)} pooled KM-weighted training event locations")
 
     model = OperaContrastiveModel(
         encoder=encoder,

@@ -20,6 +20,7 @@ outcomes:
     path: ${paths.dir}/outcomes/treatment_failure.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
+    registry_start_date: null
   # mortality:
   #   path: ${paths.dir}/outcomes/mortality.parquet
   #   n_hours_start_include: 1

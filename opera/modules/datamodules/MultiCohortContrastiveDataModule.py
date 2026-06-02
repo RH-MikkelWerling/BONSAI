@@ -41,10 +41,11 @@ import lightning as L
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
 
-from bonsai.functional.collate import dynamic_padding
-from bonsai.functional.subject_data import filter_subject_data
-from bonsai.functional.outcomes import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.compat.bonsai import dynamic_padding, filter_subject_data, binarize_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 from opera.modules.datamodules.ContrastiveDataModule import contrastive_collate
@@ -60,8 +61,9 @@ def compute_pooled_sorted_event_times(
     """
     Aggregate observed event times from all cohorts for each outcome.
 
-    The pooled event-time distribution is the CDF reference for cross-disease
-    contrastive training.
+    Legacy helper returning unweighted pooled event-time locations. New OPERA
+    runs should prefer ``compute_pooled_event_time_probability_grids`` so the
+    contrastive loss receives Kaplan-Meier event-time masses.
     """
     pooled: Dict[str, list] = {name: [] for name in outcome_configs}
 
@@ -77,6 +79,12 @@ def compute_pooled_sorted_event_times(
             try:
                 df = pd.read_parquet(path)
                 df = attach_prediction_censor_abspos(df)
+                df = filter_registry_eligible_outcomes(
+                    df,
+                    cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                    cohort=cohort_cfg.get("name"),
+                    outcome_name=name,
+                )
                 split_df = df[df["split"] == split].copy()
                 competing_df = None
                 competing_file = ocfg.get("competing_outcome_file")
@@ -109,7 +117,7 @@ def compute_pooled_event_time_probability_grids(
     outcome_configs: Dict[str, dict],
     split: str = "train",
 ) -> tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
-    """Aggregate KM-adjusted event-time probability grids across cohorts."""
+    """Aggregate KM-adjusted event-time locations and primary-event masses."""
     pooled: Dict[str, list] = {name: [] for name in outcome_configs}
 
     for cohort_cfg in cohort_configs.values():
@@ -124,6 +132,12 @@ def compute_pooled_event_time_probability_grids(
             try:
                 df = pd.read_parquet(path)
                 df = attach_prediction_censor_abspos(df)
+                df = filter_registry_eligible_outcomes(
+                    df,
+                    cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                    cohort=cohort_cfg.get("name"),
+                    outcome_name=name,
+                )
                 split_df = df[df["split"] == split].copy()
                 competing_df = None
                 competing_file = ocfg.get("competing_outcome_file")
@@ -195,6 +209,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
     def _load_outcomes_for_cohort(
         self,
+        cohort_name: str,
+        cohort_cfg: dict,
         data_dir: str,
         split_key: str,
     ) -> Dict[str, Dict[int, dict]]:
@@ -215,6 +231,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
             df = pd.read_parquet(path)
             df = attach_prediction_censor_abspos(df)
+            df = filter_registry_eligible_outcomes(
+                df,
+                cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                cohort=cohort_name,
+                outcome_name=name,
+            )
             split_df = df[df["split"] == split_key].copy()
 
             if len(split_df) == 0:
@@ -265,7 +287,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         subjects = filter_subject_data(subjects, population["subject_id"])
 
         split_key = "train" if split == "train" else "tuning"
-        outcome_dicts = self._load_outcomes_for_cohort(data_dir, split_key)
+        outcome_dicts = self._load_outcomes_for_cohort(
+            cohort_name,
+            cohort_cfg,
+            data_dir,
+            split_key,
+        )
 
         # Keep only subjects with at least one outcome
         valid_sids: set = set()

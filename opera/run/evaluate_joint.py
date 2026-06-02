@@ -34,7 +34,7 @@ from opera.compat.bonsai import (
     filter_subject_data,
     split_and_binarize_outcomes,
 )
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 from bonsai.functional.checkpointing import load_joint_model_from_checkpoint
 
 from opera.modules.networks.joint_finetune_net import JointFinetuneModel
@@ -88,6 +88,12 @@ def main(cfg: DictConfig) -> None:
     # ── Load test data ─────────────────────────────────────────────────
     outcomes = pd.read_parquet(cfg.paths.outcome)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        cfg.labels.get("registry_start_date"),
+        cohort=cfg.get("dataset"),
+        outcome_name=outcome_name or cfg.get("outcome"),
+    )
 
     test_key = cfg.labels.get("test_key", "held_out")
     test_df  = outcomes[outcomes["split"] == test_key].copy()

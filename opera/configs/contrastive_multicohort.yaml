@@ -27,14 +27,19 @@ dapt_embedding_store: null    # path to pre-computed DAPT .pt store, or null
 cohorts:
   dlbcl:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl
+    registry_start_date: null
   cll:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll
+    registry_start_date: null
   # mds:
   #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
+  #   registry_start_date: null
   # myeloma:
   #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
+  #   registry_start_date: null
   # fl:
   #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
+  #   registry_start_date: null
 
 # ── Outcomes (shared across cohorts where parquet exists) ───────────
 # outcome_file: source event-time parquet inside each cohort's outcomes/ dir.
@@ -69,6 +74,8 @@ model:
   projection_hidden_dim: 256
   projection_dim: 128
   temperature: 0.07
+  # Time similarity is computed on pooled Kaplan-Meier cumulative event-mass
+  # positions, not raw time or unweighted empirical CDF ranks.
   # DAPT cosine similarity modulates outcome/time/censoring pair weights.
   # 1.0 disables the DAPT prior ablation; lower values give the prior more say.
   dapt_lambda_floor: 0.3

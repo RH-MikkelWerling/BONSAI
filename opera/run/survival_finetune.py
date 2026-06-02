@@ -23,7 +23,7 @@ from bonsai.functional.outcomes import (
 from bonsai.functional.pathing import get_experiment_output_path
 from opera.compat.bonsai import BonsaiFinetune
 from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 from opera.modules.datamodules.SurvivalFinetuneDataModule import (
     SurvivalFinetuneDataModule,
 )
@@ -70,6 +70,12 @@ def main(cfg: DictConfig) -> None:
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        cfg.labels.get("registry_start_date"),
+        cohort=cfg.dataset,
+        outcome_name=cfg.outcome,
+    )
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")

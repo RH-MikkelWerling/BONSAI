@@ -1,6 +1,6 @@
 """
 Tests for the survival loss fixes:
-  Fix 1 - CDF-based time similarity
+  Fix 1 - Kaplan-Meier event-mass time similarity
   Fix 2 - Signal-weighted anchor mean
   Fix 3 - KM-based admin-censoring similarity
 """
@@ -27,40 +27,44 @@ def _norm(x: torch.Tensor) -> torch.Tensor:
     return F.normalize(x, dim=-1)
 
 
-def _cdf_q(sorted_et: torch.Tensor, t: float) -> float:
-    n = max(sorted_et.numel(), 1)
+def _km_q(sorted_et: torch.Tensor, t: float, probs: torch.Tensor | None = None) -> float:
+    if probs is None:
+        probs = torch.full((sorted_et.numel(),), 1.0 / max(sorted_et.numel(), 1))
+    probs = probs / probs.sum().clamp_min(1e-12)
     pos = torch.searchsorted(sorted_et, torch.tensor(t), right=True).item()
-    return min(pos / n, 1.0)
+    if pos <= 0:
+        return 0.0
+    return min(float(probs[:pos].sum().item()), 1.0)
 
 
-def test_cdf_spreads_early_events_more_than_late():
+def test_km_event_mass_spreads_dense_event_regions_more_than_sparse_regions():
     sorted_et = torch.tensor(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 700.0, 800.0]
     )
-    q_diff_early = abs(_cdf_q(sorted_et, 10.0) - _cdf_q(sorted_et, 20.0))
-    q_diff_late = abs(_cdf_q(sorted_et, 700.0) - _cdf_q(sorted_et, 710.0))
+    q_diff_early = abs(_km_q(sorted_et, 10.0) - _km_q(sorted_et, 20.0))
+    q_diff_late = abs(_km_q(sorted_et, 700.0) - _km_q(sorted_et, 710.0))
     assert q_diff_early > q_diff_late
 
 
-def test_cdf_is_batch_size_independent():
+def test_km_event_mass_is_batch_size_independent():
     sorted_et = torch.tensor([50.0, 100.0, 200.0, 400.0, 600.0])
-    assert _cdf_q(sorted_et, 100.0) == pytest.approx(0.4, abs=1e-6)
-    assert _cdf_q(sorted_et, 200.0) == pytest.approx(0.6, abs=1e-6)
+    assert _km_q(sorted_et, 100.0) == pytest.approx(0.4, abs=1e-6)
+    assert _km_q(sorted_et, 200.0) == pytest.approx(0.6, abs=1e-6)
 
 
-def test_cdf_clamps_out_of_range_times():
+def test_km_event_mass_clamps_out_of_range_times():
     sorted_et = torch.tensor([100.0, 200.0, 300.0])
-    assert _cdf_q(sorted_et, 1.0) == pytest.approx(0.0)
-    assert _cdf_q(sorted_et, 9999.0) == pytest.approx(1.0)
+    assert _km_q(sorted_et, 1.0) == pytest.approx(0.0)
+    assert _km_q(sorted_et, 9999.0) == pytest.approx(1.0)
 
 
-def test_cdf_empty_sorted_events_does_not_crash():
+def test_km_event_mass_empty_sorted_events_does_not_crash():
     sorted_et = torch.tensor([], dtype=torch.float32)
     times = torch.tensor([10.0, 20.0, 30.0])
     events = torch.tensor([1, 0, 1])
     torch.manual_seed(0)
     emb = _norm(torch.randn(3, 8))
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
     result = loss_fn(emb, times, events, sorted_event_times=sorted_et)
     assert torch.isfinite(result)
     assert result.item() == pytest.approx(0.0)
@@ -68,9 +72,24 @@ def test_cdf_empty_sorted_events_does_not_crash():
 
 def test_rare_outcome_two_events_are_distinguished():
     sorted_et = torch.tensor([100.0, 500.0])
-    assert _cdf_q(sorted_et, 100.0) == pytest.approx(0.5, abs=1e-6)
-    assert _cdf_q(sorted_et, 500.0) == pytest.approx(1.0, abs=1e-6)
-    assert _cdf_q(sorted_et, 50.0) == pytest.approx(0.0, abs=1e-6)
+    assert _km_q(sorted_et, 100.0) == pytest.approx(0.5, abs=1e-6)
+    assert _km_q(sorted_et, 500.0) == pytest.approx(1.0, abs=1e-6)
+    assert _km_q(sorted_et, 50.0) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_km_event_probabilities_change_similarity_geometry():
+    sorted_et = torch.tensor([10.0, 50.0, 100.0])
+    uniform_probs = torch.tensor([1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0])
+    km_probs = torch.tensor([0.8, 0.1, 0.1])
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    _, q_uniform, _ = loss_fn._event_grid(sorted_et, uniform_probs, torch.device("cpu"))
+    _, q_km, _ = loss_fn._event_grid(sorted_et, km_probs, torch.device("cpu"))
+
+    uniform_gap = q_uniform[2] - q_uniform[1]
+    km_gap = q_km[2] - q_km[1]
+
+    assert uniform_gap.item() == pytest.approx(1.0 / 3.0)
+    assert km_gap.item() == pytest.approx(0.1)
 
 
 def test_signal_weighted_loss_is_finite_and_has_gradient():
@@ -79,7 +98,7 @@ def test_signal_weighted_loss_is_finite_and_has_gradient():
     events = torch.tensor([1, 1, 1, 1])
     torch.manual_seed(42)
     emb = _norm(torch.randn(4, 8))
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
     result = loss_fn(emb, times, events, sorted_event_times=sorted_et)
     assert torch.isfinite(result)
     assert result.requires_grad
@@ -93,7 +112,7 @@ def test_noisy_anchor_perturb_moves_loss_less_than_signal_rich():
 
     torch.manual_seed(7)
     base_emb = _norm(torch.randn(6, 8))
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
     base_loss = loss_fn(base_emb, times, events, sorted_event_times=sorted_et).item()
 
     g = torch.Generator()
@@ -110,13 +129,13 @@ def test_noisy_anchor_perturb_moves_loss_less_than_signal_rich():
 
 def test_admin_censoring_uses_future_event_distribution():
     sorted_et = torch.tensor([10.0, 50.0, 100.0, 300.0, 500.0])
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
-    event_grid, q_grid, event_probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    event_grid, km_grid, event_probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
     dist = loss_fn._patient_quantile_distributions(
         torch.tensor([5.0, 600.0]),
         torch.tensor([0, 0]),
         event_grid,
-        q_grid,
+        km_grid,
         event_probs,
     )
 
@@ -129,8 +148,8 @@ def test_admin_censoring_uses_future_event_distribution():
 def test_admin_censoring_uses_km_tail_probabilities_when_available():
     sorted_et = torch.tensor([10.0, 50.0, 100.0])
     event_probs = torch.tensor([0.7, 0.2, 0.1])
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
-    event_grid, q_grid, probs = loss_fn._event_grid(
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    event_grid, km_grid, probs = loss_fn._event_grid(
         sorted_et,
         event_probs,
         torch.device("cpu"),
@@ -139,7 +158,7 @@ def test_admin_censoring_uses_km_tail_probabilities_when_available():
         torch.tensor([20.0]),
         torch.tensor([0]),
         event_grid,
-        q_grid,
+        km_grid,
         probs,
     )
 
@@ -151,13 +170,13 @@ def test_admin_censoring_uses_km_tail_probabilities_when_available():
 
 def test_competing_death_before_first_event_maps_to_zero_quantile():
     sorted_et = torch.tensor([30.0, 90.0])
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
-    event_grid, q_grid, probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    event_grid, km_grid, probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
     dist = loss_fn._patient_quantile_distributions(
         torch.tensor([5.0]),
         torch.tensor([2]),
         event_grid,
-        q_grid,
+        km_grid,
         probs,
     )
 
@@ -305,7 +324,7 @@ def test_competing_death_primary_pair_is_conservative_by_default():
     times = torch.tensor([90.0, 60.0])
     events = torch.tensor([1, 2])
 
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
     weights, n_eff = loss_fn._compute_pair_weights(times, events, sorted_et)
 
     assert weights[0, 1].item() == pytest.approx(0.0)
@@ -317,8 +336,8 @@ def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
     times = torch.tensor([90.0, 60.0])
     events = torch.tensor([1, 2])
-    conservative = SurvivalSoftContrastiveLoss(cdf_scale=0.25, competing_event_weight=0.0)
-    sensitivity = SurvivalSoftContrastiveLoss(cdf_scale=0.25, competing_event_weight=0.5)
+    conservative = SurvivalSoftContrastiveLoss(km_time_scale=0.25, competing_event_weight=0.0)
+    sensitivity = SurvivalSoftContrastiveLoss(km_time_scale=0.25, competing_event_weight=0.5)
 
     w0, _ = conservative._compute_pair_weights(times, events, sorted_et)
     w1, _ = sensitivity._compute_pair_weights(times, events, sorted_et)
@@ -334,7 +353,7 @@ def test_loss_with_all_three_event_types_is_finite():
     torch.manual_seed(7)
     emb = F.normalize(torch.randn(5, 8), dim=-1)
 
-    loss_fn = SurvivalSoftContrastiveLoss(cdf_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
     result = loss_fn(emb, times, events, sorted_event_times=sorted_et)
 
     assert torch.isfinite(result)

@@ -17,8 +17,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import yaml
-from bonsai.functional.outcomes import binarize_outcomes
+from opera.compat.bonsai import binarize_outcomes
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path, parse_task_ref
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 
 
 def _allocate_stratified_counts(train_df: pd.DataFrame, n_sample: int) -> Dict[int, int]:
@@ -63,6 +64,9 @@ def subsample_outcome_parquet(
     split: str = "train",
     n_hours_start_include: int = 1,
     n_hours_end_include=None,
+    registry_start_date: Optional[str] = None,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
 ) -> str:
     """
     Subsample the training split of an outcome parquet.
@@ -71,6 +75,12 @@ def subsample_outcome_parquet(
     is already present, sampling is stratified to preserve event rate.
     """
     df = pd.read_parquet(outcome_path)
+    df = filter_registry_eligible_outcomes(
+        attach_prediction_censor_abspos(df),
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     train_mask = df["split"] == split
     train_df = df[train_mask]
     other_df = df[~train_mask]
@@ -127,8 +137,19 @@ def subsample_outcome_parquet(
     return output_path
 
 
-def outcome_split_size_metadata(outcome_path: str) -> Dict[str, float]:
+def outcome_split_size_metadata(
+    outcome_path: str,
+    registry_start_date: Optional[str] = None,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
+) -> Dict[str, float]:
     df = pd.read_parquet(outcome_path)
+    df = filter_registry_eligible_outcomes(
+        attach_prediction_censor_abspos(df),
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     out: Dict[str, float] = {}
     for split_name, result_key in (
         ("train", "train"),
@@ -162,6 +183,7 @@ def run_finetune_and_evaluate(
     rarity_metadata: Optional[Dict[str, float]] = None,
     baseline_model: Optional[str] = None,
     base_config: str = "opera/configs/finetune.yaml",
+    registry_start_date: Optional[str] = None,
 ) -> Dict:
     """Run finetune then evaluate, returning metrics.json contents."""
     ft_overrides = [
@@ -171,6 +193,7 @@ def run_finetune_and_evaluate(
         f"outcome={outcome_name}",
         f"paths.dir={cohort_data_dir}",
         f"paths.outcome={outcome_parquet}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"hydra.run.dir={output_dir}",
     ]
     ft_cmd = [
@@ -190,6 +213,7 @@ def run_finetune_and_evaluate(
         f"outcome={outcome_name}",
         f"paths.dir={cohort_data_dir}",
         f"paths.outcome={outcome_parquet}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"output_dir={output_dir}/eval",
         f"+training_fraction={training_fraction}",
         "rarity.mode=synthetic",
@@ -371,6 +395,7 @@ def main():
         task_key = f"{cohort}:{outcome}"
         cohort_cfg = cfg["cohorts"][cohort]
         data_dir = cohort_cfg["data_dir"]
+        registry_start_date = cohort_cfg.get("registry_start_date")
         outcome_cfg = outcomes_cfg.get(outcome, {"outcome_file": f"{outcome}.parquet"})
         outcome_path = outcome_file_path(data_dir, outcome, outcome_cfg)
         task_output_dir = Path(args.output_dir) / cohort / outcome
@@ -404,6 +429,9 @@ def main():
                             n_hours_end_include=outcome_cfg.get(
                                 "n_hours_end_include",
                             ),
+                            registry_start_date=registry_start_date,
+                            cohort=cohort,
+                            outcome_name=outcome,
                         )
                         metrics = run_finetune_and_evaluate(
                             encoder_ckpt=variant_cfg["encoder_ckpt"],
@@ -414,12 +442,18 @@ def main():
                             outcome_parquet=subsampled_path,
                             output_dir=cell_dir,
                             training_fraction=frac,
-                            rarity_metadata=outcome_split_size_metadata(subsampled_path),
+                            rarity_metadata=outcome_split_size_metadata(
+                                subsampled_path,
+                                registry_start_date=registry_start_date,
+                                cohort=cohort,
+                                outcome_name=outcome,
+                            ),
                             baseline_model=baseline_model,
                             base_config=cfg.get(
                                 "finetune_base_config",
                                 "opera/configs/finetune.yaml",
                             ),
+                            registry_start_date=registry_start_date,
                         )
 
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))

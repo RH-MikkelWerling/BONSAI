@@ -21,8 +21,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from bonsai.functional.outcomes import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos
+from opera.compat.bonsai import binarize_outcomes
+from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
 from opera.functional.ipcw import compute_ipcw_train_weights
 
 
@@ -163,6 +163,9 @@ def outcome_labels(
     competing_outcome_path: Optional[str] = None,
     include_survival_fields: bool = False,
     ipcw_horizon_hours: Optional[int] = None,
+    registry_start_date: Optional[str] = None,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
 ) -> pd.DataFrame:
     """Derive labels and optional IPCW fields using the shared outcome pipeline.
 
@@ -174,6 +177,12 @@ def outcome_labels(
     """
     outcomes = pd.read_parquet(outcome_path)
     outcomes = attach_prediction_censor_abspos(outcomes)
+    outcomes = filter_registry_eligible_outcomes(
+        outcomes,
+        registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     split_df = outcomes[outcomes["split"] == split].copy()
     competing_df = pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
     labels = binarize_outcomes(
@@ -499,6 +508,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=args.require_min_followup_train,
         competing_outcome_path=args.competing_outcome,
+        registry_start_date=args.registry_start_date,
+        cohort=args.cohort,
+        outcome_name=args.outcome_name,
     )
     ipcw_train_labels = (
         outcome_labels(
@@ -510,6 +522,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             competing_outcome_path=args.competing_outcome,
             include_survival_fields=True,
             ipcw_horizon_hours=args.n_hours_end_include,
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
         )
         if uses_ipcw_training
         else None
@@ -521,6 +536,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=args.n_hours_end_include is not None,
         competing_outcome_path=args.competing_outcome,
+        registry_start_date=args.registry_start_date,
+        cohort=args.cohort,
+        outcome_name=args.outcome_name,
     )
     train_df = merge_features_and_labels(features, train_labels)
     ipcw_train_df = (
@@ -658,6 +676,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "feature_contract": str(contract_path),
             "missingness_report": str(missingness_path),
             "prediction_file": str(pred_path),
+            "registry_start_date": args.registry_start_date,
         }
         with open(output_dir / f"{stem}_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -684,6 +703,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test_split", default="held_out")
     parser.add_argument("--require_min_followup_train", action="store_true")
     parser.add_argument("--competing_outcome", default=None)
+    parser.add_argument(
+        "--registry_start_date",
+        default=None,
+        help="Optional first date with reliable registry outcome/RKKP coverage.",
+    )
     parser.add_argument("--exclude_columns", default="")
     parser.add_argument("--categorical_columns", default="")
     parser.add_argument("--tabpfn_device", default="auto")

@@ -86,9 +86,9 @@ def main(cfg: DictConfig) -> None:
         outcome_configs,
         split="train",
     )
-    print(f"Sorted event times computed for {len(outcome_sorted_event_times)} outcomes.")
+    print(f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes.")
     for name, t in outcome_sorted_event_times.items():
-        print(f"  {name}: {len(t)} training events")
+        print(f"  {name}: {len(t)} KM-weighted training event locations")
 
     dapt_embedding_store = None
     if cfg.get("dapt_embedding_store") is not None:

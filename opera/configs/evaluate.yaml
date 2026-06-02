@@ -51,4 +51,5 @@ labels:
   test_key: held_out
   n_hours_start_include: 1
   n_hours_end_include: null
+  registry_start_date: null
   require_min_followup_test: true
