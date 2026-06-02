@@ -1,0 +1,625 @@
+% ═══════════════════════════════════════════════════════════════════════
+% OPERA — Analysis Plan
+% Outcome-guided Patient Embedding for Registry Adaptation
+%
+% Insert into Overleaf as a standalone document or \input{} into main.
+% Requires: booktabs, array, multirow, xcolor, hyperref, geometry,
+%           amsmath, enumitem, tcolorbox, tikz, pgfplots (optional)
+% ═══════════════════════════════════════════════════════════════════════
+
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{tabularx}
+
+% ── Colour palette ──────────────────────────────────────────────────
+\definecolor{opera}{HTML}{2563EB}       % OPERA blue
+\definecolor{muted}{HTML}{6B7280}       % grey annotations
+\definecolor{positive}{HTML}{059669}    % green — expected advantage
+\definecolor{negative}{HTML}{DC2626}    % red — expected disadvantage
+\definecolor{neutral}{HTML}{D97706}     % amber — uncertain
+
+\tcbset{
+  planbox/.style={
+    colback=opera!5, colframe=opera!60,
+    fonttitle=\bfseries, left=4pt, right=4pt, top=4pt, bottom=4pt,
+  },
+  notebox/.style={
+    colback=neutral!8, colframe=neutral!50,
+    fonttitle=\bfseries\small, left=4pt, right=4pt, top=2pt, bottom=2pt,
+  },
+}
+
+\hypersetup{colorlinks=true, linkcolor=opera, citecolor=muted, urlcolor=opera}
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\vspace{-0.3em}\rule{\textwidth}{0.4pt}]
+\titleformat{\subsection}{\normalsize\bfseries\color{opera}}{}{0em}{}
+
+% ── Shorthand ────────────────────────────────────────────────────────
+\newcommand{\op}{\textsc{opera}}
+\newcommand{\yes}{\textcolor{positive}{\textbf{+}}}
+\newcommand{\no}{\textcolor{negative}{\textbf{--}}}
+\newcommand{\maybe}{\textcolor{neutral}{\textbf{?}}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+% ════════════════════════════════════════════════════════════════════
+\begin{document}
+
+\begin{center}
+  {\LARGE \textbf{OPERA Analysis Plan}} \\[0.4em]
+  {\large Outcome-guided Patient Embedding for Registry Adaptation} \\[0.2em]
+  {\color{muted}\small Working document — \today}
+\end{center}
+
+\vspace{0.5em}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Scientific Question}
+
+\begin{tcolorbox}[planbox, title=Core question]
+How should a general EHR foundation model be adapted to a specialised
+haematology registry to maximise outcome prediction across multiple
+diseases and outcomes simultaneously — and does joint multi-disease
+training produce a single model that outperforms disease-specific models?
+\end{tcolorbox}
+
+\medskip
+
+The question is motivated by the DALY-CARE research programme:
+
+\begin{enumerate}[leftmargin=2em, itemsep=2pt]
+  \item \textbf{DALY-CARE} established the infrastructure for observing patients across haematological malignancies in a unified registry.
+  \item \textbf{HemaSphere paper} showed empirically that joint training across lymphoma subtypes improves prediction — diseases share structure.
+  \item \textbf{OPERA} asks: can we make this cross-disease sharing principled and measurable, using outcomes as supervision signals?
+\end{enumerate}
+
+The key intellectual claim is that \emph{outcome trajectories encode
+clinical knowledge that clinical presentation alone does not capture},
+and that a foundation model adapted with this signal will generalise
+better than any tabular model trained on disease-specific features.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Experimental Design Overview}
+
+The experiment is a full factorial over three axes:
+
+\medskip
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  \textbf{Axis} & \textbf{Levels} & \textbf{Script} \\
+  \midrule
+  Cohort scope  & Per-cohort vs. all cohorts jointly & \code{finetune.py} / \code{joint\_finetune.py} \\
+  Model variant & 5 tiers (see \S\ref{sec:variants}) & \code{sweep.py} \\
+  Outcome       & 5 outcomes × 2--3 windows & \code{sweep.py} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+All results flow through \code{opera/run/sweep.py}, which produces a
+single \code{results\_table.csv} and \code{results\_table\_auroc.tex}
+directly usable in the paper.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Cohorts and Outcomes}
+\label{sec:cohorts}
+
+\subsection{Disease Cohorts}
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  \textbf{Cohort} & \textbf{Abbreviation} & \textbf{Notes} \\
+  \midrule
+  Diffuse large B-cell lymphoma & DLBCL & Primary benchmark (HemaSphere) \\
+  Chronic lymphocytic leukaemia & CLL   & Slow natural history \\
+  Myelodysplastic syndrome      & MDS   & Competing risks prominent \\
+  Multiple myeloma              & MM    & Heavy treatment heterogeneity \\
+  Follicular lymphoma           & FL    & Long follow-up \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Outcomes}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{llXl}
+  \toprule
+  \textbf{Outcome} & \textbf{Windows} & \textbf{Rationale} & \textbf{Cohorts} \\
+  \midrule
+  All-cause mortality       & 1y, 2y       & Primary survival endpoint; clean signal  & All \\
+  Treatment failure         & 6m, 1y, 2y   & Disease control; DLBCL primary target   & DLBCL, CLL, MM \\
+  Acute kidney injury       & 7d, 30d      & Treatment toxicity; shared mechanism    & All \\
+  Severe infection          & 30d, 90d     & Immunosuppression; cross-disease signal & All \\
+  Adverse events (composite)& 30d, 90d     & Safety profile                          & All \\
+  \bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{tcolorbox}[notebox, title=Note on IPI baselines]
+  For each cohort where an IPI-family score is available (NCCN-IPI for
+  DLBCL, FLIPI-2 for FL, CLL-IPI for CLL), compute AUROC from the
+  pre-computed score column in the population CSV.  This is a
+  \emph{competing baseline}, not a training input.  Report as a
+  separate column in every results table.
+\end{tcolorbox}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Model Variants}
+\label{sec:variants}
+
+The experimental design has four tiers, designed so that each tier
+answers a specific question by comparison with the tier below.
+
+\medskip
+\begin{tcolorbox}[planbox, title=Tier structure and contrasts of interest]
+\begin{description}[leftmargin=0em, itemsep=4pt]
+  \item[Tier 0 — Clinical baseline (IPI)]
+    NCCN-IPI / CLL-IPI / FLIPI-2 computed from RKKP variables.
+    \emph{Contrast}: Does any ML model beat the clinical standard?
+
+  \item[Tier 1 — Tabular ceiling (with RKKP)]
+    XGBoost on 87 features including RKKP quality registry variables.
+    Trained per cohort per outcome.
+    \emph{Contrast}: What is the ceiling when all structured data is available?
+
+  \item[Tier 2 — Tabular floor (EHR only)]
+    XGBoost on EHR-derived features only, no RKKP.
+    Trained per cohort per outcome.
+    \emph{Contrast}: What does a foundation model need to beat to justify its complexity?
+
+  \item[Tier 3 — Foundation model variants]
+    Shared encoder, evaluated under four adaptation conditions:
+    \begin{enumerate}[leftmargin=1.5em, itemsep=2pt, label=(\alph*)]
+      \item \textbf{Pretrain only} — general 3M-patient encoder, no
+            haematology-specific adaptation. Lower bound for FMs.
+      \item \textbf{DAPT} — continued MLM pretraining on DALY-CARE.
+            Tests domain shift correction alone.
+      \item \textbf{OPERA (contrastive, per-cohort)} — DAPT + survival-informed
+            multi-outcome contrastive adaptation. Tests outcome-guided
+            representation learning within a single disease.
+      \item \textbf{OPERA (contrastive, joint)} — same model trained on
+            all cohorts simultaneously. Tests cross-disease transfer.
+    \end{enumerate}
+
+  \item[Tier 4 — Joint multi-task finetuning (bonus)]
+    Single model finetuned on all cohorts and all outcomes jointly.
+    Evaluated per cohort × outcome cell.
+    \emph{Contrast}: Does joint finetuning further improve on separately
+    finetuned OPERA? This is where the foundation model's structural
+    advantage over tabular models is most direct.
+\end{description}
+\end{tcolorbox}
+
+\subsection{Why each contrast matters}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{lXl}
+  \toprule
+  \textbf{Comparison} & \textbf{What it answers} & \textbf{Expected direction} \\
+  \midrule
+  DAPT $>$ Pretrain only
+    & Is haematology domain shift real and correctable?
+    & \yes \\
+  OPERA $>$ DAPT
+    & Do outcomes add signal beyond what sequence distributions encode?
+    & \yes \\
+  OPERA joint $>$ OPERA per-cohort
+    & Does cross-disease contrastive training help?
+    & \yes\ (especially small cohorts) \\
+  Joint finetune $>$ per-cohort finetune
+    & Does a single joint model beat separately trained models?
+    & \yes\ for FM; \no\ for tabular \\
+  FM EHR-only $>$ Tabular EHR-only
+    & Is the FM better at using the same data?
+    & \yes\ (our primary bet) \\
+  Tabular RKKP $>$ FM EHR-only
+    & Does structured RKKP data close the gap?
+    & \yes\ (expected ceiling effect) \\
+  FM + RKKP hybrid $>$ Tabular RKKP
+    & Does the FM improve even when RKKP is available?
+    & \maybe \\
+  IPI $<$ any ML
+    & Is ML clinically useful at all?
+    & \yes \\
+  \bottomrule
+\end{tabularx}
+\end{center}
+
+% ════════════════════════════════════════════════════════════════════
+\section{The Sigma Analysis}
+\label{sec:sigma}
+
+The learned $\sigma_k$ parameters from the contrastive stage are a
+scientific finding independent of prediction performance.
+
+\begin{tcolorbox}[planbox, title=Sigma interpretation]
+  Low $\sigma_k$ $\rightarrow$ outcome $k$ strongly structures the
+  embedding space. High $\sigma_k$ $\rightarrow$ noisy / hard to learn jointly.
+
+  \medskip
+  Testable prediction: $\sigma_k$ values from the contrastive stage
+  should correlate with $\sigma_k$ values from the joint finetune stage
+  (both using Kendall weighting). Concordance validates that the
+  contrastive stage learned a clinically coherent representation, not
+  just an optimisation artefact.
+\end{tcolorbox}
+
+The sigma analysis is a publishable result regardless of whether AUROC
+improves. If mortality gets low $\sigma$ and adverse events get high
+$\sigma$, that is a finding about the latent structure of haematological
+disease that no tabular paper can produce.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Uncertainty and Clinician Validation}
+\label{sec:uncertainty}
+
+\begin{tcolorbox}[planbox, title=Clinician validation protocol]
+  \begin{enumerate}[leftmargin=1.5em, itemsep=3pt]
+    \item Run \code{extract\_uncertainty()} with $N=30$ MC Dropout samples
+          on the held-out test set.
+    \item Extract the top-100 most uncertain patients using
+          \code{rank\_by\_uncertainty(results, top\_k=100)}.
+    \item Present each case to 2--3 haematologists (blinded to model output).
+    \item Ask: \emph{``Would you want additional information before making
+          a treatment decision?''} (binary, ecologically valid).
+    \item Compute point-biserial correlation between model uncertainty
+          and clinician uncertainty ratings.
+  \end{enumerate}
+
+  \medskip
+  \textbf{If correlation is strong:} model uncertainty identifies
+  clinically ambiguous cases. This is a usability finding — the model
+  knows when to say ``I need more information.''
+
+  \textbf{If correlation is weak:} model is uncertain for statistical
+  reasons that do not map to clinical difficulty. Worth reporting honestly.
+\end{tcolorbox}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Tables for the Paper}
+
+\subsection{Table 1 — Main results (per cohort, primary outcome)}
+
+One row per disease cohort. Primary outcome is all-cause mortality at
+1 year. Columns are model variants, metric is AUROC with 95\% bootstrap CI.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  \textbf{Script:} \code{sweep.py --config sweep\_example.yaml}
+  produces \code{results\_table\_auroc.tex} directly. \\
+  \textbf{Filter to:} \code{outcome == "mortality\_1y"}, all cohorts, all variants.
+\end{tcolorbox}
+
+\medskip
+\begin{center}
+\begin{tabular}{lccccccc}
+  \toprule
+  & \multicolumn{2}{c}{\textit{Clinical}} & \multicolumn{2}{c}{\textit{Tabular}} & \multicolumn{3}{c}{\textit{Foundation model}} \\
+  \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-8}
+  \textbf{Cohort} & IPI & — & +RKKP & EHR only & Pretrain & DAPT & \op \\
+  \midrule
+  DLBCL  & & & & & & & \\
+  CLL    & & & & & & & \\
+  MDS    & & & & & & & \\
+  MM     & & & & & & & \\
+  FL     & & & & & & & \\
+  \midrule
+  \textit{Mean} & & & & & & & \\
+  \bottomrule
+  \multicolumn{8}{l}{\small AUROC (95\% bootstrap CI). Bold = best per row.}
+\end{tabular}
+\end{center}
+
+\subsection{Table 2 — Multi-outcome results (DLBCL)}
+
+One row per outcome and time window for the primary cohort (DLBCL).
+All model variants. Illustrates that the advantage pattern is
+outcome-dependent.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  \textbf{Filter to:} \code{cohort == "dlbcl"}, all outcomes × windows, all variants.
+\end{tcolorbox}
+
+\subsection{Table 3 — Joint vs.\ per-cohort (all cohorts, all outcomes)}
+
+Directly tests the collaborator's hypothesis: does a single joint model
+outperform separately trained models?
+
+\medskip
+Rows: cohort × outcome. Columns: (a) per-cohort OPERA finetune,
+(b) joint OPERA finetune, (c) per-cohort tabular RKKP,
+(d) joint tabular (XGBoost with disease dummies). Metric: AUROC.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  Key comparison: column (b) vs.\ column (a) tests the foundation
+  model's joint-training hypothesis. Column (d) vs.\ column (c) tests
+  the same for tabular — expected to be flat or negative. The
+  \emph{interaction} is the finding.
+\end{tcolorbox}
+
+\subsection{Table 4 — Sigma values across outcomes}
+
+The learned $\sigma_k$ values from (a) the contrastive stage and
+(b) the joint finetune stage.
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  \textbf{Outcome} & $\sigma_k$ (contrastive) & $\sigma_k$ (joint finetune) \\
+  \midrule
+  Mortality 1y        & & \\
+  Treatment failure 1y & & \\
+  AKI 30d             & & \\
+  Severe infection 90d & & \\
+  Adverse events 90d  & & \\
+  \bottomrule
+  \multicolumn{3}{l}{\small Lower = outcome strongly structures the embedding space.}
+\end{tabular}
+\end{center}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Figures for the Paper}
+
+\subsection{Figure 1 — Architecture overview}
+
+A three-panel diagram showing the full OPERA pipeline:
+\begin{enumerate}[leftmargin=2em, itemsep=2pt]
+  \item \textbf{Left}: General pretraining on $\sim$3M patients (MLM).
+  \item \textbf{Centre}: DAPT on DALY-CARE haematology cohort +
+        OPERA contrastive stage with survival-informed soft loss and
+        DAPT-prior cohort similarity weights.
+  \item \textbf{Right}: Per-outcome finetuning and evaluation.
+\end{enumerate}
+Annotate with: token prefixes, index date concept, outcome windows,
+$\sigma_k$ position in the loss.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  \textbf{Source:} Draw in Excalidraw / Inkscape. Export as PDF vector.
+  Use existing architecture sketch from previous sessions as base.
+\end{tcolorbox}
+
+\subsection{Figure 2 — Survival pair weighting illustration}
+
+A 2×2 patient grid illustrating how pair weights are computed:
+\begin{itemize}[leftmargin=2em, itemsep=1pt]
+  \item Axes: time similarity (x) × censoring reliability (y).
+  \item Four quadrants: both observed + similar times (weight $\approx$1),
+        both observed + distant times (weight low),
+        one censored (weight $\approx$0.5), both censored (weight $\approx$0.1).
+  \item Overlay: DAPT-prior modulation shifts all weights by cohort similarity.
+\end{itemize}
+
+\subsection{Figure 3 — Embedding space shift (UMAP)}
+
+Two-panel UMAP of patient embeddings, coloured by 1-year mortality:
+\begin{itemize}[leftmargin=2em, itemsep=1pt]
+  \item \textbf{Left}: DAPT-stage embeddings (before contrastive training).
+  \item \textbf{Right}: OPERA-stage embeddings (after contrastive training).
+\end{itemize}
+Show all cohorts in the same plot (use shape for disease, colour for
+outcome). The expected finding: OPERA separates outcome-similar patients
+across disease boundaries that DAPT does not.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  \textbf{Script:} \code{opera/visualization/embedding\_plots.py} —
+  \code{plot\_embedding\_projection(embeddings, labels, method="umap")}. \\
+  Run on held-out test set using DAPT and OPERA checkpoints.
+\end{tcolorbox}
+
+\subsection{Figure 4 — Sigma heatmap}
+
+Heatmap: rows = outcomes, columns = cohorts.
+Cell value = $\sigma_k$ learned by the multi-cohort OPERA model.
+
+The expected pattern: mortality has low (consistent) $\sigma$ across
+cohorts; treatment failure has high variance in $\sigma$ across cohorts
+(disease-specific signal). This is the ``what the model learned''
+figure.
+
+\subsection{Figure 5 — Joint vs.\ per-cohort performance delta}
+
+A dot plot (Cleveland-style) showing $\Delta$AUROC (joint $-$ per-cohort)
+for each cohort × outcome cell.
+
+\begin{itemize}[leftmargin=2em, itemsep=1pt]
+  \item Foundation model variants: expected mostly positive deltas.
+  \item Tabular variants: expected deltas centred near zero or negative.
+  \item Points above the zero line confirm the collaborator's hypothesis.
+\end{itemize}
+
+\medskip
+\begin{tcolorbox}[notebox]
+  The interaction here is the paper's clearest demonstration of why
+  foundation models are structurally better suited to multi-disease
+  registries. Use a side-by-side panel: FM delta (left) vs.\ tabular
+  delta (right).
+\end{tcolorbox}
+
+\subsection{Figure 6 — Clinician uncertainty validation}
+
+Scatter plot: model uncertainty (x-axis, embedding variance from MC
+Dropout) vs.\ clinician uncertainty rating (y-axis, proportion of
+reviewers requesting additional information).
+
+Annotate with: Spearman $\rho$, $p$-value, $n$ cases.
+
+Expected shape: positive correlation. Highlight 3--5 representative
+cases in the margin with brief clinical descriptions.
+
+\subsection{Figure 7 — Label efficiency curves (supplementary)}
+
+Learning curves showing AUROC vs.\ number of labelled training
+examples for (a) OPERA encoder and (b) tabular XGBoost, evaluated on
+DLBCL mortality.
+
+The expected finding: OPERA reaches tabular performance with $\sim$10--20\%
+of the labelled data. This quantifies the label efficiency advantage of
+pretraining and is a strong practical argument for the approach.
+
+\medskip
+\begin{tcolorbox}[notebox]
+  \textbf{How to generate:} subsample training set to $[5\%, 10\%, 20\%,
+  40\%, 60\%, 80\%, 100\%]$ of labels. Run \code{finetune.py} for each
+  fraction. Plot AUROC vs.\ fraction, with 95\% CI from 3--5 seeds.
+\end{tcolorbox}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Analysis Checklist}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{clXl}
+  \toprule
+  & \textbf{Step} & \textbf{Description} & \textbf{Status} \\
+  \midrule
+  \square & DAPT embedding store
+    & Run \code{build\_dapt\_embedding\_store()} once after DAPT checkpoint
+    & $\square$ \\
+  \square & Outcome parquets
+    & Add \code{time\_days} and \code{event} columns to all outcome parquets
+    & $\square$ \\
+  \square & IPI scores
+    & Compute IPI per cohort, add to \code{population\_full.csv}
+    & $\square$ \\
+  \square & Per-cohort contrastive
+    & Run \code{contrastive.py} per cohort (DLBCL first)
+    & $\square$ \\
+  \square & Multi-cohort contrastive
+    & Run \code{contrastive\_multicohort.py} on all cohorts jointly
+    & $\square$ \\
+  \square & Per-cohort finetune sweep
+    & Run \code{sweep.py} with per-cohort OPERA variant
+    & $\square$ \\
+  \square & Joint finetune
+    & Run \code{joint\_finetune.py} — single outcome first, then multi-output
+    & $\square$ \\
+  \square & Joint finetune sweep
+    & Add \code{opera\_joint} variant to sweep, rerun
+    & $\square$ \\
+  \square & Tabular baselines
+    & Train XGBoost per cohort × outcome, export \code{results/tabular/*.json}
+    & $\square$ \\
+  \square & Sigma analysis
+    & Extract and compare $\sigma_k$ from contrastive and joint finetune
+    & $\square$ \\
+  \square & Uncertainty extraction
+    & Run \code{extract\_uncertainty()} on held-out set, $N=30$ passes
+    & $\square$ \\
+  \square & Clinician validation
+    & Present top-100 uncertain cases to haematologists
+    & $\square$ \\
+  \square & UMAP plots
+    & Generate Fig.\ 3 from DAPT and OPERA checkpoints
+    & $\square$ \\
+  \square & Label efficiency
+    & Run subsampled finetunes for Fig.\ 7
+    & $\square$ \\
+  \bottomrule
+\end{tabularx}
+\end{center}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Expected Results and Narrative}
+
+The paper's argument structure, in order of evidence:
+
+\begin{enumerate}[leftmargin=2em, itemsep=6pt]
+
+  \item \textbf{FM beats IPI} across all cohorts and primary outcomes.
+        Establishes clinical relevance. (Table 1)
+
+  \item \textbf{OPERA $>$ DAPT $>$ Pretrain only} within each cohort.
+        Establishes that each adaptation stage adds something.
+        The DAPT $\to$ OPERA gap is our main methodological contribution.
+        (Table 1, all cohorts)
+
+  \item \textbf{FM EHR-only approaches tabular RKKP}.
+        The gap should be small or close on several outcomes.
+        This is the strong version of the claim: the FM reconstructs
+        RKKP-equivalent structure from longitudinal EHR alone.
+        (Replication of HemaSphere result in FM setting)
+
+  \item \textbf{Joint training helps FMs, not tabular models}.
+        The $\Delta$AUROC (joint $-$ per-cohort) is positive for FM
+        variants and near-zero or negative for XGBoost.
+        This is the collaborator's hypothesis and the paper's novel
+        empirical finding. (Figure 5, Table 3)
+
+  \item \textbf{$\sigma_k$ values are clinically coherent}.
+        Mortality and AKI get low $\sigma$ (clean, shared signal);
+        treatment failure gets higher $\sigma$ (disease-specific).
+        Concordance across contrastive and joint finetune stages
+        validates the representation. (Table 4, Figure 4)
+
+  \item \textbf{Uncertainty tracks clinical difficulty}.
+        Positive correlation between model uncertainty and clinician
+        uncertainty ratings validates that the model has learned what
+        makes a case hard. (Figure 6)
+
+\end{enumerate}
+
+\begin{tcolorbox}[planbox, title=If results are strong enough for Nature Machine Intelligence]
+  The framing shifts from ``we adapted a foundation model'' to:
+
+  \medskip
+  \textit{``Foundation models pretrained on general EHR data are
+  uniquely suited to joint multi-disease clinical registries because
+  their shared token space naturally encodes cross-disease similarity
+  structure that tabular models require explicit feature engineering to
+  approximate — and outcome-guided adaptation makes this structure
+  measurable and scientifically interpretable.''}
+
+  \medskip
+  This requires: (a) the joint FM advantage over tabular is consistent
+  and substantial; (b) the $\sigma_k$ analysis is interpretable; (c) the
+  clinician uncertainty result holds. Any two of three is sufficient.
+\end{tcolorbox}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Anticipated Reviewer Challenges}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{lX}
+  \toprule
+  \textbf{Challenge} & \textbf{Response} \\
+  \midrule
+  ``Why not train from scratch?''
+    & Label efficiency curves (Fig.~7) show FM reaches tabular
+      performance with $\sim$10--20\% of labelled data. \\[4pt]
+  ``DALY-CARE is one registry — does it generalise?''
+    & Cross-cohort transfer within registry tests internal
+      generalisation. Cross-disease sigma concordance validates
+      biological coherence. \\[4pt]
+  ``Contrastive learning is not novel''
+    & Survival-informed soft pair weighting with censoring-aware
+      reliability is novel. DAPT-prior cross-disease weighting
+      is novel. Combination in a clinical registry is novel. \\[4pt]
+  ``The tabular ceiling includes RKKP which FM doesn't have''
+    & This is a feature, not a bug — it quantifies exactly what
+      the FM needs to close. The hybrid model tests whether
+      giving the FM RKKP closes the gap. \\[4pt]
+  ``How do you handle censoring?''
+    & Reliability weights (1.0 / 0.5 / 0.1) based on whether
+      ordering is known. Only pairs where at least one event
+      is observed contribute full signal. Report censoring
+      fraction per cohort × outcome as a sensitivity table. \\
+  \bottomrule
+\end{tabularx}
+\end{center}
+
+\end{document}
