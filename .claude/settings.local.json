@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(python -m pytest tests/test_followup_eligibility.py tests/test_survival_cdf_loss.py tests/test_dataset_immutability.py tests/test_clinical_metrics.py -v)",
+      "Bash(python -m pytest --version)",
+      "Bash(where pytest *)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(conda run *)",
+      "Read(//c/Users/MWER0040/AppData/Local/Programs//**)",
+      "Read(//c/Users/MWER0040/AppData/Local/Programs/**)",
+      "Read(//c/Users/MWER0040/AppData/Local/miniconda3/Scripts//**)",
+      "Read(//c/ProgramData/miniconda3/**)",
+      "Read(//c/Users/MWER0040/.conda//**)",
+      "Read(//c/Users/MWER0040/**)",
+      "Bash(/c/Users/MWER0040/AppData/Local/miniconda3/Scripts/conda run *)",
+      "Bash(/c/Users/MWER0040/AppData/Local/miniconda3/Scripts/conda env *)"
+    ]
+  }
+}

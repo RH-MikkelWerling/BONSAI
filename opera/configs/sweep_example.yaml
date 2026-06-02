@@ -1,0 +1,190 @@
+# ══════════════════════════════════════════════════════════════════════
+# OPERA Evaluation Sweep Config — example
+#
+# Run with:
+#   python -m opera.run.sweep --config opera/configs/sweep_example.yaml
+#   python -m opera.run.sweep --config opera/configs/sweep_example.yaml --dry-run
+#   python -m opera.run.sweep --config opera/configs/sweep_example.yaml --overwrite
+# ══════════════════════════════════════════════════════════════════════
+
+output_dir: /results/opera_sweep
+finetune_base_config: opera/configs/finetune.yaml
+seeds: [42, 43, 44]
+
+# ── Cohorts ───────────────────────────────────────────────────────────
+# ipi_score_col: column in population_full.csv containing the pre-computed
+#                IPI score for this cohort (null if unavailable).
+#                Reported as a competing baseline — NOT used in training.
+cohorts:
+  dlbcl:
+    data_dir: ${BONSAI_PROCESSED_DATA}/dlbcl
+    ipi_score_col: nccn_ipi          # NCCN-IPI from RKKP
+  cll:
+    data_dir: ${BONSAI_PROCESSED_DATA}/cll
+    ipi_score_col: cll_ipi
+  mds:
+    data_dir: ${BONSAI_PROCESSED_DATA}/mds
+    ipi_score_col: null
+  myeloma:
+    data_dir: ${BONSAI_PROCESSED_DATA}/myeloma
+    ipi_score_col: null
+  fl:
+    data_dir: ${BONSAI_PROCESSED_DATA}/fl
+    ipi_score_col: flipi2
+
+# ── Outcomes ──────────────────────────────────────────────────────────
+# `outcome_file` points to the event-time parquet in each cohort's outcomes/ dir.
+# Multiple tasks can reuse the same source event file with different windows.
+# n_hours_end_include: null means open-ended (no upper window).
+outcomes:
+  mortality_1y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 8760       # 365 days
+  mortality_2y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 17520      # 730 days
+  treatment_failure:
+    outcome_file: treatment_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null       # open-ended
+  aki_30d:
+    outcome_file: aki.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 720        # 30 days
+  severe_infection_90d:
+    outcome_file: severe_infection.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 2160       # 90 days
+
+# ── Model variants ────────────────────────────────────────────────────
+# Foundation model variants: need encoder_ckpt + encoder_source.
+# Tabular baselines can either provide predictions_file and use the same
+# evaluation suite, or provide results_file for already evaluated metrics.
+model_variants:
+  # ── Tier 1: Clinical baseline ──────────────────────────────────────
+  # (ipi is handled separately above via ipi_score_col)
+
+  # ── Tier 2: Tabular baselines ──────────────────────────────────────
+  tabular_rkkp:
+    predictions_file: /results/tabular/tabular_rkkp_{cohort}_{outcome}_predictions.csv
+  tabular_ehr:
+    predictions_file: /results/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
+
+  # ── Tier 3: Foundation model variants ─────────────────────────────
+  base_pretrain:
+    encoder_ckpt: /ckpts/pretrain/best.ckpt
+    encoder_source: pretrain
+
+  hematology_only_pretrain:
+    encoder_ckpt: /ckpts/hematology_pretrain/best.ckpt
+    encoder_source: pretrain
+    pretraining_scope: hematology_only
+
+  pretrain_linear_probe:
+    encoder_ckpt: /ckpts/pretrain/best.ckpt
+    encoder_source: pretrain
+    training_stage: linear_probe
+    extra_overrides:
+      - model.freeze_encoder=true
+      - model.head_type=linear_probe
+      - training_stage=linear_probe
+
+  hematology_only_linear_probe:
+    encoder_ckpt: /ckpts/hematology_pretrain/best.ckpt
+    encoder_source: pretrain
+    pretraining_scope: hematology_only
+    training_stage: linear_probe
+    extra_overrides:
+      - model.freeze_encoder=true
+      - model.head_type=linear_probe
+      - training_stage=linear_probe
+
+  dapt:
+    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_source: dapt
+
+  dapt_linear_probe:
+    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_source: dapt
+    training_stage: linear_probe
+    extra_overrides:
+      - model.freeze_encoder=true
+      - model.head_type=linear_probe
+      - training_stage=linear_probe
+
+  opera:
+    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_source: contrastive
+
+  opera_per_cohort:
+    encoder_ckpt: /ckpts/contrastive_per_cohort/{cohort}/best.ckpt
+    encoder_source: contrastive
+    opera_scope: per_cohort
+
+  opera_joint_contrastive:
+    encoder_ckpt: /ckpts/contrastive_joint/best.ckpt
+    encoder_source: contrastive
+    opera_scope: joint
+
+  opera_linear_probe:
+    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_source: contrastive
+    training_stage: linear_probe
+    extra_overrides:
+      - model.freeze_encoder=true
+      - model.head_type=linear_probe
+      - training_stage=linear_probe
+
+  # Survival head: Cox partial likelihood; works for open-ended and fixed-window
+  # outcome definitions and is monitored with validation C-index.
+  opera_cox:
+    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_source: contrastive
+    training_mode: cox
+
+  # Horizon-specific IPCW-weighted BCE; only enable for outcomes with
+  # n_hours_end_include set.
+  opera_ipcw_bce:
+    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_source: contrastive
+    training_mode: ipcw_bce
+
+  mol:
+    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_source: mol
+
+  mol_linear_probe:
+    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_source: mol
+    training_stage: linear_probe
+    extra_overrides:
+      - model.freeze_encoder=true
+      - model.head_type=linear_probe
+      - training_stage=linear_probe
+
+  dapt_cox:
+    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_source: dapt
+    training_mode: cox
+
+  mol_cox:
+    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_source: mol
+    training_mode: cox
+
+  # ── Tier 4: Bonus hybrid ──────────────────────────────────────────
+  # opera_hybrid:
+  #   encoder_ckpt: /ckpts/contrastive/best.ckpt
+  #   encoder_source: contrastive
+  #   extra_overrides:
+  #     - model.use_rkkp_features=true
+
+  # ── Joint multi-task: ONE model, ALL cohorts + outcomes ────────────
+  # This is the key experimental condition from the collaborator insight.
+  # Trained with opera/run/joint_finetune.py, then evaluated per-cell
+  # by the sweep just like any other foundation model variant.
+  opera_joint:
+    encoder_ckpt: /ckpts/joint_finetune/best.ckpt
+    encoder_source: joint

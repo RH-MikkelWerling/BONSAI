@@ -1,0 +1,59 @@
+defaults: 
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+encoder_ckpt: ???
+encoder_source: contrastive   # "pretrain" | "dapt" | "contrastive"
+dataset: ???
+outcome: ???
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+  outcome: ${paths.dir}/outcomes/${outcome}.parquet
+
+labels:
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+  n_hours_start_include: 1
+  n_hours_end_include: null
+  require_min_followup_train: false
+  require_min_followup_val: true
+  require_min_followup_test: true
+
+tabular:
+  path: ???                     # path to parquet with subject_id + features
+  feature_columns:              # TUNE: list all RKKP feature column names
+    - ann_arbor_stage
+    - ipi_score
+    - ldh_ratio
+    - ecog_ps
+    - extranodal_sites
+    # ... add more RKKP variables here
+
+hybrid:
+  mlp_hidden_dims: [256, 64]    # TUNE: MLP architecture after concat
+  dropout: 0.1
+  freeze_encoder: true           # recommended: only train the MLP
+  pooling: cls_last
+
+training:
+  batch_size: 32
+  accumulate_grad_batches: 1
+  epochs: 30
+  learning_rate: 1e-3            # higher LR since encoder is frozen
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  sampling_weight_fn:
+    _target_: bonsai.functional.sampling.effective_n_samples
+  loss_weight_function:
+    _target_: bonsai.functional.loss.effective_n_samples
+  eval_monitor_metric: val/AUROC
+  early_stopping_patience: 7
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

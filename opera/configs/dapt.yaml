@@ -1,0 +1,150 @@
+defaults: 
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+# ══════════════════════════════════════════════════════════════════════
+# OPERA DAPT — Domain-Adaptive Pretraining
+# ══════════════════════════════════════════════════════════════════════
+#
+# WORKFLOW CONTEXT
+# ================
+# 1. Collaborators pretrain a BONSAI model from scratch on their broad
+#    population using registries they have access to (LPR3, labs, etc.)
+#    This produces the BASE MODEL with vocabulary V_collab.
+#
+# 2. You receive the base model.  Your 75k hematology cohort has:
+#    - LPR3 tokens (SHARED — same token space as base model)
+#    - LPR tokens  (can be MAPPED to LPR3 prefix → no expansion needed)
+#    - Cancer registry tokens (NOT in base vocab — small, specialized)
+#    - Pathology tokens (NOT in base vocab — small, specialized)
+#    - Lab tokens (SHARED if collaborators included labs)
+#    - RKKP tokens (NOT in base vocab — quality registry)
+#
+# 3. DAPT continues pretraining on your 75k cohort, optionally
+#    expanding the vocabulary with the small set of new sources.
+#
+# VOCABULARY SITUATION
+# ====================
+# The bulk of the clinical narrative (procedures, diagnoses, admin)
+# maps to LPR3 tokens that the base model already understands.
+# LPR data can be mapped to the same LPR3 prefix before tokenization.
+#
+# The tokens that are genuinely NEW are:
+#   - Cancer registry: tumor staging, tumor size, etc. (few tokens)
+#   - Pathology: morphology codes, specific findings (few tokens)
+#   - RKKP: quality registry variables (optional)
+#
+# These are clinically critical for hematology but represent a SMALL
+# vocabulary addition.  This is the ideal expansion scenario: few new
+# tokens, high clinical signal, and the pretrained transformer already
+# understands the broader context they appear in.
+#
+# ══════════════════════════════════════════════════════════════════════
+# DAPT STRATEGIES
+# ══════════════════════════════════════════════════════════════════════
+#
+# ── Strategy A: No expansion ─────────────────────────────────────
+#   expand_vocab: false
+#   DAPT uses only LPR3-mapped tokens + shared registries (labs).
+#   Cancer/pathology/RKKP information enters via hybrid model or
+#   outcome definitions only.
+#   + Cleanest: same token space as base model
+#   + All tokens have pretrained embeddings
+#   + Simplest ablation
+#   - Transformer never sees cancer staging or pathology in-context
+#
+# ── Strategy B: Expand with cancer + pathology ───────────────────
+#   expand_vocab: true
+#   Add cancer + pathology tokens to vocabulary.  These are few tokens
+#   with dense clinical signal — ideal for expansion.
+#   + Transformer learns attention between EHR events and staging
+#   + Small expansion → minimal gradient mismatch
+#   + Cancer staging + pathology are critical for hematology outcomes
+#   - Small number of training examples for new embeddings
+#
+# ── Strategy C: Expand with cancer + pathology + RKKP ────────────
+#   expand_vocab: true, include RKKP domain vocab
+#   Full expansion — all exclusive sources added.
+#   + Maximum information in the representation
+#   - RKKP tokens are quality-registry-specific (may not generalize)
+#   - More new tokens to learn from limited data
+#
+# ── Strategy D: Two-phase DAPT ───────────────────────────────────
+#   Phase 1: expand_vocab=false
+#     Adapt the base model to hematology using shared LPR3 tokens.
+#     Transformer layers learn hematology-specific patterns.
+#
+#   Phase 2: expand_vocab=true (from Phase 1 checkpoint)
+#     freeze_pretrained_embeds: true recommended
+#     Add cancer + pathology (+ RKKP) tokens.  New embeddings are
+#     learned in the context of a hematology-adapted encoder.
+#     LPR3 embeddings are frozen (already well-adapted).
+#
+#   + Clean intermediate checkpoint for ablation
+#   + New tokens benefit from domain-adapted context
+#   - Two training runs
+#
+# RECOMMENDATION FOR COLLABORATOR DISCUSSION (Step 1)
+# ===================================================
+# Before they pretrain, agree on:
+#   1. Token prefix convention (e.g. LPR3//D501, LAB//hemoglobin)
+#   2. LPR → LPR3 mapping table (so you can map your LPR data to
+#      their token space before tokenization)
+#   3. Whether labs are included in their pretraining
+#   4. Vocabulary file format (so you can load it directly)
+# ══════════════════════════════════════════════════════════════════════
+
+# Path to the base model (from collaborators) or Phase 1 checkpoint
+pretrain_ckpt: ???
+dataset: ???
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocab: ${paths.dir}/vocabulary.pt          # collaborator's vocab for Phase 1
+  dataset_class: bonsai.modules.datasets.PretrainDataset.MLMPretrainDataset
+  population: ${paths.dir}/population_full.csv
+  ckpt_path: null
+
+expand_vocab: false
+
+vocab_expansion:
+  # ── Cancer + pathology (Strategy B) ──
+  # domain_vocabs:
+  #   cancer: /path/to/cancer_registry_vocabulary.pt
+  #   pathology: /path/to/pathology_vocabulary.pt
+
+  # ── Cancer + pathology + RKKP (Strategy C) ──
+  # domain_vocabs:
+  #   cancer: /path/to/cancer_registry_vocabulary.pt
+  #   pathology: /path/to/pathology_vocabulary.pt
+  #   RKKP: /path/to/rkkp_vocabulary.pt
+
+  init_std: 0.02
+  new_embed_lr_multiplier: 5.0
+  freeze_pretrained_embeds: false  # true for Phase 2 of Strategy D
+
+training:
+  max_len: 8192
+  # Long patients keep background tokens, then use a mix of recent-history
+  # and random contiguous clinical windows during training. Validation stays
+  # deterministic with tail windows.
+  truncation_strategy: mixed_window
+  validation_truncation_strategy: tail
+  tail_window_probability: 0.5
+  cutoff_date: null
+  batch_size: 16
+  accumulate_grad_batches: 4
+  epochs: 5
+  learning_rate: 1e-4
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0
+  masking:
+    masking_select_ratio: 0.15
+    masking_mask_ratio: 0.8
+    masking_random_ratio: 0.1
+    masking_ignore_special_tokens: true

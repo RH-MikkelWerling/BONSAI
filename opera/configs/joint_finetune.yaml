@@ -1,0 +1,77 @@
+# ══════════════════════════════════════════════════════════════════════
+# OPERA Joint Multi-Task Finetuning Config
+#
+# Trains ONE model on ALL cohorts × ALL outcomes simultaneously.
+# This is the experimental condition that tests whether the foundation
+# model's shared representation outperforms separate tabular models.
+#
+# After training, point sweep_config.yaml at this checkpoint with:
+#   encoder_source: joint
+# ══════════════════════════════════════════════════════════════════════
+
+defaults:
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+encoder_ckpt: ???          # path to contrastive (or dapt/pretrain) checkpoint
+encoder_source: contrastive  # "pretrain" | "dapt" | "contrastive"
+
+paths:
+  # vocabulary can come from any cohort — they share a token space
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl/vocabulary.pt
+
+# ── Cohorts: all disease cohorts trained jointly ───────────────────
+cohorts:
+  dlbcl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl
+  cll:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll
+  # mds:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
+  # myeloma:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
+  # fl:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
+
+# ── Outcomes: all outcomes trained jointly ─────────────────────────
+# Missing parquets per cohort are silently skipped. Multiple task windows can
+# reuse the same source event-time parquet via `outcome_file`.
+outcomes:
+  mortality_1y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 8760
+  mortality_2y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 17520
+  treatment_failure:
+    outcome_file: treatment_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+  aki_30d:
+    outcome_file: aki.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 720
+  severe_infection_90d:
+    outcome_file: severe_infection.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 2160
+
+model:
+  pooling: bigru
+  freeze_encoder: false   # true → ablation: only train heads
+  dropout: 0.1
+
+training:
+  batch_size: 64
+  accumulate_grad_batches: 2
+  epochs: 20
+  learning_rate: 5e-4
+  encoder_lr_multiplier: 0.1
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  early_stopping_patience: 5
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

@@ -1,0 +1,64 @@
+defaults: 
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+dapt_ckpt: ???   # path to DAPT (or base pretrain) checkpoint
+dapt_embedding_store: null
+dataset: ???
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+
+# ── Outcomes ──────────────────────────────────────────────────────────
+# Add one block per outcome.  These are loaded as separate parquet files
+# and combined into the multi-outcome contrastive objective.
+#
+# TUNE: Add / remove outcomes here. The sigma values will adapt.
+outcomes:
+  treatment_failure:
+    path: ${paths.dir}/outcomes/treatment_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+  # mortality:
+  #   path: ${paths.dir}/outcomes/mortality.parquet
+  #   n_hours_start_include: 1
+  #   n_hours_end_include: 8760      # 1-year mortality
+  # relapse:
+  #   path: ${paths.dir}/outcomes/relapse.parquet
+  #   n_hours_start_include: 1
+  #   n_hours_end_include: null
+
+model:
+  projection_hidden_dim: 256    # TUNE: projection MLP intermediate width
+  projection_dim: 128           # TUNE: contrastive embedding dimension
+  temperature: 0.07             # TUNE: SupCon temperature
+  freeze_encoder: false         # TUNE: true → only train projection head
+  pooling: cls_last             # "cls_last" or "bigru"
+  # DAPT cosine similarity is optional and only modulates outcome pair weights.
+  # Set to 1.0 to disable the DAPT-prior modulation for ablations.
+  dapt_lambda_floor: 0.3
+  # Optional cosine anchor on pre-projection pooled encoder states.
+  # Default 0.0 preserves historical contrastive behaviour.
+  dapt_anchor_weight: 0.0
+  # Competing deaths are conservative by default. Use sensitivity runs such as
+  # 0.5 and 1.0 when asking whether primary-vs-competing similarity matters.
+  competing_event_weight: 0.0
+  # Scale the sigma input by the effective informative-pair fraction so rare or
+  # heavily censored outcomes do not look noisy merely because they have fewer pairs.
+  effective_pair_normalization: true
+
+training:
+  batch_size: 64                # larger batches → better contrastive learning
+  accumulate_grad_batches: 2
+  epochs: 20
+  learning_rate: 5e-5
+  encoder_lr_multiplier: 0.1   # encoder LR = learning_rate * this
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 2
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

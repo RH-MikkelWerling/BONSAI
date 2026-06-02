@@ -1,0 +1,52 @@
+defaults: 
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+encoder_ckpt: ???         # path to pretrain / DAPT / contrastive checkpoint
+encoder_source: contrastive   # "pretrain" | "dapt" | "contrastive"
+dataset: ???
+outcome: ???
+training_stage: per_task_finetuning
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+  outcome: ${paths.dir}/outcomes/${outcome}.parquet
+
+labels:
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+  n_hours_start_include: 1
+  n_hours_end_include: null
+  require_min_followup_train: false
+  require_min_followup_val: true
+  require_min_followup_test: true
+
+model:
+  # Architecture params are inherited from the encoder checkpoint.
+  # Only add NEW keys here (e.g. finetune-specific dropout).
+  is_causal: false
+  freeze_encoder: false
+  head_type: finetune_head
+  trainable_prefixes: null
+
+training:
+  batch_size: 32
+  accumulate_grad_batches: 1
+  epochs: 20
+  learning_rate: 5e-4
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  sampling_weight_fn:
+    _target_: bonsai.functional.sampling.effective_n_samples
+  loss_weight_function:
+    _target_: bonsai.functional.loss.effective_n_samples
+  eval_monitor_metric: val/AUROC
+  early_stopping_patience: 5
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

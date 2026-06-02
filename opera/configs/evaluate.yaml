@@ -1,0 +1,54 @@
+defaults:
+  - _self_
+
+ckpt_path: ???
+dataset: ???
+outcome: ???
+output_dir: ???
+model_family: null
+training_stage: evaluation
+encoder_frozen: null
+head_type: null
+
+device: auto    # "cuda", "cpu", or "auto"
+batch_size: 64
+num_workers: 4
+threshold: 0.5
+n_bootstrap: 1000
+strict_checkpoint_load: true
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  test_split: ${paths.dir}/subject_data_held_out.pt
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+  outcome: ${paths.dir}/outcomes/${outcome}.parquet
+  subgroups: null
+
+subgroups:
+  columns: []
+
+rarity:
+  # none = ordinary evaluation, synthetic = label-scarcity subsampling,
+  # real = genuinely small disease cohort or cohort-outcome cell.
+  mode: none
+  tier: null
+  baseline_model: null
+  size_metadata:
+    n_train: null
+    n_val: null
+    n_test: null
+    n_events_train: null
+    n_events_val: null
+    n_events_test: null
+    prevalence_train: null
+    prevalence_val: null
+    prevalence_test: null
+
+labels:
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+  n_hours_start_include: 1
+  n_hours_end_include: null
+  require_min_followup_test: true

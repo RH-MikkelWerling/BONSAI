@@ -1,0 +1,54 @@
+name: supplement
+description: Supplementary OPERA robustness and ablation experiments.
+
+experiments:
+  - name: joint_vs_per_cohort
+    script: opera.run.joint_vs_per_cohort
+    output: joint_minus_per_cohort_table.csv
+
+  - name: label_efficiency
+    script: opera.run.label_efficiency
+    rarity_mode: synthetic
+    fractions: [0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 1.00]
+    seeds: [42, 43, 44]
+    preserves_val_test: true
+    outputs:
+      - label_efficiency_results.json
+      - label_efficiency_summary.csv
+      - label_efficiency_pooled.csv
+      - label_efficiency_delta.csv
+      - label_efficiency_pooled_delta.csv
+      - label_efficiency_pooled.png
+
+  - name: real_rare_cohort_benchmark
+    config: opera/configs/rare_cohort_benchmark.yaml
+    rarity_mode: real
+    baseline_model: tabular_ehr
+    aggregate_with: opera.run.aggregate_results
+    outputs:
+      - real_rarity_task_level.csv
+      - real_rarity_pooled.csv
+      - real_rarity_delta.png
+
+  - name: calibration
+    script: opera.run.evaluate
+    outputs:
+      - metrics.json
+      - threshold_sweep.csv
+      - decision_curve.csv
+
+  - name: subgroup_robustness
+    script: opera.run.evaluate
+    strata:
+      - age_group
+      - sex
+      - calendar_period
+      - cohort
+
+  - name: pretraining_scale_ablation
+    accepts_multiple_upstream_checkpoints: true
+    script: opera.run.pretraining_scale_ablation
+    aggregate_with: opera.run.aggregate_results
+    outputs:
+      - pretraining_scale_cells.csv
+      - pretraining_scale_summary.csv

@@ -1,84 +1,211 @@
-# BONSAI
+# BONSAI / OPERA
 
-[![Pipeline tests](https://github.com/FGA-DIKU/EHR/actions/workflows/pipeline.yml/badge.svg)](https://github.com/FGA-DIKU/EHR/actions/workflows/pipeline.yml)
-[![Unittests](https://github.com/FGA-DIKU/EHR/actions/workflows/unittests.yml/badge.svg)](https://github.com/FGA-DIKU/EHR/actions/workflows/unittests.yml)
-[![Format](https://github.com/FGA-DIKU/EHR/actions/workflows/format.yml/badge.svg)](https://github.com/FGA-DIKU/EHR/actions/workflows/format.yml)
-[![Lint](https://github.com/FGA-DIKU/EHR/actions/workflows/lint.yml/badge.svg)](https://github.com/FGA-DIKU/EHR/actions/workflows/lint.yml)
+BONSAI contains the core EHR data, outcome, pretraining, and finetuning
+pipeline. OPERA adds hematology-specific adaptation, joint finetuning,
+evaluation, aggregation, and paper experiment tooling.
 
-> **A framework for processing and analyzing Electronic Health Records (EHR) data using transformer-based models.**
+## Repository Layout
 
-BONSAI helps researchers and data scientists preprocess EHR data, train models, and generate outcomes for downstream clinical predictions and analyses.
+- `bonsai/`: shared data processing, datasets, model modules, and training entry points
+- `opera/`: OPERA adaptation, joint finetuning, evaluation, plotting, and aggregation
+- `bonsai/configs/`: BONSAI data creation, training, and finetuning configs
+- `opera/configs/`: OPERA finetuning, evaluation, sweep, and manifest configs
+- `tests/`: unit tests for dataset immutability, checkpoint metadata, split logic, metrics, aggregation, and rarity helpers
+- `OPERA_EXPERIMENTS.md`: paper workflow notes and experiment commands
+- `OPERA_REPOSITORY_GUIDE.md`: practical guide to repository functionality and the press-go checklist
 
-### Setup (requires Python 3.12)
+## Setup
 
-```
-git clone https://github.com/FGA-DIKU/BONSAI.git
-pip install -e .
-cp template_env .env
-```
+Create a virtual environment and install the repo in editable mode:
 
-You can adapt the paths in .env to specify alternative directories containing custom configs, input data or where model checkpoint should be saved.
-
-### Basic usage:
-
-1. Create data.
-`python bonsai/run/create_data.py --config-name examples/example_data dataset=correlated_MEDS_data`
-We use the [example_data.yaml](./configs/examples/example_data.yaml) config which transforms the correlated_MEDS_data in the example_data folder into the training format. This data will be saved in `data/correlated_MEDS_data`
-
-2. Pretrain model. 
-`python bonsai/run/pretrain.py --config-name examples/example_pretrain dataset=correlated_MEDS_data`
-We use the [pretrain.yaml](./configs/examples/example_pretrain.yaml) config to have a short resource-light training that can run locally and point it to the dataset created in step 1.
-
-3. Create outcomes (labels for finetuning)
-`python bonsai/run/create_outcome.py --config-name examples/example_outcome1 dataset=correlated_MEDS_data`
-We use the [example_outcome.yaml](./configs/examples/example_outcome1.yaml) config which processes the target outcomes for the correlated_MEDS_data in the example_data folder and saves them in an outcome file in `data/correlated_MEDS_data/outcomes/examples/example_outcome1.parquet`
-
-4. Finetune model.
-`python bonsai/run/finetune.py --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 pretrain_path=/path/to/your/pretrained/checkpoints/best.ckpt`
-We use the [finetune.yaml](./configs/examples/example_finetune.yaml) config to have a short resource-light training that can run locally and point it to the dataset created in step 1, the checkpoint created in step 2, and the labels created in step 3.
-
-5. Train model.
-`python bonsai/run/train.py --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1`
-We use the [finetune.yaml](./configs/examples/example_finetune.yaml) config to have a short resource-light no-pretraining training that can run locally and point it to the dataset created in step 1 and the labels created in step 3.
-
-To use the old pre-lightning version use:
-```
-git checkout tags/pre-lightning
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
+On Windows PowerShell:
 
-## Resume training
-To resume training supply the path to the checkpoint and the old run_id. Without the run_id training will continue with a new ID in a new directory.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
 
-`python bonsai/run/pretrain.py --config-name examples/example_pretrain dataset=correlated_MEDS_data paths.ckpt_path=/path/to/run_id_1234/ckpt.last run_id=1234`
+The package configuration installs both `bonsai` and `opera`, so fresh
+checkouts can import and run both namespaces without path hacks.
 
-## Outcomes creation
-We provide a standardized script to generate outcomes in [create_outcome.py](/bonsai/run/create_outcome.py), however you can also provide your own, in case our script doesn't accommodate your needs. 
+## Tests
 
-An outcome file requires the following 5 columns saved as a `.parquet` file:
+Run the full test suite with:
 
-1. A `subject_id` to define the person of interest
-2. A `split` string (e.g. "train", "tuning", "held_out") that denotes which split the given row belongs to (i.e. we make one file for all splits)
-3. A `outcome_date` that denotes when the outcome happened (can be null)
-4. A `index_date` that denotes from when we consider the prediction (can't be null)
-5. A `censor_date` that denotes the data cutoff (can't be null)
+```bash
+python -m pytest tests
+```
 
-## Contributing
+Convenience targets are also available:
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
+```bash
+make test
+make smoke
+make readiness
+make rarity-demo
+```
 
-- Code style and formatting
-- Testing requirements
-- Pull request process
-- Issue reporting
+A quick syntax check that does not require all optional runtime dependencies:
 
-## License
+```bash
+python -m compileall bonsai opera tests
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Core Commands
+
+BONSAI pretraining and finetuning entry points:
+
+```bash
+python -m bonsai.run.pretrain
+python -m bonsai.run.train
+python -m bonsai.run.finetune
+```
+
+OPERA adaptation and finetuning entry points:
+
+```bash
+python -m opera.run.dapt
+python -m opera.run.mol
+python -m opera.run.contrastive
+python -m opera.run.finetune
+python -m opera.run.joint_finetune
+```
+
+Pretraining/DAPT configs support long histories with mixed-window truncation:
+
+```yaml
+training:
+  max_len: 8192
+  truncation_strategy: mixed_window
+  validation_truncation_strategy: tail
+  tail_window_probability: 0.5
+```
+
+Background tokens are always preserved. Training alternates between recent
+history and random contiguous clinical windows; validation stays deterministic.
+
+Standalone evaluation:
+
+```bash
+python -m opera.run.evaluate \
+  ckpt_path=/ckpts/opera/best.ckpt \
+  dataset=dlbcl \
+  outcome=mortality_1y \
+  output_dir=./results/dlbcl/mortality_1y/opera
+```
+
+Joint-model evaluation for one cohort-outcome cell:
+
+```bash
+python -m opera.run.evaluate_joint \
+  ckpt_path=/ckpts/joint_finetune/best.ckpt \
+  dataset=dlbcl \
+  outcome=mortality_1y \
+  outcome_name=mortality_1y \
+  output_dir=./results/dlbcl/mortality_1y/opera_joint
+```
+
+## Prospective Splits And Follow-Up
+
+Outcome creation supports prospective split definitions through
+`prospective_split` config blocks. Generated outcome files can be checked with:
+
+```bash
+python -m bonsai.run.validate_splits \
+  --outcome /data/dlbcl/outcomes/mortality.parquet \
+  --train_end 2023-12-31 \
+  --val_start 2023-07-01 \
+  --val_end 2023-12-31 \
+  --test_start 2024-01-01 \
+  --fail_on_error
+```
+
+Bounded-window validation and test labels require sufficient follow-up by
+default. Finetuning runs write `label_split_summary.csv` with retained subjects,
+events, prevalence, and insufficient-follow-up exclusions by split.
+Validation is used for tuning/model selection and should be an explicit
+pre-prospective period; the prospective held-out test period remains separate.
+
+## Rarity Analyses
+
+The code distinguishes two regimes:
+
+- `synthetic`: common disease tasks with artificially reduced training labels
+- `real`: genuinely small disease cohorts or small cohort-outcome cells
+
+Synthetic rarity / label scarcity:
+
+```bash
+python -m opera.run.label_efficiency \
+  --sweep_config opera/configs/sweep_example.yaml \
+  --tasks dlbcl:mortality_1y,myeloma:aki_30d \
+  --fractions 0.01,0.02,0.05,0.1,0.25,0.5,1.0 \
+  --baseline_model tabular_ehr
+```
+
+Real rare-cohort benchmarks are configured separately in:
+
+```text
+opera/configs/rare_cohort_benchmark.yaml
+```
+
+Evaluation result rows include `rarity_mode`, `rarity_tier`, split sizes,
+event counts, and split prevalence fields. Aggregate rarity outputs with:
+
+```bash
+python -m opera.run.aggregate_results \
+  --results_dir ./results \
+  --output_dir ./results/aggregated \
+  --baseline tabular_ehr \
+  --rarity_plots
+```
+
+This writes separate synthetic and real rarity delta tables so the two regimes
+are not pooled unless an analysis explicitly does so.
+
+Outcome configs can reuse one event-time parquet for multiple windows:
+
+```yaml
+mortality_1y:
+  outcome_file: mortality.parquet
+  n_hours_end_include: 8760
+mortality_2y:
+  outcome_file: mortality.parquet
+  n_hours_end_include: 17520
+```
+
+`censor_date` is the end of observed follow-up, not only a fallback field for
+non-events. A single event-time parquet can therefore support survival metrics
+and multiple horizon-classification tasks.
+
+External/tabular baselines can be evaluated from prediction files with
+`python -m opera.run.evaluate_predictions`.
+Locked tabular feature matrices can be converted into those prediction files
+with `python -m opera.run.train_tabular_baselines`. TabPFN is supported as an
+optional baseline via `python -m pip install -e ".[tabpfn]"`.
+
+## Experiment Manifests
+
+Paper-oriented manifests live in `opera/configs/manifests/`:
+
+- `paper_core.yaml`
+- `supplement.yaml`
+
+They document intended experiment bundles and expected artifacts. They are not a
+job scheduler.
 
 ## Citation
 
-If you use BONSAI in your research, please cite the following paper:
+If you use BONSAI in your research, cite:
 
 ```bibtex
 @article{Montgomery2025,

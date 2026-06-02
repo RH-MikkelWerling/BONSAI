@@ -1,0 +1,111 @@
+name: paper_core
+description: Core OPERA paper experiments.
+
+split:
+  type: prospective
+  date_col: index_date
+  train_end: "2023-12-31"
+  val_start: "2023-07-01"
+  val_end: "2023-12-31"
+  test_start: "2024-01-01"
+  test_end: null
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+
+stages:
+  - name: general_denmark_pretraining
+    script: bonsai.run.pretrain
+    artifact: checkpoint
+  - name: hematology_only_pretraining
+    script: opera.run.hematology_pretrain
+    config: opera/configs/hematology_pretrain.yaml
+    artifact: checkpoint
+  - name: patient_benefit_analysis
+    script: opera.run.patient_benefit_analysis
+    config: opera/configs/patient_benefit_contrasts.yaml
+    artifact: figures
+    depends_on:
+      - general_denmark_pretraining
+      - hematology_only_pretraining
+      - hematology_domain_adaptation
+      - opera_contrastive_adaptation
+  - name: hematology_domain_adaptation
+    script: opera.run.dapt
+    artifact: checkpoint
+  - name: non_contrastive_hematology_adaptation
+    script: opera.run.mol
+    artifact: checkpoint
+  - name: opera_contrastive_adaptation
+    script: opera.run.contrastive_multicohort
+    artifact: checkpoint
+  - name: per_task_finetuning
+    script: opera.run.finetune
+    artifact: checkpoint
+  - name: joint_finetuning
+    script: opera.run.joint_finetune
+    artifact: checkpoint
+
+comparisons:
+  - name: base_pretrained
+    encoder_source: pretrain
+  - name: hematology_only_pretrained
+    encoder_source: pretrain
+    pretraining_scope: hematology_only
+    primary_result: true
+    display_name: "Hematology-only pretrain"
+  - name: hematology_dapt
+    encoder_source: dapt
+  - name: non_contrastive_hematology
+    encoder_source: mol
+  - name: opera_contrastive
+    encoder_source: contrastive
+  - name: opera_per_cohort
+    encoder_source: contrastive
+    opera_scope: per_cohort
+  - name: opera_joint_contrastive
+    encoder_source: contrastive
+    opera_scope: joint
+  - name: opera_joint
+    encoder_source: joint
+
+transfer_contrasts:
+  - name: hematology_only_minus_general_pretraining
+    baseline_model: hematology_only_pretrain
+    comparator_model: base_pretrain
+    for_whom_analysis: true
+    atypicality_mode: nearest
+    description: >
+      Tests whether general population pretraining helps hematology patients
+      who are atypical within the hematology distribution - the 'irrelevant
+      patients' experiment.
+  - name: dapt_minus_hematology_only
+    baseline_model: hematology_only_pretrain
+    comparator_model: dapt
+  - name: joint_opera_minus_per_cohort_opera
+    baseline_model: opera_per_cohort
+    comparator_model: opera_joint_contrastive
+  - name: joint_finetune_minus_joint_opera
+    baseline_model: opera_joint_contrastive
+    comparator_model: opera_joint
+
+outputs:
+  result_schema:
+    - result.csv
+    - result.jsonl
+    - metrics.json
+    - predictions.npz
+  required_metadata:
+    - model_family
+    - training_stage
+    - cohort
+    - outcome
+    - outcome_window_hours
+    - split
+    - seed
+    - checkpoint_path
+    - config_hash
+    - rarity_mode
+    - n_train
+    - n_val
+    - n_test

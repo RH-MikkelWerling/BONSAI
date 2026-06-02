@@ -1,0 +1,67 @@
+# Hematology-only pretraining from scratch.
+#
+# This is the clean ablation for the staged ladder:
+#   base_pretrain -> hematology_only_pretrain -> DAPT -> OPERA per-cohort
+#   -> OPERA joint -> joint finetune.
+#
+# Run with the OPERA wrapper around the BONSAI pretraining machinery:
+#   python -m opera.run.hematology_pretrain
+
+dataset: hematology_all
+training_stage: hematology_only_pretraining
+
+hydra:
+  verbose: false
+  output_subdir: hydra
+  run:
+    dir: ${oc.env:BONSAI_MODELS}/${dataset}/${hydra:job.config_name}
+  sweep:
+    dir: ${oc.env:BONSAI_MODELS}/${dataset}
+    subdir: ${hydra:job.config_name}
+
+hardware:
+  accelerator: "auto"
+  num_nodes: 1
+  num_devices: 1
+  num_workers: 6
+  precision: "bf16-mixed"
+  strategy: "auto"
+  compile_mode: "default"
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocab: ${paths.dir}/vocabulary.pt
+  dataset_class: bonsai.modules.datasets.PretrainDataset.ARPretrainDataset
+  population: ${paths.dir}/population_full.csv
+  ckpt_path: null
+
+model:
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  type_vocab_size: 1024
+  embedding_dropout: 0.1
+  max_position_embeddings: 8192
+  is_causal: true
+
+training:
+  max_len: 8192
+  truncation_strategy: mixed_window
+  validation_truncation_strategy: tail
+  tail_window_probability: 0.5
+  batch_size: 16
+  accumulate_grad_batches: 4
+  epochs: 20
+  learning_rate: 1e-4
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 2
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0
+  masking:
+    masking_select_ratio: 0.15
+    masking_mask_ratio: 0.8
+    masking_random_ratio: 0.1
+    masking_ignore_special_tokens: true

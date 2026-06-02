@@ -1,0 +1,95 @@
+# ══════════════════════════════════════════════════════════════════════
+# OPERA Multi-Cohort Contrastive Training Config
+# ══════════════════════════════════════════════════════════════════════
+#
+# Add a block per disease cohort under `cohorts`.
+# Add a block per outcome under `outcomes` — missing parquets are
+# silently skipped, so each outcome does not need to exist for every
+# cohort.
+#
+# Usage:
+#   python -m opera.run.contrastive_multicohort \
+#       dapt_ckpt=/path/to/dapt/best.ckpt \
+#       dapt_embedding_store=/path/to/dapt_embeddings.pt   # optional
+# ══════════════════════════════════════════════════════════════════════
+
+defaults:
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+dapt_ckpt: ???
+dapt_embedding_store: null    # path to pre-computed DAPT .pt store, or null
+
+# ── Disease cohorts ──────────────────────────────────────────────────
+# Each cohort needs subject_data_train.pt / subject_data_tuning.pt
+# and an outcomes/ subdirectory.
+cohorts:
+  dlbcl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl
+  cll:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll
+  # mds:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
+  # myeloma:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
+  # fl:
+  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
+
+# ── Outcomes (shared across cohorts where parquet exists) ───────────
+# outcome_file: source event-time parquet inside each cohort's outcomes/ dir.
+# Multiple task windows can reuse the same source file.
+outcomes:
+  mortality_1y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 8760
+  mortality_2y:
+    outcome_file: mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 17520
+  treatment_failure:
+    outcome_file: treatment_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+  aki_30d:
+    outcome_file: aki.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 720
+  severe_infection_90d:
+    outcome_file: severe_infection.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 2160
+  # adverse_events_90d:
+  #   outcome_file: adverse_events.parquet
+  #   n_hours_start_include: 1
+  #   n_hours_end_include: 2160
+
+model:
+  projection_hidden_dim: 256
+  projection_dim: 128
+  temperature: 0.07
+  # DAPT cosine similarity modulates outcome/time/censoring pair weights.
+  # 1.0 disables the DAPT prior ablation; lower values give the prior more say.
+  dapt_lambda_floor: 0.3
+  # Optional cosine anchor on pre-projection pooled encoder states.
+  # Default 0.0 preserves historical contrastive behaviour.
+  dapt_anchor_weight: 0.0
+  # Conservative competing-event default. Run gamma sensitivity with 0.5 and
+  # 1.0 for the competing-risk appendix rather than learning this parameter.
+  competing_event_weight: 0.0
+  # Normalize sigma/loss by effective informative pairs across each outcome.
+  effective_pair_normalization: true
+  freeze_encoder: false
+  pooling: cls_last
+
+training:
+  batch_size: 128               # larger = more cross-disease pairs per step
+  accumulate_grad_batches: 2
+  epochs: 20
+  learning_rate: 5e-5
+  encoder_lr_multiplier: 0.1
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 2
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

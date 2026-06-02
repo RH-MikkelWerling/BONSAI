@@ -1,0 +1,39 @@
+# Real rare disease / small cohort-outcome benchmark.
+#
+# This is separate from synthetic label-efficiency experiments. `rarity_mode:
+# real` means the task is genuinely small before any artificial subsampling.
+
+output_dir: /results/opera_real_rarity
+baseline_model: tabular_ehr
+rarity_mode: real
+
+size_bins:
+  n_train: [0, 25, 50, 100, 250, 500]
+
+tasks:
+  # Replace paths and outcomes with the paper's locked rare-cohort cells.
+  - cohort: rare_lymphoma
+    outcome: mortality_1y
+    outcome_file: mortality.parquet
+    data_dir: ${BONSAI_PROCESSED_DATA}/rare_lymphoma
+    rarity_tier: real_rare_disease
+    n_hours_start_include: 1
+    n_hours_end_include: 8760
+
+  - cohort: mds
+    outcome: aki_30d
+    outcome_file: aki.parquet
+    data_dir: ${BONSAI_PROCESSED_DATA}/mds
+    rarity_tier: small_cohort_outcome_cell
+    n_hours_start_include: 1
+    n_hours_end_include: 720
+
+model_variants:
+  tabular_ehr:
+    predictions_file: /results/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
+  opera:
+    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_source: contrastive
+  opera_joint:
+    encoder_ckpt: /ckpts/joint_finetune/best.ckpt
+    encoder_source: joint

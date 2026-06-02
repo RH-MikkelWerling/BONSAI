@@ -1,0 +1,47 @@
+defaults:
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+encoder_ckpt: ???
+encoder_source: contrastive
+dataset: ???
+outcome: ???
+training_mode: cox
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+  outcome: ${paths.dir}/outcomes/${outcome}.parquet
+  competing_outcome: null
+
+labels:
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+  n_hours_start_include: 1
+  n_hours_end_include: null
+  require_min_followup_train: false
+  require_min_followup_val: false
+  require_min_followup_test: false
+
+model:
+  is_causal: false
+
+training:
+  batch_size: 32
+  accumulate_grad_batches: 1
+  epochs: 20
+  learning_rate: 5e-4
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  # Survival/IPCW objectives do not use label resampling or extra positive
+  # class weighting. Cox uses censoring-aware event times; IPCW-BCE uses
+  # per-subject IPCW weights to preserve probability calibration.
+  eval_monitor_metric: val/concordance_index
+  early_stopping_patience: 5
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0
