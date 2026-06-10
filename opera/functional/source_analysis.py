@@ -27,11 +27,10 @@ The source of each token is inferred from namespace prefixes:
   - "[CLS]", "[MASK]" → ignored (special tokens)
 """
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 from collections import Counter
 import numpy as np
 import torch
-import logging
 
 
 def infer_patient_sources(
@@ -221,9 +220,7 @@ def format_source_report(
         lines.append("\n── Outcome prevalence by source ──")
         prev = source_stats["source_outcome_prevalence"]
         # Header
-        outcomes = sorted(set(
-            o for source_prev in prev.values() for o in source_prev
-        ))
+        outcomes = sorted(set(o for source_prev in prev.values() for o in source_prev))
         header = f"  {'Source':20s}" + "".join(f"  {o:>15s}" for o in outcomes)
         lines.append(header)
         for source in sorted(prev):
@@ -237,7 +234,7 @@ def format_source_report(
             lines.append(row)
 
     if source_separation is not None:
-        lines.append(f"\n── Source separation in embedding space ──")
+        lines.append("\n── Source separation in embedding space ──")
         lines.append(f"  Silhouette score: {source_separation:.4f}")
         if source_separation > 0.3:
             lines.append(
@@ -262,6 +259,7 @@ def format_source_report(
 # ═════════════════════════════════════════════════════════════════════
 # Per-source token profiling
 # ═════════════════════════════════════════════════════════════════════
+
 
 def compute_token_source_profile(
     subjects: list,
@@ -338,15 +336,18 @@ def compute_token_source_profile(
 
     # Summary
     summary = {}
-    n = len(df)
     for prefix in source_prefixes:
         has = df[prefix] > 0
         summary[prefix] = {
             "n_patients_with": int(has.sum()),
             "n_patients_without": int((~has).sum()),
             "fraction_with": float(has.mean()),
-            "mean_tokens_when_present": float(df.loc[has, prefix].mean()) if has.any() else 0,
-            "median_tokens_when_present": float(df.loc[has, prefix].median()) if has.any() else 0,
+            "mean_tokens_when_present": float(df.loc[has, prefix].mean())
+            if has.any()
+            else 0,
+            "median_tokens_when_present": float(df.loc[has, prefix].median())
+            if has.any()
+            else 0,
         }
 
     return {
@@ -438,5 +439,3 @@ def format_token_profile_report(profile: Dict) -> str:
 
     lines.append("\n" + "=" * 65)
     return "\n".join(lines)
-
-

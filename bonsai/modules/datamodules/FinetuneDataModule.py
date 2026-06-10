@@ -58,9 +58,16 @@ class FinetuneDataModule(L.LightningDataModule):
         population_subject_ids = self.population["subject_id"].to_list()
         train_data = filter_subject_data(train_data, population_subject_ids)
         val_data = filter_subject_data(val_data, population_subject_ids)
+        if not train_data:
+            raise ValueError(
+                "No training subjects remain after outcome/population filtering."
+            )
+        if not val_data:
+            raise ValueError(
+                "No validation subjects remain after outcome/population filtering."
+            )
 
-        # !!! Assumes background tokens ALWAYS exists AND same for all people !!!
-        background_length = (train_data[0]["segment"] == 0).sum()
+        background_length = int((train_data[0]["segment"] == 0).sum())
 
         self.train_dataset = FinetuneDataset(
             train_data,
@@ -83,7 +90,7 @@ class FinetuneDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             batch_size=self.batch_size,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
             drop_last=True,
             collate_fn=dynamic_padding,
             sampler=self.train_sampler,
@@ -95,7 +102,7 @@ class FinetuneDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             batch_size=self.batch_size,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
             drop_last=True,
             shuffle=False,
             collate_fn=dynamic_padding,

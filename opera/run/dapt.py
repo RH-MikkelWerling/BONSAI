@@ -102,7 +102,8 @@ def main(cfg: DictConfig) -> None:
             # Single source
             domain_vocab = torch.load(vcfg.domain_vocab_path)
             merged_vocab, n_base, n_new = merge_vocabularies(
-                base_vocab, domain_vocab,
+                base_vocab,
+                domain_vocab,
                 domain_prefix=vcfg.get("domain_prefix"),
             )
 
@@ -144,7 +145,9 @@ def main(cfg: DictConfig) -> None:
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,
         train_truncation_strategy=cfg.training.get("truncation_strategy", "tail"),
-        val_truncation_strategy=cfg.training.get("validation_truncation_strategy", "tail"),
+        val_truncation_strategy=cfg.training.get(
+            "validation_truncation_strategy", "tail"
+        ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
     )
 
@@ -166,7 +169,7 @@ def main(cfg: DictConfig) -> None:
     model_state = {}
     for k, v in state_dict.items():
         if k.startswith("model."):
-            model_state[k[len("model."):]] = v
+            model_state[k[len("model.") :]] = v
     model.load_state_dict(model_state, strict=False)
 
     # Then: expand vocab if needed (preserves loaded weights)
@@ -181,14 +184,19 @@ def main(cfg: DictConfig) -> None:
     # ── Lightning module ─────────────────────────────────────────────
     if expand and n_new > 0:
         from opera.modules.lightningmodules.DAPTPretrainModule import DAPTPretrainModule
+
         lightning_module = DAPTPretrainModule(
             model=model,
             learning_rate=cfg.training.learning_rate,
             optimizer_epsilon=cfg.training.optimizer_epsilon,
             scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
             old_vocab_size=old_vocab_size,
-            new_embed_lr_multiplier=cfg.vocab_expansion.get("new_embed_lr_multiplier", 5.0),
-            freeze_pretrained_embeds=cfg.vocab_expansion.get("freeze_pretrained_embeds", False),
+            new_embed_lr_multiplier=cfg.vocab_expansion.get(
+                "new_embed_lr_multiplier", 5.0
+            ),
+            freeze_pretrained_embeds=cfg.vocab_expansion.get(
+                "freeze_pretrained_embeds", False
+            ),
             checkpoint_metadata={
                 "training_stage": "hematology_domain_adaptation",
                 "source_checkpoint": cfg.pretrain_ckpt,
@@ -200,6 +208,7 @@ def main(cfg: DictConfig) -> None:
     else:
         # No expansion — use the standard BONSAI PretrainModule
         from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
+
         lightning_module = PretrainModule(
             model=model,
             learning_rate=cfg.training.learning_rate,

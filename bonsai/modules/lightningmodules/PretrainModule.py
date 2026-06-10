@@ -4,6 +4,10 @@ from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torchmetrics import MetricCollection
 from bonsai.modules.metrics.metrics import SharedPrecisionAtK
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 
 class PretrainModule(L.LightningModule):
@@ -14,6 +18,7 @@ class PretrainModule(L.LightningModule):
         learning_rate: float = 5e-4,
         optimizer_epsilon: float = 1e-6,
         scheduler_warmup_epochs: int = 0,
+        checkpoint_metadata: dict = None,
     ):
         super().__init__()
         self.learning_rate = learning_rate
@@ -37,6 +42,8 @@ class PretrainModule(L.LightningModule):
             }
         )
         self.save_hyperparameters(hparams)
+        attach_model_config(self, model)
+        attach_checkpoint_metadata(self, checkpoint_metadata)
 
     def configure_metrics(self, prefix: str):
         return MetricCollection(

@@ -5,8 +5,9 @@ from transformers import ModernBertConfig
 from bonsai.functional.checkpointing import (
     MODEL_CONFIG_KEY,
     load_finetune_model_from_checkpoint,
+    load_pretrained_encoder_checked,
 )
-from bonsai.modules.networks.bonsai_nets import BonsaiFinetune
+from bonsai.modules.networks.bonsai_nets import BonsaiFinetune, BonsaiPretrain
 
 
 def _small_config():
@@ -36,8 +37,7 @@ def test_finetune_checkpoint_reconstructs_exact_config_and_shapes(tmp_path):
                 "model_class": model.__class__.__name__,
             },
             "state_dict": {
-                f"model.{key}": value
-                for key, value in model.state_dict().items()
+                f"model.{key}": value for key, value in model.state_dict().items()
             },
         },
         ckpt_path,
@@ -46,12 +46,8 @@ def test_finetune_checkpoint_reconstructs_exact_config_and_shapes(tmp_path):
     loaded = load_finetune_model_from_checkpoint(str(ckpt_path), strict=True)
 
     assert loaded.config.to_dict() == model.config.to_dict()
-    assert {
-        key: tuple(value.shape)
-        for key, value in loaded.state_dict().items()
-    } == {
-        key: tuple(value.shape)
-        for key, value in model.state_dict().items()
+    assert {key: tuple(value.shape) for key, value in loaded.state_dict().items()} == {
+        key: tuple(value.shape) for key, value in model.state_dict().items()
     }
 
 
@@ -61,3 +57,28 @@ def test_finetune_checkpoint_without_full_config_fails_clearly(tmp_path):
 
     with pytest.raises(ValueError, match="missing 'model_config'"):
         load_finetune_model_from_checkpoint(str(ckpt_path), strict=True)
+
+
+def test_pretrained_encoder_load_allows_only_new_finetune_head():
+    config = _small_config()
+    source = BonsaiPretrain(config)
+    target = BonsaiFinetune(config)
+    state_dict = {f"model.{key}": value for key, value in source.state_dict().items()}
+
+    load_pretrained_encoder_checked(target, state_dict)
+
+
+def test_pretrained_encoder_load_rejects_missing_backbone_key():
+    config = _small_config()
+    source = BonsaiPretrain(config)
+    target = BonsaiFinetune(config)
+    state_dict = {f"model.{key}": value for key, value in source.state_dict().items()}
+    backbone_key = next(
+        key
+        for key in state_dict
+        if not key.startswith(("model.head.", "model.decoder."))
+    )
+    del state_dict[backbone_key]
+
+    with pytest.raises(RuntimeError, match="Missing encoder keys"):
+        load_pretrained_encoder_checked(target, state_dict)

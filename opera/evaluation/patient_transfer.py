@@ -118,7 +118,9 @@ def compute_embedding_neighbor_support(
     embed_cols = [
         col
         for col in emb.columns
-        if col != subject_col and col not in meta_cols and pd.api.types.is_numeric_dtype(emb[col])
+        if col != subject_col
+        and col not in meta_cols
+        and pd.api.types.is_numeric_dtype(emb[col])
     ]
     if not embed_cols:
         embed_cols = [
@@ -140,7 +142,9 @@ def compute_embedding_neighbor_support(
 
     rows = []
     requested_features = [c for c in (feature_cols or []) if c in merged.columns]
-    cohorts = merged[cohort_col].astype(str).to_numpy() if cohort_col in merged else None
+    cohorts = (
+        merged[cohort_col].astype(str).to_numpy() if cohort_col in merged else None
+    )
     labels = merged[label_col].to_numpy() if label_col and label_col in merged else None
 
     for i, idx in enumerate(neigh_idx):
@@ -158,15 +162,21 @@ def compute_embedding_neighbor_support(
             same_label = labels[order] == labels[i]
             row["neighbor_outcome_concordance"] = float(np.mean(same_label))
             if cohorts is not None and np.any(cross):
-                row["cross_cohort_outcome_concordance"] = float(np.mean(same_label[cross]))
+                row["cross_cohort_outcome_concordance"] = float(
+                    np.mean(same_label[cross])
+                )
         for feature in requested_features:
             values = merged.iloc[order][feature]
             if pd.api.types.is_numeric_dtype(values):
-                row[f"neighbor_mean_{feature}"] = float(pd.to_numeric(values, errors="coerce").mean())
+                row[f"neighbor_mean_{feature}"] = float(
+                    pd.to_numeric(values, errors="coerce").mean()
+                )
                 row[f"patient_{feature}"] = merged.iloc[i][feature]
             else:
                 mode = values.dropna().mode()
-                row[f"neighbor_mode_{feature}"] = mode.iloc[0] if not mode.empty else np.nan
+                row[f"neighbor_mode_{feature}"] = (
+                    mode.iloc[0] if not mode.empty else np.nan
+                )
                 row[f"patient_{feature}"] = merged.iloc[i][feature]
         rows.append(row)
     return pd.DataFrame(rows)
@@ -309,7 +319,9 @@ def compute_atypicality_scores(
 
     centroid_names = np.asarray(list(valid_centroids.keys()), dtype=object)
     centroid_matrix = np.vstack([valid_centroids[name] for name in centroid_names])
-    distances = np.linalg.norm(vectors[:, None, :] - centroid_matrix[None, :, :], axis=2)
+    distances = np.linalg.norm(
+        vectors[:, None, :] - centroid_matrix[None, :, :], axis=2
+    )
     nearest_idx = np.argmin(distances, axis=1)
     nearest_raw = distances[np.arange(len(merged)), nearest_idx]
     nearest_mean = float(np.nanmean(nearest_raw))

@@ -1,8 +1,17 @@
+import copy
 import logging
 from pathlib import Path
 from typing import List, Dict, Iterable
 import torch
 import polars as pl
+
+
+def clone_subject(subject: Dict) -> Dict:
+    """Clone a subject record without sharing mutable tensor storage."""
+    return {
+        key: value.clone() if isinstance(value, torch.Tensor) else copy.deepcopy(value)
+        for key, value in subject.items()
+    }
 
 
 def prepare_subject_data(split_path: Path) -> List[Dict[str, torch.Tensor]]:

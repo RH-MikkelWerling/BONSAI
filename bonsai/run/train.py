@@ -9,6 +9,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
 from bonsai.paths import get_config_path
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
@@ -39,9 +40,7 @@ def main(cfg: DictConfig) -> None:
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pl.read_parquet(cfg.paths.outcome)
-    outcomes = outcomes.with_columns(
-        censor_abspos=compute_abspos(pl.col("censor_date"))
-    )
+    outcomes = outcomes.with_columns(censor_abspos=compute_abspos(pl.col("index_date")))
     train_outcomes, val_outcomes, test_outcomes = split_and_binarize_outcomes(
         outcomes,
         train_key="train",
@@ -87,6 +86,11 @@ def main(cfg: DictConfig) -> None:
             cfg.training.loss_weight_function,
             labels=train_labels,
         ),
+        checkpoint_metadata={
+            "training_stage": "no_pretraining_finetune",
+            "dataset": cfg.dataset,
+            "outcome": cfg.outcome,
+        },
     )
 
     ckpt_callback = ModelCheckpoint(
@@ -117,6 +121,7 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
         ckpt_path=cfg.paths.ckpt_path,
     )
+    save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
 
 
 # TODO: Aggregate scores here, assuming test has been run after each training and test outputs some file.

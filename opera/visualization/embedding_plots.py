@@ -12,26 +12,28 @@ Includes:
 
 from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-import matplotlib.ticker as mticker
-from matplotlib.lines import Line2D
 
 from opera.visualization.style import (
-    PALETTE, CATEGORICAL, save_fig, despine,
-    FIG_FULL, FIG_SQUARE, FIG_HALF, FIG_TALL, add_panel_label,
-    ANNOT_SIZE, LEGEND_SIZE,
+    PALETTE,
+    CATEGORICAL,
+    save_fig,
+    despine,
+    FIG_FULL,
+    add_panel_label,
+    ANNOT_SIZE,
+    LEGEND_SIZE,
 )
 
 SOURCE_PALETTE = {
-    "LPR":    "#0072B2",
-    "RKKP":   "#D55E00",
-    "LAB":    "#009E73",
-    "PATHX":  "#CC79A7",
-    "FLOW":   "#E69F00",
+    "LPR": "#0072B2",
+    "RKKP": "#D55E00",
+    "LAB": "#009E73",
+    "PATHX": "#CC79A7",
+    "FLOW": "#E69F00",
     "multi_source": "#999999",
     "unknown": "#DDDDDD",
 }
@@ -44,14 +46,24 @@ def _reduce_embeddings(
 ) -> np.ndarray:
     if method == "umap":
         from umap import UMAP
-        defaults = {"n_neighbors": 30, "min_dist": 0.25,
-                    "metric": "cosine", "random_state": 42}
+
+        defaults = {
+            "n_neighbors": 30,
+            "min_dist": 0.25,
+            "metric": "cosine",
+            "random_state": 42,
+        }
         defaults.update(kwargs)
         return UMAP(n_components=2, **defaults).fit_transform(embeddings)
     else:
         from sklearn.manifold import TSNE
-        defaults = {"perplexity": 30, "random_state": 42,
-                    "learning_rate": "auto", "init": "pca"}
+
+        defaults = {
+            "perplexity": 30,
+            "random_state": 42,
+            "learning_rate": "auto",
+            "init": "pca",
+        }
         defaults.update(kwargs)
         return TSNE(n_components=2, **defaults).fit_transform(embeddings)
 
@@ -60,14 +72,16 @@ def _density_contour(ax, x, y, color, levels=5, alpha=0.35):
     """Overlay KDE density contours for a point cloud."""
     try:
         from scipy.stats import gaussian_kde
+
         xy = np.vstack([x, y])
         kde = gaussian_kde(xy, bw_method=0.25)
         xg = np.linspace(x.min(), x.max(), 120)
         yg = np.linspace(y.min(), y.max(), 120)
         Xg, Yg = np.meshgrid(xg, yg)
         Z = kde(np.vstack([Xg.ravel(), Yg.ravel()])).reshape(Xg.shape)
-        ax.contour(Xg, Yg, Z, levels=levels, colors=[color],
-                   linewidths=0.7, alpha=alpha)
+        ax.contour(
+            Xg, Yg, Z, levels=levels, colors=[color], linewidths=0.7, alpha=alpha
+        )
     except Exception:
         pass  # scipy not available or too few points
 
@@ -75,6 +89,7 @@ def _density_contour(ax, x, y, color, levels=5, alpha=0.35):
 # ═════════════════════════════════════════════════════════════════════
 # 1. UMAP colored by binary label
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_embedding_projection(
     embeddings: np.ndarray,
@@ -98,9 +113,17 @@ def plot_embedding_projection(
         mask = labels == label_val
         if mask.sum() == 0:
             continue
-        ax.scatter(coords[mask, 0], coords[mask, 1],
-                   c=color, s=5, alpha=0.35, label=f"{name} (n={mask.sum()})",
-                   rasterized=True, linewidths=0, zorder=2)
+        ax.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            c=color,
+            s=5,
+            alpha=0.35,
+            label=f"{name} (n={mask.sum()})",
+            rasterized=True,
+            linewidths=0,
+            zorder=2,
+        )
         if density_contours and mask.sum() > 50:
             _density_contour(ax, coords[mask, 0], coords[mask, 1], color)
 
@@ -122,6 +145,7 @@ def plot_embedding_projection(
 # ═════════════════════════════════════════════════════════════════════
 # 2. UMAP colored by continuous survival time
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_embedding_survival_gradient(
     embeddings: np.ndarray,
@@ -148,10 +172,15 @@ def plot_embedding_survival_gradient(
     # Background: all patients colored by time
     t_plot = np.where(valid, times, np.nan)
     sc = ax.scatter(
-        coords[:, 0], coords[:, 1],
-        c=t_plot, cmap="plasma_r",
-        s=5, alpha=0.55, rasterized=True,
-        linewidths=0, zorder=2,
+        coords[:, 0],
+        coords[:, 1],
+        c=t_plot,
+        cmap="plasma_r",
+        s=5,
+        alpha=0.55,
+        rasterized=True,
+        linewidths=0,
+        zorder=2,
         vmin=np.nanpercentile(times[valid], 5) if valid.any() else 0,
         vmax=np.nanpercentile(times[valid], 95) if valid.any() else 1,
     )
@@ -159,18 +188,34 @@ def plot_embedding_survival_gradient(
     # Admin-censored patients: small hollow grey markers
     cens_mask = valid & (events == 0)
     if cens_mask.sum() > 0:
-        ax.scatter(coords[cens_mask, 0], coords[cens_mask, 1],
-                   s=7, facecolors="none", edgecolors="#888888",
-                   linewidths=0.4, alpha=0.4, zorder=3,
-                   label=f"Admin censored (n={cens_mask.sum()})", rasterized=True)
+        ax.scatter(
+            coords[cens_mask, 0],
+            coords[cens_mask, 1],
+            s=7,
+            facecolors="none",
+            edgecolors="#888888",
+            linewidths=0.4,
+            alpha=0.4,
+            zorder=3,
+            label=f"Admin censored (n={cens_mask.sum()})",
+            rasterized=True,
+        )
 
     # Competing-death patients: small hollow red markers
     comp_mask = valid & (events == 2)
     if comp_mask.sum() > 0:
-        ax.scatter(coords[comp_mask, 0], coords[comp_mask, 1],
-                   s=7, facecolors="none", edgecolors="#cc4444",
-                   linewidths=0.4, alpha=0.4, zorder=3,
-                   label=f"Competing death (n={comp_mask.sum()})", rasterized=True)
+        ax.scatter(
+            coords[comp_mask, 0],
+            coords[comp_mask, 1],
+            s=7,
+            facecolors="none",
+            edgecolors="#cc4444",
+            linewidths=0.4,
+            alpha=0.4,
+            zorder=3,
+            label=f"Competing death (n={comp_mask.sum()})",
+            rasterized=True,
+        )
 
     cbar = fig.colorbar(sc, ax=ax, shrink=0.85, pad=0.02)
     cbar.set_label(f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=8)
@@ -195,6 +240,7 @@ def plot_embedding_survival_gradient(
 # ═════════════════════════════════════════════════════════════════════
 # 3. Multi-outcome embedding panel
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_embedding_multi_outcome(
     embeddings: np.ndarray,
@@ -224,15 +270,30 @@ def plot_embedding_multi_outcome(
         labs = outcome_labels[name]
         valid = labs >= 0
 
-        ax.scatter(coords[~valid, 0], coords[~valid, 1],
-                   c=PALETTE["missing"], s=3, alpha=0.12, rasterized=True, linewidths=0)
+        ax.scatter(
+            coords[~valid, 0],
+            coords[~valid, 1],
+            c=PALETTE["missing"],
+            s=3,
+            alpha=0.12,
+            rasterized=True,
+            linewidths=0,
+        )
 
         for label_val, color in [(0, PALETTE["negative"]), (1, PALETTE["positive"])]:
             mask = valid & (labs == label_val)
             lbl = "Positive" if label_val else "Negative"
-            ax.scatter(coords[mask, 0], coords[mask, 1],
-                       c=color, s=5, alpha=0.4, label=lbl,
-                       rasterized=True, linewidths=0, zorder=2)
+            ax.scatter(
+                coords[mask, 0],
+                coords[mask, 1],
+                c=color,
+                s=5,
+                alpha=0.4,
+                label=lbl,
+                rasterized=True,
+                linewidths=0,
+                zorder=2,
+            )
             if mask.sum() > 50:
                 _density_contour(ax, coords[mask, 0], coords[mask, 1], color, levels=4)
 
@@ -247,8 +308,12 @@ def plot_embedding_multi_outcome(
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
-    fig.suptitle(f"Embedding space by outcome  ({method.upper()})",
-                 fontsize=10, fontweight="semibold", y=1.01)
+    fig.suptitle(
+        f"Embedding space by outcome  ({method.upper()})",
+        fontsize=10,
+        fontweight="semibold",
+        y=1.01,
+    )
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -257,6 +322,7 @@ def plot_embedding_multi_outcome(
 # ═════════════════════════════════════════════════════════════════════
 # 4. Sigma (learned uncertainty) plots
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_sigma_barplot(
     sigma_values: Dict[str, float],
@@ -270,21 +336,22 @@ def plot_sigma_barplot(
     Higher σ → outcome is harder to learn / noisier signal.
     """
     names = list(sigma_values.keys())
-    vals  = [sigma_values[n] for n in names]
+    vals = [sigma_values[n] for n in names]
     display = [n.replace("_", " ").title() for n in names]
 
     order = np.argsort(vals)
     names_s = [display[i] for i in order]
-    vals_s  = [vals[i] for i in order]
-    colors  = [PALETTE["opera"] if v < 1.0 else PALETTE["positive"] for v in vals_s]
+    vals_s = [vals[i] for i in order]
+    colors = [PALETTE["opera"] if v < 1.0 else PALETTE["positive"] for v in vals_s]
 
     fig, ax = plt.subplots(figsize=(max(4.5, 2.0 * len(names)), 3.0))
 
     y = np.arange(len(names_s))
     ax.hlines(y, 0, vals_s, color="#CCCCCC", linewidth=1.2, zorder=1)
     ax.scatter(vals_s, y, color=colors, s=60, zorder=3)
-    ax.axvline(1.0, color=PALETTE["diagonal"], ls=":", lw=1,
-               label="σ = 1  (initialisation)")
+    ax.axvline(
+        1.0, color=PALETTE["diagonal"], ls=":", lw=1, label="σ = 1  (initialisation)"
+    )
 
     for i, (v, name) in enumerate(zip(vals_s, names_s)):
         ax.text(v + 0.02, i, f"{v:.3f}", va="center", fontsize=ANNOT_SIZE)
@@ -350,6 +417,7 @@ def plot_sigma_evolution(
 # 5. Cosine similarity distributions (KDE)
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_similarity_distributions(
     embeddings: np.ndarray,
     labels: np.ndarray,
@@ -414,6 +482,7 @@ def plot_similarity_distributions(
 # 6. Training loss curves
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_training_curves(
     training_log: pd.DataFrame,
     metrics: Optional[List[str]] = None,
@@ -423,13 +492,19 @@ def plot_training_curves(
 ) -> plt.Figure:
     """Train / val loss and metric curves, with optional EMA smoothing."""
     if metrics is None:
-        all_cols = [c for c in training_log.columns
-                    if c.startswith("train/") or c.startswith("val/")]
+        all_cols = [
+            c
+            for c in training_log.columns
+            if c.startswith("train/") or c.startswith("val/")
+        ]
         bases = sorted({c.replace("train/", "").replace("val/", "") for c in all_cols})
         # Keep only columns with both train and val
-        metrics = [b for b in bases
-                   if f"train/{b}" in training_log.columns
-                   and f"val/{b}" in training_log.columns]
+        metrics = [
+            b
+            for b in bases
+            if f"train/{b}" in training_log.columns
+            and f"val/{b}" in training_log.columns
+        ]
 
     if not metrics:
         return plt.figure()
@@ -454,12 +529,12 @@ def plot_training_curves(
         ax = axes[i]
         for prefix, color, label in [
             ("train", PALETTE["opera"], "Train"),
-            ("val",   PALETTE["positive"], "Val"),
+            ("val", PALETTE["positive"], "Val"),
         ]:
             col = f"{prefix}/{base}"
             if col in training_log.columns:
                 data = training_log[[x_col, col]].dropna().reset_index(drop=True)
-                raw  = data[col]
+                raw = data[col]
                 smth = _smooth(raw, smooth_window)
                 ax.plot(data[x_col], raw, color=color, alpha=0.3, lw=0.8)
                 ax.plot(data[x_col], smth, color=color, lw=1.6, label=label)
@@ -483,6 +558,7 @@ def plot_training_curves(
 # 7. Source-aware diagnostic plots
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_embedding_by_source(
     embeddings: np.ndarray,
     source_labels: np.ndarray,
@@ -498,10 +574,16 @@ def plot_embedding_by_source(
     for source in unique_sources:
         mask = source_labels == source
         color = SOURCE_PALETTE.get(source, "#999999")
-        ax.scatter(coords[mask, 0], coords[mask, 1],
-                   c=color, s=5, alpha=0.35,
-                   label=f"{source}  (n={mask.sum()})",
-                   rasterized=True, linewidths=0)
+        ax.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            c=color,
+            s=5,
+            alpha=0.35,
+            label=f"{source}  (n={mask.sum()})",
+            rasterized=True,
+            linewidths=0,
+        )
 
     ax.set_title(title or f"Embedding by data source  ({method.upper()})")
     ax.legend(markerscale=3, fontsize=LEGEND_SIZE, loc="best")
@@ -525,6 +607,7 @@ def plot_embedding_by_source(
 #     plot_clinical_variables_panel(coords, ...)
 #     plot_embedding_boundary_patients(coords, ...)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def reduce_embeddings(
     embeddings: np.ndarray,
@@ -555,7 +638,6 @@ def _cohort_colors(unique_groups) -> Dict:
     In all cases the mapping is deterministic (sorted group order), so the
     same color is assigned to the same group across figures.
     """
-    import matplotlib.colors as mcolors
     groups = sorted(unique_groups)
     n = len(groups)
 
@@ -564,13 +646,11 @@ def _cohort_colors(unique_groups) -> Dict:
     elif n <= 20:
         # Sample a wider HLS wheel: 8 anchor hues + intermediate steps
         import colorsys
+
         hues = np.linspace(0, 1, n, endpoint=False)
         # Shift to start near indigo (hue ≈ 0.65)
         hues = (hues + 0.65) % 1.0
-        palette = [
-            mcolors.to_hex(colorsys.hls_to_rgb(h, 0.38, 0.70))
-            for h in hues
-        ]
+        palette = [mcolors.to_hex(colorsys.hls_to_rgb(h, 0.38, 0.70)) for h in hues]
     else:
         cmap = plt.cm.get_cmap("tab20", n)
         palette = [mcolors.to_hex(cmap(i)) for i in range(n)]
@@ -623,7 +703,6 @@ def remap_disease_groups(
     )
     """
     labels = np.asarray(group_labels, dtype=object)
-    n = len(labels)
     out = labels.copy()
 
     # Apply merges first
@@ -661,11 +740,12 @@ def _local_density(coords: np.ndarray, k: int = 15) -> np.ndarray:
     to its k nearest neighbours.  Higher value = denser neighbourhood.
     """
     from sklearn.neighbors import NearestNeighbors
+
     n = len(coords)
     nn = NearestNeighbors(n_neighbors=min(k + 1, n), algorithm="ball_tree")
     nn.fit(coords)
     distances, _ = nn.kneighbors(coords)
-    mean_dist = distances[:, 1:].mean(axis=1)          # skip self (col 0)
+    mean_dist = distances[:, 1:].mean(axis=1)  # skip self (col 0)
     mean_dist = np.where(mean_dist == 0, 1e-9, mean_dist)
     return 1.0 / mean_dist
 
@@ -698,7 +778,6 @@ def plot_embedding_disease_map(
         alongside isolation_percentile, a caption-ready stat is printed and
         added as a figure annotation.
     """
-    from sklearn.neighbors import NearestNeighbors
 
     unique = sorted(set(group_labels))
     colors = _cohort_colors(unique)
@@ -712,7 +791,7 @@ def plot_embedding_disease_map(
         isolated = density <= threshold
 
         if prediction_errors is not None and isolated.any() and (~isolated).any():
-            err_iso  = prediction_errors[isolated].mean()
+            err_iso = prediction_errors[isolated].mean()
             err_rest = prediction_errors[~isolated].mean()
             isolation_stat = (
                 f"Isolated patients: mean error {err_iso:.3f} "
@@ -724,17 +803,25 @@ def plot_embedding_disease_map(
     for g in unique:
         mask = (group_labels == g) & ~isolated
         color = colors[g]
-        name  = (group_names or {}).get(g, str(g))
-        n_g   = (group_labels == g).sum()
+        name = (group_names or {}).get(g, str(g))
+        n_g = (group_labels == g).sum()
 
-        ax.scatter(coords[mask, 0], coords[mask, 1],
-                   c=color, s=6, alpha=0.40,
-                   label=f"{name}  (n={n_g:,})",
-                   rasterized=True, linewidths=0, zorder=2)
+        ax.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            c=color,
+            s=6,
+            alpha=0.40,
+            label=f"{name}  (n={n_g:,})",
+            rasterized=True,
+            linewidths=0,
+            zorder=2,
+        )
 
         if density_contours and mask.sum() > 40:
-            _density_contour(ax, coords[mask, 0], coords[mask, 1],
-                             color, levels=4, alpha=0.45)
+            _density_contour(
+                ax, coords[mask, 0], coords[mask, 1], color, levels=4, alpha=0.45
+            )
 
     # Isolated patients — hollow rings, colour still encodes disease
     if isolated.any():
@@ -742,28 +829,66 @@ def plot_embedding_disease_map(
             mask_iso = (group_labels == g) & isolated
             if not mask_iso.any():
                 continue
-            ax.scatter(coords[mask_iso, 0], coords[mask_iso, 1],
-                       facecolors="none", edgecolors=colors[g],
-                       s=18, linewidths=0.9, alpha=0.75,
-                       rasterized=True, zorder=3)
+            ax.scatter(
+                coords[mask_iso, 0],
+                coords[mask_iso, 1],
+                facecolors="none",
+                edgecolors=colors[g],
+                s=18,
+                linewidths=0.9,
+                alpha=0.75,
+                rasterized=True,
+                zorder=3,
+            )
         # Single legend entry for isolated class
         from matplotlib.lines import Line2D
-        ax.add_artist(ax.legend(markerscale=2.5, fontsize=LEGEND_SIZE,
-                                framealpha=0.92, loc="best", borderpad=0.6))
-        iso_handle = Line2D([0], [0], marker="o", color="w",
-                            markerfacecolor="none", markeredgecolor="#555555",
-                            markeredgewidth=0.9, markersize=6,
-                            label=f"Isolated  (n={isolated.sum():,})")
-        ax.legend(handles=[iso_handle], fontsize=LEGEND_SIZE,
-                  loc="lower right", framealpha=0.92)
+
+        ax.add_artist(
+            ax.legend(
+                markerscale=2.5,
+                fontsize=LEGEND_SIZE,
+                framealpha=0.92,
+                loc="best",
+                borderpad=0.6,
+            )
+        )
+        iso_handle = Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="none",
+            markeredgecolor="#555555",
+            markeredgewidth=0.9,
+            markersize=6,
+            label=f"Isolated  (n={isolated.sum():,})",
+        )
+        ax.legend(
+            handles=[iso_handle],
+            fontsize=LEGEND_SIZE,
+            loc="lower right",
+            framealpha=0.92,
+        )
     else:
-        ax.legend(markerscale=2.5, fontsize=LEGEND_SIZE,
-                  framealpha=0.92, loc="best", borderpad=0.6)
+        ax.legend(
+            markerscale=2.5,
+            fontsize=LEGEND_SIZE,
+            framealpha=0.92,
+            loc="best",
+            borderpad=0.6,
+        )
 
     if isolation_stat:
-        ax.text(0.01, 0.01, isolation_stat,
-                transform=ax.transAxes, fontsize=6.5, color="#555555",
-                va="bottom", ha="left")
+        ax.text(
+            0.01,
+            0.01,
+            isolation_stat,
+            transform=ax.transAxes,
+            fontsize=6.5,
+            color="#555555",
+            va="bottom",
+            ha="left",
+        )
 
     ax.set_title(title or "Embedding space — population structure", fontsize=10)
     ax.set_xticks([])
@@ -823,7 +948,7 @@ def plot_embedding_map_insights(
     """
     from sklearn.neighbors import NearestNeighbors
 
-    n      = len(coords)
+    n = len(coords)
     unique = sorted(set(group_labels))
     colors = _cohort_colors(unique)
     n_groups = len(unique)
@@ -834,14 +959,14 @@ def plot_embedding_map_insights(
     density = _local_density(coords, k=k)
 
     # Prediction entropy
-    p  = np.clip(predicted_probs, 1e-7, 1 - 1e-7)
+    p = np.clip(predicted_probs, 1e-7, 1 - 1e-7)
     entropy = -(p * np.log2(p) + (1 - p) * np.log2(1 - p))
 
     # k-NN indices (used for proximity matrix)
     nn = NearestNeighbors(n_neighbors=min(k + 1, n), algorithm="ball_tree")
     nn.fit(coords)
     _, indices = nn.kneighbors(coords)
-    neighbor_idx = indices[:, 1:]    # drop self
+    neighbor_idx = indices[:, 1:]  # drop self
 
     # Inter-disease proximity matrix  (row i → fraction of i's neighbours in group j)
     proximity = np.zeros((n_groups, n_groups))
@@ -860,7 +985,8 @@ def plot_embedding_map_insights(
     n_panels = 3 if has_labels else 2
     width_ratios = [1.1, 0.9, 1.0] if has_labels else [1.1, 1.0]
     fig, axes = plt.subplots(
-        1, n_panels,
+        1,
+        n_panels,
         figsize=(4.2 * n_panels + 0.4, 4.5),
         gridspec_kw={"width_ratios": width_ratios},
     )
@@ -872,10 +998,16 @@ def plot_embedding_map_insights(
 
     # ── Panel A: Entropy geography ───────────────────────────────────
     sc = ax_ent.scatter(
-        coords[:, 0], coords[:, 1],
-        c=entropy, cmap="YlOrRd",
-        vmin=0, vmax=1,
-        s=5, alpha=0.6, rasterized=True, linewidths=0,
+        coords[:, 0],
+        coords[:, 1],
+        c=entropy,
+        cmap="YlOrRd",
+        vmin=0,
+        vmax=1,
+        s=5,
+        alpha=0.6,
+        rasterized=True,
+        linewidths=0,
     )
     cb = fig.colorbar(sc, ax=ax_ent, shrink=0.82, pad=0.02, aspect=20)
     cb.set_label("Prediction entropy  (bits)", fontsize=7.5)
@@ -886,11 +1018,19 @@ def plot_embedding_map_insights(
         mask = group_labels == g
         cx, cy = coords[mask, 0].mean(), coords[mask, 1].mean()
         name = (group_names or {}).get(g, str(g))
-        ax_ent.text(cx, cy, name, fontsize=7.5, fontweight="semibold",
-                    ha="center", va="center",
-                    bbox=dict(boxstyle="round,pad=0.2", fc="white",
-                              ec=colors[g], lw=1.1, alpha=0.88),
-                    zorder=5)
+        ax_ent.text(
+            cx,
+            cy,
+            name,
+            fontsize=7.5,
+            fontweight="semibold",
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.2", fc="white", ec=colors[g], lw=1.1, alpha=0.88
+            ),
+            zorder=5,
+        )
 
     ax_ent.set_title("Prediction uncertainty", fontsize=9, fontweight="semibold")
     ax_ent.set_xticks([])
@@ -925,33 +1065,49 @@ def plot_embedding_map_insights(
             bin_ns.append(mask.sum())
 
         bin_centers = np.array(bin_centers)
-        bin_means   = np.array(bin_means)
-        bin_lo      = np.array(bin_lo)
-        bin_hi      = np.array(bin_hi)
+        bin_means = np.array(bin_means)
+        bin_lo = np.array(bin_lo)
+        bin_hi = np.array(bin_hi)
 
-        ax_bin.plot(bin_centers, bin_means,
-                    color=PALETTE["opera"], lw=1.8, marker="o",
-                    markersize=4, zorder=3)
-        ax_bin.fill_between(bin_centers, bin_lo, bin_hi,
-                            color=PALETTE["opera"], alpha=0.15)
+        ax_bin.plot(
+            bin_centers,
+            bin_means,
+            color=PALETTE["opera"],
+            lw=1.8,
+            marker="o",
+            markersize=4,
+            zorder=3,
+        )
+        ax_bin.fill_between(
+            bin_centers, bin_lo, bin_hi, color=PALETTE["opera"], alpha=0.15
+        )
 
         ax_bin.set_xlabel("Local neighbourhood density\n(low = isolated)", fontsize=8)
         ax_bin.set_ylabel("Mean absolute error", fontsize=8)
-        ax_bin.set_title("Isolation → prediction error", fontsize=9,
-                         fontweight="semibold")
+        ax_bin.set_title(
+            "Isolation → prediction error", fontsize=9, fontweight="semibold"
+        )
         # Annotate with correlation
         if len(bin_centers) > 2:
             rho = float(np.corrcoef(bin_centers, bin_means)[0, 1])
-            ax_bin.text(0.97, 0.97, f"r = {rho:+.2f}",
-                        transform=ax_bin.transAxes, ha="right", va="top",
-                        fontsize=ANNOT_SIZE, color="#555555")
+            ax_bin.text(
+                0.97,
+                0.97,
+                f"r = {rho:+.2f}",
+                transform=ax_bin.transAxes,
+                ha="right",
+                va="top",
+                fontsize=ANNOT_SIZE,
+                color="#555555",
+            )
         despine(ax_bin, "y")
 
     # ── Panel C: Inter-disease proximity heatmap ─────────────────────
     group_display = [(group_names or {}).get(g, str(g)) for g in unique]
 
-    im = ax_prox.imshow(proximity, cmap="Blues", vmin=0, vmax=proximity.max(),
-                        aspect="auto")
+    im = ax_prox.imshow(
+        proximity, cmap="Blues", vmin=0, vmax=proximity.max(), aspect="auto"
+    )
     cb2 = fig.colorbar(im, ax=ax_prox, shrink=0.82, pad=0.03, aspect=20)
     cb2.set_label("Fraction of k-NN", fontsize=7.5)
     cb2.ax.tick_params(labelsize=7)
@@ -969,22 +1125,40 @@ def plot_embedding_map_insights(
         for j in range(n_groups):
             v = proximity[i, j]
             text_color = "white" if v > 0.55 * proximity.max() else "#333333"
-            ax_prox.text(j, i, f"{v:.2f}", ha="center", va="center",
-                         fontsize=6.5, color=text_color)
+            ax_prox.text(
+                j,
+                i,
+                f"{v:.2f}",
+                ha="center",
+                va="center",
+                fontsize=6.5,
+                color=text_color,
+            )
 
     # Bold diagonal (within-group coherence)
     for i in range(n_groups):
-        ax_prox.add_patch(plt.Rectangle(
-            (i - 0.5, i - 0.5), 1, 1,
-            fill=False, edgecolor=PALETTE["opera"], lw=1.5, zorder=3,
-        ))
+        ax_prox.add_patch(
+            plt.Rectangle(
+                (i - 0.5, i - 0.5),
+                1,
+                1,
+                fill=False,
+                edgecolor=PALETTE["opera"],
+                lw=1.5,
+                zorder=3,
+            )
+        )
 
     panel_labels = ["A", "B", "C"] if has_labels else ["A", "B"]
     for ax, lbl in zip(axes, panel_labels):
         add_panel_label(ax, lbl)
 
-    fig.suptitle(title or "Embedding space — clinical insights",
-                 fontsize=10, fontweight="semibold", y=1.02)
+    fig.suptitle(
+        title or "Embedding space — clinical insights",
+        fontsize=10,
+        fontweight="semibold",
+        y=1.02,
+    )
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -1033,8 +1207,11 @@ def plot_clinical_variables_panel(
     axes_flat = np.array(axes).flatten()
 
     _default_cmaps = {
-        "age": "YlOrRd", "ipi": "RdYlGn_r", "score": "RdYlGn_r",
-        "stage": "Blues", "default": "viridis",
+        "age": "YlOrRd",
+        "ipi": "RdYlGn_r",
+        "score": "RdYlGn_r",
+        "stage": "Blues",
+        "default": "viridis",
     }
 
     def _pick_cmap(name_lower):
@@ -1046,25 +1223,33 @@ def plot_clinical_variables_panel(
         return _default_cmaps["default"]
 
     for i, var_name in enumerate(names):
-        ax   = axes_flat[i]
+        ax = axes_flat[i]
         vals = np.asarray(clinical_vars[var_name])
 
         # Determine if categorical
-        non_nan = vals[~(vals == None)]  # noqa: E711
         try:
             numeric_vals = vals.astype(float)
             is_nan = ~np.isfinite(numeric_vals)
             unique_vals = np.unique(numeric_vals[~is_nan])
-            is_categorical = (len(unique_vals) <= 10) and np.all(unique_vals == unique_vals.astype(int))
+            is_categorical = (len(unique_vals) <= 10) and np.all(
+                unique_vals == unique_vals.astype(int)
+            )
         except (ValueError, TypeError):
             is_categorical = True
             is_nan = np.array([v is None or str(v) == "" for v in vals])
 
         # Draw unknown/missing as background first
         if is_nan.any():
-            ax.scatter(coords[is_nan, 0], coords[is_nan, 1],
-                       c=PALETTE["missing"], s=4, alpha=0.20,
-                       rasterized=True, linewidths=0, zorder=1)
+            ax.scatter(
+                coords[is_nan, 0],
+                coords[is_nan, 1],
+                c=PALETTE["missing"],
+                s=4,
+                alpha=0.20,
+                rasterized=True,
+                linewidths=0,
+                zorder=1,
+            )
 
         valid = ~is_nan
 
@@ -1073,20 +1258,42 @@ def plot_clinical_variables_panel(
             colors = _cohort_colors(unique_groups)
             for g in unique_groups:
                 mask = valid & (vals == g)
-                ax.scatter(coords[mask, 0], coords[mask, 1],
-                           c=colors[g], s=5, alpha=0.45,
-                           label=str(g), rasterized=True, linewidths=0, zorder=2)
-            ax.legend(markerscale=2, fontsize=6.5, borderpad=0.5,
-                      title=var_name, title_fontsize=7)
+                ax.scatter(
+                    coords[mask, 0],
+                    coords[mask, 1],
+                    c=colors[g],
+                    s=5,
+                    alpha=0.45,
+                    label=str(g),
+                    rasterized=True,
+                    linewidths=0,
+                    zorder=2,
+                )
+            ax.legend(
+                markerscale=2,
+                fontsize=6.5,
+                borderpad=0.5,
+                title=var_name,
+                title_fontsize=7,
+            )
         else:
             numeric_vals = vals.astype(float)
             cmap_name = _pick_cmap(var_name.lower())
             vmin = np.nanpercentile(numeric_vals[valid], 2)
             vmax = np.nanpercentile(numeric_vals[valid], 98)
-            sc = ax.scatter(coords[valid, 0], coords[valid, 1],
-                            c=numeric_vals[valid], cmap=cmap_name,
-                            vmin=vmin, vmax=vmax,
-                            s=5, alpha=0.55, rasterized=True, linewidths=0, zorder=2)
+            sc = ax.scatter(
+                coords[valid, 0],
+                coords[valid, 1],
+                c=numeric_vals[valid],
+                cmap=cmap_name,
+                vmin=vmin,
+                vmax=vmax,
+                s=5,
+                alpha=0.55,
+                rasterized=True,
+                linewidths=0,
+                zorder=2,
+            )
             cb = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02, aspect=18)
             cb.ax.tick_params(labelsize=6.5)
 
@@ -1100,8 +1307,12 @@ def plot_clinical_variables_panel(
     for j in range(n_vars, len(axes_flat)):
         axes_flat[j].set_visible(False)
 
-    fig.suptitle(title or "Clinical variables in embedding space",
-                 fontsize=10, fontweight="semibold", y=1.01)
+    fig.suptitle(
+        title or "Clinical variables in embedding space",
+        fontsize=10,
+        fontweight="semibold",
+        y=1.01,
+    )
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -1158,23 +1369,31 @@ def plot_embedding_boundary_patients(
     # indices[:,0] is the point itself — skip it
     neighbor_idx = indices[:, 1:]
 
-    coherence = np.array([
-        (group_labels[neighbor_idx[i]] == group_labels[i]).mean()
-        for i in range(n)
-    ])
+    coherence = np.array(
+        [(group_labels[neighbor_idx[i]] == group_labels[i]).mean() for i in range(n)]
+    )
 
     # ── Figure ───────────────────────────────────────────────────────
     fig, (ax_map, ax_box) = plt.subplots(
-        1, 2, figsize=(9.0, 4.5),
+        1,
+        2,
+        figsize=(9.0, 4.5),
         gridspec_kw={"width_ratios": [1.1, 0.9]},
     )
 
     # Panel A: scatter colored by coherence
     sc = ax_map.scatter(
-        coords[:, 0], coords[:, 1],
-        c=coherence, cmap="RdYlBu",
-        vmin=0, vmax=1,
-        s=6, alpha=0.65, rasterized=True, linewidths=0, zorder=2,
+        coords[:, 0],
+        coords[:, 1],
+        c=coherence,
+        cmap="RdYlBu",
+        vmin=0,
+        vmax=1,
+        s=6,
+        alpha=0.65,
+        rasterized=True,
+        linewidths=0,
+        zorder=2,
     )
     cb = fig.colorbar(sc, ax=ax_map, shrink=0.8, pad=0.02, aspect=20)
     cb.set_label("k-NN coherence  (1 = all neighbors same group)", fontsize=7.5)
@@ -1182,23 +1401,41 @@ def plot_embedding_boundary_patients(
 
     # Boundary patients: redraw as filled squares
     boundary = coherence < boundary_threshold
-    ax_map.scatter(coords[boundary, 0], coords[boundary, 1],
-                   c=coherence[boundary], cmap="RdYlBu",
-                   vmin=0, vmax=1, s=14, alpha=0.9,
-                   marker="s", linewidths=0.5, edgecolors="#333333",
-                   rasterized=True, zorder=4,
-                   label=f"Boundary patients (n={boundary.sum()})")
+    ax_map.scatter(
+        coords[boundary, 0],
+        coords[boundary, 1],
+        c=coherence[boundary],
+        cmap="RdYlBu",
+        vmin=0,
+        vmax=1,
+        s=14,
+        alpha=0.9,
+        marker="s",
+        linewidths=0.5,
+        edgecolors="#333333",
+        rasterized=True,
+        zorder=4,
+        label=f"Boundary patients (n={boundary.sum()})",
+    )
 
     # Group centroids
     for g in unique:
         mask = group_labels == g
         cx, cy = coords[mask, 0].mean(), coords[mask, 1].mean()
-        name   = (group_names or {}).get(g, str(g))
-        ax_map.text(cx, cy, name, fontsize=8, fontweight="semibold",
-                    ha="center", va="center",
-                    bbox=dict(boxstyle="round,pad=0.25", fc="white",
-                              ec=colors[g], lw=1.2, alpha=0.85),
-                    zorder=5)
+        name = (group_names or {}).get(g, str(g))
+        ax_map.text(
+            cx,
+            cy,
+            name,
+            fontsize=8,
+            fontweight="semibold",
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.25", fc="white", ec=colors[g], lw=1.2, alpha=0.85
+            ),
+            zorder=5,
+        )
 
     # Optionally annotate most anomalous
     if top_n_annotate > 0 and subject_ids is not None:
@@ -1207,8 +1444,10 @@ def plot_embedding_boundary_patients(
             ax_map.annotate(
                 str(subject_ids[idx]),
                 xy=(coords[idx, 0], coords[idx, 1]),
-                xytext=(8, 8), textcoords="offset points",
-                fontsize=6.5, color="#B5232A",
+                xytext=(8, 8),
+                textcoords="offset points",
+                fontsize=6.5,
+                color="#B5232A",
                 arrowprops=dict(arrowstyle="-", lw=0.6, color="#AAAAAA"),
             )
 
@@ -1245,8 +1484,13 @@ def plot_embedding_boundary_patients(
         patch.set_edgecolor("#444444")
         patch.set_linewidth(0.8)
 
-    ax_box.axvline(boundary_threshold, color=PALETTE["positive"],
-                   ls="--", lw=1.0, label=f"Threshold ({boundary_threshold})")
+    ax_box.axvline(
+        boundary_threshold,
+        color=PALETTE["positive"],
+        ls="--",
+        lw=1.0,
+        label=f"Threshold ({boundary_threshold})",
+    )
     ax_box.axvline(1.0, color=PALETTE["diagonal"], ls=":", lw=0.8)
     ax_box.set_yticklabels(y_labels, fontsize=8)
     ax_box.set_xlabel("k-NN coherence score")
@@ -1281,21 +1525,44 @@ def plot_source_vs_outcome(
     for source in sorted(set(source_labels)):
         mask = source_labels == source
         color = SOURCE_PALETTE.get(source, "#999999")
-        ax1.scatter(coords[mask, 0], coords[mask, 1],
-                    c=color, s=5, alpha=0.35, label=source, rasterized=True, linewidths=0)
+        ax1.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            c=color,
+            s=5,
+            alpha=0.35,
+            label=source,
+            rasterized=True,
+            linewidths=0,
+        )
     ax1.set_title("By data source")
     ax1.legend(markerscale=3, fontsize=LEGEND_SIZE)
 
     valid = outcome_labels >= 0
-    ax2.scatter(coords[~valid, 0], coords[~valid, 1],
-                c=PALETTE["missing"], s=3, alpha=0.12, rasterized=True, linewidths=0)
+    ax2.scatter(
+        coords[~valid, 0],
+        coords[~valid, 1],
+        c=PALETTE["missing"],
+        s=3,
+        alpha=0.12,
+        rasterized=True,
+        linewidths=0,
+    )
     for label_val, color, name in [
         (0, PALETTE["negative"], "Negative"),
         (1, PALETTE["positive"], "Positive"),
     ]:
         mask = valid & (outcome_labels == label_val)
-        ax2.scatter(coords[mask, 0], coords[mask, 1],
-                    c=color, s=5, alpha=0.4, label=name, rasterized=True, linewidths=0)
+        ax2.scatter(
+            coords[mask, 0],
+            coords[mask, 1],
+            c=color,
+            s=5,
+            alpha=0.4,
+            label=name,
+            rasterized=True,
+            linewidths=0,
+        )
     ax2.set_title(f"By {outcome_name.replace('_', ' ')}")
     ax2.legend(markerscale=3, fontsize=LEGEND_SIZE)
 

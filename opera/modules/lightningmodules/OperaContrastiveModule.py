@@ -13,9 +13,12 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
-from typing import Dict, List, Optional
+from typing import Dict, List
 import numpy as np
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +55,9 @@ class OperaContrastiveModule(L.LightningModule):
         self.optimizer_epsilon = optimizer_epsilon
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
 
-    def _build_outcome_survival(self, batch: dict) -> Dict[str, Dict[str, torch.Tensor]]:
+    def _build_outcome_survival(
+        self, batch: dict
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
         """
         Collect per-outcome survival dicts from the batch.
 
@@ -62,20 +67,20 @@ class OperaContrastiveModule(L.LightningModule):
         """
         outcome_survival = {}
         for name in self.outcome_names:
-            time_key  = f"time_{name}"
+            time_key = f"time_{name}"
             event_key = f"event_{name}"
             label_key = f"outcome_{name}"
 
             if time_key in batch and event_key in batch:
                 outcome_survival[name] = {
-                    "times":  batch[time_key],
+                    "times": batch[time_key],
                     "events": batch[event_key],
                 }
             elif label_key in batch:
                 # Fallback: binary label only — treat as event, time unknown
                 labels = batch[label_key]
                 outcome_survival[name] = {
-                    "times":  torch.full_like(labels, -1, dtype=torch.float),
+                    "times": torch.full_like(labels, -1, dtype=torch.float),
                     "events": labels,
                 }
         return outcome_survival
@@ -104,7 +109,9 @@ class OperaContrastiveModule(L.LightningModule):
 
         if not hasattr(self, "_val_probe_embs"):
             self._val_probe_embs: Dict[str, list] = {n: [] for n in self.outcome_names}
-            self._val_probe_labels: Dict[str, list] = {n: [] for n in self.outcome_names}
+            self._val_probe_labels: Dict[str, list] = {
+                n: [] for n in self.outcome_names
+            }
             self._val_probe_emb_store: list = []
 
         self._val_probe_emb_store.append(emb)
@@ -159,7 +166,9 @@ class OperaContrastiveModule(L.LightningModule):
                     pass
 
             if probe_aurocs:
-                self.log("val/probe_auroc_mean", float(np.mean(probe_aurocs)), prog_bar=True)
+                self.log(
+                    "val/probe_auroc_mean", float(np.mean(probe_aurocs)), prog_bar=True
+                )
 
         except ImportError:
             pass  # scikit-learn not available
@@ -182,10 +191,12 @@ class OperaContrastiveModule(L.LightningModule):
 
         param_groups = [{"params": head_params, "lr": self.learning_rate}]
         if encoder_params:
-            param_groups.append({
-                "params": encoder_params,
-                "lr": self.learning_rate * self.encoder_lr_multiplier,
-            })
+            param_groups.append(
+                {
+                    "params": encoder_params,
+                    "lr": self.learning_rate * self.encoder_lr_multiplier,
+                }
+            )
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
 
@@ -197,4 +208,6 @@ class OperaContrastiveModule(L.LightningModule):
             num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        ]

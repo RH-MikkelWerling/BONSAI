@@ -21,21 +21,20 @@ Three levels of analysis:
      model identifies a subgroup with meaningfully different outcomes."
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-import logging
 
 
 # ═════════════════════════════════════════════════════════════════════
 # 1. Added-value analysis
 # ═════════════════════════════════════════════════════════════════════
+
 
 def added_value_analysis(
     embeddings: np.ndarray,
@@ -91,9 +90,11 @@ def added_value_analysis(
     combined = np.hstack([rkkp, emb_reduced])
 
     results = {}
-    for name, X in [("rkkp_only", rkkp),
-                     ("embedding_only", emb_reduced),
-                     ("combined", combined)]:
+    for name, X in [
+        ("rkkp_only", rkkp),
+        ("embedding_only", emb_reduced),
+        ("combined", combined),
+    ]:
         aurocs, auprcs = [], []
         skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
 
@@ -125,8 +126,10 @@ def added_value_analysis(
         "auprc_delta": results["combined"]["auprc"] - results["rkkp_only"]["auprc"],
     }
     results["added_value_rkkp"] = {
-        "auroc_delta": results["combined"]["auroc"] - results["embedding_only"]["auroc"],
-        "auprc_delta": results["combined"]["auprc"] - results["embedding_only"]["auprc"],
+        "auroc_delta": results["combined"]["auroc"]
+        - results["embedding_only"]["auroc"],
+        "auprc_delta": results["combined"]["auprc"]
+        - results["embedding_only"]["auprc"],
     }
 
     return results
@@ -171,6 +174,7 @@ def added_value_multi_outcome(
 # 2. Residual analysis
 # ═════════════════════════════════════════════════════════════════════
 
+
 def compute_rkkp_residuals(
     rkkp_features: np.ndarray,
     labels: np.ndarray,
@@ -212,6 +216,7 @@ def compute_rkkp_residuals(
 # ═════════════════════════════════════════════════════════════════════
 # 3. Within-stratum analysis
 # ═════════════════════════════════════════════════════════════════════
+
 
 def within_stratum_analysis(
     embeddings: np.ndarray,
@@ -272,14 +277,16 @@ def within_stratum_analysis(
                 auprcs.append(average_precision_score(lab_s[test_idx], probs))
 
         if aurocs:
-            rows.append({
-                "stratum": s,
-                "n": int(mask.sum()),
-                "prevalence": float(lab_s.mean()),
-                "embedding_auroc": np.mean(aurocs),
-                "embedding_auroc_std": np.std(aurocs),
-                "embedding_auprc": np.mean(auprcs),
-            })
+            rows.append(
+                {
+                    "stratum": s,
+                    "n": int(mask.sum()),
+                    "prevalence": float(lab_s.mean()),
+                    "embedding_auroc": np.mean(aurocs),
+                    "embedding_auroc_std": np.std(aurocs),
+                    "embedding_auprc": np.mean(auprcs),
+                }
+            )
 
     return pd.DataFrame(rows)
 
@@ -287,6 +294,7 @@ def within_stratum_analysis(
 # ═════════════════════════════════════════════════════════════════════
 # Reporting
 # ═════════════════════════════════════════════════════════════════════
+
 
 def format_added_value_report(
     multi_outcome_df: pd.DataFrame,
@@ -296,14 +304,22 @@ def format_added_value_report(
     lines = []
     lines.append("=" * 75)
     lines.append("RKKP-CONDITIONED EMBEDDING ANALYSIS")
-    lines.append("Does the foundation model know something the clinician didn't write down?")
+    lines.append(
+        "Does the foundation model know something the clinician didn't write down?"
+    )
     lines.append("=" * 75)
 
     lines.append("\n── Added-value analysis (AUROC) ──")
-    lines.append(f"{'Outcome':25s} {'RKKP':>8s} {'Embed':>8s} {'Combined':>8s} {'Delta':>8s}")
+    lines.append(
+        f"{'Outcome':25s} {'RKKP':>8s} {'Embed':>8s} {'Combined':>8s} {'Delta':>8s}"
+    )
     lines.append("-" * 65)
     for _, row in multi_outcome_df.iterrows():
-        delta_str = f"+{row['delta_auroc']:.3f}" if row["delta_auroc"] >= 0 else f"{row['delta_auroc']:.3f}"
+        delta_str = (
+            f"+{row['delta_auroc']:.3f}"
+            if row["delta_auroc"] >= 0
+            else f"{row['delta_auroc']:.3f}"
+        )
         marker = " **" if row["delta_auroc"] > 0.02 else ""
         lines.append(
             f"{row['outcome']:25s} "
@@ -314,7 +330,7 @@ def format_added_value_report(
         )
 
     if within_stratum_df is not None and len(within_stratum_df) > 0:
-        lines.append(f"\n── Within-stratum embedding discrimination ──")
+        lines.append("\n── Within-stratum embedding discrimination ──")
         lines.append("Among patients RKKP considers equivalent, can the embedding")
         lines.append("still separate outcomes?")
         lines.append(f"\n{'Stratum':20s} {'n':>6s} {'Prev':>7s} {'AUROC':>8s}")

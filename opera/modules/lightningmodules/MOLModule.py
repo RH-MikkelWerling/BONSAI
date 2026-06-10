@@ -16,7 +16,10 @@ from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torchmetrics import AUROC, AveragePrecision
 from typing import Dict, List
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 
 class MOLModule(L.LightningModule):
@@ -42,12 +45,12 @@ class MOLModule(L.LightningModule):
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
 
         # Per-outcome validation metrics
-        self.val_aurocs = nn.ModuleDict({
-            name: AUROC(task="binary") for name in outcome_names
-        })
-        self.val_auprcs = nn.ModuleDict({
-            name: AveragePrecision(task="binary") for name in outcome_names
-        })
+        self.val_aurocs = nn.ModuleDict(
+            {name: AUROC(task="binary") for name in outcome_names}
+        )
+        self.val_auprcs = nn.ModuleDict(
+            {name: AveragePrecision(task="binary") for name in outcome_names}
+        )
 
     def _build_outcome_labels(self, batch: dict) -> Dict[str, torch.Tensor]:
         """Extract outcome labels from batch dict."""
@@ -58,7 +61,9 @@ class MOLModule(L.LightningModule):
                 outcome_labels[name] = batch[key]
             else:
                 outcome_labels[name] = torch.full(
-                    (batch["code"].size(0),), -1, dtype=torch.long,
+                    (batch["code"].size(0),),
+                    -1,
+                    dtype=torch.long,
                     device=batch["code"].device,
                 )
         return outcome_labels
@@ -129,10 +134,12 @@ class MOLModule(L.LightningModule):
             {"params": head_params, "lr": self.learning_rate},
         ]
         if encoder_params:
-            param_groups.append({
-                "params": encoder_params,
-                "lr": self.learning_rate * self.encoder_lr_multiplier,
-            })
+            param_groups.append(
+                {
+                    "params": encoder_params,
+                    "lr": self.learning_rate * self.encoder_lr_multiplier,
+                }
+            )
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
 
@@ -144,4 +151,6 @@ class MOLModule(L.LightningModule):
             num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        ]

@@ -69,9 +69,7 @@ def test_outcome_window_size_metadata_counts_splits(tmp_path):
             "subject_id": [1, 2, 3, 4],
             "split": ["train", "train", "tuning", "held_out"],
             "index_date": pd.to_datetime(["2020-01-01"] * 4),
-            "outcome_date": pd.to_datetime(
-                ["2020-01-10", None, None, "2020-01-15"]
-            ),
+            "outcome_date": pd.to_datetime(["2020-01-10", None, None, "2020-01-15"]),
             "censor_date": pd.to_datetime(
                 ["2021-01-01", "2021-01-01", "2021-01-01", "2021-01-01"]
             ),

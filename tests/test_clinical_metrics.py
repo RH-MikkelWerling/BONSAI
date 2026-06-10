@@ -61,9 +61,9 @@ def test_full_evaluation_uses_explicit_survival_probabilities():
 def test_survival_metrics_n_events_counts_only_primary_events():
     # With event=2 (competing death) in the cohort, n_events must count only
     # event==1 patients, not inflate by summing raw values (1+2=3 per pair).
-    times  = np.array([30.0, 60.0, 90.0, 120.0, 150.0])
-    events = np.array([1,    2,    0,    1,     2   ])   # 2 primary, 2 competing, 1 admin
-    preds  = np.array([0.8,  0.4,  0.3,  0.7,   0.5])
+    times = np.array([30.0, 60.0, 90.0, 120.0, 150.0])
+    events = np.array([1, 2, 0, 1, 2])  # 2 primary, 2 competing, 1 admin
+    preds = np.array([0.8, 0.4, 0.3, 0.7, 0.5])
 
     result = compute_survival_metrics(times, events, preds, time_horizons=[100.0])
 
@@ -73,9 +73,9 @@ def test_survival_metrics_n_events_counts_only_primary_events():
 def test_ipcw_metrics_exclude_competing_deaths_before_horizon():
     # Competing-death patients before the horizon should be excluded from
     # binary IPCW metrics (same as admin-censored patients before horizon).
-    times  = np.array([30.0, 60.0, 150.0, 200.0])
-    events = np.array([1,    2,    0,     0    ])   # 1 primary event, 1 competing death
-    preds  = np.array([0.9,  0.4,  0.2,   0.1  ])
+    times = np.array([30.0, 60.0, 150.0, 200.0])
+    events = np.array([1, 2, 0, 0])  # 1 primary event, 1 competing death
+    preds = np.array([0.9, 0.4, 0.2, 0.1])
 
     result = compute_survival_metrics(times, events, preds, time_horizons=[100.0])
 
@@ -104,7 +104,10 @@ def test_ipcw_brier_uses_event_probability_target_orientation():
         time_horizons=[100.0],
     )
 
-    assert good["per_horizon"]["100d"]["ipcw_brier"] < bad["per_horizon"]["100d"]["ipcw_brier"]
+    assert (
+        good["per_horizon"]["100d"]["ipcw_brier"]
+        < bad["per_horizon"]["100d"]["ipcw_brier"]
+    )
 
 
 def test_km_censoring_function_returns_survival_just_before_tied_time():

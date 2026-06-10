@@ -60,18 +60,28 @@ class PatientRetriever:
             "opera": self._build_embedding_frame(embeddings_opera),
         }
         if embeddings_base is not None:
-            self._embedding_frames["base"] = self._build_embedding_frame(embeddings_base)
+            self._embedding_frames["base"] = self._build_embedding_frame(
+                embeddings_base
+            )
         if embeddings_dapt is not None:
-            self._embedding_frames["dapt"] = self._build_embedding_frame(embeddings_dapt)
+            self._embedding_frames["dapt"] = self._build_embedding_frame(
+                embeddings_dapt
+            )
 
         self._embedding_df = self._embedding_frames["opera"]
         self._metadata = self._build_metadata_frame()
-        self._normalized_matrix = self._embedding_df.drop(columns=["patient_id"]).to_numpy(dtype=np.float32)
+        self._normalized_matrix = self._embedding_df.drop(
+            columns=["patient_id"]
+        ).to_numpy(dtype=np.float32)
         self._normalized_matrix = _normalize_rows(self._normalized_matrix)
         self._patient_ids = self._embedding_df["patient_id"].tolist()
-        self._id_to_index = {patient_id: idx for idx, patient_id in enumerate(self._patient_ids)}
+        self._id_to_index = {
+            patient_id: idx for idx, patient_id in enumerate(self._patient_ids)
+        }
         self._normalized_embeddings = {
-            name: _normalize_rows(frame.drop(columns=["patient_id"]).to_numpy(dtype=np.float32))
+            name: _normalize_rows(
+                frame.drop(columns=["patient_id"]).to_numpy(dtype=np.float32)
+            )
             for name, frame in self._embedding_frames.items()
         }
         self._embedding_patient_ids = {
@@ -89,7 +99,9 @@ class PatientRetriever:
         if use_faiss:
             self._try_build_faiss_index()
 
-    def _build_embedding_frame(self, embeddings: Mapping[Any, np.ndarray]) -> pd.DataFrame:
+    def _build_embedding_frame(
+        self, embeddings: Mapping[Any, np.ndarray]
+    ) -> pd.DataFrame:
         rows: List[Dict[str, Any]] = []
         for patient_id, vector in embeddings.items():
             arr = np.asarray(vector, dtype=np.float32).reshape(-1)
@@ -120,7 +132,11 @@ class PatientRetriever:
     def _build_standardized_rkkp_table(self) -> Optional[pd.DataFrame]:
         if self.rkkp is None:
             return None
-        missing = [column for column in RKKP_SIMILARITY_COLUMNS if column not in self.rkkp.columns]
+        missing = [
+            column
+            for column in RKKP_SIMILARITY_COLUMNS
+            if column not in self.rkkp.columns
+        ]
         if missing:
             LOGGER.warning(
                 "RKKP table is missing required similarity columns: %s",
@@ -135,7 +151,7 @@ class PatientRetriever:
         mean = values.mean(axis=0)
         std = values.std(axis=0)
         std = np.where(std == 0.0, 1.0, std)
-        complete.loc[:, RKKP_SIMILARITY_COLUMNS] = (values - mean) / std
+        complete[RKKP_SIMILARITY_COLUMNS] = (values - mean) / std
         return complete.reset_index(drop=True)
 
     def _try_build_faiss_index(self) -> None:
@@ -148,7 +164,10 @@ class PatientRetriever:
             self.faiss_index = index
             self.index_backend = "faiss"
         except Exception as exc:
-            LOGGER.info("FAISS unavailable; falling back to numpy retrieval: %s", type(exc).__name__)
+            LOGGER.info(
+                "FAISS unavailable; falling back to numpy retrieval: %s",
+                type(exc).__name__,
+            )
 
     def retrieve_similar(
         self,
@@ -189,15 +208,18 @@ class PatientRetriever:
             same_disease = self._disease_for_patient(patient_id)
 
         if self.faiss_index is not None:
-            import faiss
-
             n_search = min(len(self._patient_ids), max(k + 25, k + 1))
-            scores, indices = self.faiss_index.search(query_vector.reshape(1, -1), n_search)
+            scores, indices = self.faiss_index.search(
+                query_vector.reshape(1, -1), n_search
+            )
             candidate_pairs = list(zip(indices[0].tolist(), scores[0].tolist()))
         else:
             similarities = self._normalized_matrix @ query_vector
             order = np.argsort(-similarities)
-            candidate_pairs = [(int(idx), float(similarities[idx])) for idx in order[: max(k + 25, k + 1)]]
+            candidate_pairs = [
+                (int(idx), float(similarities[idx]))
+                for idx in order[: max(k + 25, k + 1)]
+            ]
 
         neighbors: List[Dict[str, Any]] = []
         for idx, score in candidate_pairs:
@@ -232,7 +254,9 @@ class PatientRetriever:
         grouped = self._metadata.groupby("disease_subtype", dropna=False)
         for disease, group in grouped:
             disease_label = "unknown" if pd.isna(disease) else str(disease)
-            disease_ids = [pid for pid in group["patient_id"].tolist() if pid in self._id_to_index]
+            disease_ids = [
+                pid for pid in group["patient_id"].tolist() if pid in self._id_to_index
+            ]
             opera_scores = []
             random_scores = []
             ipi_scores = []
@@ -250,7 +274,12 @@ class PatientRetriever:
                 opera_scores.append(
                     _binary_concordance(
                         query_value,
-                        [self._patient_outcome_value(n["patient_id"], selected_outcome) for n in opera_neighbors],
+                        [
+                            self._patient_outcome_value(
+                                n["patient_id"], selected_outcome
+                            )
+                            for n in opera_neighbors
+                        ],
                     )
                 )
 
@@ -262,17 +291,25 @@ class PatientRetriever:
                 random_scores.append(
                     _binary_concordance(
                         query_value,
-                        [self._patient_outcome_value(pid, selected_outcome) for pid in random_neighbors],
+                        [
+                            self._patient_outcome_value(pid, selected_outcome)
+                            for pid in random_neighbors
+                        ],
                     )
                 )
 
-                closest_ipi = self._closest_ipi_neighbors(patient_id, disease_ids=disease_ids, k=k)
+                closest_ipi = self._closest_ipi_neighbors(
+                    patient_id, disease_ids=disease_ids, k=k
+                )
                 if closest_ipi:
                     ipi_queries += 1
                     ipi_scores.append(
                         _binary_concordance(
                             query_value,
-                            [self._patient_outcome_value(pid, selected_outcome) for pid in closest_ipi],
+                            [
+                                self._patient_outcome_value(pid, selected_outcome)
+                                for pid in closest_ipi
+                            ],
                         )
                     )
 
@@ -282,15 +319,33 @@ class PatientRetriever:
                     "outcome_name": selected_outcome,
                     "n_queries": int(len([v for v in opera_scores if np.isfinite(v)])),
                     "n_ipi_queries": int(ipi_queries),
-                    "opera_mean_concordance": float(np.nanmean(opera_scores)) if opera_scores else float("nan"),
-                    "opera_ci_lower": _bootstrap_mean_ci(opera_scores, n_bootstrap, self.seed)[0],
-                    "opera_ci_upper": _bootstrap_mean_ci(opera_scores, n_bootstrap, self.seed)[1],
-                    "random_mean_concordance": float(np.nanmean(random_scores)) if random_scores else float("nan"),
-                    "random_ci_lower": _bootstrap_mean_ci(random_scores, n_bootstrap, self.seed + 1)[0],
-                    "random_ci_upper": _bootstrap_mean_ci(random_scores, n_bootstrap, self.seed + 1)[1],
-                    "ipi_mean_concordance": float(np.nanmean(ipi_scores)) if ipi_scores else float("nan"),
-                    "ipi_ci_lower": _bootstrap_mean_ci(ipi_scores, n_bootstrap, self.seed + 2)[0],
-                    "ipi_ci_upper": _bootstrap_mean_ci(ipi_scores, n_bootstrap, self.seed + 2)[1],
+                    "opera_mean_concordance": float(np.nanmean(opera_scores))
+                    if opera_scores
+                    else float("nan"),
+                    "opera_ci_lower": _bootstrap_mean_ci(
+                        opera_scores, n_bootstrap, self.seed
+                    )[0],
+                    "opera_ci_upper": _bootstrap_mean_ci(
+                        opera_scores, n_bootstrap, self.seed
+                    )[1],
+                    "random_mean_concordance": float(np.nanmean(random_scores))
+                    if random_scores
+                    else float("nan"),
+                    "random_ci_lower": _bootstrap_mean_ci(
+                        random_scores, n_bootstrap, self.seed + 1
+                    )[0],
+                    "random_ci_upper": _bootstrap_mean_ci(
+                        random_scores, n_bootstrap, self.seed + 1
+                    )[1],
+                    "ipi_mean_concordance": float(np.nanmean(ipi_scores))
+                    if ipi_scores
+                    else float("nan"),
+                    "ipi_ci_lower": _bootstrap_mean_ci(
+                        ipi_scores, n_bootstrap, self.seed + 2
+                    )[0],
+                    "ipi_ci_upper": _bootstrap_mean_ci(
+                        ipi_scores, n_bootstrap, self.seed + 2
+                    )[1],
                 }
             )
         return pd.DataFrame(rows)
@@ -321,33 +376,45 @@ class PatientRetriever:
             rank_scores = []
             rank_positions = []
             for rank, neighbor in enumerate(neighbors, start=1):
-                similarity = self._rkkp_cosine_similarity(patient_id, neighbor["patient_id"])
+                similarity = self._rkkp_cosine_similarity(
+                    patient_id, neighbor["patient_id"]
+                )
                 if similarity is None:
                     continue
                 per_rank[rank].append(similarity)
                 rank_positions.append(rank)
                 rank_scores.append(similarity)
             if len(rank_positions) >= 2:
-                correlations.append(_spearman_rank_correlation(rank_positions, rank_scores))
+                correlations.append(
+                    _spearman_rank_correlation(rank_positions, rank_scores)
+                )
 
         rows = []
         for rank in range(1, max_rank + 1):
-            lower, upper = _bootstrap_mean_ci(per_rank[rank], n_bootstrap, self.seed + rank)
+            lower, upper = _bootstrap_mean_ci(
+                per_rank[rank], n_bootstrap, self.seed + rank
+            )
             rows.append(
                 {
                     "rank": rank,
-                    "mean_rkkp_similarity": float(np.nanmean(per_rank[rank])) if per_rank[rank] else float("nan"),
+                    "mean_rkkp_similarity": float(np.nanmean(per_rank[rank]))
+                    if per_rank[rank]
+                    else float("nan"),
                     "ci_lower": lower,
                     "ci_upper": upper,
                     "n_pairs": int(len(per_rank[rank])),
                 }
             )
 
-        corr_lower, corr_upper = _bootstrap_mean_ci(correlations, n_bootstrap, self.seed + 999)
+        corr_lower, corr_upper = _bootstrap_mean_ci(
+            correlations, n_bootstrap, self.seed + 999
+        )
         return {
             "per_rank": pd.DataFrame(rows),
             "spearman_summary": {
-                "mean_spearman": float(np.nanmean(correlations)) if correlations else float("nan"),
+                "mean_spearman": float(np.nanmean(correlations))
+                if correlations
+                else float("nan"),
                 "ci_lower": corr_lower,
                 "ci_upper": corr_upper,
                 "n_queries": int(len(correlations)),
@@ -380,10 +447,14 @@ class PatientRetriever:
         cache_file = (
             Path(cache_path)
             if cache_path is not None
-            else Path("opera") / "retrieval" / "pairwise_rkkp_embedding_correlation.json"
+            else Path("opera")
+            / "retrieval"
+            / "pairwise_rkkp_embedding_correlation.json"
         )
         if use_cache and cache_file.exists():
-            LOGGER.info("Loading cached pairwise correlation results from %s", cache_file)
+            LOGGER.info(
+                "Loading cached pairwise correlation results from %s", cache_file
+            )
             with cache_file.open("r", encoding="utf-8") as handle:
                 cached = json.load(handle)
             return _deserialize_pairwise_results(cached)
@@ -395,7 +466,9 @@ class PatientRetriever:
             & set(self._embedding_id_to_index["opera"].keys())
         )
         if len(eligible_ids) < 2:
-            raise ValueError("At least two patients with RKKP and all embedding versions are required.")
+            raise ValueError(
+                "At least two patients with RKKP and all embedding versions are required."
+            )
 
         sampled_pairs, total_pairs = self._sample_patient_pairs(
             patient_ids=eligible_ids,
@@ -452,7 +525,9 @@ class PatientRetriever:
         }
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         with cache_file.open("w", encoding="utf-8") as handle:
-            json.dump(_serialize_pairwise_results(result), handle, indent=2, default=str)
+            json.dump(
+                _serialize_pairwise_results(result), handle, indent=2, default=str
+            )
         LOGGER.info("Saved pairwise correlation results to %s", cache_file)
         return result
 
@@ -475,7 +550,9 @@ class PatientRetriever:
                 {
                     **profile,
                     "embedding_similarity": neighbor["cosine_similarity"],
-                    "rkkp_similarity": self._rkkp_cosine_similarity(patient_id, neighbor["patient_id"]),
+                    "rkkp_similarity": self._rkkp_cosine_similarity(
+                        patient_id, neighbor["patient_id"]
+                    ),
                 }
             )
         return {
@@ -498,7 +575,9 @@ class PatientRetriever:
             }
         return summary
 
-    def _patient_outcome_value(self, patient_id: Any, outcome_name: str) -> Optional[float]:
+    def _patient_outcome_value(
+        self, patient_id: Any, outcome_name: str
+    ) -> Optional[float]:
         summary = self._outcome_summary_for_patient(patient_id)
         payload = summary.get(outcome_name)
         if payload is None:
@@ -506,11 +585,15 @@ class PatientRetriever:
         return float(payload.get("event_indicator", 0))
 
     def _outcome_summary_for_patient(self, patient_id: Any) -> Dict[str, Any]:
-        rows = self._metadata.loc[self._metadata["patient_id"] == patient_id, "outcomes_summary"]
+        rows = self._metadata.loc[
+            self._metadata["patient_id"] == patient_id, "outcomes_summary"
+        ]
         return rows.iloc[0] if len(rows) else {}
 
     def _disease_for_patient(self, patient_id: Any) -> Any:
-        rows = self._metadata.loc[self._metadata["patient_id"] == patient_id, "disease_subtype"]
+        rows = self._metadata.loc[
+            self._metadata["patient_id"] == patient_id, "disease_subtype"
+        ]
         return rows.iloc[0] if len(rows) else None
 
     def _patient_profile(self, patient_id: Any) -> Dict[str, Any]:
@@ -553,13 +636,18 @@ class PatientRetriever:
             return []
         query_ipi = float(query_row.iloc[0]["ipi_score"])
         rows = self.rkkp.loc[
-            self.rkkp["patient_id"].isin(disease_ids) & (self.rkkp["patient_id"] != patient_id)
+            self.rkkp["patient_id"].isin(disease_ids)
+            & (self.rkkp["patient_id"] != patient_id)
         ].copy()
         rows = rows.dropna(subset=["ipi_score"])
         if rows.empty:
             return []
         rows["ipi_distance"] = np.abs(rows["ipi_score"].astype(float) - query_ipi)
-        return rows.sort_values(["ipi_distance", "patient_id"]).head(k)["patient_id"].tolist()
+        return (
+            rows.sort_values(["ipi_distance", "patient_id"])
+            .head(k)["patient_id"]
+            .tolist()
+        )
 
     def _has_rkkp_profile(self, patient_id: Any) -> bool:
         return self._rkkp_vector(patient_id) is not None
@@ -567,7 +655,9 @@ class PatientRetriever:
     def _rkkp_vector(self, patient_id: Any) -> Optional[np.ndarray]:
         if self._rkkp_standardized is None:
             return None
-        row = self._rkkp_standardized.loc[self._rkkp_standardized["patient_id"] == patient_id]
+        row = self._rkkp_standardized.loc[
+            self._rkkp_standardized["patient_id"] == patient_id
+        ]
         if row.empty:
             return None
         return row.loc[:, RKKP_SIMILARITY_COLUMNS].iloc[0].to_numpy(dtype=float)
@@ -620,7 +710,9 @@ class PatientRetriever:
                 patient_ids[left_idx],
                 patient_ids[right_idx],
             )
-            for left_idx, right_idx in (_pair_from_rank(int(rank), n_patients) for rank in pair_ranks)
+            for left_idx, right_idx in (
+                _pair_from_rank(int(rank), n_patients) for rank in pair_ranks
+            )
         ]
         return pairs, total_pairs
 
@@ -640,11 +732,19 @@ class PatientRetriever:
                     "left_patient_id": left_id,
                     "right_patient_id": right_id,
                     "rkkp_similarity": rkkp_similarity,
-                    "base_embedding_similarity": self._embedding_cosine_similarity(left_id, right_id, "base"),
-                    "dapt_embedding_similarity": self._embedding_cosine_similarity(left_id, right_id, "dapt"),
-                    "opera_embedding_similarity": self._embedding_cosine_similarity(left_id, right_id, "opera"),
+                    "base_embedding_similarity": self._embedding_cosine_similarity(
+                        left_id, right_id, "base"
+                    ),
+                    "dapt_embedding_similarity": self._embedding_cosine_similarity(
+                        left_id, right_id, "dapt"
+                    ),
+                    "opera_embedding_similarity": self._embedding_cosine_similarity(
+                        left_id, right_id, "opera"
+                    ),
                     "disease_subtype": (
-                        disease_left if disease_left == disease_right else "cross_disease"
+                        disease_left
+                        if disease_left == disease_right
+                        else "cross_disease"
                     ),
                 }
             )
@@ -659,9 +759,12 @@ class PatientRetriever:
         n_bootstrap: int,
         seed: int,
     ) -> Dict[str, Any]:
-        scatter_df = pair_df[
-            ["rkkp_similarity", embedding_column, "disease_subtype"]
-        ].dropna().rename(columns={embedding_column: "embedding_similarity"}).reset_index(drop=True)
+        scatter_df = (
+            pair_df[["rkkp_similarity", embedding_column, "disease_subtype"]]
+            .dropna()
+            .rename(columns={embedding_column: "embedding_similarity"})
+            .reset_index(drop=True)
+        )
         overall = _correlation_summary(
             x=scatter_df["rkkp_similarity"].to_numpy(dtype=float),
             y=scatter_df["embedding_similarity"].to_numpy(dtype=float),
@@ -669,7 +772,9 @@ class PatientRetriever:
             seed=seed,
         )
         stratified_rows = []
-        for disease_subtype, group in scatter_df.groupby("disease_subtype", dropna=False):
+        for disease_subtype, group in scatter_df.groupby(
+            "disease_subtype", dropna=False
+        ):
             if disease_subtype == "cross_disease" or len(group) < disease_min_pairs:
                 continue
             summary = _correlation_summary(
@@ -697,15 +802,23 @@ def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
     return matrix / norms
 
 
-def _binary_concordance(query_value: float, neighbor_values: Sequence[Optional[float]]) -> float:
-    valid = [float(value) for value in neighbor_values if value is not None and np.isfinite(value)]
+def _binary_concordance(
+    query_value: float, neighbor_values: Sequence[Optional[float]]
+) -> float:
+    valid = [
+        float(value)
+        for value in neighbor_values
+        if value is not None and np.isfinite(value)
+    ]
     if not valid:
         return float("nan")
     neighbor_mean = float(np.mean(valid))
     return 1.0 - abs(float(query_value) - neighbor_mean)
 
 
-def _bootstrap_mean_ci(values: Sequence[float], n_bootstrap: int, seed: int) -> Tuple[float, float]:
+def _bootstrap_mean_ci(
+    values: Sequence[float], n_bootstrap: int, seed: int
+) -> Tuple[float, float]:
     array = np.asarray([value for value in values if np.isfinite(value)], dtype=float)
     if len(array) == 0:
         return float("nan"), float("nan")
@@ -745,20 +858,22 @@ def _pearson_correlation(x: np.ndarray, y: np.ndarray) -> float:
         return float("nan")
     x_centered = x - x.mean()
     y_centered = y - y.mean()
-    denom = np.sqrt(np.sum(x_centered ** 2) * np.sum(y_centered ** 2))
+    denom = np.sqrt(np.sum(x_centered**2) * np.sum(y_centered**2))
     if denom == 0.0:
         return float("nan")
     return float(np.sum(x_centered * y_centered) / denom)
 
 
-def _spearman_rank_correlation(rank_positions: Sequence[int], similarities: Sequence[float]) -> float:
+def _spearman_rank_correlation(
+    rank_positions: Sequence[int], similarities: Sequence[float]
+) -> float:
     x = np.asarray(rank_positions, dtype=float)
     y = np.asarray(similarities, dtype=float)
     x_rank = _rankdata(x)
     y_rank = _rankdata(y)
     x_centered = x_rank - x_rank.mean()
     y_centered = y_rank - y_rank.mean()
-    denom = np.sqrt(np.sum(x_centered ** 2) * np.sum(y_centered ** 2))
+    denom = np.sqrt(np.sum(x_centered**2) * np.sum(y_centered**2))
     if denom == 0.0:
         return float("nan")
     return float(np.sum(x_centered * y_centered) / denom)
@@ -844,14 +959,20 @@ def _rankdata(values: np.ndarray) -> np.ndarray:
 
 def _serialize_pairwise_results(result: Dict[str, Any]) -> Dict[str, Any]:
     serialized = dict(result)
-    serialized["scatter_plot_data"] = result["scatter_plot_data"].to_dict(orient="records")
-    serialized["comparison_scatter_data"] = result["comparison_scatter_data"].to_dict(orient="records")
+    serialized["scatter_plot_data"] = result["scatter_plot_data"].to_dict(
+        orient="records"
+    )
+    serialized["comparison_scatter_data"] = result["comparison_scatter_data"].to_dict(
+        orient="records"
+    )
     serialized["embedding_versions"] = {}
     for version, payload in result["embedding_versions"].items():
         serialized["embedding_versions"][version] = {
             "overall": payload["overall"],
             "scatter_plot_data": payload["scatter_plot_data"].to_dict(orient="records"),
-            "stratified_by_disease": payload["stratified_by_disease"].to_dict(orient="records"),
+            "stratified_by_disease": payload["stratified_by_disease"].to_dict(
+                orient="records"
+            ),
         }
     return serialized
 
@@ -859,13 +980,19 @@ def _serialize_pairwise_results(result: Dict[str, Any]) -> Dict[str, Any]:
 def _deserialize_pairwise_results(payload: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(payload)
     result["scatter_plot_data"] = pd.DataFrame(result.get("scatter_plot_data", []))
-    result["comparison_scatter_data"] = pd.DataFrame(result.get("comparison_scatter_data", []))
+    result["comparison_scatter_data"] = pd.DataFrame(
+        result.get("comparison_scatter_data", [])
+    )
     restored_versions = {}
     for version, version_payload in result.get("embedding_versions", {}).items():
         restored_versions[version] = {
             "overall": version_payload.get("overall", {}),
-            "scatter_plot_data": pd.DataFrame(version_payload.get("scatter_plot_data", [])),
-            "stratified_by_disease": pd.DataFrame(version_payload.get("stratified_by_disease", [])),
+            "scatter_plot_data": pd.DataFrame(
+                version_payload.get("scatter_plot_data", [])
+            ),
+            "stratified_by_disease": pd.DataFrame(
+                version_payload.get("stratified_by_disease", [])
+            ),
         }
     result["embedding_versions"] = restored_versions
     return result

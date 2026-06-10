@@ -22,7 +22,7 @@ import lightning as L
 import torch
 from typing import Optional
 from dotenv import load_dotenv
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -43,12 +43,17 @@ from bonsai.functional.checkpointing import (
     save_checkpoint_metadata_sidecar,
 )
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 
 load_dotenv()
 
 
-def load_encoder_state_dict(ckpt_path: str, source: str, model_config: Optional[dict] = None) -> dict:
+def load_encoder_state_dict(
+    ckpt_path: str, source: str, model_config: Optional[dict] = None
+) -> dict:
     """
     Extract encoder weights from different checkpoint types.
 
@@ -60,7 +65,9 @@ def load_encoder_state_dict(ckpt_path: str, source: str, model_config: Optional[
     """
     if source in {"random_init", "none", "scratch", "no_pretraining"}:
         if model_config is None:
-            raise ValueError("random_init finetuning requires model architecture config.")
+            raise ValueError(
+                "random_init finetuning requires model architecture config."
+            )
         return {}, dict(model_config)
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
@@ -73,7 +80,7 @@ def load_encoder_state_dict(ckpt_path: str, source: str, model_config: Optional[
         # PretrainModule: weights are "model.XXX"
         for k, v in state_dict.items():
             if k.startswith("model."):
-                clean = k[len("model."):]
+                clean = k[len("model.") :]
                 if clean.startswith("head.") or clean.startswith("decoder."):
                     continue
                 encoder_state[clean] = v
@@ -82,7 +89,7 @@ def load_encoder_state_dict(ckpt_path: str, source: str, model_config: Optional[
         # Both OperaContrastiveModule and MOLModule store encoder as "model.encoder.XXX"
         for k, v in state_dict.items():
             if k.startswith("model.encoder."):
-                clean = k[len("model.encoder."):]
+                clean = k[len("model.encoder.") :]
                 encoder_state[clean] = v
 
     else:
@@ -198,9 +205,21 @@ def main(cfg: DictConfig) -> None:
     )
 
     if encoder_state:
-        # Load encoder weights (strict=False because BonsaiFinetune has extra cls head)
+        # The finetuning head is new, but all encoder tensors must match.
         missing, unexpected = model.load_state_dict(encoder_state, strict=False)
-        print(f"Loaded encoder weights. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+        allowed_missing_prefixes = (
+            ("classifier.",) if head_type == "linear_probe" else ("cls.",)
+        )
+        meaningful_missing = [
+            key for key in missing if not key.startswith(allowed_missing_prefixes)
+        ]
+        if meaningful_missing or unexpected:
+            raise RuntimeError(
+                "Encoder checkpoint is incompatible with the finetuning model. "
+                f"Missing encoder keys: {meaningful_missing[:10]}; "
+                f"unexpected keys: {unexpected[:10]}"
+            )
+        print("Loaded encoder weights with a newly initialized prediction head.")
     else:
         print("No encoder checkpoint loaded; using random initialization.")
     linear_probe_metadata = {}
@@ -220,7 +239,9 @@ def main(cfg: DictConfig) -> None:
 
     training_stage = cfg.get(
         "training_stage",
-        "linear_probe" if cfg.model.get("freeze_encoder", False) else "per_task_finetuning",
+        "linear_probe"
+        if cfg.model.get("freeze_encoder", False)
+        else "per_task_finetuning",
     )
 
     lightning_module = FinetuneModule(

@@ -21,7 +21,11 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import yaml
-from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path, parse_task_ref
+from opera.evaluation.tasks import (
+    normalize_outcome_config,
+    outcome_file_path,
+    parse_task_ref,
+)
 
 
 def parse_tasks(raw: str) -> List[Tuple[str, str]]:
@@ -118,8 +122,12 @@ def run_cell(
 def main():
     parser = argparse.ArgumentParser(description="Run pretraining scale ablations")
     parser.add_argument("--sweep_config", required=True)
-    parser.add_argument("--tasks", required=True, help="Comma-separated cohort:outcome pairs")
-    parser.add_argument("--checkpoints", required=True, help="Comma-separated name=path pairs")
+    parser.add_argument(
+        "--tasks", required=True, help="Comma-separated cohort:outcome pairs"
+    )
+    parser.add_argument(
+        "--checkpoints", required=True, help="Comma-separated name=path pairs"
+    )
     parser.add_argument("--encoder_source", default="pretrain")
     parser.add_argument("--output_dir", default="./results/pretraining_scale")
     parser.add_argument("--overwrite", action="store_true")

@@ -2,7 +2,7 @@
 DataModule for the hybrid experiment (EHR embeddings + RKKP tabular features).
 """
 
-from typing import Literal, Dict, List, Optional
+from typing import Literal, Dict, List
 import pandas as pd
 import lightning as L
 import torch
@@ -64,26 +64,42 @@ class HybridDataModule(L.LightningDataModule):
         bg_len = (train_data[0]["segment"] == 0).sum() if train_data else 0
 
         self.train_dataset = HybridDataset(
-            train_data, self.train_outcomes, self.tabular_df,
-            self.feature_columns, self.predict_token_id, bg_len,
+            train_data,
+            self.train_outcomes,
+            self.tabular_df,
+            self.feature_columns,
+            self.predict_token_id,
+            bg_len,
         )
         self.val_dataset = HybridDataset(
-            val_data, self.val_outcomes, self.tabular_df,
-            self.feature_columns, self.predict_token_id, bg_len,
+            val_data,
+            self.val_outcomes,
+            self.tabular_df,
+            self.feature_columns,
+            self.predict_token_id,
+            bg_len,
         )
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_dataset, batch_size=self.batch_size,
-            num_workers=self.num_workers, pin_memory=True,
-            persistent_workers=True, drop_last=True,
-            collate_fn=hybrid_collate, sampler=self.train_sampler,
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+            drop_last=True,
+            collate_fn=hybrid_collate,
+            sampler=self.train_sampler,
         )
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset, batch_size=self.batch_size,
-            num_workers=self.num_workers, pin_memory=True,
-            persistent_workers=True, drop_last=False, shuffle=False,
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+            drop_last=False,
+            shuffle=False,
             collate_fn=hybrid_collate,
         )

@@ -63,7 +63,8 @@ def find_discordant_patients(
         (merged["ipi_risk_probability"] <= low_cut) & (merged["opera_risk"] >= high_cut)
     ].copy()
     concordant_low = merged.loc[
-        (merged["ipi_risk_probability"] <= low_cut) & (merged["opera_risk"] <= opera_low_cut)
+        (merged["ipi_risk_probability"] <= low_cut)
+        & (merged["opera_risk"] <= opera_low_cut)
     ].copy()
 
     return {
@@ -108,8 +109,16 @@ def characterize_discordance(
             continue
         if not pd.api.types.is_numeric_dtype(frame[column]):
             continue
-        x = frame.loc[frame["is_discordant"] == 1, column].dropna().to_numpy(dtype=float)
-        y = frame.loc[frame["is_discordant"] == 0, column].dropna().to_numpy(dtype=float)
+        x = (
+            frame.loc[frame["is_discordant"] == 1, column]
+            .dropna()
+            .to_numpy(dtype=float)
+        )
+        y = (
+            frame.loc[frame["is_discordant"] == 0, column]
+            .dropna()
+            .to_numpy(dtype=float)
+        )
         if len(x) == 0 or len(y) == 0:
             continue
         stat = _mann_whitney_u(x, y)
@@ -126,21 +135,32 @@ def characterize_discordance(
 
     feature_df = pd.DataFrame(feature_rows).sort_values("p_value", na_position="last")
     if not feature_df.empty:
-        feature_df["fdr_q_value"] = _benjamini_hochberg(feature_df["p_value"].to_numpy(dtype=float))
-        feature_df = feature_df.sort_values(["fdr_q_value", "p_value"], na_position="last").reset_index(drop=True)
+        feature_df["fdr_q_value"] = _benjamini_hochberg(
+            feature_df["p_value"].to_numpy(dtype=float)
+        )
+        feature_df = feature_df.sort_values(
+            ["fdr_q_value", "p_value"], na_position="last"
+        ).reset_index(drop=True)
 
     attribution_df = pd.DataFrame()
     if ig_attributions is not None and not ig_attributions.empty:
-        ig_frame = ig_attributions.loc[ig_attributions["patient_id"].isin(compare_ids)].copy()
-        ig_grouped = (
-            ig_frame.groupby(["patient_id", "event_code"], as_index=False)["attribution"]
-            .mean()
+        ig_frame = ig_attributions.loc[
+            ig_attributions["patient_id"].isin(compare_ids)
+        ].copy()
+        ig_grouped = ig_frame.groupby(["patient_id", "event_code"], as_index=False)[
+            "attribution"
+        ].mean()
+        ig_grouped["is_discordant"] = (
+            ig_grouped["patient_id"].isin(discordant_ids).astype(int)
         )
-        ig_grouped["is_discordant"] = ig_grouped["patient_id"].isin(discordant_ids).astype(int)
         ig_rows = []
         for event_code, group_df in ig_grouped.groupby("event_code"):
-            x = group_df.loc[group_df["is_discordant"] == 1, "attribution"].to_numpy(dtype=float)
-            y = group_df.loc[group_df["is_discordant"] == 0, "attribution"].to_numpy(dtype=float)
+            x = group_df.loc[group_df["is_discordant"] == 1, "attribution"].to_numpy(
+                dtype=float
+            )
+            y = group_df.loc[group_df["is_discordant"] == 0, "attribution"].to_numpy(
+                dtype=float
+            )
             if len(x) == 0 or len(y) == 0:
                 continue
             stat = _mann_whitney_u(x, y)
@@ -153,7 +173,9 @@ def characterize_discordance(
                     "concordant_low_mean_attribution": float(np.mean(y)),
                 }
             )
-        attribution_df = pd.DataFrame(ig_rows).sort_values("p_value", na_position="last")
+        attribution_df = pd.DataFrame(ig_rows).sort_values(
+            "p_value", na_position="last"
+        )
         if not attribution_df.empty:
             attribution_df["fdr_q_value"] = _benjamini_hochberg(
                 attribution_df["p_value"].to_numpy(dtype=float)
@@ -166,10 +188,16 @@ def characterize_discordance(
     forest_plot_df = feature_df.head(15).copy()
     if not forest_plot_df.empty:
         forest_plot_df["ci_lower"] = forest_plot_df["effect_size"] - 1.96 * np.sqrt(
-            np.maximum(1e-8, (1.0 - forest_plot_df["effect_size"].abs()) / max(1, len(compare_ids)))
+            np.maximum(
+                1e-8,
+                (1.0 - forest_plot_df["effect_size"].abs()) / max(1, len(compare_ids)),
+            )
         )
         forest_plot_df["ci_upper"] = forest_plot_df["effect_size"] + 1.96 * np.sqrt(
-            np.maximum(1e-8, (1.0 - forest_plot_df["effect_size"].abs()) / max(1, len(compare_ids)))
+            np.maximum(
+                1e-8,
+                (1.0 - forest_plot_df["effect_size"].abs()) / max(1, len(compare_ids)),
+            )
         )
 
     return {
@@ -194,7 +222,9 @@ def validate_discordant_features(
         (outcomes["outcome_name"] == outcome) & (outcomes["disease_subtype"] == disease)
     ].copy()
     merged = outcome_df.merge(rkkp, on="patient_id", how="inner").merge(
-        ehr_features[["patient_id", *[f for f in top_features if f in ehr_features.columns]]],
+        ehr_features[
+            ["patient_id", *[f for f in top_features if f in ehr_features.columns]]
+        ],
         on="patient_id",
         how="left",
     )
@@ -242,22 +272,53 @@ def validate_discordant_features(
         seed=42,
     )
 
-    baseline_predictions = merged.loc[test_mask, ["patient_id", "time_to_event", "event_indicator", "binary_label", "binary_eligible"]].copy()
-    baseline_predictions["predicted_probability"] = baseline_model.predict_proba(clinical_features.loc[test_mask])
-    baseline_predictions["predicted_risk"] = baseline_model.predict_risk(clinical_features.loc[test_mask])
+    baseline_predictions = merged.loc[
+        test_mask,
+        [
+            "patient_id",
+            "time_to_event",
+            "event_indicator",
+            "binary_label",
+            "binary_eligible",
+        ],
+    ].copy()
+    baseline_predictions["predicted_probability"] = baseline_model.predict_proba(
+        clinical_features.loc[test_mask]
+    )
+    baseline_predictions["predicted_risk"] = baseline_model.predict_risk(
+        clinical_features.loc[test_mask]
+    )
 
-    augmented_predictions = merged.loc[test_mask, ["patient_id", "time_to_event", "event_indicator", "binary_label", "binary_eligible"]].copy()
-    augmented_predictions["predicted_probability"] = augmented_model.predict_proba(augmented_features.loc[test_mask])
-    augmented_predictions["predicted_risk"] = augmented_model.predict_risk(augmented_features.loc[test_mask])
+    augmented_predictions = merged.loc[
+        test_mask,
+        [
+            "patient_id",
+            "time_to_event",
+            "event_indicator",
+            "binary_label",
+            "binary_eligible",
+        ],
+    ].copy()
+    augmented_predictions["predicted_probability"] = augmented_model.predict_proba(
+        augmented_features.loc[test_mask]
+    )
+    augmented_predictions["predicted_risk"] = augmented_model.predict_risk(
+        augmented_features.loc[test_mask]
+    )
 
-    baseline_metrics = compute_comparison_metrics(baseline_predictions, tau_days=tau_days)
-    augmented_metrics = compute_comparison_metrics(augmented_predictions, tau_days=tau_days)
+    baseline_metrics = compute_comparison_metrics(
+        baseline_predictions, tau_days=tau_days
+    )
+    augmented_metrics = compute_comparison_metrics(
+        augmented_predictions, tau_days=tau_days
+    )
 
     return {
         "baseline_metrics": baseline_metrics,
         "augmented_metrics": augmented_metrics,
         "metric_deltas": {
-            key: augmented_metrics.get(key, float("nan")) - baseline_metrics.get(key, float("nan"))
+            key: augmented_metrics.get(key, float("nan"))
+            - baseline_metrics.get(key, float("nan"))
             for key in ["td_auroc", "c_index", "ipcw_auroc", "ipcw_brier", "ici", "mce"]
         },
         "summary_table": pd.DataFrame(

@@ -6,7 +6,7 @@ from bonsai.functional.truncation import truncate_subject
 from bonsai.functional.censoring import censor_subject
 from bonsai.functional.features import compute_abspos
 from bonsai.functional.normalization import normalize_segments
-from copy import deepcopy
+from bonsai.functional.subject_data import clone_subject
 
 
 class PretrainDataset(Dataset):
@@ -16,25 +16,41 @@ class PretrainDataset(Dataset):
         max_len: int,
         background_length: int,
         cutoff_date: Optional[dict] = None,
+        truncation_strategy: str = "tail",
+        tail_window_probability: float = 0.5,
+        generator: Optional[torch.Generator] = None,
     ):
         self.subjects = subjects
         self.max_len = max_len
         self.background_length = background_length
+        self.truncation_strategy = truncation_strategy
+        self.tail_window_probability = tail_window_probability
+        self.generator = generator
         self.cutoff_date = (
             compute_abspos(datetime(**cutoff_date)) if cutoff_date is not None else None
         )
 
-    def __getitem__(self, index: int) -> dict:
-        subject = deepcopy(self.subjects[index])
+    def _prepare_subject(self, index: int) -> tuple[dict, dict]:
+        subject = clone_subject(self.subjects[index])
         if self.cutoff_date is not None:
             subject = censor_subject(subject, self.cutoff_date)
-        truncated_subject = truncate_subject(
-            subject, self.max_len, self.background_length
+        truncated_subject, truncation_metadata = truncate_subject(
+            subject,
+            self.max_len,
+            self.background_length,
+            strategy=self.truncation_strategy,
+            tail_window_probability=self.tail_window_probability,
+            generator=self.generator,
+            return_metadata=True,
         )
         truncated_subject["attention_mask"] = torch.ones(
             len(truncated_subject["code"]), dtype=torch.long
         )
         truncated_subject["segment"] = normalize_segments(truncated_subject["segment"])
+        return truncated_subject, truncation_metadata
+
+    def __getitem__(self, index: int) -> dict:
+        truncated_subject, _ = self._prepare_subject(index)
         return truncated_subject
 
     def __len__(self):
@@ -53,8 +69,19 @@ class MLMPretrainDataset(PretrainDataset):
         masking_random_ratio: float = 0.1,
         masking_ignore_special_tokens: bool = True,
         cutoff_date: Optional[dict] = None,
+        truncation_strategy: str = "tail",
+        tail_window_probability: float = 0.5,
+        generator: Optional[torch.Generator] = None,
     ):
-        super().__init__(subjects, max_len, background_length, cutoff_date=cutoff_date)
+        super().__init__(
+            subjects,
+            max_len,
+            background_length,
+            cutoff_date=cutoff_date,
+            truncation_strategy=truncation_strategy,
+            tail_window_probability=tail_window_probability,
+            generator=generator,
+        )
         self.vocabulary = vocabulary
 
         self.masking_select_ratio = masking_select_ratio
@@ -67,9 +94,9 @@ class MLMPretrainDataset(PretrainDataset):
         )
 
     def __getitem__(self, index: int) -> dict:
-        subject = super().__getitem__(index)
+        subject, _ = self._prepare_subject(index)
         masked_codes, target = self.mask_patient_codes(subject["code"])
-        subject["concept"] = masked_codes
+        subject["code"] = masked_codes
         subject["target"] = target
         return subject
 
@@ -118,15 +145,28 @@ class ARPretrainDataset(PretrainDataset):
         max_len: int,
         background_length: int,
         cutoff_date: Optional[dict] = None,
+        truncation_strategy: str = "tail",
+        tail_window_probability: float = 0.5,
+        generator: Optional[torch.Generator] = None,
     ):
         super().__init__(
-            subjects, max_len + 1, background_length, cutoff_date=cutoff_date
+            subjects,
+            max_len + 1,
+            background_length,
+            cutoff_date=cutoff_date,
+            truncation_strategy=truncation_strategy,
+            tail_window_probability=tail_window_probability,
+            generator=generator,
         )  # +1 because we shift by one token in __getitem__
 
     def __getitem__(self, index: int) -> dict:
-        subject = super().__getitem__(index)
+        subject, truncation_metadata = self._prepare_subject(index)
         subject["target"] = subject["code"][1:]
         subject["target"] = subject["target"].masked_fill(subject["target"] == 0, -100)
+        if truncation_metadata["clinical_window_started_mid_history"]:
+            boundary_target = self.background_length - 1
+            if 0 <= boundary_target < len(subject["target"]):
+                subject["target"][boundary_target] = -100
         for key in ["code", "abspos", "segment", "age", "attention_mask"]:
             subject[key] = subject[key][:-1]
         return subject

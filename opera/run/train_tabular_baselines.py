@@ -22,7 +22,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from opera.compat.bonsai import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from opera.functional.ipcw import compute_ipcw_train_weights
 
 
@@ -70,12 +73,20 @@ def validate_feature_matrix(
         errors.append(f"Reserved columns cannot be used as features: {reserved_used}")
 
     if categorical_columns:
-        missing_categorical = [col for col in categorical_columns if col not in features.columns]
+        missing_categorical = [
+            col for col in categorical_columns if col not in features.columns
+        ]
         if missing_categorical:
-            errors.append(f"Categorical columns are missing from matrix: {missing_categorical}")
-        not_selected = [col for col in categorical_columns if col not in feature_columns]
+            errors.append(
+                f"Categorical columns are missing from matrix: {missing_categorical}"
+            )
+        not_selected = [
+            col for col in categorical_columns if col not in feature_columns
+        ]
         if not_selected:
-            warnings.append(f"Categorical columns not selected as features: {not_selected}")
+            warnings.append(
+                f"Categorical columns not selected as features: {not_selected}"
+            )
 
     if not feature_columns:
         errors.append("No feature columns remain after exclusions.")
@@ -90,7 +101,9 @@ def validate_feature_matrix(
     if all_missing and not allow_all_missing_features:
         errors.append(f"All-missing features are not allowed: {all_missing}")
     elif all_missing:
-        warnings.append(f"All-missing features will be retained by request: {all_missing}")
+        warnings.append(
+            f"All-missing features will be retained by request: {all_missing}"
+        )
 
     if max_missing_fraction is not None:
         too_sparse = missing_fraction[
@@ -107,7 +120,9 @@ def validate_feature_matrix(
         if features[col].nunique(dropna=True) <= 1:
             constant_features.append(col)
     if constant_features:
-        warnings.append(f"Constant or single-level features detected: {constant_features}")
+        warnings.append(
+            f"Constant or single-level features detected: {constant_features}"
+        )
 
     return {
         "ok": not errors,
@@ -184,7 +199,9 @@ def outcome_labels(
         outcome_name=outcome_name,
     )
     split_df = outcomes[outcomes["split"] == split].copy()
-    competing_df = pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
+    competing_df = (
+        pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
+    )
     labels = binarize_outcomes(
         split_df,
         n_hours_start_include=n_hours_start_include,
@@ -197,7 +214,9 @@ def outcome_labels(
         weights = compute_ipcw_train_weights(labels, horizon_hours=ipcw_horizon_hours)
         for subject_id, weight in weights.items():
             labels[subject_id]["ipcw_weight"] = float(weight)
-    frame = pd.DataFrame.from_dict(labels, orient="index").reset_index(names="subject_id")
+    frame = pd.DataFrame.from_dict(labels, orient="index").reset_index(
+        names="subject_id"
+    )
     columns = ["subject_id", "label"]
     if include_survival_fields:
         columns.extend(
@@ -246,7 +265,9 @@ def build_preprocessor(
             for col in feature_columns
             if str(train_df[col].dtype) in {"object", "category", "bool"}
         ]
-    numeric_columns = [col for col in feature_columns if col not in set(categorical_columns)]
+    numeric_columns = [
+        col for col in feature_columns if col not in set(categorical_columns)
+    ]
     transformers = []
     if numeric_columns:
         transformers.append(
@@ -254,7 +275,10 @@ def build_preprocessor(
                 "numeric",
                 Pipeline(
                     [
-                        ("imputer", SimpleImputer(strategy="median", add_indicator=True)),
+                        (
+                            "imputer",
+                            SimpleImputer(strategy="median", add_indicator=True),
+                        ),
                         ("scaler", StandardScaler()),
                     ]
                 ),
@@ -298,7 +322,9 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
     """Construct a supported tabular estimator."""
     base_model = model_name.removesuffix("_ipcw_bce")
     if base_model == "logistic":
-        return LogisticRegression(max_iter=2000, class_weight="balanced", random_state=seed)
+        return LogisticRegression(
+            max_iter=2000, class_weight="balanced", random_state=seed
+        )
     if base_model == "xgboost":
         try:
             from xgboost import XGBClassifier
@@ -390,10 +416,16 @@ def select_tabpfn_feature_columns(
     scores = []
     for col in feature_columns:
         observed = float(train_df[col].notna().mean())
-        if col in categorical or str(train_df[col].dtype) in {"object", "category", "bool"}:
+        if col in categorical or str(train_df[col].dtype) in {
+            "object",
+            "category",
+            "bool",
+        }:
             signal = float(train_df[col].nunique(dropna=True))
         else:
-            signal = float(pd.to_numeric(train_df[col], errors="coerce").var(skipna=True) or 0.0)
+            signal = float(
+                pd.to_numeric(train_df[col], errors="coerce").var(skipna=True) or 0.0
+            )
         scores.append((observed, signal, col))
     scores.sort(reverse=True)
     return [col for _, _, col in scores[:max_features]]
@@ -452,7 +484,9 @@ def write_feature_importance(
     try:
         names = preprocessor.get_feature_names_out()
     except Exception:
-        names = np.array([f"feature_{i}" for i in range(getattr(model, "n_features_in_", 0))])
+        names = np.array(
+            [f"feature_{i}" for i in range(getattr(model, "n_features_in_", 0))]
+        )
 
     if hasattr(model, "feature_importances_"):
         values = model.feature_importances_
@@ -472,7 +506,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     features = read_table(args.features)
-    feature_columns = infer_feature_columns(features, parse_columns(args.exclude_columns))
+    feature_columns = infer_feature_columns(
+        features, parse_columns(args.exclude_columns)
+    )
     categorical_columns = parse_columns(args.categorical_columns) or None
     contract = validate_feature_matrix(
         features,
@@ -487,7 +523,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         or any(col not in features.columns for col in feature_columns)
     )
     if structural_failure and contract["errors"]:
-        contract_path = output_dir / f"{args.cohort}_{args.outcome_name}_feature_contract.json"
+        contract_path = (
+            output_dir / f"{args.cohort}_{args.outcome_name}_feature_contract.json"
+        )
         with open(contract_path, "w") as f:
             json.dump(contract, f, indent=2)
         raise ValueError(
@@ -495,9 +533,13 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             f"{contract_path}: " + "; ".join(contract["errors"])
         )
 
-    requested_models = ["logistic", "xgboost"] if args.models == "all" else parse_columns(args.models)
+    requested_models = (
+        ["logistic", "xgboost"] if args.models == "all" else parse_columns(args.models)
+    )
     uses_ipcw_training = any(model.endswith("_ipcw_bce") for model in requested_models)
-    uses_binary_training = any(not model.endswith("_ipcw_bce") for model in requested_models)
+    uses_binary_training = any(
+        not model.endswith("_ipcw_bce") for model in requested_models
+    )
     if uses_ipcw_training and args.n_hours_end_include is None:
         raise ValueError("IPCW-BCE tabular training requires --n_hours_end_include.")
 
@@ -550,7 +592,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     contract.update(
         {
             "n_train_labelled": int(len(train_df)),
-            "n_ipcw_train_labelled": int(len(ipcw_train_df)) if ipcw_train_df is not None else None,
+            "n_ipcw_train_labelled": int(len(ipcw_train_df))
+            if ipcw_train_df is not None
+            else None,
             "n_test_labelled": int(len(test_df)),
             "train_split": args.train_split,
             "test_split": args.test_split,
@@ -559,8 +603,12 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     if uses_binary_training and train_df["label"].nunique() < 2:
         contract["errors"].append("Training labels contain fewer than two classes.")
         contract["ok"] = False
-    if uses_ipcw_training and (ipcw_train_df is None or ipcw_train_df["label"].nunique() < 2):
-        contract["errors"].append("IPCW training labels contain fewer than two classes.")
+    if uses_ipcw_training and (
+        ipcw_train_df is None or ipcw_train_df["label"].nunique() < 2
+    ):
+        contract["errors"].append(
+            "IPCW training labels contain fewer than two classes."
+        )
         contract["ok"] = False
     if test_df.empty:
         contract["errors"].append("No test labels overlap the feature matrix.")
@@ -585,10 +633,14 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         ),
         test_subject_ids=test_df["subject_id"],
     )
-    missingness_path = output_dir / f"{args.cohort}_{args.outcome_name}_feature_missingness.csv"
+    missingness_path = (
+        output_dir / f"{args.cohort}_{args.outcome_name}_feature_missingness.csv"
+    )
     miss.to_csv(missingness_path, index=False)
     contract["missingness_report"] = str(missingness_path)
-    contract_path = output_dir / f"{args.cohort}_{args.outcome_name}_feature_contract.json"
+    contract_path = (
+        output_dir / f"{args.cohort}_{args.outcome_name}_feature_contract.json"
+    )
     with open(contract_path, "w") as f:
         json.dump(contract, f, indent=2)
     if contract["errors"]:
@@ -620,13 +672,15 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                 categorical_columns,
                 max_features=args.tabpfn_max_features,
             )
-            if args.tabpfn_max_train_rows and len(model_train_df) > args.tabpfn_max_train_rows:
-                model_train_df = (
-                    model_train_df.groupby("label", group_keys=False)
-                    .sample(
-                        frac=min(1.0, args.tabpfn_max_train_rows / len(model_train_df)),
-                        random_state=args.seed,
-                    )
+            if (
+                args.tabpfn_max_train_rows
+                and len(model_train_df) > args.tabpfn_max_train_rows
+            ):
+                model_train_df = model_train_df.groupby(
+                    "label", group_keys=False
+                ).sample(
+                    frac=min(1.0, args.tabpfn_max_train_rows / len(model_train_df)),
+                    random_state=args.seed,
                 )
         predictions, pipeline = train_one_model(
             model_name=model_name,
@@ -658,7 +712,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         metadata = {
             "model_family": family,
             "model_name": model_name,
-            "training_mode": "ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary",
+            "training_mode": "ipcw_bce"
+            if model_name.endswith("_ipcw_bce")
+            else "binary",
             "cohort": args.cohort,
             "outcome_name": args.outcome_name,
             "features": args.features,
@@ -669,7 +725,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "categorical_columns": categorical_columns or [],
             "n_train": int(len(model_train_df)),
             "n_train_events": int(model_train_df["label"].sum()),
-            "n_train_weighted": float(sample_weight.sum()) if sample_weight is not None else None,
+            "n_train_weighted": float(sample_weight.sum())
+            if sample_weight is not None
+            else None,
             "n_test": int(len(test_df)),
             "n_test_events": int(test_df["label"].sum()),
             "seed": args.seed,
@@ -690,7 +748,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--cohort", required=True)
     parser.add_argument("--outcome_name", required=True)
-    parser.add_argument("--models", default="xgboost", help="xgboost, logistic, tabpfn, comma list, or all")
+    parser.add_argument(
+        "--models",
+        default="xgboost",
+        help="xgboost, logistic, tabpfn, comma list, or all",
+    )
     parser.add_argument("--model_prefix", default="tabular_ehr")
     parser.add_argument(
         "--output_stem",

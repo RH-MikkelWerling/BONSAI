@@ -37,7 +37,13 @@ def _seed_stability(results, metrics):
         return results.iloc[0:0].copy()
     group_cols = [
         col
-        for col in ("cohort", "outcome", "outcome_window_hours", "model_family", "evaluation_subset")
+        for col in (
+            "cohort",
+            "outcome",
+            "outcome_window_hours",
+            "model_family",
+            "evaluation_subset",
+        )
         if col in results.columns
     ]
     agg = {}
@@ -55,10 +61,7 @@ def main():
     parser.add_argument("--pattern", default="**/result.jsonl")
     parser.add_argument(
         "--metrics",
-        default=(
-            "auroc,auprc,brier_score,ece,concordance_index,"
-            "ipcw_auc,ipcw_brier"
-        ),
+        default=("auroc,auprc,brier_score,ece,concordance_index,ipcw_auc,ipcw_brier"),
         help=(
             "Comma-separated metric names. Prefixes such as ipcw_auc also "
             "include horizon-specific columns like ipcw_auc_365d."
@@ -134,9 +137,13 @@ def main():
     )
     if not validation.empty:
         validation.to_csv(output_dir / "aggregation_validation.csv", index=False)
-        print(f"Aggregation validation warnings: {output_dir / 'aggregation_validation.csv'}")
+        print(
+            f"Aggregation validation warnings: {output_dir / 'aggregation_validation.csv'}"
+        )
         if args.strict_aggregation and (validation["severity"] == "error").any():
-            raise SystemExit("Strict aggregation failed; see aggregation_validation.csv")
+            raise SystemExit(
+                "Strict aggregation failed; see aggregation_validation.csv"
+            )
 
     aggregate_results = filter_results_for_paper_aggregates(
         results,

@@ -7,12 +7,14 @@ When no expansion is used, this behaves identically to the base module.
 """
 
 import lightning as L
-import torch
 from torch import nn
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torchmetrics import MetricCollection, Precision
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 
 class DAPTPretrainModule(L.LightningModule):
@@ -47,6 +49,7 @@ class DAPTPretrainModule(L.LightningModule):
         # Optionally freeze pretrained embedding rows via gradient hooks
         if freeze_pretrained_embeds and old_vocab_size > 0:
             from opera.functional.vocab_expansion import freeze_pretrained_embeddings
+
             freeze_pretrained_embeddings(self.model, old_vocab_size)
 
         self.train_loss = nn.CrossEntropyLoss()
@@ -55,18 +58,20 @@ class DAPTPretrainModule(L.LightningModule):
         self.val_metrics = self._configure_metrics("val")
 
     def _configure_metrics(self, prefix: str):
-        return MetricCollection({
-            f"{prefix}/Prec-K1": Precision(
-                task="multiclass",
-                num_classes=self.model.config.vocab_size,
-                top_k=1,
-            ),
-            f"{prefix}/Prec-K10": Precision(
-                task="multiclass",
-                num_classes=self.model.config.vocab_size,
-                top_k=10,
-            ),
-        })
+        return MetricCollection(
+            {
+                f"{prefix}/Prec-K1": Precision(
+                    task="multiclass",
+                    num_classes=self.model.config.vocab_size,
+                    top_k=1,
+                ),
+                f"{prefix}/Prec-K10": Precision(
+                    task="multiclass",
+                    num_classes=self.model.config.vocab_size,
+                    top_k=10,
+                ),
+            }
+        )
 
     def training_step(self, batch, batch_idx):
         logits, labels = self.model(batch)
@@ -92,6 +97,7 @@ class DAPTPretrainModule(L.LightningModule):
         if self.old_vocab_size > 0 and not self.freeze_pretrained_embeds:
             # Differential LR: embedding/decoder layers get higher LR
             from opera.functional.vocab_expansion import get_vocab_aware_param_groups
+
             param_groups = get_vocab_aware_param_groups(
                 self.model,
                 base_lr=self.learning_rate,
@@ -106,7 +112,9 @@ class DAPTPretrainModule(L.LightningModule):
             for name, param in self.model.named_parameters():
                 if not param.requires_grad:
                     continue
-                if "code_embedding" in name or (name.startswith("decoder") and "weight" in name):
+                if "code_embedding" in name or (
+                    name.startswith("decoder") and "weight" in name
+                ):
                     embed_decoder_params.append(param)
                 else:
                     other_params.append(param)
@@ -115,15 +123,19 @@ class DAPTPretrainModule(L.LightningModule):
                 {"params": other_params, "lr": self.learning_rate},
             ]
             if embed_decoder_params:
-                param_groups.append({
-                    "params": embed_decoder_params,
-                    "lr": self.learning_rate * self.new_embed_lr_multiplier,
-                })
+                param_groups.append(
+                    {
+                        "params": embed_decoder_params,
+                        "lr": self.learning_rate * self.new_embed_lr_multiplier,
+                    }
+                )
         else:
             # No expansion — single param group, same as base PretrainModule
             param_groups = [
-                {"params": [p for p in self.model.parameters() if p.requires_grad],
-                 "lr": self.learning_rate},
+                {
+                    "params": [p for p in self.model.parameters() if p.requires_grad],
+                    "lr": self.learning_rate,
+                },
             ]
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
@@ -136,4 +148,6 @@ class DAPTPretrainModule(L.LightningModule):
             num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        ]

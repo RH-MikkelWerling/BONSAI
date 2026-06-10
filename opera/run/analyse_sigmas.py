@@ -12,12 +12,11 @@ Usage:
         output_dir=./sigma_analysis
 """
 
-import sys
 import torch
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 from opera.visualization.embedding_plots import (
     plot_sigma_evolution,
@@ -38,7 +37,9 @@ def extract_sigma_values(ckpt_path: str) -> Dict[str, float]:
             break
 
     if log_sigma_key is None:
-        raise ValueError("No log_sigma found in checkpoint. Is this a contrastive checkpoint?")
+        raise ValueError(
+            "No log_sigma found in checkpoint. Is this a contrastive checkpoint?"
+        )
 
     log_sigma = state_dict[log_sigma_key]
     sigma = torch.exp(log_sigma).numpy()
@@ -72,10 +73,19 @@ def load_training_log(log_dir: str) -> pd.DataFrame:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Analyse OPERA contrastive sigma values")
-    parser.add_argument("--contrastive_ckpt", required=True, help="Path to contrastive checkpoint")
-    parser.add_argument("--training_log_dir", default=None, help="Path to CSVLogger output dir")
-    parser.add_argument("--output_dir", default="./sigma_analysis", help="Output directory")
+
+    parser = argparse.ArgumentParser(
+        description="Analyse OPERA contrastive sigma values"
+    )
+    parser.add_argument(
+        "--contrastive_ckpt", required=True, help="Path to contrastive checkpoint"
+    )
+    parser.add_argument(
+        "--training_log_dir", default=None, help="Path to CSVLogger output dir"
+    )
+    parser.add_argument(
+        "--output_dir", default="./sigma_analysis", help="Output directory"
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -92,12 +102,17 @@ def main():
         print(f"  {name:30s}  σ={val:.4f}  precision={precision:.4f}")
 
     # ── Save as CSV ──────────────────────────────────────────────────
-    sigma_df = pd.DataFrame([
-        {"outcome": name, "sigma": val,
-         "precision": 0.5 * np.exp(-2 * np.log(val)),
-         "log_sigma": np.log(val)}
-        for name, val in sigma_values.items()
-    ])
+    sigma_df = pd.DataFrame(
+        [
+            {
+                "outcome": name,
+                "sigma": val,
+                "precision": 0.5 * np.exp(-2 * np.log(val)),
+                "log_sigma": np.log(val),
+            }
+            for name, val in sigma_values.items()
+        ]
+    )
     sigma_df.to_csv(output_dir / "sigma_values.csv", index=False)
 
     # ── Bar plot of final σ values ───────────────────────────────────
@@ -115,7 +130,8 @@ def main():
             outcome_names = list(sigma_values.keys())
 
             plot_sigma_evolution(
-                log_df, outcome_names,
+                log_df,
+                outcome_names,
                 save_path=str(output_dir / "sigma_evolution.png"),
             )
             print(f"Sigma evolution plot saved to {output_dir / 'sigma_evolution.png'}")

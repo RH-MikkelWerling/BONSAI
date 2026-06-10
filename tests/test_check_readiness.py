@@ -1,11 +1,13 @@
 import pytest
 
-yaml = pytest.importorskip("yaml")
-
 from opera.run.check_readiness import check_sweep_config
 
+yaml = pytest.importorskip("yaml")
 
-def test_check_readiness_reports_placeholder_paths_and_missing_rarity_baseline(tmp_path):
+
+def test_check_readiness_reports_placeholder_paths_and_missing_rarity_baseline(
+    tmp_path,
+):
     config = {
         "rarity_mode": "real",
         "cohorts": {"dlbcl": {"data_dir": "/data/dlbcl"}},

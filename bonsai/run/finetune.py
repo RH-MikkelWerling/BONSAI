@@ -9,6 +9,11 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.checkpointing import (
+    get_saved_encoder_config,
+    load_pretrained_encoder_checked,
+    save_checkpoint_metadata_sidecar,
+)
 from bonsai.paths import get_config_path
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
@@ -17,7 +22,6 @@ from bonsai.functional.outcomes import split_and_binarize_outcomes
 from bonsai.functional.loss import get_loss_weight
 from bonsai.functional.sampling import get_sampler
 from bonsai.functional.features import compute_abspos
-from bonsai.functional.config_manipulation import merge_configs_and_drop_duplicate_keys
 from bonsai.functional.versioning import generate_unused_run_id
 from hydra.core.hydra_config import HydraConfig
 
@@ -42,15 +46,13 @@ def main(cfg: DictConfig) -> None:
     model_save_dir = logger.log_dir
 
     ckpt = torch.load(cfg.pretrain_path, map_location="cpu", weights_only=False)
-    model_cfg = merge_configs_and_drop_duplicate_keys(
-        pretrain_cfg=ckpt["hyper_parameters"], finetune_cfg=cfg.model
-    )
+    model_cfg = get_saved_encoder_config(ckpt["hyper_parameters"])
+    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
+        model_cfg.pop(key, None)
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pl.read_parquet(cfg.paths.outcome)
-    outcomes = outcomes.with_columns(
-        censor_abspos=compute_abspos(pl.col("censor_date"))
-    )
+    outcomes = outcomes.with_columns(censor_abspos=compute_abspos(pl.col("index_date")))
     train_outcomes, val_outcomes, test_outcomes = split_and_binarize_outcomes(
         outcomes,
         train_key="train",
@@ -87,9 +89,8 @@ def main(cfg: DictConfig) -> None:
         ),
     )
 
-    lightning_module = FinetuneModule.load_from_checkpoint(
-        cfg.pretrain_path,
-        strict=False,
+    load_pretrained_encoder_checked(model, ckpt["state_dict"])
+    lightning_module = FinetuneModule(
         model=model,
         learning_rate=cfg.training.learning_rate,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
@@ -98,6 +99,12 @@ def main(cfg: DictConfig) -> None:
             cfg.training.loss_weight_function,
             labels=train_labels,
         ),
+        checkpoint_metadata={
+            "training_stage": "per_task_finetuning",
+            "dataset": cfg.dataset,
+            "outcome": cfg.outcome,
+            "source_checkpoint": cfg.pretrain_path,
+        },
     )
 
     ckpt_callback = ModelCheckpoint(
@@ -128,6 +135,7 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
         ckpt_path=cfg.paths.ckpt_path,
     )
+    save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
 
 
 # TODO: Aggregate scores here, assuming test has been run after each training and test outputs some file.

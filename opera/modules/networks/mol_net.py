@@ -60,6 +60,7 @@ from opera.compat.bonsai import BonsaiEncoder, BiGRU
 # Per-outcome classification head
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class OutcomeHead(nn.Module):
     """
     Small MLP head for a single binary outcome.
@@ -69,7 +70,7 @@ class OutcomeHead(nn.Module):
     def __init__(
         self,
         input_dim: int = 768,
-        hidden_dim: int = 128,        # TUNE: per-head hidden width
+        hidden_dim: int = 128,  # TUNE: per-head hidden width
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -89,6 +90,7 @@ class OutcomeHead(nn.Module):
 # ═══════════════════════════════════════════════════════════════════════════
 # Multi-outcome loss with configurable weighting
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class MultiOutcomeBCELoss(nn.Module):
     """
@@ -124,7 +126,9 @@ class MultiOutcomeBCELoss(nn.Module):
         elif weighting == "fixed":
             if fixed_weights is None:
                 raise ValueError("fixed_weights required when weighting='fixed'")
-            w = torch.tensor([fixed_weights[n] for n in outcome_names], dtype=torch.float32)
+            w = torch.tensor(
+                [fixed_weights[n] for n in outcome_names], dtype=torch.float32
+            )
             self.register_buffer("fixed_w", w)
         elif weighting == "equal":
             pass
@@ -186,6 +190,7 @@ class MultiOutcomeBCELoss(nn.Module):
 # Full MOL model
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class MultiOutcomeModel(nn.Module):
     """
     Shared encoder + per-outcome classification heads.
@@ -236,18 +241,22 @@ class MultiOutcomeModel(nn.Module):
             self.pooler = BiGRU(hidden_size)
 
         # Per-outcome heads
-        self.heads = nn.ModuleDict({
-            name: OutcomeHead(
-                input_dim=hidden_size,
-                hidden_dim=head_hidden_dim,
-                dropout=head_dropout,
-            )
-            for name in outcome_names
-        })
+        self.heads = nn.ModuleDict(
+            {
+                name: OutcomeHead(
+                    input_dim=hidden_size,
+                    hidden_dim=head_hidden_dim,
+                    dropout=head_dropout,
+                )
+                for name in outcome_names
+            }
+        )
 
         # Loss
         self.loss_fn = MultiOutcomeBCELoss(
-            outcome_names, weighting=weighting, fixed_weights=fixed_weights,
+            outcome_names,
+            weighting=weighting,
+            fixed_weights=fixed_weights,
         )
 
     def get_shared_representation(self, batch: dict) -> torch.Tensor:
@@ -261,9 +270,7 @@ class MultiOutcomeModel(nn.Module):
         hidden = outputs[0]  # (B, L, H)
 
         if self.pooling == "bigru":
-            pooled = self.pooler(
-                hidden, batch["attention_mask"], return_embedding=True
-            )
+            pooled = self.pooler(hidden, batch["attention_mask"], return_embedding=True)
         else:
             lengths = batch["attention_mask"].sum(dim=1) - 1
             pooled = hidden[torch.arange(hidden.size(0)), lengths]
@@ -286,9 +293,7 @@ class MultiOutcomeModel(nn.Module):
 
         return self.loss_fn(logits_per_outcome, outcome_labels)
 
-    def predict(
-        self, batch: dict
-    ) -> Dict[str, torch.Tensor]:
+    def predict(self, batch: dict) -> Dict[str, torch.Tensor]:
         """
         Inference: returns per-outcome probabilities (no loss computation).
         """

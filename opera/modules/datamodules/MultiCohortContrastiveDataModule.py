@@ -34,14 +34,14 @@ Config
 See opera/configs/contrastive_multicohort.yaml for the expected structure.
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Dict, Literal, Optional
 import os
 import pandas as pd
 import lightning as L
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
 
-from opera.compat.bonsai import dynamic_padding, filter_subject_data, binarize_outcomes
+from opera.compat.bonsai import filter_subject_data, binarize_outcomes
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_registry_eligible_outcomes,
@@ -50,7 +50,10 @@ from opera.functional.outcomes import (
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 from opera.modules.datamodules.ContrastiveDataModule import contrastive_collate
 from opera.modules.datamodules.ContrastiveDataModule import _km_event_time_probabilities
-from opera.functional.stratified_sampling import build_stratified_sampler, log_bucket_stats
+from opera.functional.stratified_sampling import (
+    build_stratified_sampler,
+    log_bucket_stats,
+)
 
 
 def compute_pooled_sorted_event_times(
@@ -78,10 +81,21 @@ def compute_pooled_sorted_event_times(
                 continue
             try:
                 df = pd.read_parquet(path)
+                split_df = df[df["split"] == split].copy()
+                if {"event", "time_days"}.issubset(split_df.columns):
+                    pooled[name].extend(
+                        split_df.loc[split_df["event"] == 1, "time_days"]
+                        .dropna()
+                        .astype(float)
+                        .tolist()
+                    )
+                    continue
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
                     df,
-                    cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                    cohort_cfg.get(
+                        "registry_start_date", ocfg.get("registry_start_date")
+                    ),
                     cohort=cohort_cfg.get("name"),
                     outcome_name=name,
                 )
@@ -103,8 +117,8 @@ def compute_pooled_sorted_event_times(
                     for record in outcomes.values()
                     if record.get("event") == 1
                 )
-            except Exception:
-                pass
+            except (KeyError, OSError, ValueError):
+                continue
 
     return {
         name: torch.tensor(sorted(times), dtype=torch.float32)
@@ -134,7 +148,9 @@ def compute_pooled_event_time_probability_grids(
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
                     df,
-                    cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                    cohort_cfg.get(
+                        "registry_start_date", ocfg.get("registry_start_date")
+                    ),
                     cohort=cohort_cfg.get("name"),
                     outcome_name=name,
                 )
@@ -152,8 +168,11 @@ def compute_pooled_event_time_probability_grids(
                     competing_event_df=competing_df,
                 )
                 pooled[name].extend(outcomes.values())
-            except Exception:
-                pass
+            except (KeyError, OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Failed to construct pooled event-time grid for "
+                    f"outcome {name!r} in {data_dir!r}: {exc}"
+                ) from exc
 
     time_grids: Dict[str, torch.Tensor] = {}
     prob_grids: Dict[str, torch.Tensor] = {}
@@ -198,12 +217,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         num_workers: int,
     ):
         super().__init__()
-        self.cohort_configs   = cohort_configs
-        self.outcome_configs  = outcome_configs
+        self.cohort_configs = cohort_configs
+        self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
-        self.batch_size       = batch_size
-        self.num_workers      = num_workers
-        self.outcome_names    = sorted(outcome_configs.keys())
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.outcome_names = sorted(outcome_configs.keys())
 
     # ── Internal helpers ──────────────────────────────────────────────
 
@@ -301,7 +320,9 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
         subjects = [s for s in subjects if s["subject_id"] in valid_sids]
         if not subjects:
-            print(f"  [{cohort_name}] No subjects with outcomes for split={split}, skipping.")
+            print(
+                f"  [{cohort_name}] No subjects with outcomes for split={split}, skipping."
+            )
             return None
 
         background_length = int((subjects[0]["segment"] == 0).sum())
@@ -331,18 +352,20 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
         for cohort_name, cohort_cfg in self.cohort_configs.items():
             train_ds = self._build_dataset_for_cohort(cohort_name, cohort_cfg, "train")
-            val_ds   = self._build_dataset_for_cohort(cohort_name, cohort_cfg, "tuning")
-            if train_ds: train_datasets.append(train_ds)
-            if val_ds:   val_datasets.append(val_ds)
+            val_ds = self._build_dataset_for_cohort(cohort_name, cohort_cfg, "tuning")
+            if train_ds:
+                train_datasets.append(train_ds)
+            if val_ds:
+                val_datasets.append(val_ds)
 
         if not train_datasets:
             raise RuntimeError("No training data loaded across any cohort.")
 
         self.train_dataset = ConcatDataset(train_datasets)
-        self.val_dataset   = ConcatDataset(val_datasets) if val_datasets else None
+        self.val_dataset = ConcatDataset(val_datasets) if val_datasets else None
 
         total_train = sum(len(d) for d in train_datasets)
-        total_val   = sum(len(d) for d in val_datasets) if val_datasets else 0
+        total_val = sum(len(d) for d in val_datasets) if val_datasets else 0
         print(
             f"Multi-cohort contrastive dataset ready: "
             f"{total_train} train / {total_val} val subjects "

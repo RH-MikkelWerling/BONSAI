@@ -28,12 +28,18 @@ from opera.compat.bonsai import (
     binarize_outcomes,
     dynamic_padding,
     filter_subject_data,
-    split_and_binarize_outcomes,
 )
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
 
-from opera.evaluation.metrics import full_evaluation, format_evaluation_summary, _derive_time_horizons
+from opera.evaluation.metrics import (
+    full_evaluation,
+    format_evaluation_summary,
+    _derive_time_horizons,
+)
 from opera.evaluation.results_schema import (
     bootstrap_ci_rows,
     build_result_row,
@@ -203,7 +209,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     test_key = cfg.labels.get("test_key", "held_out")
-    test_df  = outcomes[outcomes["split"] == test_key].copy()
+    test_df = outcomes[outcomes["split"] == test_key].copy()
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")
@@ -263,8 +269,10 @@ def main(cfg: DictConfig) -> None:
 
     with torch.no_grad():
         for batch in test_loader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                     for k, v in batch.items()}
+            batch = {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
 
             logits = model(batch).squeeze(-1)
 
@@ -278,21 +286,19 @@ def main(cfg: DictConfig) -> None:
             all_logits.append(logits.cpu().numpy())
             all_embeddings.append(emb.cpu().numpy())
 
-    labels_all   = np.concatenate(all_labels)
-    logits_all   = np.concatenate(all_logits)
-    probs_all    = 1.0 / (1.0 + np.exp(-logits_all))
-    sids_all     = np.concatenate(all_sids)
-    embeddings   = np.concatenate(all_embeddings)
+    labels_all = np.concatenate(all_labels)
+    logits_all = np.concatenate(all_logits)
+    probs_all = 1.0 / (1.0 + np.exp(-logits_all))
+    sids_all = np.concatenate(all_sids)
+    embeddings = np.concatenate(all_embeddings)
 
     # ── Survival fields (all patients) ───────────────────────────────
-    times_all  = np.array([
-        all_test_outcomes[int(sid)].get("time_days", float("nan"))
-        for sid in sids_all
-    ])
-    events_all = np.array([
-        all_test_outcomes[int(sid)].get("event", -1)
-        for sid in sids_all
-    ])
+    times_all = np.array(
+        [all_test_outcomes[int(sid)].get("time_days", float("nan")) for sid in sids_all]
+    )
+    events_all = np.array(
+        [all_test_outcomes[int(sid)].get("event", -1) for sid in sids_all]
+    )
 
     # Determine time horizons from config (n_hours_end_include → days)
     n_hours_end = cfg.labels.get("n_hours_end_include")
@@ -306,9 +312,9 @@ def main(cfg: DictConfig) -> None:
         time_horizons = [365.0, 730.0]
 
     # ── Binary metrics (full-follow-up patients only) ────────────────
-    binary_mask  = np.array([int(sid) in full_fu_sids for sid in sids_all])
-    labels_bin   = labels_all[binary_mask]
-    probs_bin    = probs_all[binary_mask]
+    binary_mask = np.array([int(sid) in full_fu_sids for sid in sids_all])
+    labels_bin = labels_all[binary_mask]
+    probs_bin = probs_all[binary_mask]
 
     print(
         f"Evaluation: {len(sids_all)} total patients | "
@@ -318,7 +324,8 @@ def main(cfg: DictConfig) -> None:
 
     # ── Evaluation ───────────────────────────────────────────────────
     report = full_evaluation(
-        labels_bin, probs_bin,
+        labels_bin,
+        probs_bin,
         threshold=cfg.get("threshold", 0.5),
         n_bootstrap=cfg.get("n_bootstrap", 1000),
         times=times_all,
@@ -415,7 +422,8 @@ def main(cfg: DictConfig) -> None:
     window_days = (n_hours_end / 24.0) if n_hours_end is not None else None
     if training_mode != "cox":
         plot_full_evaluation(
-            labels_bin, probs_bin,
+            labels_bin,
+            probs_bin,
             output_dir=str(output_dir / "plots"),
             bootstrap_ci=report["bootstrap_ci"],
             times=times_all,
@@ -429,15 +437,20 @@ def main(cfg: DictConfig) -> None:
     print("Generating embedding visualizations...")
     try:
         plot_embedding_projection(
-            embeddings, labels_all, method="umap",
+            embeddings,
+            labels_all,
+            method="umap",
             title="Test Set Embedding Space (UMAP)",
             save_path=str(output_dir / "plots" / "embedding_umap.png"),
         )
     except ImportError:
-        print("  UMAP not installed, skipping UMAP plot. Install with: pip install umap-learn")
+        print(
+            "  UMAP not installed, skipping UMAP plot. Install with: pip install umap-learn"
+        )
 
     plot_similarity_distributions(
-        embeddings, labels_all,
+        embeddings,
+        labels_all,
         save_path=str(output_dir / "plots" / "similarity_distributions.png"),
     )
 

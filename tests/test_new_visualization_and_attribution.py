@@ -48,13 +48,26 @@ def test_new_visualization_functions_return_figures():
         }
     )
     transfer = pd.DataFrame(
-        {"source": ["a", "a", "b", "b"], "target": ["a", "b", "a", "b"], "auroc": [0.8, 0.7, 0.6, 0.75]}
+        {
+            "source": ["a", "a", "b", "b"],
+            "target": ["a", "b", "a", "b"],
+            "auroc": [0.8, 0.7, 0.6, 0.75],
+        }
     )
     results = pd.DataFrame(
         {
             "cohort": ["c"] * 8,
             "outcome": ["o"] * 8,
-            "model_family": ["tabular_ehr", "opera", "tabular_rkkp", "dapt", "mol", "opera_joint", "ipi", "opera"],
+            "model_family": [
+                "tabular_ehr",
+                "opera",
+                "tabular_rkkp",
+                "dapt",
+                "mol",
+                "opera_joint",
+                "ipi",
+                "opera",
+            ],
             "auroc": [0.7, 0.8, 0.65, 0.72, 0.73, 0.81, 0.62, 0.8],
             "evaluation_subset": ["full"] * 6 + ["ipi_complete", "ipi_complete"],
             "ipi_coverage": [None] * 6 + [0.7, 0.7],
@@ -63,13 +76,31 @@ def test_new_visualization_functions_return_figures():
         }
     )
     auc = pd.DataFrame(
-        {"outcome": ["o", "o"], "model_family": ["opera", "tabular_ehr"], "horizon_days": [30, 30], "ipcw_auc": [0.8, 0.7]}
+        {
+            "outcome": ["o", "o"],
+            "model_family": ["opera", "tabular_ehr"],
+            "horizon_days": [30, 30],
+            "ipcw_auc": [0.8, 0.7],
+        }
     )
     cal = pd.DataFrame(
-        {"outcome": ["o", "o"], "cohort": ["c", "c"], "predicted": [0.2, 0.8], "observed": [0.25, 0.75], "ece": [0.05, 0.05], "hl_pvalue": [0.5, 0.5]}
+        {
+            "outcome": ["o", "o"],
+            "cohort": ["c", "c"],
+            "predicted": [0.2, 0.8],
+            "observed": [0.25, 0.75],
+            "ece": [0.05, 0.05],
+            "hl_pvalue": [0.5, 0.5],
+        }
     )
     dca = pd.DataFrame(
-        {"outcome": ["o", "o"], "model_family": ["opera", "opera"], "threshold": [0.1, 0.2], "net_benefit_model": [0.1, 0.08], "net_benefit_treat_all": [0.03, 0.02]}
+        {
+            "outcome": ["o", "o"],
+            "model_family": ["opera", "opera"],
+            "threshold": [0.1, 0.2],
+            "net_benefit_model": [0.1, 0.08],
+            "net_benefit_treat_all": [0.03, 0.02],
+        }
     )
 
     figs = [

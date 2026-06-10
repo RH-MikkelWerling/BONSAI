@@ -8,11 +8,14 @@ from omegaconf import DictConfig
 from hydra.core.plugins import Plugins
 from bonsai.paths import get_config_path
 from bonsai.functional.outcomes import (
+    apply_prospective_split,
     get_subject_first_row_for_conditions,
     get_date_from_absolute_date,
     get_date_from_relative_date,
     get_date_from_exposure_date,
     fill_nans_with_sampled,
+    summarize_outcome_splits,
+    validate_split_integrity,
 )
 from bonsai.modules.hydra.plugins import DataCreationSearchpathPlugin
 
@@ -126,6 +129,28 @@ def main(cfg: DictConfig) -> None:
             ],  # 0 sets index_date=censor_date
         )
     )
+
+    prospective_split = cfg.get("prospective_split")
+    if prospective_split:
+        split_cfg = dict(prospective_split)
+        outcome_name = split_cfg.pop("outcome_name", save_path.stem)
+        pandas_outcomes = all_outcomes.to_pandas()
+        pandas_outcomes = apply_prospective_split(
+            pandas_outcomes,
+            **split_cfg,
+        )
+        report = validate_split_integrity(
+            pandas_outcomes,
+            **split_cfg,
+        )
+        if not report["ok"]:
+            raise ValueError(f"Prospective split integrity check failed: {report}")
+        summary = summarize_outcome_splits(
+            pandas_outcomes,
+            outcome_name=outcome_name,
+        )
+        summary.to_csv(save_path.with_suffix(".split_summary.csv"), index=False)
+        all_outcomes = pl.from_pandas(pandas_outcomes)
 
     logging.info(
         f"Total number of subjects: {len(all_outcomes):_} ({all_outcomes['outcome_date'].is_not_null().sum():_} positives)"

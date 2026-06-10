@@ -3,6 +3,10 @@ defaults:
   - /hardware/1gpu6cpu@hardware
   - _self_
 
+hydra:
+  searchpath:
+    - file://${oc.env:BONSAI_CONFIG_PATH}
+
 dapt_ckpt: ???   # path to DAPT (or base pretrain) checkpoint
 dapt_embedding_store: null
 dataset: ???

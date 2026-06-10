@@ -3,6 +3,10 @@ defaults:
   - /hardware/1gpu6cpu@hardware
   - _self_
 
+hydra:
+  searchpath:
+    - file://${oc.env:BONSAI_CONFIG_PATH}
+
 encoder_ckpt: ???         # path to pretrain / DAPT / contrastive checkpoint
 encoder_source: contrastive   # "pretrain" | "dapt" | "contrastive" | "random_init"
 dataset: ???

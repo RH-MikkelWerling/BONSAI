@@ -126,9 +126,7 @@ def test_subsampling_derives_horizon_labels_from_event_time_outcomes(tmp_path):
             "subject_id": range(10),
             "split": ["train"] * 10,
             "index_date": pd.to_datetime(["2020-01-01"] * 10),
-            "outcome_date": pd.to_datetime(
-                ["2020-01-10", "2020-01-20"] + [None] * 8
-            ),
+            "outcome_date": pd.to_datetime(["2020-01-10", "2020-01-20"] + [None] * 8),
             "censor_date": pd.to_datetime(["2021-01-01"] * 10),
         }
     ).to_parquet(src)

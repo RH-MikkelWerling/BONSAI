@@ -15,5 +15,11 @@ def test_attach_prediction_censor_abspos_uses_index_date_not_followup_censor_dat
 
     with_abspos = attach_prediction_censor_abspos(outcomes)
 
-    assert with_abspos.loc[0, "censor_abspos"] == compute_abspos(outcomes["index_date"]).iloc[0]
-    assert with_abspos.loc[0, "censor_abspos"] != compute_abspos(outcomes["censor_date"]).iloc[0]
+    assert (
+        with_abspos.loc[0, "censor_abspos"]
+        == compute_abspos(outcomes["index_date"]).iloc[0]
+    )
+    assert (
+        with_abspos.loc[0, "censor_abspos"]
+        != compute_abspos(outcomes["censor_date"]).iloc[0]
+    )

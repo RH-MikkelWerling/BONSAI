@@ -33,12 +33,9 @@ python -m opera.run.joint_finetune \\
     encoder_source=contrastive
 """
 
-import os
 import torch
 import hydra
 import lightning as L
-import pandas as pd
-from pathlib import Path
 from dotenv import load_dotenv
 from omegaconf import DictConfig
 from transformers import ModernBertConfig
@@ -85,11 +82,17 @@ def main(cfg: DictConfig) -> None:
         ModernBertConfig(
             **model_cfg,
             vocab_size=len(vocab),
-            pad_token_id=0, cls_token_id=1, sep_token_id=2,
+            pad_token_id=0,
+            cls_token_id=1,
+            sep_token_id=2,
         )
     )
     missing, unexpected = encoder.load_state_dict(encoder_state, strict=False)
-    print(f"Loaded encoder: {len(missing)} missing, {len(unexpected)} unexpected keys")
+    if missing or unexpected:
+        raise RuntimeError(
+            "Encoder checkpoint is incompatible with joint finetuning. "
+            f"Missing keys: {missing[:10]}; unexpected keys: {unexpected[:10]}"
+        )
 
     outcome_names = sorted(cfg.outcomes.keys())
 

@@ -23,10 +23,9 @@ clinical taxonomy.
 This requires NO new model training — just linear probes on frozen embeddings.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import StratifiedKFold
@@ -129,15 +128,12 @@ def cross_outcome_transfer_matrix(
             if i == j:
                 # Diagonal: cross-validated self-prediction
                 aurocs, auprcs = [], []
-                skf = StratifiedKFold(n_splits=n_folds, shuffle=True,
-                                       random_state=seed)
+                skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
                 for train_idx, test_idx in skf.split(src_emb, src_lab):
                     probe = train_linear_probe(
                         src_emb[train_idx], src_lab[train_idx], C=C
                     )
-                    result = evaluate_probe(
-                        probe, src_emb[test_idx], src_lab[test_idx]
-                    )
+                    result = evaluate_probe(probe, src_emb[test_idx], src_lab[test_idx])
                     aurocs.append(result["auroc"])
                     auprcs.append(result["auprc"])
 
@@ -157,11 +153,16 @@ def cross_outcome_transfer_matrix(
                 both = set(src_subject_ids) & set(tgt_subject_ids)
 
                 # Source training: patients with source label but NOT target label
-                source_only_mask = np.array([
-                    (outcome_labels[source][i] >= 0 and i not in both)
-                    for i in range(len(embeddings))
-                ])
-                if source_only_mask.sum() < 10 or len(np.unique(outcome_labels[source][source_only_mask])) < 2:
+                source_only_mask = np.array(
+                    [
+                        (outcome_labels[source][i] >= 0 and i not in both)
+                        for i in range(len(embeddings))
+                    ]
+                )
+                if (
+                    source_only_mask.sum() < 10
+                    or len(np.unique(outcome_labels[source][source_only_mask])) < 2
+                ):
                     # Fall back to all source patients if too few remain
                     train_emb = src_emb
                     train_lab = src_lab
@@ -203,8 +204,9 @@ def compute_transfer_efficiency(
     # Broadcast: divide each column by its diagonal entry
     efficiency = auroc_matrix.values / diagonal[np.newaxis, :]
     np.fill_diagonal(efficiency, 1.0)
-    return pd.DataFrame(efficiency, index=auroc_matrix.index,
-                         columns=auroc_matrix.columns)
+    return pd.DataFrame(
+        efficiency, index=auroc_matrix.index, columns=auroc_matrix.columns
+    )
 
 
 def format_transfer_report(

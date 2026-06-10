@@ -33,7 +33,9 @@ def normalize_outcome_config(raw_outcomes: Any) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def outcome_file_path(data_dir: str, outcome_name: str, outcome_cfg: Dict[str, Any]) -> str:
+def outcome_file_path(
+    data_dir: str, outcome_name: str, outcome_cfg: Dict[str, Any]
+) -> str:
     """Resolve the source outcome parquet for a configured task."""
     raw = outcome_cfg.get("outcome_file", f"{outcome_name}.parquet")
     path = Path(raw)

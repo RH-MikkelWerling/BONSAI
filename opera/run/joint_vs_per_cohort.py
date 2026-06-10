@@ -27,7 +27,9 @@ def load_results(results_dir: str = None, results_csv: str = None) -> pd.DataFra
 def main():
     parser = argparse.ArgumentParser(description="Joint vs per-cohort OPERA comparison")
     parser.add_argument("--results_dir", help="Directory containing result.jsonl files")
-    parser.add_argument("--results_csv", help="Long all_results.csv from aggregate_results")
+    parser.add_argument(
+        "--results_csv", help="Long all_results.csv from aggregate_results"
+    )
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--joint_model", default="joint")
     parser.add_argument("--per_cohort_model", default="per_cohort")

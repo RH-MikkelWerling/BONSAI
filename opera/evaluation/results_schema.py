@@ -62,7 +62,9 @@ CANONICAL_TRAINING_STAGES = {
 
 
 def config_hash(cfg: Any) -> str:
-    container = OmegaConf.to_container(cfg, resolve=True) if OmegaConf.is_config(cfg) else cfg
+    container = (
+        OmegaConf.to_container(cfg, resolve=True) if OmegaConf.is_config(cfg) else cfg
+    )
     payload = json.dumps(container, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
@@ -160,8 +162,12 @@ def _rarity_metadata(cfg: Any, report: Dict[str, Any]) -> Dict[str, Any]:
     discrimination = report.get("discrimination", {})
 
     out = {
-        "rarity_mode": _mapping_get(rarity_cfg, "mode", _mapping_get(cfg, "rarity_mode", "none")),
-        "rarity_tier": _mapping_get(rarity_cfg, "tier", _mapping_get(cfg, "rarity_tier", None)),
+        "rarity_mode": _mapping_get(
+            rarity_cfg, "mode", _mapping_get(cfg, "rarity_mode", "none")
+        ),
+        "rarity_tier": _mapping_get(
+            rarity_cfg, "tier", _mapping_get(cfg, "rarity_tier", None)
+        ),
         "baseline_model": _mapping_get(
             rarity_cfg,
             "baseline_model",
@@ -176,7 +182,9 @@ def _rarity_metadata(cfg: Any, report: Dict[str, Any]) -> Dict[str, Any]:
         )
         out[f"prevalence_{split}"] = _mapping_get(size_cfg, f"prevalence_{split}", None)
 
-    out["n_test"] = out["n_test"] if out["n_test"] is not None else discrimination.get("n_total")
+    out["n_test"] = (
+        out["n_test"] if out["n_test"] is not None else discrimination.get("n_total")
+    )
     out["n_events_test"] = (
         out["n_events_test"]
         if out["n_events_test"] is not None
@@ -204,7 +212,9 @@ def build_result_row(
     row = {
         "run_id": cfg.get("run_id", config_hash(cfg)),
         "config_hash": config_hash(cfg),
-        "model_family": model_family or cfg.get("model_family") or cfg.get("encoder_source", "unknown"),
+        "model_family": model_family
+        or cfg.get("model_family")
+        or cfg.get("encoder_source", "unknown"),
         "training_stage": canonical_training_stage(
             training_stage or cfg.get("training_stage", "evaluation")
         ),

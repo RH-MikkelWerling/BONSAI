@@ -2,6 +2,11 @@
 outputs/
 corebehrt.egg-info/
 .venv
+.env
+.coverage
+coverage.xml
+.pytest_cache/
+.ruff_cache/
 .azure
 azure_job_config.yaml
 .azure_job_configs
@@ -18,3 +23,10 @@ linux_install/
 *checkpoints/
 *logs/
 *data/
+paper/*.aux
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.pdf
+paper/*.synctex.gz

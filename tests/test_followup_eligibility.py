@@ -97,14 +97,18 @@ def test_competing_event_codes_as_event_2():
     # Patient 1: primary event at 30 days → event=1
     # Patient 2: no primary event, died at 20 days before censor_date → event=2
     # Patient 3: no primary event, admin censored (no death) → event=0
-    outcomes = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", "2023-01-31", "2023-06-01"),
-        _make_outcome_row(2, "train", "2023-01-01", None,         "2023-06-01"),
-        _make_outcome_row(3, "train", "2023-01-01", None,         "2023-06-01"),
-    ])
-    death_df = pd.DataFrame([
-        _make_outcome_row(2, "train", "2023-01-01", "2023-01-21", "2023-06-01"),
-    ])
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-01-31", "2023-06-01"),
+            _make_outcome_row(2, "train", "2023-01-01", None, "2023-06-01"),
+            _make_outcome_row(3, "train", "2023-01-01", None, "2023-06-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(2, "train", "2023-01-01", "2023-01-21", "2023-06-01"),
+        ]
+    )
 
     result = binarize_outcomes(
         outcomes,
@@ -119,12 +123,16 @@ def test_competing_event_codes_as_event_2():
 
 def test_competing_event_uses_death_date_as_followup_end():
     # Patient died at day 20; their time_days should be 20, not the censor date.
-    outcomes = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", None, "2023-06-01"),
-    ])
-    death_df = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", "2023-01-21", "2023-06-01"),
-    ])
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", None, "2023-06-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-01-21", "2023-06-01"),
+        ]
+    )
 
     result = binarize_outcomes(
         outcomes,
@@ -139,12 +147,16 @@ def test_competing_event_uses_death_date_as_followup_end():
 def test_death_after_censor_date_stays_admin_censored():
     # If the death occurs after the admin censor date, the patient is still
     # event=0 (they were administratively censored before they died).
-    outcomes = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", None, "2023-02-01"),
-    ])
-    death_df = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", "2023-04-01", "2023-06-01"),
-    ])
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", None, "2023-02-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-04-01", "2023-06-01"),
+        ]
+    )
 
     result = binarize_outcomes(
         outcomes,
@@ -158,12 +170,16 @@ def test_death_after_censor_date_stays_admin_censored():
 def test_competing_event_satisfies_min_followup_requirement():
     # A competing-death patient should pass the min-followup filter
     # (they have a definitive outcome) even if their time < window end.
-    outcomes = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", None, "2023-06-01"),
-    ])
-    death_df = pd.DataFrame([
-        _make_outcome_row(1, "train", "2023-01-01", "2023-01-10", "2023-06-01"),
-    ])
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", None, "2023-06-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-01-10", "2023-06-01"),
+        ]
+    )
 
     result = binarize_outcomes(
         outcomes,

@@ -20,7 +20,10 @@ import numpy as np
 import pandas as pd
 
 from opera.compat.bonsai import binarize_outcomes
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from opera.evaluation.metrics import (
     full_evaluation,
     format_evaluation_summary,
@@ -57,9 +60,14 @@ def build_eval_frame(
     if "subject_id" not in predictions.columns:
         raise ValueError("Prediction file must contain subject_id.")
     if probability_col not in predictions.columns:
-        raise ValueError(f"Prediction file is missing probability column {probability_col!r}.")
+        raise ValueError(
+            f"Prediction file is missing probability column {probability_col!r}."
+        )
 
-    pred = predictions[["subject_id", probability_col] + (["label"] if "label" in predictions.columns else [])].copy()
+    pred = predictions[
+        ["subject_id", probability_col]
+        + (["label"] if "label" in predictions.columns else [])
+    ].copy()
     pred = pred.rename(columns={probability_col: "probability"})
 
     outcomes = pd.read_parquet(outcome_path)
@@ -173,7 +181,9 @@ def validate_binary_inputs(labels: np.ndarray, probabilities: np.ndarray) -> Non
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate prediction-file baseline")
     parser.add_argument("--predictions", required=True)
-    parser.add_argument("--outcome", required=True, help="Outcome parquet used if labels are absent")
+    parser.add_argument(
+        "--outcome", required=True, help="Outcome parquet used if labels are absent"
+    )
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--probability_col", default="probability")
     parser.add_argument("--split", default="held_out")
@@ -186,19 +196,34 @@ def main() -> None:
     parser.add_argument("--n_bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--rarity_mode", default="none", choices=["none", "synthetic", "real"])
+    parser.add_argument(
+        "--rarity_mode", default="none", choices=["none", "synthetic", "real"]
+    )
     parser.add_argument("--baseline_model", default=None)
     parser.add_argument("--ipi_coverage", type=float, default=None)
-    parser.add_argument("--evaluation_subset", default="full",
-                        choices=["full", "ipi_complete"])
-    parser.add_argument("--competing_outcome", default=None,
-                        help="Optional path to competing-event (death) parquet for event=2 annotation")
-    parser.add_argument("--registry_start_date", default=None,
-                        help="Optional first date with reliable registry outcome coverage")
-    parser.add_argument("--subgroups", default=None,
-                        help="Optional CSV/parquet with subject_id plus subgroup columns")
-    parser.add_argument("--subgroup_columns", default="",
-                        help="Comma-separated subgroup columns to evaluate")
+    parser.add_argument(
+        "--evaluation_subset", default="full", choices=["full", "ipi_complete"]
+    )
+    parser.add_argument(
+        "--competing_outcome",
+        default=None,
+        help="Optional path to competing-event (death) parquet for event=2 annotation",
+    )
+    parser.add_argument(
+        "--registry_start_date",
+        default=None,
+        help="Optional first date with reliable registry outcome coverage",
+    )
+    parser.add_argument(
+        "--subgroups",
+        default=None,
+        help="Optional CSV/parquet with subject_id plus subgroup columns",
+    )
+    parser.add_argument(
+        "--subgroup_columns",
+        default="",
+        help="Comma-separated subgroup columns to evaluate",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -225,7 +250,10 @@ def main() -> None:
     probabilities = binary_df["probability"].to_numpy()
     validate_binary_inputs(labels, probabilities)
     survival_probabilities = None
-    if "time_days" in eval_df.columns and eval_df[["time_days", "event"]].notna().all().all():
+    if (
+        "time_days" in eval_df.columns
+        and eval_df[["time_days", "event"]].notna().all().all()
+    ):
         times = eval_df["time_days"].to_numpy()
         events = eval_df["event"].to_numpy()
         survival_probabilities = eval_df["probability"].to_numpy()
@@ -286,7 +314,9 @@ def main() -> None:
         {
             "n_test": int(len(binary_df)),
             "n_events_test": int(labels.sum()),
-            "n_competing_events_test": int((eval_df.get("event", pd.Series(dtype=int)) == 2).sum()),
+            "n_competing_events_test": int(
+                (eval_df.get("event", pd.Series(dtype=int)) == 2).sum()
+            ),
             "prevalence_test": float(labels.mean()),
         }
     )
@@ -317,9 +347,7 @@ def main() -> None:
     write_result_artifacts(row, output_dir)
     json_safe = {
         key: {
-            subkey: (
-                value.tolist() if isinstance(value, np.ndarray) else value
-            )
+            subkey: (value.tolist() if isinstance(value, np.ndarray) else value)
             for subkey, value in payload.items()
             if not isinstance(value, (pd.DataFrame, list))
         }

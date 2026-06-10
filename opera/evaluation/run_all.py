@@ -11,7 +11,7 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -61,10 +61,14 @@ def run_comparison_grid(
     show_progress: bool = True,
 ) -> Dict[str, Any]:
     """Run the Task 1 comparison benchmark over an outcome × cohort grid."""
-    selected_outcomes = list(outcome_names) if outcome_names is not None else sorted(
-        outcomes["outcome_name"].dropna().unique().tolist()
+    selected_outcomes = (
+        list(outcome_names)
+        if outcome_names is not None
+        else sorted(outcomes["outcome_name"].dropna().unique().tolist())
     )
-    selected_cohorts = list(cohorts) if cohorts is not None else sorted(disease_cohorts.keys())
+    selected_cohorts = (
+        list(cohorts) if cohorts is not None else sorted(disease_cohorts.keys())
+    )
     if mode == "pooled":
         selected_cohorts = ["all_hematology"]
 
@@ -131,22 +135,54 @@ def flatten_grid_results(grid_results: Mapping[str, Any]) -> pd.DataFrame:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the OPERA Task 1 comparison pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run the OPERA Task 1 comparison pipeline."
+    )
     parser.add_argument("--outcomes", required=True, help="Outcome parquet/csv.")
     parser.add_argument("--rkkp", default=None, help="Optional RKKP parquet/csv.")
-    parser.add_argument("--ehr_features", required=True, help="EHR feature parquet/csv.")
-    parser.add_argument("--embeddings_base", required=True, help="Pickle/JSON mapping of base embeddings.")
-    parser.add_argument("--embeddings_dapt", required=True, help="Pickle/JSON mapping of DAPT embeddings.")
-    parser.add_argument("--embeddings_opera", required=True, help="Pickle/JSON mapping of OPERA embeddings.")
-    parser.add_argument("--disease_cohorts", required=True, help="Pickle/JSON mapping of disease cohorts.")
-    parser.add_argument("--mode", choices=["disease_specific", "pooled"], default="disease_specific")
+    parser.add_argument(
+        "--ehr_features", required=True, help="EHR feature parquet/csv."
+    )
+    parser.add_argument(
+        "--embeddings_base",
+        required=True,
+        help="Pickle/JSON mapping of base embeddings.",
+    )
+    parser.add_argument(
+        "--embeddings_dapt",
+        required=True,
+        help="Pickle/JSON mapping of DAPT embeddings.",
+    )
+    parser.add_argument(
+        "--embeddings_opera",
+        required=True,
+        help="Pickle/JSON mapping of OPERA embeddings.",
+    )
+    parser.add_argument(
+        "--disease_cohorts",
+        required=True,
+        help="Pickle/JSON mapping of disease cohorts.",
+    )
+    parser.add_argument(
+        "--mode", choices=["disease_specific", "pooled"], default="disease_specific"
+    )
     parser.add_argument(
         "--evaluation_strategy",
         choices=["prospective_holdout", "cross_validation"],
         default="prospective_holdout",
     )
-    parser.add_argument("--outcome_name", action="append", default=None, help="Optional repeated filter for one or more outcomes.")
-    parser.add_argument("--cohort", action="append", default=None, help="Optional repeated filter for one or more disease cohorts.")
+    parser.add_argument(
+        "--outcome_name",
+        action="append",
+        default=None,
+        help="Optional repeated filter for one or more outcomes.",
+    )
+    parser.add_argument(
+        "--cohort",
+        action="append",
+        default=None,
+        help="Optional repeated filter for one or more disease cohorts.",
+    )
     parser.add_argument("--n_splits", type=int, default=5)
     parser.add_argument("--n_bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)

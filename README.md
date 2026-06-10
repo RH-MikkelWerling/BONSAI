@@ -25,6 +25,19 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
+Copy `.env.example` to a local `.env` and adapt the artifact paths. `.env` is
+intentionally ignored and must not contain secrets.
+
+Optional research features are installed separately:
+
+```bash
+python -m pip install -e ".[tabular]"       # XGBoost
+python -m pip install -e ".[visualization]" # PaCMAP, UMAP, LOWESS
+python -m pip install -e ".[survival]"      # lifelines
+python -m pip install -e ".[retrieval]"     # FAISS
+python -m pip install -e ".[tabpfn]"        # TabPFN
+```
+
 On Windows PowerShell:
 
 ```powershell
@@ -59,6 +72,30 @@ A quick syntax check that does not require all optional runtime dependencies:
 ```bash
 python -m compileall bonsai opera tests
 ```
+
+The complete local quality gate is:
+
+```bash
+ruff format --check bonsai opera tests
+ruff check bonsai opera tests
+coverage run -m pytest tests -q
+coverage report
+```
+
+## Architecture
+
+```text
+MEDS-like shards
+    -> BONSAI feature creation and tokenization
+    -> subject_data_{train,tuning,held_out}.pt
+    -> general pretraining / hematology DAPT / OPERA contrastive adaptation
+    -> per-task, survival, hybrid, or joint finetuning
+    -> prediction artifacts and validated result.jsonl rows
+    -> aggregation, significance analysis, and paper figures
+```
+
+All supervised model inputs must end at `index_date`. `censor_date` is reserved
+for follow-up eligibility and time-to-event calculations.
 
 ## Core Commands
 
@@ -202,6 +239,10 @@ Paper-oriented manifests live in `opera/configs/manifests/`:
 
 They document intended experiment bundles and expected artifacts. They are not a
 job scheduler.
+
+See `REPOSITORY_AUDIT.md` for the current ranked engineering and scientific
+findings, including the remaining work needed to make those manifests the
+canonical executable experiment contract.
 
 ## Citation
 

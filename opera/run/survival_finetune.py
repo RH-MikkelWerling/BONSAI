@@ -23,7 +23,10 @@ from bonsai.functional.outcomes import (
 from bonsai.functional.pathing import get_experiment_output_path
 from opera.compat.bonsai import BonsaiFinetune
 from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from opera.modules.datamodules.SurvivalFinetuneDataModule import (
     SurvivalFinetuneDataModule,
 )
@@ -41,10 +44,7 @@ def _validate_encoder_load(missing, unexpected) -> None:
     """Fail when checkpoint handoff misses anything except the new task head."""
     unexpected = list(unexpected)
     missing = list(missing)
-    non_head_missing = [
-        key for key in missing
-        if not key.startswith("cls.")
-    ]
+    non_head_missing = [key for key in missing if not key.startswith("cls.")]
     if unexpected or non_head_missing:
         raise RuntimeError(
             "Encoder checkpoint did not load cleanly into the survival finetune "
@@ -186,7 +186,9 @@ def main(cfg: DictConfig) -> None:
         pos_weight=None,
     )
 
-    monitor = "val/AUROC" if cfg.training_mode == "ipcw_bce" else "val/concordance_index"
+    monitor = (
+        "val/AUROC" if cfg.training_mode == "ipcw_bce" else "val/concordance_index"
+    )
     callbacks = [
         ModelCheckpoint(
             dirpath=model_save_dir,

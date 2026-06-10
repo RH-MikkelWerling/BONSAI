@@ -13,7 +13,10 @@ from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torchmetrics import AUROC, AveragePrecision
 from typing import Dict, List
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 
 class JointFinetuneModule(L.LightningModule):
@@ -41,16 +44,16 @@ class JointFinetuneModule(L.LightningModule):
         self.save_hyperparameters(ignore=["model"])
         attach_model_config(self, model)
         attach_checkpoint_metadata(self, checkpoint_metadata)
-        self.model         = model
+        self.model = model
         self.outcome_names = outcome_names
 
         # Per-outcome validation metrics
-        self.val_auroc = nn.ModuleDict({
-            name: AUROC(task="binary") for name in outcome_names
-        })
-        self.val_auprc = nn.ModuleDict({
-            name: AveragePrecision(task="binary") for name in outcome_names
-        })
+        self.val_auroc = nn.ModuleDict(
+            {name: AUROC(task="binary") for name in outcome_names}
+        )
+        self.val_auprc = nn.ModuleDict(
+            {name: AveragePrecision(task="binary") for name in outcome_names}
+        )
 
     def _build_outcome_labels(self, batch: dict) -> Dict[str, torch.Tensor]:
         return {
@@ -139,7 +142,11 @@ class JointFinetuneModule(L.LightningModule):
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=int(steps_per_epoch * self.hparams.scheduler_warmup_epochs),
+            num_warmup_steps=int(
+                steps_per_epoch * self.hparams.scheduler_warmup_epochs
+            ),
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        ]

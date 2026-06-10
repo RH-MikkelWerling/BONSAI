@@ -37,7 +37,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 
 from opera.run.finetune import load_encoder_state_dict
 from opera.modules.networks.hybrid_net import HybridClassifier
@@ -69,7 +72,9 @@ def main(cfg: DictConfig) -> None:
         ModernBertConfig(
             **model_cfg,
             vocab_size=len(vocab),
-            pad_token_id=0, cls_token_id=1, sep_token_id=2,
+            pad_token_id=0,
+            cls_token_id=1,
+            sep_token_id=2,
         )
     )
     encoder.load_state_dict(encoder_state, strict=False)
@@ -167,7 +172,8 @@ def main(cfg: DictConfig) -> None:
             ),
         },
         pos_weight=get_loss_weight(
-            cfg.training.loss_weight_function, labels=train_labels,
+            cfg.training.loss_weight_function,
+            labels=train_labels,
         ),
     )
 
@@ -175,8 +181,11 @@ def main(cfg: DictConfig) -> None:
         ModelCheckpoint(
             dirpath=model_save_dir,
             monitor=cfg.training.eval_monitor_metric,
-            mode="max", save_top_k=1, filename="best",
-            enable_version_counter=False, save_last=True,
+            mode="max",
+            save_top_k=1,
+            filename="best",
+            enable_version_counter=False,
+            save_last=True,
         ),
         EarlyStopping(
             monitor=cfg.training.eval_monitor_metric,

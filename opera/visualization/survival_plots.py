@@ -7,7 +7,14 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from opera.visualization.style import FIG_FULL, PALETTE, model_color, model_label, save_fig, setup_style
+from opera.visualization.style import (
+    FIG_FULL,
+    PALETTE,
+    model_color,
+    model_label,
+    save_fig,
+    setup_style,
+)
 
 
 def plot_timedep_auc_curves(
@@ -27,11 +34,22 @@ def plot_timedep_auc_curves(
     for model, group in df.groupby("model_family"):
         group = group.sort_values("horizon_days")
         color = model_color(str(model))
-        ax.plot(group["horizon_days"], group["ipcw_auc"], marker="o", color=color,
-                label=model_label(str(model)))
+        ax.plot(
+            group["horizon_days"],
+            group["ipcw_auc"],
+            marker="o",
+            color=color,
+            label=model_label(str(model)),
+        )
         if {"ci_lower", "ci_upper"}.issubset(group.columns):
-            ax.fill_between(group["horizon_days"], group["ci_lower"], group["ci_upper"],
-                            color=color, alpha=0.13, linewidth=0)
+            ax.fill_between(
+                group["horizon_days"],
+                group["ci_lower"],
+                group["ci_upper"],
+                color=color,
+                alpha=0.13,
+                linewidth=0,
+            )
     for x in (30, 90, 365, 730):
         ax.axvline(x, color=PALETTE["diagonal"], linewidth=0.7, linestyle="--")
     ax.set_xlabel("Horizon (days)")
@@ -82,15 +100,28 @@ def plot_decision_curves(
     clinical risk thresholds.
     """
     setup_style()
-    df = dca_df[dca_df["outcome"] == outcome].copy() if "outcome" in dca_df.columns else dca_df.copy()
+    df = (
+        dca_df[dca_df["outcome"] == outcome].copy()
+        if "outcome" in dca_df.columns
+        else dca_df.copy()
+    )
     fig, ax = plt.subplots(figsize=FIG_FULL)
     for model, group in df.groupby("model_family"):
-        ax.plot(group["threshold"], group["net_benefit_model"],
-                color=model_color(str(model)), label=model_label(str(model)))
+        ax.plot(
+            group["threshold"],
+            group["net_benefit_model"],
+            color=model_color(str(model)),
+            label=model_label(str(model)),
+        )
     if "net_benefit_treat_all" in df.columns:
         ref = df.sort_values("threshold")
-        ax.plot(ref["threshold"], ref["net_benefit_treat_all"],
-                color=PALETTE["diagonal"], linestyle="--", label="Treat all")
+        ax.plot(
+            ref["threshold"],
+            ref["net_benefit_treat_all"],
+            color=PALETTE["diagonal"],
+            linestyle="--",
+            label="Treat all",
+        )
     ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.8, label="Treat none")
     ax.set_xlabel("Risk threshold")
     ax.set_ylabel("Net benefit")

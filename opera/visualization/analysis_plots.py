@@ -13,23 +13,25 @@ OPERA Analysis Plots.
 
 from __future__ import annotations
 from typing import Dict, List, Optional
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-import matplotlib.colors as mcolors
 
 from opera.visualization.style import (
-    PALETTE, CATEGORICAL, save_fig, despine,
-    FIG_FULL, FIG_SQUARE, add_panel_label,
-    ANNOT_SIZE, LEGEND_SIZE,
+    PALETTE,
+    CATEGORICAL,
+    save_fig,
+    despine,
+    add_panel_label,
+    ANNOT_SIZE,
+    LEGEND_SIZE,
 )
 
 
 # ═════════════════════════════════════════════════════════════════════
 # 1. Cross-outcome transfer matrix
 # ═════════════════════════════════════════════════════════════════════
+
 
 def _outcome_display(name: str) -> str:
     return name.replace("_", "\n").title()
@@ -68,7 +70,11 @@ def plot_transfer_matrix(
     diag_cmap = plt.cm.Blues
     for i in range(n):
         v = diag_vals[i]
-        bg = diag_cmap(0.4 + 0.5 * (v - 0.4) / 0.6) if not np.isnan(v) else (0.9, 0.9, 0.9, 1)
+        bg = (
+            diag_cmap(0.4 + 0.5 * (v - 0.4) / 0.6)
+            if not np.isnan(v)
+            else (0.9, 0.9, 0.9, 1)
+        )
         rect = plt.Rectangle((i - 0.5, i - 0.5), 1, 1, color=bg, zorder=2)
         ax.add_patch(rect)
 
@@ -83,8 +89,17 @@ def plot_transfer_matrix(
             # White text on dark cells, black on light
             bg_val = v if not np.isnan(v) else 0.7
             text_color = "white" if (bg_val < 0.52 or bg_val > 0.88) else "#222222"
-            ax.text(j, i, text, ha="center", va="center",
-                    fontsize=8, fontweight=fw, color=text_color, zorder=3)
+            ax.text(
+                j,
+                i,
+                text,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight=fw,
+                color=text_color,
+                zorder=3,
+            )
 
     display_names = [_outcome_display(c) for c in matrix.columns]
     ax.set_xticks(range(n))
@@ -93,8 +108,11 @@ def plot_transfer_matrix(
     ax.set_yticklabels(display_names, fontsize=8)
     ax.set_xlabel("Evaluated on  (target outcome)", fontsize=9)
     ax.set_ylabel("Trained on  (source outcome)", fontsize=9)
-    ax.set_title(title or f"Cross-outcome transfer  ({metric})", fontsize=10,
-                 fontweight="semibold")
+    ax.set_title(
+        title or f"Cross-outcome transfer  ({metric})",
+        fontsize=10,
+        fontweight="semibold",
+    )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
     cbar.set_label(f"{metric}  (off-diagonal)", fontsize=8)
@@ -102,13 +120,19 @@ def plot_transfer_matrix(
 
     # Legend for diagonal
     from matplotlib.patches import Patch
+
     legend_els = [
         Patch(facecolor=plt.cm.Blues(0.7), label="Diagonal: self-prediction (CV)"),
         Patch(facecolor=plt.cm.RdYlGn(0.8), label="Off-diagonal: transfer"),
     ]
-    ax.legend(handles=legend_els, loc="lower center",
-              bbox_to_anchor=(0.5, -0.18), fontsize=7.5,
-              frameon=True, ncol=2)
+    ax.legend(
+        handles=legend_els,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.18),
+        fontsize=7.5,
+        frameon=True,
+        ncol=2,
+    )
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -136,15 +160,17 @@ def plot_transfer_efficiency(
     for i in range(n):
         for j in range(n):
             if i == j:
-                ax.text(j, i, "—", ha="center", va="center",
-                        fontsize=9, color="#888888")
+                ax.text(
+                    j, i, "—", ha="center", va="center", fontsize=9, color="#888888"
+                )
                 continue
             v = efficiency.iloc[i, j]
             if np.isnan(v):
                 continue
             text_color = "white" if (v < 0.45 or v > 0.88) else "#222222"
-            ax.text(j, i, f"{v:.2f}", ha="center", va="center",
-                    fontsize=8, color=text_color)
+            ax.text(
+                j, i, f"{v:.2f}", ha="center", va="center", fontsize=8, color=text_color
+            )
 
     display_names = [_outcome_display(c) for c in efficiency.columns]
     ax.set_xticks(range(n))
@@ -156,7 +182,9 @@ def plot_transfer_efficiency(
     ax.set_title(title, fontsize=10, fontweight="semibold")
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label("Transfer efficiency\n(fraction of self-prediction AUROC)", fontsize=8)
+    cbar.set_label(
+        "Transfer efficiency\n(fraction of self-prediction AUROC)", fontsize=8
+    )
     cbar.ax.tick_params(labelsize=7)
 
     fig.tight_layout()
@@ -167,6 +195,7 @@ def plot_transfer_efficiency(
 # ═════════════════════════════════════════════════════════════════════
 # 2. Sigma heatmap across cohorts
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_sigma_heatmap(
     sigma_data: pd.DataFrame,
@@ -187,10 +216,12 @@ def plot_sigma_heatmap(
     # Reversed: blue = low (good) to red = high (weak)
     cmap = plt.cm.RdYlBu_r
 
-    fig, ax = plt.subplots(figsize=(
-        max(5.0, len(sigma_data.columns) * 1.3),
-        max(3.5, len(sigma_data) * 0.8),
-    ))
+    fig, ax = plt.subplots(
+        figsize=(
+            max(5.0, len(sigma_data.columns) * 1.3),
+            max(3.5, len(sigma_data) * 0.8),
+        )
+    )
 
     im = ax.imshow(data, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
 
@@ -199,9 +230,18 @@ def plot_sigma_heatmap(
             v = data[i, j]
             if not np.isnan(v):
                 mid = (vmin + vmax) / 2
-                text_color = "white" if abs(v - mid) > 0.3 * (vmax - vmin) else "#222222"
-                ax.text(j, i, f"{v:.2f}", ha="center", va="center",
-                        fontsize=8, color=text_color)
+                text_color = (
+                    "white" if abs(v - mid) > 0.3 * (vmax - vmin) else "#222222"
+                )
+                ax.text(
+                    j,
+                    i,
+                    f"{v:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                )
 
     ax.set_xticks(range(len(sigma_data.columns)))
     ax.set_xticklabels(sigma_data.columns, rotation=30, ha="right", fontsize=9)
@@ -222,6 +262,7 @@ def plot_sigma_heatmap(
 # 3. RKKP residual embedding
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_residual_embedding(
     embeddings: np.ndarray,
     residuals: np.ndarray,
@@ -237,20 +278,34 @@ def plot_residual_embedding(
     the IPI score does not.
     """
     from opera.visualization.embedding_plots import _reduce_embeddings
+
     coords = _reduce_embeddings(embeddings, method, **reducer_kwargs)
 
-    vmax = max(abs(np.nanpercentile(residuals, 2)),
-               abs(np.nanpercentile(residuals, 98)))
+    vmax = max(
+        abs(np.nanpercentile(residuals, 2)), abs(np.nanpercentile(residuals, 98))
+    )
 
     fig, ax = plt.subplots(figsize=(5.0, 4.5))
-    sc = ax.scatter(coords[:, 0], coords[:, 1],
-                    c=residuals, cmap="RdBu_r",
-                    s=5, alpha=0.55, vmin=-vmax, vmax=vmax,
-                    rasterized=True, linewidths=0, zorder=2)
+    sc = ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        c=residuals,
+        cmap="RdBu_r",
+        s=5,
+        alpha=0.55,
+        vmin=-vmax,
+        vmax=vmax,
+        rasterized=True,
+        linewidths=0,
+        zorder=2,
+    )
 
     cbar = fig.colorbar(sc, ax=ax, shrink=0.85, pad=0.02)
-    cbar.set_label("Residual  (actual − IPI predicted)\n"
-                   "Red = worse than expected    Blue = better", fontsize=8)
+    cbar.set_label(
+        "Residual  (actual − IPI predicted)\n"
+        "Red = worse than expected    Blue = better",
+        fontsize=8,
+    )
     cbar.ax.tick_params(labelsize=7)
 
     ax.set_title(title, fontsize=10, fontweight="semibold")
@@ -268,6 +323,7 @@ def plot_residual_embedding(
 # ═════════════════════════════════════════════════════════════════════
 # 4. Within-stratum embedding grid
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_within_stratum_grid(
     embeddings: np.ndarray,
@@ -287,9 +343,11 @@ def plot_within_stratum_grid(
 
     if stratum_values is None:
         unique_s = sorted(set(strata))
-        stratum_values = [s for s in unique_s
-                          if (strata == s).sum() >= min_n
-                          and len(np.unique(labels[strata == s])) >= 2]
+        stratum_values = [
+            s
+            for s in unique_s
+            if (strata == s).sum() >= min_n and len(np.unique(labels[strata == s])) >= 2
+        ]
 
     n = len(stratum_values)
     if n == 0:
@@ -310,20 +368,37 @@ def plot_within_stratum_grid(
         ax = axes[i]
         mask = strata == s_val
 
-        ax.scatter(coords[~mask, 0], coords[~mask, 1],
-                   c=PALETTE["missing"], s=3, alpha=0.1, rasterized=True, linewidths=0)
+        ax.scatter(
+            coords[~mask, 0],
+            coords[~mask, 1],
+            c=PALETTE["missing"],
+            s=3,
+            alpha=0.1,
+            rasterized=True,
+            linewidths=0,
+        )
 
         for label_val, color in [(0, PALETTE["negative"]), (1, PALETTE["positive"])]:
             m = mask & (labels == label_val)
             if m.sum() > 0:
-                ax.scatter(coords[m, 0], coords[m, 1], c=color, s=10,
-                           alpha=0.55, rasterized=True, linewidths=0, zorder=2)
+                ax.scatter(
+                    coords[m, 0],
+                    coords[m, 1],
+                    c=color,
+                    s=10,
+                    alpha=0.55,
+                    rasterized=True,
+                    linewidths=0,
+                    zorder=2,
+                )
 
         n_s = mask.sum()
         prev = labels[mask].mean() if mask.sum() > 0 else float("nan")
-        ax.set_title(f"{stratum_name} = {s_val}\n"
-                     f"n = {n_s},  prevalence = {prev:.2f}",
-                     fontsize=8.5, fontweight="semibold")
+        ax.set_title(
+            f"{stratum_name} = {s_val}\nn = {n_s},  prevalence = {prev:.2f}",
+            fontsize=8.5,
+            fontweight="semibold",
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         ax.spines["left"].set_visible(False)
@@ -335,7 +410,9 @@ def plot_within_stratum_grid(
 
     fig.suptitle(
         f"Within-stratum separation — {outcome_name.replace('_', ' ')}",
-        fontsize=10, fontweight="semibold", y=1.01,
+        fontsize=10,
+        fontweight="semibold",
+        y=1.01,
     )
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -345,6 +422,7 @@ def plot_within_stratum_grid(
 # ═════════════════════════════════════════════════════════════════════
 # 5. Model confidence scatter  (embedding locality)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_embedding_confidence(
     model_confidence: np.ndarray,
@@ -370,8 +448,9 @@ def plot_embedding_confidence(
     except ImportError:
         gaussian_kde = None
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.0, 3.5),
-                                    gridspec_kw={"width_ratios": [2, 1]})
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(7.0, 3.5), gridspec_kw={"width_ratios": [2, 1]}
+    )
 
     valid = outcome_labels >= 0
     conf_v = model_confidence[valid]
@@ -379,12 +458,21 @@ def plot_embedding_confidence(
 
     # Left: scatter of confidence per patient, colored by label
     jitter = np.random.RandomState(42).uniform(-0.12, 0.12, size=valid.sum())
-    for val, color, name in [(0, PALETTE["negative"], "Negative"),
-                              (1, PALETTE["positive"], "Positive")]:
+    for val, color, name in [
+        (0, PALETTE["negative"], "Negative"),
+        (1, PALETTE["positive"], "Positive"),
+    ]:
         m = labs_v == val
-        ax1.scatter(conf_v[m], jitter[m] + val, c=color, s=10,
-                    alpha=0.4, rasterized=True, linewidths=0,
-                    label=f"{name}  (n={m.sum()})")
+        ax1.scatter(
+            conf_v[m],
+            jitter[m] + val,
+            c=color,
+            s=10,
+            alpha=0.4,
+            rasterized=True,
+            linewidths=0,
+            label=f"{name}  (n={m.sum()})",
+        )
 
     ax1.set_xlabel("Embedding confidence  (locality score)", fontsize=9)
     ax1.set_yticks([0, 1])
@@ -395,8 +483,10 @@ def plot_embedding_confidence(
 
     # Right: KDE of confidence distributions
     x_grid = np.linspace(conf_v.min(), conf_v.max(), 200)
-    for val, color, name in [(0, PALETTE["negative"], "Negative"),
-                              (1, PALETTE["positive"], "Positive")]:
+    for val, color, name in [
+        (0, PALETTE["negative"], "Negative"),
+        (1, PALETTE["positive"], "Positive"),
+    ]:
         m = labs_v == val
         arr = conf_v[m]
         if len(arr) < 5:
@@ -419,7 +509,8 @@ def plot_embedding_confidence(
     add_panel_label(ax2, "B")
     fig.suptitle(
         title or f"Embedding confidence — {outcome_name.replace('_', ' ')}",
-        fontsize=10, fontweight="semibold",
+        fontsize=10,
+        fontweight="semibold",
     )
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -429,6 +520,7 @@ def plot_embedding_confidence(
 # ═════════════════════════════════════════════════════════════════════
 # 6. Added-value comparison (embedding vs IPI vs combined)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_added_value_comparison(
     results_df: pd.DataFrame,
@@ -447,24 +539,41 @@ def plot_added_value_comparison(
     y = np.arange(n)
 
     for col, color, label, marker in [
-        ("rkkp_only_auroc",    PALETTE["ipi"],          "IPI only",         "D"),
-        ("embedding_only_auroc", PALETTE["opera"],      "Embedding only",   "o"),
-        ("combined_auroc",     PALETTE["opera_joint"],  "Combined",         "s"),
+        ("rkkp_only_auroc", PALETTE["ipi"], "IPI only", "D"),
+        ("embedding_only_auroc", PALETTE["opera"], "Embedding only", "o"),
+        ("combined_auroc", PALETTE["opera_joint"], "Combined", "s"),
     ]:
         if col not in results_df.columns:
             continue
-        ax.scatter(results_df[col], y, color=color, s=55, marker=marker,
-                   label=label, zorder=3, linewidths=0)
+        ax.scatter(
+            results_df[col],
+            y,
+            color=color,
+            s=55,
+            marker=marker,
+            label=label,
+            zorder=3,
+            linewidths=0,
+        )
 
     # Delta annotations
-    if "combined_auroc" in results_df.columns and "rkkp_only_auroc" in results_df.columns:
+    if (
+        "combined_auroc" in results_df.columns
+        and "rkkp_only_auroc" in results_df.columns
+    ):
         for i, row in results_df.iterrows():
             delta = row["combined_auroc"] - row["rkkp_only_auroc"]
             x_ann = row["combined_auroc"] + 0.01
             color = PALETTE["opera_joint"] if delta >= 0 else PALETTE["positive"]
-            ax.text(x_ann, i,
-                    f"+{delta:.3f}" if delta >= 0 else f"{delta:.3f}",
-                    va="center", fontsize=ANNOT_SIZE, color=color, fontweight="bold")
+            ax.text(
+                x_ann,
+                i,
+                f"+{delta:.3f}" if delta >= 0 else f"{delta:.3f}",
+                va="center",
+                fontsize=ANNOT_SIZE,
+                color=color,
+                fontweight="bold",
+            )
 
     ax.set_yticks(y)
     ax.set_yticklabels(display)
@@ -484,6 +593,7 @@ def plot_added_value_comparison(
 # ═════════════════════════════════════════════════════════════════════
 # 7. Performance landscape  (smoothed accuracy over embedding space)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_performance_landscape(
     embeddings: np.ndarray,
@@ -540,30 +650,36 @@ def plot_performance_landscape(
     if coords is None:
         coords = _reduce_embeddings(embeddings, method, **reducer_kwargs)
 
-    valid    = labels >= 0
+    valid = labels >= 0
     coords_v = coords[valid]
     labels_v = labels[valid].astype(int)
-    probs_v  = probabilities[valid]
+    probs_v = probabilities[valid]
 
     # ── Build grid ───────────────────────────────────────────────────────
     pad_frac = 0.05
     x_min, x_max = coords_v[:, 0].min(), coords_v[:, 0].max()
     y_min, y_max = coords_v[:, 1].min(), coords_v[:, 1].max()
-    x_edges = np.linspace(x_min - pad_frac * (x_max - x_min),
-                           x_max + pad_frac * (x_max - x_min), grid_resolution + 1)
-    y_edges = np.linspace(y_min - pad_frac * (y_max - y_min),
-                           y_max + pad_frac * (y_max - y_min), grid_resolution + 1)
+    x_edges = np.linspace(
+        x_min - pad_frac * (x_max - x_min),
+        x_max + pad_frac * (x_max - x_min),
+        grid_resolution + 1,
+    )
+    y_edges = np.linspace(
+        y_min - pad_frac * (y_max - y_min),
+        y_max + pad_frac * (y_max - y_min),
+        grid_resolution + 1,
+    )
 
     x_idx = np.clip(np.digitize(coords_v[:, 0], x_edges) - 1, 0, grid_resolution - 1)
     y_idx = np.clip(np.digitize(coords_v[:, 1], y_edges) - 1, 0, grid_resolution - 1)
 
     # ── Compute metric per cell ────────────────────────────────────────────
     metric_grid = np.full((grid_resolution, grid_resolution), np.nan)
-    count_grid  = np.zeros((grid_resolution, grid_resolution), dtype=int)
+    count_grid = np.zeros((grid_resolution, grid_resolution), dtype=int)
 
     for xi in range(grid_resolution):
         for yi in range(grid_resolution):
-            cell  = (x_idx == xi) & (y_idx == yi)
+            cell = (x_idx == xi) & (y_idx == yi)
             n_cell = cell.sum()
             count_grid[xi, yi] = n_cell
             if n_cell < min_patients_per_cell:
@@ -621,32 +737,77 @@ def plot_performance_landscape(
 
     # ── Figure ────────────────────────────────────────────────────────────
     fig, (ax_map, ax_dist) = plt.subplots(
-        1, 2, figsize=(8.5, 4.5),
+        1,
+        2,
+        figsize=(8.5, 4.5),
         gridspec_kw={"width_ratios": [3, 1]},
     )
 
     extent = [x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]]
     im = ax_map.imshow(
-        smoothed.T, origin="lower", extent=extent, aspect="auto",
-        cmap=cmap, vmin=vmin, vmax=vmax,
-        interpolation="bilinear", alpha=0.88, zorder=1,
+        smoothed.T,
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="bilinear",
+        alpha=0.88,
+        zorder=1,
     )
 
     # Patient scatter — correct (white) vs incorrect (dark) dots
-    preds_v  = (probs_v >= 0.5).astype(int)
-    correct  = preds_v == labels_v
-    ax_map.scatter(coords_v[correct, 0], coords_v[correct, 1],
-                   s=3, c="#FFFFFF", alpha=0.22, linewidths=0, rasterized=True, zorder=2)
-    ax_map.scatter(coords_v[~correct, 0], coords_v[~correct, 1],
-                   s=4, c="#111111", alpha=0.28, linewidths=0, rasterized=True, zorder=3)
+    preds_v = (probs_v >= 0.5).astype(int)
+    correct = preds_v == labels_v
+    ax_map.scatter(
+        coords_v[correct, 0],
+        coords_v[correct, 1],
+        s=3,
+        c="#FFFFFF",
+        alpha=0.22,
+        linewidths=0,
+        rasterized=True,
+        zorder=2,
+    )
+    ax_map.scatter(
+        coords_v[~correct, 0],
+        coords_v[~correct, 1],
+        s=4,
+        c="#111111",
+        alpha=0.28,
+        linewidths=0,
+        rasterized=True,
+        zorder=3,
+    )
 
     from matplotlib.lines import Line2D
-    ax_map.legend(handles=[
-        Line2D([0], [0], marker="o", color="none", markerfacecolor="#AAAAAA",
-               markersize=5, label=f"Correct  (n={correct.sum()})"),
-        Line2D([0], [0], marker="o", color="none", markerfacecolor="#111111",
-               markersize=5, label=f"Incorrect  (n={(~correct).sum()})"),
-    ], loc="lower right", fontsize=7, framealpha=0.85)
+
+    ax_map.legend(
+        handles=[
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="#AAAAAA",
+                markersize=5,
+                label=f"Correct  (n={correct.sum()})",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="none",
+                markerfacecolor="#111111",
+                markersize=5,
+                label=f"Incorrect  (n={(~correct).sum()})",
+            ),
+        ],
+        loc="lower right",
+        fontsize=7,
+        framealpha=0.85,
+    )
 
     cbar = fig.colorbar(im, ax=ax_map, shrink=0.85, pad=0.02)
     cbar.set_label(cbar_label, fontsize=8)
@@ -659,7 +820,8 @@ def plot_performance_landscape(
     ax_map.set_ylabel(f"{method.upper()} 2", fontsize=9)
     ax_map.set_title(
         title or f"Performance landscape — {outcome_name.replace('_', ' ')}",
-        fontsize=10, fontweight="semibold",
+        fontsize=10,
+        fontweight="semibold",
     )
     ax_map.set_xticks([])
     ax_map.set_yticks([])
@@ -689,24 +851,36 @@ def plot_performance_landscape(
 
     try:
         from scipy.stats import gaussian_kde as _gkde
+
         x_d = np.linspace(per_pt.min() - 0.05, per_pt.max() + 0.05, 250)
-        for val, color, name in [(0, PALETTE["negative"], "Negative"),
-                                  (1, PALETTE["positive"], "Positive")]:
+        for val, color, name in [
+            (0, PALETTE["negative"], "Negative"),
+            (1, PALETTE["positive"], "Positive"),
+        ]:
             m = labels_v == val
             if m.sum() < 5:
                 continue
             arr = per_pt[m]
-            bw  = max(0.04, 1.06 * arr.std() * len(arr) ** (-0.2))
+            bw = max(0.04, 1.06 * arr.std() * len(arr) ** (-0.2))
             kde_fn = _gkde(arr, bw_method=bw / arr.std() if arr.std() > 0 else 0.15)
             density = kde_fn(x_d)
             ax_dist.plot(density, x_d, color=color, lw=1.8, label=name)
             ax_dist.fill_betweenx(x_d, density, alpha=0.15, color=color)
     except ImportError:
-        for val, color, name in [(0, PALETTE["negative"], "Negative"),
-                                  (1, PALETTE["positive"], "Positive")]:
+        for val, color, name in [
+            (0, PALETTE["negative"], "Negative"),
+            (1, PALETTE["positive"], "Positive"),
+        ]:
             m = labels_v == val
-            ax_dist.hist(per_pt[m], bins=20, density=True, alpha=0.5,
-                          color=color, label=name, orientation="horizontal")
+            ax_dist.hist(
+                per_pt[m],
+                bins=20,
+                density=True,
+                alpha=0.5,
+                color=color,
+                label=name,
+                orientation="horizontal",
+            )
 
     ax_dist.set_xlabel("Density", fontsize=8)
     ax_dist.set_ylabel(dist_label, fontsize=8)
@@ -757,10 +931,16 @@ def plot_performance_landscape_multi_outcome(
     x_min, x_max = coords[:, 0].min(), coords[:, 0].max()
     y_min, y_max = coords[:, 1].min(), coords[:, 1].max()
     pad = 0.04
-    x_edges = np.linspace(x_min - pad * (x_max - x_min),
-                           x_max + pad * (x_max - x_min), grid_resolution + 1)
-    y_edges = np.linspace(y_min - pad * (y_max - y_min),
-                           y_max + pad * (y_max - y_min), grid_resolution + 1)
+    x_edges = np.linspace(
+        x_min - pad * (x_max - x_min),
+        x_max + pad * (x_max - x_min),
+        grid_resolution + 1,
+    )
+    y_edges = np.linspace(
+        y_min - pad * (y_max - y_min),
+        y_max + pad * (y_max - y_min),
+        grid_resolution + 1,
+    )
 
     names = sorted(outcome_data.keys())
     n = len(names)
@@ -776,23 +956,27 @@ def plot_performance_landscape_multi_outcome(
         ax = axes[i]
         d = outcome_data[name]
         labels_n = np.array(d["labels"])
-        probs_n  = np.array(d["probabilities"])
-        valid    = labels_n >= 0
+        probs_n = np.array(d["probabilities"])
+        valid = labels_n >= 0
 
         coords_v = coords[valid]
         labels_v = labels_n[valid].astype(int)
-        probs_v  = probs_n[valid]
+        probs_v = probs_n[valid]
 
-        x_idx = np.clip(np.digitize(coords_v[:, 0], x_edges) - 1, 0, grid_resolution - 1)
-        y_idx = np.clip(np.digitize(coords_v[:, 1], y_edges) - 1, 0, grid_resolution - 1)
+        x_idx = np.clip(
+            np.digitize(coords_v[:, 0], x_edges) - 1, 0, grid_resolution - 1
+        )
+        y_idx = np.clip(
+            np.digitize(coords_v[:, 1], y_edges) - 1, 0, grid_resolution - 1
+        )
 
         metric_grid = np.full((grid_resolution, grid_resolution), np.nan)
-        count_grid  = np.zeros((grid_resolution, grid_resolution), dtype=int)
+        count_grid = np.zeros((grid_resolution, grid_resolution), dtype=int)
 
         for xi in range(grid_resolution):
             for yi in range(grid_resolution):
-                cell  = (x_idx == xi) & (y_idx == yi)
-                n_c   = cell.sum()
+                cell = (x_idx == xi) & (y_idx == yi)
+                n_c = cell.sum()
                 count_grid[xi, yi] = n_c
                 if n_c < min_patients_per_cell:
                     continue
@@ -813,7 +997,9 @@ def plot_performance_landscape_multi_outcome(
 
         obs = smoothed[~np.isnan(smoothed)]
         if metric == "signed_error":
-            lim = max(0.2, float(np.nanpercentile(np.abs(obs), 95))) if len(obs) else 0.3
+            lim = (
+                max(0.2, float(np.nanpercentile(np.abs(obs), 95))) if len(obs) else 0.3
+            )
             cmap, vmin, vmax = "RdBu_r", -lim, lim
         elif metric == "accuracy":
             cmap, vmin, vmax = "RdYlGn", 0.3, 1.0
@@ -821,12 +1007,29 @@ def plot_performance_landscape_multi_outcome(
             cmap, vmin, vmax = "YlOrRd", 0.0, 0.5
 
         extent = [x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]]
-        im = ax.imshow(smoothed.T, origin="lower", extent=extent, aspect="auto",
-                        cmap=cmap, vmin=vmin, vmax=vmax,
-                        interpolation="bilinear", alpha=0.88, zorder=1)
+        im = ax.imshow(
+            smoothed.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+            alpha=0.88,
+            zorder=1,
+        )
 
-        ax.scatter(coords_v[:, 0], coords_v[:, 1],
-                   s=2, c="#555555", alpha=0.10, linewidths=0, rasterized=True, zorder=2)
+        ax.scatter(
+            coords_v[:, 0],
+            coords_v[:, 1],
+            s=2,
+            c="#555555",
+            alpha=0.10,
+            linewidths=0,
+            rasterized=True,
+            zorder=2,
+        )
 
         ax.set_title(name.replace("_", " ").title(), fontsize=9, fontweight="semibold")
         ax.set_xticks([])
@@ -843,13 +1046,15 @@ def plot_performance_landscape_multi_outcome(
 
     metric_display = {
         "signed_error": "Signed error  (red = overconfident positive  /  blue = overconfident negative)",
-        "accuracy":     "Local accuracy  (green = high  /  red = low)",
-        "brier":        "Local Brier score  (yellow = low  /  red = high)",
+        "accuracy": "Local accuracy  (green = high  /  red = low)",
+        "brier": "Local Brier score  (yellow = low  /  red = high)",
     }.get(metric, metric)
 
     fig.suptitle(
         f"Performance landscape — {metric_display}",
-        fontsize=10, fontweight="semibold", y=1.01,
+        fontsize=10,
+        fontweight="semibold",
+        y=1.01,
     )
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -859,6 +1064,7 @@ def plot_performance_landscape_multi_outcome(
 # ═════════════════════════════════════════════════════════════════════
 # 7. Embedding atlas  (the clinical map)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def _compute_outcome_axes(
     coords_2d: np.ndarray,
@@ -904,7 +1110,7 @@ def _compute_outcome_axes(
         except np.linalg.LinAlgError:
             continue
 
-        beta = coeffs[:2]   # [β_x, β_y]
+        beta = coeffs[:2]  # [β_x, β_y]
         p_hat = X @ coeffs
         ss_res = ((p - p_hat) ** 2).sum()
         ss_tot = ((p - p.mean()) ** 2).sum()
@@ -921,14 +1127,16 @@ def _compute_outcome_axes(
             continue
         direction = tuple(beta / norm)
 
-        results.append({
-            "name":      name,
-            "direction": direction,
-            "magnitude": magnitude,
-            "r2":        r2,
-            "sigma":     sigma,
-            "origin":    (cx, cy),
-        })
+        results.append(
+            {
+                "name": name,
+                "direction": direction,
+                "magnitude": magnitude,
+                "r2": r2,
+                "sigma": sigma,
+                "origin": (cx, cy),
+            }
+        )
 
     results.sort(key=lambda d: d["magnitude"], reverse=True)
     return results
@@ -1012,27 +1220,40 @@ def plot_embedding_atlas(
         background_outcome = next(iter(outcome_probabilities))
 
     # ── Compute background landscape ────────────────────────────────────────
-    bg_probs  = outcome_probabilities.get(background_outcome)
-    bg_labels = (outcome_labels or {}).get(background_outcome) if background_labels is None \
-                else background_labels
+    bg_probs = outcome_probabilities.get(background_outcome)
+    bg_labels = (
+        (outcome_labels or {}).get(background_outcome)
+        if background_labels is None
+        else background_labels
+    )
 
     smoothed, x_edges, y_edges, vmin, vmax, cmap = [None] * 6
     if bg_probs is not None and bg_labels is not None:
         valid_bg = bg_labels >= 0
         coords_bg = coords[valid_bg]
         labels_bg = bg_labels[valid_bg].astype(int)
-        probs_bg  = bg_probs[valid_bg]
+        probs_bg = bg_probs[valid_bg]
 
         pad = 0.05
         x_min, x_max = coords[:, 0].min(), coords[:, 0].max()
         y_min, y_max = coords[:, 1].min(), coords[:, 1].max()
-        x_edges = np.linspace(x_min - pad * (x_max - x_min),
-                               x_max + pad * (x_max - x_min), grid_resolution + 1)
-        y_edges = np.linspace(y_min - pad * (y_max - y_min),
-                               y_max + pad * (y_max - y_min), grid_resolution + 1)
+        x_edges = np.linspace(
+            x_min - pad * (x_max - x_min),
+            x_max + pad * (x_max - x_min),
+            grid_resolution + 1,
+        )
+        y_edges = np.linspace(
+            y_min - pad * (y_max - y_min),
+            y_max + pad * (y_max - y_min),
+            grid_resolution + 1,
+        )
 
-        x_idx = np.clip(np.digitize(coords_bg[:, 0], x_edges) - 1, 0, grid_resolution - 1)
-        y_idx = np.clip(np.digitize(coords_bg[:, 1], y_edges) - 1, 0, grid_resolution - 1)
+        x_idx = np.clip(
+            np.digitize(coords_bg[:, 0], x_edges) - 1, 0, grid_resolution - 1
+        )
+        y_idx = np.clip(
+            np.digitize(coords_bg[:, 1], y_edges) - 1, 0, grid_resolution - 1
+        )
 
         mg = np.full((grid_resolution, grid_resolution), np.nan)
         cnt = np.zeros((grid_resolution, grid_resolution), dtype=int)
@@ -1059,7 +1280,9 @@ def plot_embedding_atlas(
 
         if background_metric == "signed_error":
             obs = smoothed[~np.isnan(smoothed)]
-            lim = max(0.2, float(np.nanpercentile(np.abs(obs), 95))) if len(obs) else 0.3
+            lim = (
+                max(0.2, float(np.nanpercentile(np.abs(obs), 95))) if len(obs) else 0.3
+            )
             cmap, vmin, vmax = "RdBu_r", -lim, lim
         elif background_metric == "accuracy":
             cmap, vmin, vmax = "RdYlGn", 0.3, 1.0
@@ -1072,25 +1295,42 @@ def plot_embedding_atlas(
     # Background landscape
     if smoothed is not None:
         extent = [x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]]
-        im = ax.imshow(smoothed.T, origin="lower", extent=extent, aspect="auto",
-                        cmap=cmap, vmin=vmin, vmax=vmax,
-                        interpolation="bilinear", alpha=0.75, zorder=1)
+        im = ax.imshow(
+            smoothed.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+            alpha=0.75,
+            zorder=1,
+        )
         cbar = fig.colorbar(im, ax=ax, shrink=0.6, pad=0.01, aspect=25)
         metric_label = {
             "signed_error": f"Signed error ({background_outcome.replace('_', ' ')})",
-            "accuracy":     f"Accuracy ({background_outcome.replace('_', ' ')})",
-            "mean_prob":    f"Mean risk ({background_outcome.replace('_', ' ')})",
+            "accuracy": f"Accuracy ({background_outcome.replace('_', ' ')})",
+            "mean_prob": f"Mean risk ({background_outcome.replace('_', ' ')})",
         }.get(background_metric, background_metric)
         cbar.set_label(metric_label, fontsize=7.5)
         cbar.ax.tick_params(labelsize=7)
     else:
         # Neutral grey patient scatter as background
-        ax.scatter(coords[:, 0], coords[:, 1], s=3, c=PALETTE["missing"],
-                   alpha=0.25, linewidths=0, rasterized=True, zorder=1)
+        ax.scatter(
+            coords[:, 0],
+            coords[:, 1],
+            s=3,
+            c=PALETTE["missing"],
+            alpha=0.25,
+            linewidths=0,
+            rasterized=True,
+            zorder=1,
+        )
 
     # ── Population group halos ─────────────────────────────────────────────
     if population_groups:
-        group_colors = CATEGORICAL[:len(population_groups)]
+        group_colors = CATEGORICAL[: len(population_groups)]
         for (group_name, mask), color in zip(population_groups.items(), group_colors):
             if mask.sum() < 10:
                 continue
@@ -1099,16 +1339,31 @@ def plot_embedding_atlas(
             _density_contour(ax, gc[:, 0], gc[:, 1], color, levels=4, alpha=0.55)
             # Centroid label with background box
             cx_g, cy_g = float(gc[:, 0].mean()), float(gc[:, 1].mean())
-            ax.text(cx_g, cy_g, group_name,
-                    ha="center", va="center", fontsize=8, fontweight="bold",
-                    color=color, zorder=6,
-                    bbox=dict(boxstyle="round,pad=0.25", facecolor="white",
-                               edgecolor=color, alpha=0.85, linewidth=1.2))
+            ax.text(
+                cx_g,
+                cy_g,
+                group_name,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color=color,
+                zorder=6,
+                bbox=dict(
+                    boxstyle="round,pad=0.25",
+                    facecolor="white",
+                    edgecolor=color,
+                    alpha=0.85,
+                    linewidth=1.2,
+                ),
+            )
 
     # ── Outcome risk axes ──────────────────────────────────────────────────
     axes_data = _compute_outcome_axes(
-        coords, outcome_probabilities,
-        sigma_values=sigma_values, min_r2=min_r2,
+        coords,
+        outcome_probabilities,
+        sigma_values=sigma_values,
+        min_r2=min_r2,
     )
     axes_to_draw = axes_data[:max_axes]
 
@@ -1130,7 +1385,7 @@ def plot_embedding_atlas(
         origin_x = float(coords[:, 0].mean())
         origin_y = float(coords[:, 1].mean())
 
-        ax_colors = CATEGORICAL[:len(axes_to_draw)]
+        ax_colors = CATEGORICAL[: len(axes_to_draw)]
         for d, scale, color in zip(axes_to_draw, mags_norm, ax_colors):
             dx = d["direction"][0] * base_len * scale
             dy = d["direction"][1] * base_len * scale
@@ -1152,21 +1407,32 @@ def plot_embedding_atlas(
             label_x = origin_x + dx * 1.18
             label_y = origin_y + dy * 1.18
             display = d["name"].replace("_", " ").title()
-            r2_str  = f"R²={d['r2']:.2f}"
+            r2_str = f"R²={d['r2']:.2f}"
             if sigma_values:
                 r2_str += f"  σ={d['sigma']:.2f}"
             ax.text(
-                label_x, label_y,
+                label_x,
+                label_y,
                 f"{display}\n{r2_str}",
-                ha="center", va="center",
-                fontsize=7, color=color, fontweight="semibold", zorder=7,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                           edgecolor=color, alpha=0.80, linewidth=0.8),
+                ha="center",
+                va="center",
+                fontsize=7,
+                color=color,
+                fontweight="semibold",
+                zorder=7,
+                bbox=dict(
+                    boxstyle="round,pad=0.2",
+                    facecolor="white",
+                    edgecolor=color,
+                    alpha=0.80,
+                    linewidth=0.8,
+                ),
             )
 
         # Origin marker
-        ax.scatter([origin_x], [origin_y], s=30, c=PALETTE["zero_line"],
-                   zorder=6, linewidths=0)
+        ax.scatter(
+            [origin_x], [origin_y], s=30, c=PALETTE["zero_line"], zorder=6, linewidths=0
+        )
 
     ax.set_xlabel(f"{method.upper()} 1", fontsize=9)
     ax.set_ylabel(f"{method.upper()} 2", fontsize=9)
@@ -1180,14 +1446,26 @@ def plot_embedding_atlas(
     # Legend for axes (small, outside plot)
     if axes_to_draw:
         from matplotlib.lines import Line2D
+
         handles = [
-            Line2D([0], [0], color=color, lw=2.0,
-                   label=f"{d['name'].replace('_', ' ').title()}  "
-                         f"(R²={d['r2']:.2f}, σ={d['sigma']:.2f})")
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                lw=2.0,
+                label=f"{d['name'].replace('_', ' ').title()}  "
+                f"(R²={d['r2']:.2f}, σ={d['sigma']:.2f})",
+            )
             for d, color in zip(axes_to_draw, ax_colors)
         ]
-        ax.legend(handles=handles, fontsize=6.5, loc="lower left",
-                  framealpha=0.88, title="Outcome axes", title_fontsize=7)
+        ax.legend(
+            handles=handles,
+            fontsize=6.5,
+            loc="lower left",
+            framealpha=0.88,
+            title="Outcome axes",
+            title_fontsize=7,
+        )
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -1197,6 +1475,7 @@ def plot_embedding_atlas(
 # ═════════════════════════════════════════════════════════════════════
 # 8. Landscape summary  (compact per-outcome bar for main figures)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_landscape_summary(
     outcome_data: Dict[str, Dict],
@@ -1239,26 +1518,36 @@ def plot_landscape_summary(
     x_min, x_max = coords[:, 0].min(), coords[:, 0].max()
     y_min, y_max = coords[:, 1].min(), coords[:, 1].max()
     pad = 0.04
-    x_edges = np.linspace(x_min - pad * (x_max - x_min),
-                           x_max + pad * (x_max - x_min), grid_resolution + 1)
-    y_edges = np.linspace(y_min - pad * (y_max - y_min),
-                           y_max + pad * (y_max - y_min), grid_resolution + 1)
+    x_edges = np.linspace(
+        x_min - pad * (x_max - x_min),
+        x_max + pad * (x_max - x_min),
+        grid_resolution + 1,
+    )
+    y_edges = np.linspace(
+        y_min - pad * (y_max - y_min),
+        y_max + pad * (y_max - y_min),
+        grid_resolution + 1,
+    )
 
     rows_data = []
     for name in names:
         d = outcome_data[name]
         labels_n = np.array(d["labels"])
-        probs_n  = np.array(d["probabilities"])
-        valid    = labels_n >= 0
+        probs_n = np.array(d["probabilities"])
+        valid = labels_n >= 0
         if valid.sum() < 20:
             continue
 
         coords_v = coords[valid]
         labels_v = labels_n[valid].astype(int)
-        probs_v  = probs_n[valid]
+        probs_v = probs_n[valid]
 
-        x_idx = np.clip(np.digitize(coords_v[:, 0], x_edges) - 1, 0, grid_resolution - 1)
-        y_idx = np.clip(np.digitize(coords_v[:, 1], y_edges) - 1, 0, grid_resolution - 1)
+        x_idx = np.clip(
+            np.digitize(coords_v[:, 0], x_edges) - 1, 0, grid_resolution - 1
+        )
+        y_idx = np.clip(
+            np.digitize(coords_v[:, 1], y_edges) - 1, 0, grid_resolution - 1
+        )
 
         mg = np.full((grid_resolution, grid_resolution), np.nan)
         cnt = np.zeros((grid_resolution, grid_resolution), dtype=int)
@@ -1287,17 +1576,25 @@ def plot_landscape_summary(
         has_data = cnt[x_idx, y_idx] >= min_patients_per_cell
         patient_smoothed = patient_smoothed[has_data]
 
-        frac_high_error = float((np.abs(patient_smoothed) > high_error_threshold).mean())
-        mean_abs_error  = float(np.abs(obs).mean())
-        sigma_v = float(sigma_values.get(name, float("nan"))) if sigma_values else float("nan")
+        frac_high_error = float(
+            (np.abs(patient_smoothed) > high_error_threshold).mean()
+        )
+        mean_abs_error = float(np.abs(obs).mean())
+        sigma_v = (
+            float(sigma_values.get(name, float("nan")))
+            if sigma_values
+            else float("nan")
+        )
 
-        rows_data.append({
-            "name":           name,
-            "frac_high_error": frac_high_error,
-            "mean_abs_error":  mean_abs_error,
-            "sigma":           sigma_v,
-            "n_patients":      int(valid.sum()),
-        })
+        rows_data.append(
+            {
+                "name": name,
+                "frac_high_error": frac_high_error,
+                "mean_abs_error": mean_abs_error,
+                "sigma": sigma_v,
+                "n_patients": int(valid.sum()),
+            }
+        )
 
     if not rows_data:
         fig, ax = plt.subplots()
@@ -1308,7 +1605,9 @@ def plot_landscape_summary(
     display_names = [r["name"].replace("_", " ").title() for r in rows_data]
 
     fig, (ax_frac, ax_err) = plt.subplots(
-        1, 2, figsize=(7.0, max(2.5, 0.45 * n_out)),
+        1,
+        2,
+        figsize=(7.0, max(2.5, 0.45 * n_out)),
         sharey=True,
     )
     y = np.arange(n_out)
@@ -1331,12 +1630,20 @@ def plot_landscape_summary(
     for i, (bar, r) in enumerate(zip(bars, rows_data)):
         # Sigma annotation at right end of bar
         s_str = f"σ={r['sigma']:.2f}" if np.isfinite(r["sigma"]) else ""
-        ax_frac.text(bar.get_width() + 0.01, i,
-                     s_str, va="center", fontsize=ANNOT_SIZE, color="#666666")
+        ax_frac.text(
+            bar.get_width() + 0.01,
+            i,
+            s_str,
+            va="center",
+            fontsize=ANNOT_SIZE,
+            color="#666666",
+        )
 
     ax_frac.set_yticks(y)
     ax_frac.set_yticklabels(display_names)
-    ax_frac.set_xlabel(f"Fraction in high-error region  (|err| > {high_error_threshold})")
+    ax_frac.set_xlabel(
+        f"Fraction in high-error region  (|err| > {high_error_threshold})"
+    )
     ax_frac.set_title("Spatial error concentration")
     ax_frac.set_xlim(0, min(1.0, max(fracs) * 1.45) if fracs else 1.0)
     despine(ax_frac, "none")
@@ -1357,10 +1664,13 @@ def plot_landscape_summary(
     # Colorbar legend for sigma
     if any(np.isfinite(s) for s in sigmas):
         import matplotlib.cm as cm
+
         sm = plt.cm.ScalarMappable(
             cmap=cm.Blues_r,
-            norm=plt.Normalize(vmin=min(s for s in sigmas if np.isfinite(s)),
-                               vmax=max(s for s in sigmas if np.isfinite(s)))
+            norm=plt.Normalize(
+                vmin=min(s for s in sigmas if np.isfinite(s)),
+                vmax=max(s for s in sigmas if np.isfinite(s)),
+            ),
         )
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=[ax_frac, ax_err], shrink=0.6, pad=0.01, aspect=20)

@@ -129,8 +129,9 @@ def test_collect_wide_and_delta_tables(tmp_path):
     assert len(size_summary) == 2
     assert set(scale_summary["pretraining_scale"]) == {"small", "large"}
     assert (
-        rarity_delta[rarity_delta["training_fraction"] == 1.0]
-        .iloc[0]["delta_auroc_vs_baseline"]
+        rarity_delta[rarity_delta["training_fraction"] == 1.0].iloc[0][
+            "delta_auroc_vs_baseline"
+        ]
         == 0.05
     )
     assert not rarity_tables["real_rarity_task_level"].empty
@@ -308,7 +309,11 @@ def test_paper_aggregate_filter_excludes_ipi_and_ipi_complete_rows():
             {"model_family": "tabular_ehr", "evaluation_subset": "full", "auroc": 0.7},
             {"model_family": "opera", "evaluation_subset": "full", "auroc": 0.8},
             {"model_family": "ipi", "evaluation_subset": "ipi_complete", "auroc": 0.6},
-            {"model_family": "opera", "evaluation_subset": "ipi_complete", "auroc": 0.75},
+            {
+                "model_family": "opera",
+                "evaluation_subset": "ipi_complete",
+                "auroc": 0.75,
+            },
         ]
     )
 
@@ -325,7 +330,11 @@ def test_paper_aggregate_filter_can_build_ipi_credibility_subset():
         [
             {"model_family": "tabular_ehr", "evaluation_subset": "full", "auroc": 0.7},
             {"model_family": "ipi", "evaluation_subset": "ipi_complete", "auroc": 0.6},
-            {"model_family": "opera", "evaluation_subset": "ipi_complete", "auroc": 0.75},
+            {
+                "model_family": "opera",
+                "evaluation_subset": "ipi_complete",
+                "auroc": 0.75,
+            },
         ]
     )
 

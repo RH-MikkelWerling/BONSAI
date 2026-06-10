@@ -34,7 +34,9 @@ def _transfer_and_atypicality(n=50, d=16, seed=1):
             "brier_gain": rng.normal(0.02, 0.1, size=n),
         }
     )
-    atyp = compute_atypicality_scores(emb, emb[["subject_id", "cohort"]], min_cohort_size=5)
+    atyp = compute_atypicality_scores(
+        emb, emb[["subject_id", "cohort"]], min_cohort_size=5
+    )
     return transfer, atyp, emb
 
 

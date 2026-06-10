@@ -9,24 +9,31 @@ Key figures:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import matplotlib.patches as mpatches
 
 from opera.visualization.style import (
-    PALETTE, CATEGORICAL, save_fig, despine, ci_ribbon,
-    FIG_FULL, FIG_HALF, FIG_TALL, add_panel_label,
-    model_color, model_label, ANNOT_SIZE, LEGEND_SIZE, setup_style,
+    PALETTE,
+    save_fig,
+    despine,
+    ci_ribbon,
+    FIG_FULL,
+    FIG_TALL,
+    model_color,
+    model_label,
+    ANNOT_SIZE,
+    LEGEND_SIZE,
+    setup_style,
 )
 
 
 # ═════════════════════════════════════════════════════════════════════
 # 1. Forest plot  (the main paper figure)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_forest(
     model_results: Dict[str, Dict[str, Dict[str, float]]],
@@ -51,30 +58,37 @@ def plot_forest(
         "group" field (expects model_results to be an OrderedDict with
         sentinel None values marking group boundaries).
     """
-    names  = list(model_results.keys())
-    n      = len(names)
-    means  = [model_results[nm][metric]["mean"]  for nm in names]
+    names = list(model_results.keys())
+    n = len(names)
+    means = [model_results[nm][metric]["mean"] for nm in names]
     lowers = [model_results[nm][metric]["lower"] for nm in names]
     uppers = [model_results[nm][metric]["upper"] for nm in names]
 
-    y_pos  = np.arange(n)
-    errors_lo = [m - l for m, l in zip(means, lowers)]
-    errors_hi = [u - m for m, u in zip(means, uppers)]
+    y_pos = np.arange(n)
 
     # Figure: main panel (70%) + numeric annotation panel (30%)
     fig, (ax_main, ax_num) = plt.subplots(
-        1, 2, figsize=(7.0, max(2.8, 0.42 * n)),
+        1,
+        2,
+        figsize=(7.0, max(2.8, 0.42 * n)),
         gridspec_kw={"width_ratios": [3, 1]},
     )
 
     for i, nm in enumerate(names):
         color = model_color(nm)
         # CI line
-        ax_main.plot([lowers[i], uppers[i]], [i, i],
-                     color=color, lw=1.8, solid_capstyle="round", zorder=2)
+        ax_main.plot(
+            [lowers[i], uppers[i]],
+            [i, i],
+            color=color,
+            lw=1.8,
+            solid_capstyle="round",
+            zorder=2,
+        )
         # Point estimate — filled square (meta-analysis style)
-        ax_main.scatter(means[i], i, color=color, s=50, marker="s",
-                        zorder=3, linewidths=0)
+        ax_main.scatter(
+            means[i], i, color=color, s=50, marker="s", zorder=3, linewidths=0
+        )
 
     # Reference line at 0.5 (random) or best model — depends on metric
     ref = 0.5 if metric in ("auroc", "auprc") else 0.0
@@ -93,13 +107,26 @@ def plot_forest(
     ax_num.set_ylim(ax_main.get_ylim())
     ax_num.set_xlim(0, 1)
     ax_num.axis("off")
-    ax_num.text(0.5, 1.01, f"{metric.upper()}  [95% CI]",
-                transform=ax_num.transAxes, ha="center", va="bottom",
-                fontsize=8, fontweight="semibold")
-    for i, (m, l, u) in enumerate(zip(means, lowers, uppers)):
-        ax_num.text(0.5, i, f"{m:.3f}  [{l:.3f}–{u:.3f}]",
-                    ha="center", va="center", fontsize=ANNOT_SIZE,
-                    color=model_color(names[i]))
+    ax_num.text(
+        0.5,
+        1.01,
+        f"{metric.upper()}  [95% CI]",
+        transform=ax_num.transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=8,
+        fontweight="semibold",
+    )
+    for i, (m, l, u) in enumerate(zip(means, lowers, uppers)):  # noqa: E741
+        ax_num.text(
+            0.5,
+            i,
+            f"{m:.3f}  [{l:.3f}–{u:.3f}]",
+            ha="center",
+            va="center",
+            fontsize=ANNOT_SIZE,
+            color=model_color(names[i]),
+        )
 
     fig.tight_layout(w_pad=0)
     save_fig(fig, save_path)
@@ -109,6 +136,7 @@ def plot_forest(
 # ═════════════════════════════════════════════════════════════════════
 # 2. Multi-metric dot plot  (alternative to grouped bar)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_metric_comparison(
     model_metrics: Dict[str, Dict[str, float]],
@@ -120,13 +148,14 @@ def plot_metric_comparison(
     Cleveland dot plot: each metric gets its own column, models are dots.
     Cleaner than grouped bars for comparing many models × many metrics.
     """
-    names  = list(model_metrics.keys())
+    names = list(model_metrics.keys())
     mnames = list(metrics_to_plot)
-    n_m    = len(names)
-    n_met  = len(mnames)
+    n_m = len(names)
+    n_met = len(mnames)
 
-    fig, axes = plt.subplots(1, n_met, figsize=(2.0 * n_met, max(3.0, 0.45 * n_m)),
-                              sharey=True)
+    fig, axes = plt.subplots(
+        1, n_met, figsize=(2.0 * n_met, max(3.0, 0.45 * n_m)), sharey=True
+    )
     if n_met == 1:
         axes = [axes]
 
@@ -150,10 +179,16 @@ def plot_metric_comparison(
         ax.grid(axis="y", visible=False)
 
     # Legend
-    handles = [mpatches.Patch(color=model_color(nm), label=model_label(nm))
-               for nm in names]
-    axes[-1].legend(handles=handles, fontsize=LEGEND_SIZE,
-                    bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0)
+    handles = [
+        mpatches.Patch(color=model_color(nm), label=model_label(nm)) for nm in names
+    ]
+    axes[-1].legend(
+        handles=handles,
+        fontsize=LEGEND_SIZE,
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        borderaxespad=0,
+    )
 
     fig.suptitle(title, fontsize=10, fontweight="semibold")
     fig.tight_layout()
@@ -164,6 +199,7 @@ def plot_metric_comparison(
 # ═════════════════════════════════════════════════════════════════════
 # 3. Pairwise significance plot
 # ═════════════════════════════════════════════════════════════════════
+
 
 def plot_pairwise_differences(
     difference_results: Dict[str, Dict[str, float]],
@@ -188,19 +224,25 @@ def plot_pairwise_differences(
         dm, dl, du, pv = r["diff_mean"], r["diff_lower"], r["diff_upper"], r["p_value"]
 
         if dl > 0:
-            color = PALETTE["tabular_rkkp"]   # significantly positive
+            color = PALETTE["tabular_rkkp"]  # significantly positive
         elif du < 0:
-            color = PALETTE["positive"]        # significantly negative
+            color = PALETTE["positive"]  # significantly negative
         else:
-            color = PALETTE["missing"]         # not significant
+            color = PALETTE["missing"]  # not significant
 
         ax.plot([dl, du], [i, i], color=color, lw=2.0, solid_capstyle="round", zorder=2)
         ax.scatter(dm, i, color=color, s=45, marker="D", zorder=3, linewidths=0)
 
-        stars = "***" if pv < 0.001 else ("**" if pv < 0.01 else ("*" if pv < 0.05 else ""))
-        ax.text(max(du, 0) + 0.005, i,
-                f"Δ={dm:+.3f}  {stars}",
-                va="center", fontsize=ANNOT_SIZE)
+        stars = (
+            "***" if pv < 0.001 else ("**" if pv < 0.01 else ("*" if pv < 0.05 else ""))
+        )
+        ax.text(
+            max(du, 0) + 0.005,
+            i,
+            f"Δ={dm:+.3f}  {stars}",
+            va="center",
+            fontsize=ANNOT_SIZE,
+        )
 
     ax.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.9, zorder=1)
     ax.set_yticks(y)
@@ -221,6 +263,7 @@ def plot_pairwise_differences(
 # 4. Label efficiency curves
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_label_efficiency(
     efficiency_results: Dict[str, Dict[float, Dict[str, float]]],
     metric: str = "auroc",
@@ -235,14 +278,22 @@ def plot_label_efficiency(
 
     for name, fractions in efficiency_results.items():
         xs = sorted(fractions.keys())
-        means  = np.array([fractions[x]["mean"]  for x in xs])
+        means = np.array([fractions[x]["mean"] for x in xs])
         lowers = np.array([fractions[x]["lower"] for x in xs])
         uppers = np.array([fractions[x]["upper"] for x in xs])
-        pcts   = np.array(xs) * 100
-        color  = model_color(name)
+        pcts = np.array(xs) * 100
+        color = model_color(name)
 
-        ax.plot(pcts, means, color=color, lw=1.8, marker="o",
-                markersize=4, label=model_label(name), zorder=3)
+        ax.plot(
+            pcts,
+            means,
+            color=color,
+            lw=1.8,
+            marker="o",
+            markersize=4,
+            label=model_label(name),
+            zorder=3,
+        )
         ci_ribbon(ax, pcts, lowers, uppers, color)
 
     ax.set_xlabel("Training labels used  (%)")
@@ -262,6 +313,7 @@ def plot_label_efficiency(
 # 5. Delta plot  (joint vs per-cohort)
 # ═════════════════════════════════════════════════════════════════════
 
+
 def plot_joint_vs_percohort_delta(
     results_df: pd.DataFrame,
     per_cohort_col: str = "opera__auroc",
@@ -272,8 +324,9 @@ def plot_joint_vs_percohort_delta(
     Lollipop chart of ΔAUROC (joint − per-cohort) per (cohort, outcome) cell.
     """
     df = results_df.dropna(subset=[per_cohort_col, joint_col]).copy()
-    df["label"] = (df["cohort"].str.upper() + "  /  "
-                   + df["outcome"].str.replace("_", " "))
+    df["label"] = (
+        df["cohort"].str.upper() + "  /  " + df["outcome"].str.replace("_", " ")
+    )
     df["delta"] = df[joint_col] - df[per_cohort_col]
     df = df.sort_values("delta").reset_index(drop=True)
 
@@ -282,15 +335,39 @@ def plot_joint_vs_percohort_delta(
     y = np.arange(n)
 
     pos_mask = df["delta"] >= 0
-    ax.hlines(y[pos_mask], 0, df["delta"].values[pos_mask],
-              color=PALETTE["opera"], lw=1.4, zorder=2)
-    ax.scatter(df["delta"].values[pos_mask], y[pos_mask],
-               color=PALETTE["opera"], s=40, zorder=3, linewidths=0)
+    ax.hlines(
+        y[pos_mask],
+        0,
+        df["delta"].values[pos_mask],
+        color=PALETTE["opera"],
+        lw=1.4,
+        zorder=2,
+    )
+    ax.scatter(
+        df["delta"].values[pos_mask],
+        y[pos_mask],
+        color=PALETTE["opera"],
+        s=40,
+        zorder=3,
+        linewidths=0,
+    )
 
-    ax.hlines(y[~pos_mask], df["delta"].values[~pos_mask], 0,
-              color=PALETTE["positive"], lw=1.4, zorder=2)
-    ax.scatter(df["delta"].values[~pos_mask], y[~pos_mask],
-               color=PALETTE["positive"], s=40, zorder=3, linewidths=0)
+    ax.hlines(
+        y[~pos_mask],
+        df["delta"].values[~pos_mask],
+        0,
+        color=PALETTE["positive"],
+        lw=1.4,
+        zorder=2,
+    )
+    ax.scatter(
+        df["delta"].values[~pos_mask],
+        y[~pos_mask],
+        color=PALETTE["positive"],
+        s=40,
+        zorder=3,
+        linewidths=0,
+    )
 
     ax.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.9, zorder=1)
     ax.set_yticks(y)
@@ -298,9 +375,16 @@ def plot_joint_vs_percohort_delta(
     ax.set_xlabel("ΔAUROC  (joint − per-cohort)")
     ax.set_title("Joint training adds over per-cohort")
     pct = 100 * pos_mask.mean()
-    ax.text(0.98, 0.02, f"{pct:.0f}% positive",
-            transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=ANNOT_SIZE, color="grey")
+    ax.text(
+        0.98,
+        0.02,
+        f"{pct:.0f}% positive",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=ANNOT_SIZE,
+        color="grey",
+    )
     despine(ax, "none")
     ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
     ax.grid(axis="y", visible=False)
@@ -313,6 +397,7 @@ def plot_joint_vs_percohort_delta(
 # ═════════════════════════════════════════════════════════════════════
 # 6. Bootstrap difference test (utility)
 # ═════════════════════════════════════════════════════════════════════
+
 
 def bootstrap_difference_test(
     labels: np.ndarray,
@@ -334,10 +419,10 @@ def bootstrap_difference_test(
     diffs = np.array(diffs)
     p = (diffs <= 0).mean() if diffs.mean() > 0 else (diffs >= 0).mean()
     return {
-        "diff_mean":  float(diffs.mean()),
+        "diff_mean": float(diffs.mean()),
         "diff_lower": float(np.percentile(diffs, 2.5)),
         "diff_upper": float(np.percentile(diffs, 97.5)),
-        "p_value":    float(p),
+        "p_value": float(p),
     }
 
 
@@ -363,16 +448,27 @@ def plot_outcome_dot_matrix(
     fig, ax = plt.subplots(figsize=FIG_TALL if len(tasks) > 14 else FIG_FULL)
     for y, task in enumerate(tasks):
         task_df = df[df["task"] == task]
-        best = task_df.sort_values("auroc", ascending=False)["model_family"].iloc[0] if not task_df.empty else None
+        best = (
+            task_df.sort_values("auroc", ascending=False)["model_family"].iloc[0]
+            if not task_df.empty
+            else None
+        )
         for x, model in enumerate(models):
             row = task_df[task_df["model_family"] == model]
             if row.empty:
                 continue
             val = float(row["auroc"].iloc[0])
-            ax.scatter(x, y, s=40 + 160 * max(0, val - 0.5),
-                       color=model_color(model) if model == best else "#CCCCCC",
-                       edgecolor=model_color(model), linewidth=0.8)
-    ax.set_xticks(range(len(models)), [model_label(m) for m in models], rotation=45, ha="right")
+            ax.scatter(
+                x,
+                y,
+                s=40 + 160 * max(0, val - 0.5),
+                color=model_color(model) if model == best else "#CCCCCC",
+                edgecolor=model_color(model),
+                linewidth=0.8,
+            )
+    ax.set_xticks(
+        range(len(models)), [model_label(m) for m in models], rotation=45, ha="right"
+    )
     ax.set_yticks(range(len(tasks)), tasks)
     ax.invert_yaxis()
     ax.set_ylabel("Cohort / outcome")
@@ -404,21 +500,34 @@ def plot_ipi_credibility(
         df = df[df["ipi_coverage"].fillna(0) >= 0.5]
     models = ["ipi", "tabular_ehr", "opera"]
     df = df[df["model_family"].isin(models)]
-    tasks = sorted((df["cohort"].astype(str) + " / " + df["outcome"].astype(str)).unique())
+    tasks = sorted(
+        (df["cohort"].astype(str) + " / " + df["outcome"].astype(str)).unique()
+    )
     fig, ax = plt.subplots(figsize=FIG_FULL)
     width = 0.22
     for i, model in enumerate(models):
         vals = []
         for task in tasks:
             cohort, outcome = task.split(" / ", 1)
-            row = df[(df["cohort"].astype(str) == cohort) & (df["outcome"].astype(str) == outcome) & (df["model_family"] == model)]
+            row = df[
+                (df["cohort"].astype(str) == cohort)
+                & (df["outcome"].astype(str) == outcome)
+                & (df["model_family"] == model)
+            ]
             vals.append(float(row["auroc"].iloc[0]) if not row.empty else np.nan)
         x = np.arange(len(tasks)) + (i - 1) * width
         ax.bar(x, vals, width=width, color=model_color(model), label=model_label(model))
     for j, task in enumerate(tasks):
         cohort, outcome = task.split(" / ", 1)
-        row = df[(df["cohort"].astype(str) == cohort) & (df["outcome"].astype(str) == outcome)]
-        cov = row["ipi_coverage"].dropna().iloc[0] if "ipi_coverage" in row and row["ipi_coverage"].notna().any() else np.nan
+        row = df[
+            (df["cohort"].astype(str) == cohort)
+            & (df["outcome"].astype(str) == outcome)
+        ]
+        cov = (
+            row["ipi_coverage"].dropna().iloc[0]
+            if "ipi_coverage" in row and row["ipi_coverage"].notna().any()
+            else np.nan
+        )
         if np.isfinite(cov):
             ax.text(j, 1.01, f"{100 * cov:.0f}%", ha="center", va="bottom", fontsize=7)
     ax.set_xticks(range(len(tasks)), tasks, rotation=45, ha="right")

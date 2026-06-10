@@ -13,7 +13,10 @@ from torch.optim import AdamW
 from torchmetrics import AUROC
 from transformers import get_linear_schedule_with_warmup
 
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 from opera.evaluation.metrics import compute_concordance_index
 
 
@@ -126,7 +129,9 @@ class SurvivalFinetuneModule(L.LightningModule):
             loss = (raw_loss * ipcw_weights).sum() / (ipcw_weights.sum() + 1e-8)
             metric_mask = ipcw_weights > 0.0
             if metric_mask.sum() >= 2 and labels[metric_mask].unique().numel() > 1:
-                self.val_auroc.update(torch.sigmoid(logits[metric_mask]), labels[metric_mask].long())
+                self.val_auroc.update(
+                    torch.sigmoid(logits[metric_mask]), labels[metric_mask].long()
+                )
                 self._val_auroc_updated = True
 
         self.log("val/loss", loss, prog_bar=True)

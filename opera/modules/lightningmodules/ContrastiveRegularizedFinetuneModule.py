@@ -17,14 +17,17 @@ starts from the contrastive geometry and gradually specializes.
 """
 
 import math
-from typing import Dict, Optional
+from typing import Optional
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import lightning as L
 from torchmetrics import MetricCollection, Accuracy, AUROC, AveragePrecision
-from bonsai.functional.checkpointing import attach_checkpoint_metadata, attach_model_config
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 from opera.modules.networks.opera_nets import (
     ProjectionHead,
@@ -88,11 +91,13 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
         self.val_metrics = self._configure_metrics("val")
 
     def _configure_metrics(self, prefix):
-        return MetricCollection({
-            f"{prefix}/Accuracy": Accuracy(task="binary", threshold=0.6),
-            f"{prefix}/AUROC": AUROC(task="binary"),
-            f"{prefix}/AveragePrecision": AveragePrecision(task="binary"),
-        })
+        return MetricCollection(
+            {
+                f"{prefix}/Accuracy": Accuracy(task="binary", threshold=0.6),
+                f"{prefix}/AUROC": AUROC(task="binary"),
+                f"{prefix}/AveragePrecision": AveragePrecision(task="binary"),
+            }
+        )
 
     def _get_lambda(self) -> float:
         """Compute current λ based on training progress."""
@@ -116,9 +121,7 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
         else:
             return self.lambda_init
 
-    def _get_embeddings_for_regularizer(
-        self, batch: dict
-    ) -> torch.Tensor:
+    def _get_embeddings_for_regularizer(self, batch: dict) -> torch.Tensor:
         """
         Extract pooled embeddings from the classification model and
         project through the OPERA projection head.
@@ -193,4 +196,6 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
             num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
             num_training_steps=self.trainer.estimated_stepping_batches,
         )
-        return [optimizer], [{"scheduler": scheduler, "interval": "step", "frequency": 1}]
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        ]

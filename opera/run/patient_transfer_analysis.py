@@ -3,7 +3,6 @@
 import argparse
 from pathlib import Path
 
-import pandas as pd
 
 from opera.evaluation.patient_transfer import (
     build_patient_transfer_table,
@@ -16,7 +15,9 @@ def _feature_list(value: str) -> list[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Patient-level OPERA transfer analysis")
+    parser = argparse.ArgumentParser(
+        description="Patient-level OPERA transfer analysis"
+    )
     parser.add_argument("--baseline_predictions", required=True)
     parser.add_argument("--comparator_predictions", required=True)
     parser.add_argument("--embeddings", required=True)

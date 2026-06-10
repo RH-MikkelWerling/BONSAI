@@ -65,8 +65,7 @@ def compute_ipcw_train_weights(
         weights[nonzero] = weights[nonzero] / weights[nonzero].mean()
 
     return {
-        subject_id: float(weight)
-        for subject_id, weight in zip(subject_ids, weights)
+        subject_id: float(weight) for subject_id, weight in zip(subject_ids, weights)
     }
 
 

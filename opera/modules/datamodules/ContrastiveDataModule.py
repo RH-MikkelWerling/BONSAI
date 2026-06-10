@@ -7,7 +7,7 @@ the survival fields (``time_<n>``, ``event_<n>``) as well as the
 binary ``outcome_<n>`` keys.
 """
 
-from typing import Literal, Dict, List, Optional
+from typing import Literal, Dict, List
 import pandas as pd
 import lightning as L
 import torch
@@ -18,7 +18,10 @@ from opera.functional.outcomes import (
     filter_registry_eligible_outcomes,
 )
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
-from opera.functional.stratified_sampling import build_stratified_sampler, log_bucket_stats
+from opera.functional.stratified_sampling import (
+    build_stratified_sampler,
+    log_bucket_stats,
+)
 
 
 def contrastive_collate(batch):
@@ -55,6 +58,14 @@ def compute_sorted_event_times(
             continue
         try:
             df = pd.read_parquet(path)
+            split_df = df[df["split"] == split].copy()
+            if {"event", "time_days"}.issubset(split_df.columns):
+                event_times = split_df.loc[split_df["event"] == 1, "time_days"].dropna()
+                result[name] = torch.tensor(
+                    sorted(event_times.astype(float).tolist()),
+                    dtype=torch.float32,
+                )
+                continue
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
                 df,
@@ -81,12 +92,14 @@ def compute_sorted_event_times(
                 sorted(events),
                 dtype=torch.float32,
             )
-        except Exception:
+        except (KeyError, OSError, ValueError):
             result[name] = torch.tensor([], dtype=torch.float32)
     return result
 
 
-def _km_event_time_probabilities(records: List[dict]) -> tuple[torch.Tensor, torch.Tensor]:
+def _km_event_time_probabilities(
+    records: List[dict],
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Estimate primary-event time mass with Kaplan-Meier censoring adjustment."""
     if not records:
         empty = torch.tensor([], dtype=torch.float32)
@@ -155,10 +168,11 @@ def compute_event_time_probability_grids(
             times, probs = _km_event_time_probabilities(list(outcomes.values()))
             time_grids[name] = times
             prob_grids[name] = probs
-        except Exception:
-            empty = torch.tensor([], dtype=torch.float32)
-            time_grids[name] = empty
-            prob_grids[name] = empty
+        except (KeyError, OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"Failed to construct event-time grid for outcome {name!r} "
+                f"from {path!r}: {exc}"
+            ) from exc
     return time_grids, prob_grids
 
 
@@ -239,13 +253,13 @@ class ContrastiveDataModule(L.LightningDataModule):
             raise NotImplementedError(f"Stage {stage} not supported.")
 
         train_data = torch.load(self.path_train_data)
-        val_data   = torch.load(self.path_val_data)
+        val_data = torch.load(self.path_val_data)
 
         train_data = filter_subject_data(train_data, self.population["subject_id"])
-        val_data   = filter_subject_data(val_data,   self.population["subject_id"])
+        val_data = filter_subject_data(val_data, self.population["subject_id"])
 
         train_outcomes = self._load_outcomes("train")
-        val_outcomes   = self._load_outcomes("tuning")
+        val_outcomes = self._load_outcomes("tuning")
 
         # Keep only subjects that appear in at least one outcome
         all_train_sids = set()

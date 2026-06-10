@@ -58,7 +58,9 @@ def _embedding_columns(
 
 def _cohort_colors(values: pd.Series) -> dict:
     cohorts = sorted(values.dropna().astype(str).unique())
-    return {cohort: CATEGORICAL[i % len(CATEGORICAL)] for i, cohort in enumerate(cohorts)}
+    return {
+        cohort: CATEGORICAL[i % len(CATEGORICAL)] for i, cohort in enumerate(cohorts)
+    }
 
 
 def _load_coords(
@@ -73,7 +75,9 @@ def _load_coords(
         if {"pacmap_x", "pacmap_y"}.issubset(coords.columns):
             coords = coords.rename(columns={"pacmap_x": "x", "pacmap_y": "y"})
         if not {subject_col, "x", "y"}.issubset(coords.columns):
-            raise ValueError("pacmap_coords must contain subject_id plus x/y or pacmap_x/pacmap_y.")
+            raise ValueError(
+                "pacmap_coords must contain subject_id plus x/y or pacmap_x/pacmap_y."
+            )
         cols = [subject_col, "x", "y"]
         if cohort_col in coords.columns:
             cols.append(cohort_col)
@@ -109,7 +113,9 @@ def _load_coords(
         reducer = pacmap.PaCMAP(n_components=2, random_state=42)
         coords = reducer.fit_transform(x)
     except Exception as exc:
-        LOGGER.warning("PaCMAP unavailable; falling back to UMAP for patient benefit plot: %s", exc)
+        LOGGER.warning(
+            "PaCMAP unavailable; falling back to UMAP for patient benefit plot: %s", exc
+        )
         try:
             from umap import UMAP
 
@@ -180,7 +186,9 @@ def _smooth_gain_surface(
     return np.meshgrid(x_centers, y_centers), surface.T
 
 
-def _lowess_curve(x: np.ndarray, y: np.ndarray, frac: float, it: int) -> tuple[np.ndarray, np.ndarray]:
+def _lowess_curve(
+    x: np.ndarray, y: np.ndarray, frac: float, it: int
+) -> tuple[np.ndarray, np.ndarray]:
     valid = np.isfinite(x) & np.isfinite(y)
     x, y = x[valid], y[valid]
     if len(x) < 3:
@@ -193,7 +201,11 @@ def _lowess_curve(x: np.ndarray, y: np.ndarray, frac: float, it: int) -> tuple[n
     except Exception:
         order = np.argsort(x)
         x_s = x[order]
-        y_s = pd.Series(y[order]).rolling(max(3, int(len(y) * frac)), center=True, min_periods=1).mean()
+        y_s = (
+            pd.Series(y[order])
+            .rolling(max(3, int(len(y) * frac)), center=True, min_periods=1)
+            .mean()
+        )
         return x_s, y_s.to_numpy(float)
 
 
@@ -244,7 +256,9 @@ def _plot_gain_panel(
     ax.plot(lx, ly, color=PALETTE["zero_line"], linewidth=2.0)
     ax.axhline(0, color=PALETTE["zero_line"], linestyle="--", linewidth=0.8)
     ax.axvline(0, color=PALETTE["zero_line"], linestyle="--", linewidth=0.8)
-    rho, pval, n = _spearman(merged[x_col].to_numpy(float), merged[gain_col].to_numpy(float))
+    rho, pval, n = _spearman(
+        merged[x_col].to_numpy(float), merged[gain_col].to_numpy(float)
+    )
     ax.text(
         0.02,
         0.98,
@@ -280,7 +294,9 @@ def _plot_gain_panel(
 
 def _legend(fig: plt.Figure, colors: dict, n_cohorts: int) -> None:
     handles = [
-        Line2D([0], [0], marker="o", linestyle="", color=color, label=cohort, markersize=4)
+        Line2D(
+            [0], [0], marker="o", linestyle="", color=color, label=cohort, markersize=4
+        )
         for cohort, color in colors.items()
     ]
     fig.legend(
@@ -387,7 +403,9 @@ def plot_patient_benefit(
     ax_map.set_yticks([])
     despine(ax_map, "none")
 
-    merge_keys = _identity_keys(patient_transfer_df, atypicality_df, subject_col, cohort_col)
+    merge_keys = _identity_keys(
+        patient_transfer_df, atypicality_df, subject_col, cohort_col
+    )
     merged = patient_transfer_df.merge(
         atypicality_df,
         on=merge_keys,
@@ -396,7 +414,9 @@ def plot_patient_benefit(
     )
     if cohort_col not in merged.columns and f"{cohort_col}_atyp" in merged.columns:
         merged[cohort_col] = merged[f"{cohort_col}_atyp"]
-    x_col = "atypicality_nearest" if atypicality_mode == "nearest" else "atypicality_own"
+    x_col = (
+        "atypicality_nearest" if atypicality_mode == "nearest" else "atypicality_own"
+    )
     _plot_gain_panel(
         ax_gain,
         merged.dropna(subset=[x_col, gain_col]),
@@ -415,7 +435,11 @@ def plot_patient_benefit(
     elif atypicality_mode == "both":
         ax_gain.set_xlabel("Within-disease atypicality (SD from cohort centroid)")
         ax_top = ax_gain.twiny()
-        finite = merged[["atypicality_own", "atypicality_nearest"]].replace([np.inf, -np.inf], np.nan).dropna()
+        finite = (
+            merged[["atypicality_own", "atypicality_nearest"]]
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna()
+        )
         if len(finite) >= 2:
             ticks = ax_gain.get_xticks()
             own = finite["atypicality_own"].to_numpy(float)
@@ -456,7 +480,9 @@ def plot_benefit_contrast_ladder(
 ) -> plt.Figure:
     setup_style()
     n_rows = max(1, len(contrast_results))
-    fig, axes = plt.subplots(n_rows, 1, figsize=(FIG_FULL[0], 2.2 * n_rows), sharex=True)
+    fig, axes = plt.subplots(
+        n_rows, 1, figsize=(FIG_FULL[0], 2.2 * n_rows), sharex=True
+    )
     if n_rows == 1:
         axes = [axes]
 
@@ -477,8 +503,12 @@ def plot_benefit_contrast_ladder(
         if cohort_col not in merged.columns and f"{cohort_col}_atyp" in merged.columns:
             merged[cohort_col] = merged[f"{cohort_col}_atyp"]
         merged_rows.append(merged)
-    all_df = pd.concat(merged_rows, ignore_index=True) if merged_rows else pd.DataFrame()
-    x_col = "atypicality_nearest" if atypicality_mode == "nearest" else "atypicality_own"
+    all_df = (
+        pd.concat(merged_rows, ignore_index=True) if merged_rows else pd.DataFrame()
+    )
+    x_col = (
+        "atypicality_nearest" if atypicality_mode == "nearest" else "atypicality_own"
+    )
     xlim = None
     ylim = None
     if not all_df.empty:

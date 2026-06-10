@@ -24,6 +24,9 @@ class PretrainDataModule(L.LightningDataModule):
         dataset_class: torch.utils.data.Dataset,
         masking_config: Optional[dict] = None,
         cutoff_date: Optional[dict] = None,
+        train_truncation_strategy: str = "tail",
+        val_truncation_strategy: str = "tail",
+        tail_window_probability: float = 0.5,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -38,6 +41,9 @@ class PretrainDataModule(L.LightningDataModule):
 
         self.dataset_class = dataset_class
         self.masking_config = masking_config
+        self.train_truncation_strategy = train_truncation_strategy
+        self.val_truncation_strategy = val_truncation_strategy
+        self.tail_window_probability = tail_window_probability
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -54,9 +60,14 @@ class PretrainDataModule(L.LightningDataModule):
         population_subject_ids = self.population["subject_id"].to_list()
         train_data = filter_subject_data(train_data, population_subject_ids)
         val_data = filter_subject_data(val_data, population_subject_ids)
+        if not train_data:
+            raise ValueError("No training subjects remain after population filtering.")
+        if not val_data:
+            raise ValueError(
+                "No validation subjects remain after population filtering."
+            )
 
-        # !!! Assumes background tokens ALWAYS exists AND same for all people !!!
-        background_length = (train_data[0]["segment"] == 0).sum()
+        background_length = int((train_data[0]["segment"] == 0).sum())
 
         if issubclass(self.dataset_class, MLMPretrainDataset):
             assert self.masking_config is not None
@@ -70,6 +81,8 @@ class PretrainDataModule(L.LightningDataModule):
                 masking_mask_ratio=self.masking_config.masking_mask_ratio,
                 masking_random_ratio=self.masking_config.masking_random_ratio,
                 masking_ignore_special_tokens=self.masking_config.masking_ignore_special_tokens,
+                truncation_strategy=self.train_truncation_strategy,
+                tail_window_probability=self.tail_window_probability,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -81,6 +94,8 @@ class PretrainDataModule(L.LightningDataModule):
                 masking_mask_ratio=self.masking_config.masking_mask_ratio,
                 masking_random_ratio=self.masking_config.masking_random_ratio,
                 masking_ignore_special_tokens=self.masking_config.masking_ignore_special_tokens,
+                truncation_strategy=self.val_truncation_strategy,
+                tail_window_probability=1.0,
             )
         elif issubclass(self.dataset_class, ARPretrainDataset):
             self.train_dataset = self.dataset_class(
@@ -88,12 +103,16 @@ class PretrainDataModule(L.LightningDataModule):
                 self.max_len,
                 background_length=background_length,
                 cutoff_date=self.cutoff_date,
+                truncation_strategy=self.train_truncation_strategy,
+                tail_window_probability=self.tail_window_probability,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
                 self.max_len,
                 background_length=background_length,
                 cutoff_date=self.cutoff_date,
+                truncation_strategy=self.val_truncation_strategy,
+                tail_window_probability=1.0,
             )
         else:
             raise ValueError(f"Unexpected dataset class. Got: {self.dataset_class}")
@@ -104,7 +123,7 @@ class PretrainDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             batch_size=self.batch_size,
             pin_memory=False,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
             drop_last=True,
             collate_fn=dynamic_padding,
         )
@@ -115,7 +134,7 @@ class PretrainDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             batch_size=self.batch_size,
             pin_memory=False,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
             drop_last=False,
             shuffle=False,
             collate_fn=dynamic_padding,

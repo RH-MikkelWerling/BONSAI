@@ -37,7 +37,9 @@ class SurvivalFinetuneDataModule(FinetuneDataModule):
         val_data = filter_subject_data(val_data, self.population["subject_id"])
 
         if not train_data:
-            raise ValueError("No training subjects remain after outcome/population filtering.")
+            raise ValueError(
+                "No training subjects remain after outcome/population filtering."
+            )
 
         background_length = (train_data[0]["segment"] == 0).sum()
 

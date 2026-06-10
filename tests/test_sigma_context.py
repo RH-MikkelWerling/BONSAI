@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 
-from opera.evaluation.sigma_context import build_sigma_context_table, residualize_log_sigma
+from opera.evaluation.sigma_context import (
+    build_sigma_context_table,
+    residualize_log_sigma,
+)
 
 
 def test_build_sigma_context_table_adds_effective_pair_descriptors():

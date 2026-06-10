@@ -38,10 +38,9 @@ ask: "Is the outcome structure the contrastive stage learned consistent
 with how hard the joint model finds each outcome?"
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from opera.compat.bonsai import BonsaiEncoder, BiGRU
 
 
@@ -68,9 +67,9 @@ class JointFinetuneModel(nn.Module):
         dropout: float = 0.1,
     ):
         super().__init__()
-        self.encoder       = encoder
+        self.encoder = encoder
         self.outcome_names = outcome_names
-        self.pooling       = pooling
+        self.pooling = pooling
         self.freeze_encoder = freeze_encoder
 
         if freeze_encoder:
@@ -84,10 +83,9 @@ class JointFinetuneModel(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # One lightweight head per outcome
-        self.heads = nn.ModuleDict({
-            name: nn.Linear(hidden_size, 1)
-            for name in outcome_names
-        })
+        self.heads = nn.ModuleDict(
+            {name: nn.Linear(hidden_size, 1) for name in outcome_names}
+        )
 
         # Learnable log-variance per outcome (Kendall et al. 2018)
         self.log_sigma = nn.Parameter(torch.zeros(len(outcome_names)))
@@ -116,7 +114,10 @@ class JointFinetuneModel(nn.Module):
             pooled = self.pooler(hidden, batch["attention_mask"], return_embedding=True)
         else:
             lengths = batch["attention_mask"].sum(dim=1) - 1
-            pooled  = hidden[torch.arange(hidden.size(0)), lengths]
+            pooled = hidden[
+                torch.arange(hidden.size(0), device=hidden.device),
+                lengths,
+            ]
 
         return self.dropout(pooled)
 
@@ -156,14 +157,14 @@ class JointFinetuneModel(nn.Module):
                 continue
 
             logits_k = self.heads[name](pooled[valid]).squeeze(-1)  # (V,)
-            loss_k   = bce(logits_k, labels_k[valid].float())
+            loss_k = bce(logits_k, labels_k[valid].float())
 
             # Kendall weighting
             precision = 0.5 * torch.exp(-2.0 * self.log_sigma[k])
             total_loss = total_loss + precision * loss_k + self.log_sigma[k]
 
-            log_dict[f"loss/{name}"]   = loss_k.detach()
-            log_dict[f"sigma/{name}"]  = torch.exp(self.log_sigma[k]).detach()
+            log_dict[f"loss/{name}"] = loss_k.detach()
+            log_dict[f"sigma/{name}"] = torch.exp(self.log_sigma[k]).detach()
             log_dict[f"logits/{name}"] = logits_k.detach()
 
         log_dict["loss"] = total_loss

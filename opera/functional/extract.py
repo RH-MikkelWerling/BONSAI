@@ -11,9 +11,7 @@ Works with all OPERA model types: finetune, contrastive, hybrid.
 """
 
 from typing import Dict, List, Optional, Literal
-from pathlib import Path
 import torch
-import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -56,8 +54,10 @@ def extract_predictions(
     all_embeddings = []
 
     for batch in tqdm(dataloader, desc="Extracting"):
-        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                 for k, v in batch.items()}
+        batch = {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in batch.items()
+        }
 
         subject_ids = batch["subject_id"].cpu().numpy()
         labels = batch["target"].cpu().numpy().squeeze()
@@ -65,11 +65,6 @@ def extract_predictions(
         if model_type == "finetune":
             # BonsaiFinetune: forward returns logits via FineTuneHead
             # We also want embeddings, so we call the encoder + head manually
-            outputs = model.forward.__self__  # the BonsaiFinetune instance
-            encoder_out = torch.nn.Module.forward(
-                model.__class__.__bases__[0], model, batch
-            )
-            # Simpler approach: just call the model normally for logits
             logits = model(batch)
             if hasattr(logits, "squeeze"):
                 logits = logits.squeeze(-1)
@@ -96,8 +91,9 @@ def extract_predictions(
                 enc_out = model.encoder(batch)
             hidden = enc_out[0]
             if model.pooling == "bigru":
-                emb = model.pooler(hidden, batch["attention_mask"],
-                                    return_embedding=True)
+                emb = model.pooler(
+                    hidden, batch["attention_mask"], return_embedding=True
+                )
             else:
                 lengths = batch["attention_mask"].sum(dim=1) - 1
                 emb = hidden[torch.arange(hidden.size(0)), lengths]
@@ -135,8 +131,10 @@ def extract_from_finetune_simple(
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Extracting predictions"):
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                     for k, v in batch.items()}
+            batch = {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
 
             logits = model(batch)
             if hasattr(logits, "squeeze"):
@@ -158,6 +156,7 @@ def extract_from_finetune_simple(
 # ══════════════════════════════════════════════════════════════════════════════
 # MC-Dropout uncertainty estimation
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 @torch.no_grad()
 def extract_uncertainty(
@@ -241,16 +240,16 @@ def extract_uncertainty(
         [np.concatenate(run) for run in sample_runs], axis=0
     )  # (S, N, D)
 
-    mean_emb  = runs_concat.mean(axis=0)       # (N, D)
-    var_emb   = runs_concat.var(axis=0)         # (N, D)
+    mean_emb = runs_concat.mean(axis=0)  # (N, D)
+    var_emb = runs_concat.var(axis=0)  # (N, D)
 
-    uncertainty     = var_emb.mean(axis=-1)     # (N,) — mean variance across dims
-    uncertainty_std = var_emb.std(axis=-1)      # (N,) — spread of per-dim variance
+    uncertainty = var_emb.mean(axis=-1)  # (N,) — mean variance across dims
+    uncertainty_std = var_emb.std(axis=-1)  # (N,) — spread of per-dim variance
 
     result = {
-        "subject_ids":    np.concatenate(all_subject_ids),
+        "subject_ids": np.concatenate(all_subject_ids),
         "mean_embedding": mean_emb,
-        "uncertainty":    uncertainty,
+        "uncertainty": uncertainty,
         "uncertainty_std": uncertainty_std,
     }
     if all_labels:
@@ -290,6 +289,7 @@ def rank_by_uncertainty(
 # ══════════════════════════════════════════════════════════════════════════════
 # DAPT-prior embedding store construction
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 @torch.no_grad()
 def build_dapt_embedding_store(

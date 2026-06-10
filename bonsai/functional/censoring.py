@@ -1,6 +1,7 @@
 from bisect import bisect_right
 from typing import Dict, Optional
 import torch
+from bonsai.functional.subject_data import clone_subject
 
 
 def censor_subject(
@@ -12,6 +13,8 @@ def censor_subject(
     Censors a subject's data by truncating all attributes at the censor date,
     OPTIONALLY: then appends a CLS token with the censoring information.
     """
+    subject = clone_subject(subject)
+
     # Find the position where censor_date fits in the sorted abspos list
     idx = bisect_right(subject["abspos"].numpy(), censor_date_abspos)
 

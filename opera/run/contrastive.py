@@ -71,7 +71,7 @@ def main(cfg: DictConfig) -> None:
         # PretrainModule stores as "model.XXX"; strip "model." prefix
         # then only keep encoder weights (not the pretraining head/decoder)
         if k.startswith("model."):
-            clean_key = k[len("model."):]
+            clean_key = k[len("model.") :]
             # Skip the prediction head and decoder (pretraining-only)
             if clean_key.startswith("head.") or clean_key.startswith("decoder."):
                 continue
@@ -82,11 +82,15 @@ def main(cfg: DictConfig) -> None:
     # ── Outcome names ────────────────────────────────────────────────
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
     outcome_names = sorted(outcome_configs.keys())
-    outcome_sorted_event_times, outcome_event_time_probs = compute_event_time_probability_grids(
-        outcome_configs,
-        split="train",
+    outcome_sorted_event_times, outcome_event_time_probs = (
+        compute_event_time_probability_grids(
+            outcome_configs,
+            split="train",
+        )
     )
-    print(f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes.")
+    print(
+        f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes."
+    )
     for name, t in outcome_sorted_event_times.items():
         print(f"  {name}: {len(t)} KM-weighted training event locations")
 
@@ -109,7 +113,9 @@ def main(cfg: DictConfig) -> None:
         dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
         competing_event_weight=cfg.model.get("competing_event_weight", 0.0),
-        effective_pair_normalization=cfg.model.get("effective_pair_normalization", True),
+        effective_pair_normalization=cfg.model.get(
+            "effective_pair_normalization", True
+        ),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,

@@ -85,4 +85,3 @@ def test_log_bucket_stats_returns_string():
     result = log_bucket_stats(ds, ["mortality", "aki", "infection"])
     assert isinstance(result, str)
     assert len(result) > 0
-

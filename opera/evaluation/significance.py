@@ -54,6 +54,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_
 # 1. Paired bootstrap permutation test
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def paired_bootstrap_test(
     labels: np.ndarray,
     probs_a: np.ndarray,
@@ -85,9 +86,9 @@ def paired_bootstrap_test(
     metric : "auroc" | "auprc" | "brier"
     """
     metric_fns = {
-        "auroc":  roc_auc_score,
-        "auprc":  average_precision_score,
-        "brier":  lambda y, p: -brier_score_loss(y, p),  # negate so higher=better
+        "auroc": roc_auc_score,
+        "auprc": average_precision_score,
+        "brier": lambda y, p: -brier_score_loss(y, p),  # negate so higher=better
     }
     if metric not in metric_fns:
         raise ValueError(f"metric must be one of {list(metric_fns)}, got '{metric}'")
@@ -124,27 +125,28 @@ def paired_bootstrap_test(
     p_value = max(p_value, 1.0 / len(boot_deltas))  # floor at 1/B
 
     return {
-        "metric":         metric,
-        "model_a":        model_a_name,
-        "model_b":        model_b_name,
-        "score_a":        float(observed_a),
-        "score_b":        float(observed_b),
-        "delta_mean":     float(observed_delta),
-        "delta_lower":    float(ci_lower),
-        "delta_upper":    float(ci_upper),
-        "p_value":        p_value,
+        "metric": metric,
+        "model_a": model_a_name,
+        "model_b": model_b_name,
+        "score_a": float(observed_a),
+        "score_b": float(observed_b),
+        "delta_mean": float(observed_delta),
+        "delta_lower": float(ci_lower),
+        "delta_upper": float(ci_upper),
+        "p_value": p_value,
         "significant_95": ci_lower > 0 or ci_upper < 0,  # CI excludes zero
-        "significant_99": float(np.percentile(boot_deltas, 0.5)) > 0 or
-                          float(np.percentile(boot_deltas, 99.5)) < 0,
-        "method":         "paired_bootstrap",
-        "n_bootstrap":    len(boot_deltas),
-        "n_patients":     n,
+        "significant_99": float(np.percentile(boot_deltas, 0.5)) > 0
+        or float(np.percentile(boot_deltas, 99.5)) < 0,
+        "method": "paired_bootstrap",
+        "n_bootstrap": len(boot_deltas),
+        "n_patients": n,
     }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. DeLong's test (AUROC only)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def delong_test(
     labels: np.ndarray,
@@ -187,7 +189,7 @@ def delong_test(
         return auroc, V10, V01, n_pos, n_neg
 
     auroc_a, V10_a, V01_a, n_pos, n_neg = _structural_components(labels, probs_a)
-    auroc_b, V10_b, V01_b, _,     _     = _structural_components(labels, probs_b)
+    auroc_b, V10_b, V01_b, _, _ = _structural_components(labels, probs_b)
 
     # Covariance matrix of (AUROC_A, AUROC_B)
     S10 = np.cov(np.vstack([V10_a, V10_b]))  # (2, 2)
@@ -196,34 +198,33 @@ def delong_test(
     # Variance of (AUROC_A - AUROC_B)
     # Var(AUROC_A - AUROC_B) = (S10_AA - 2*S10_AB + S10_BB)/n_pos
     #                        + (S01_AA - 2*S01_AB + S01_BB)/n_neg
-    var_diff = (
-        (S10[0, 0] - 2 * S10[0, 1] + S10[1, 1]) / n_pos +
-        (S01[0, 0] - 2 * S01[0, 1] + S01[1, 1]) / n_neg
-    )
+    var_diff = (S10[0, 0] - 2 * S10[0, 1] + S10[1, 1]) / n_pos + (
+        S01[0, 0] - 2 * S01[0, 1] + S01[1, 1]
+    ) / n_neg
 
     delta = auroc_a - auroc_b
 
     if var_diff <= 0:
         # Degenerate case (identical predictions)
         return {
-            "metric":         "auroc",
-            "model_a":        model_a_name,
-            "model_b":        model_b_name,
-            "score_a":        float(auroc_a),
-            "score_b":        float(auroc_b),
-            "delta_mean":     float(delta),
-            "delta_lower":    float(delta),
-            "delta_upper":    float(delta),
-            "p_value":        1.0,
+            "metric": "auroc",
+            "model_a": model_a_name,
+            "model_b": model_b_name,
+            "score_a": float(auroc_a),
+            "score_b": float(auroc_b),
+            "delta_mean": float(delta),
+            "delta_lower": float(delta),
+            "delta_upper": float(delta),
+            "p_value": 1.0,
             "significant_95": False,
             "significant_99": False,
-            "method":         "delong",
-            "n_patients":     len(labels),
-            "note":           "degenerate: zero variance",
+            "method": "delong",
+            "n_patients": len(labels),
+            "note": "degenerate: zero variance",
         }
 
     se = np.sqrt(var_diff)
-    z  = delta / se
+    z = delta / se
     p_value = float(2 * stats.norm.sf(np.abs(z)))  # two-sided
 
     # 95% CI from normal approximation
@@ -231,20 +232,20 @@ def delong_test(
     ci_upper = float(delta + 1.96 * se)
 
     return {
-        "metric":         "auroc",
-        "model_a":        model_a_name,
-        "model_b":        model_b_name,
-        "score_a":        float(auroc_a),
-        "score_b":        float(auroc_b),
-        "delta_mean":     float(delta),
-        "delta_lower":    ci_lower,
-        "delta_upper":    ci_upper,
-        "p_value":        p_value,
-        "z_statistic":    float(z),
+        "metric": "auroc",
+        "model_a": model_a_name,
+        "model_b": model_b_name,
+        "score_a": float(auroc_a),
+        "score_b": float(auroc_b),
+        "delta_mean": float(delta),
+        "delta_lower": ci_lower,
+        "delta_upper": ci_upper,
+        "p_value": p_value,
+        "z_statistic": float(z),
         "significant_95": ci_lower > 0 or ci_upper < 0,
         "significant_99": p_value < 0.01,
-        "method":         "delong",
-        "n_patients":     len(labels),
+        "method": "delong",
+        "n_patients": len(labels),
     }
 
 
@@ -252,7 +253,10 @@ def delong_test(
 # 3. Multiple comparison correction (Benjamini-Hochberg FDR)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def benjamini_hochberg(p_values: np.ndarray, alpha: float = 0.05) -> Tuple[np.ndarray, np.ndarray]:
+
+def benjamini_hochberg(
+    p_values: np.ndarray, alpha: float = 0.05
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Benjamini-Hochberg FDR correction.
 
@@ -263,18 +267,13 @@ def benjamini_hochberg(p_values: np.ndarray, alpha: float = 0.05) -> Tuple[np.nd
     """
     n = len(p_values)
     order = np.argsort(p_values)
-    ranks = np.empty_like(order)
-    ranks[order] = np.arange(1, n + 1)
+    sorted_p = np.asarray(p_values, dtype=float)[order]
+    adjusted_sorted = sorted_p * n / np.arange(1, n + 1)
+    adjusted_sorted = np.minimum.accumulate(adjusted_sorted[::-1])[::-1]
+    adjusted_sorted = np.clip(adjusted_sorted, 0.0, 1.0)
 
-    p_adjusted = np.minimum(1.0, p_values * n / ranks)
-
-    # Enforce monotonicity (BH requires cumulative min from right)
-    p_adjusted_monotone = np.minimum.accumulate(p_adjusted[::-1])[::-1]
-    # Re-index to original order
     p_adj_out = np.empty(n)
-    p_adj_out[order] = np.minimum.accumulate(
-        p_values[order] * n / np.arange(1, n + 1)
-    )
+    p_adj_out[order] = adjusted_sorted
 
     rejected = p_adj_out <= alpha
     return rejected, p_adj_out
@@ -286,12 +285,12 @@ def benjamini_hochberg(p_values: np.ndarray, alpha: float = 0.05) -> Tuple[np.nd
 
 # Contrasts of interest — (model_a, model_b, interpretation)
 DEFAULT_CONTRASTS = [
-    ("opera",         "dapt",         "Contrastive adds over DAPT"),
-    ("dapt",          "base_pretrain","DAPT adds over base pretrain"),
-    ("opera",         "tabular_ehr",  "OPERA vs tabular EHR-only"),
-    ("opera",         "tabular_rkkp", "OPERA vs tabular ceiling"),
-    ("opera_joint",   "opera",        "Joint training adds over per-cohort"),
-    ("opera_joint",   "tabular_rkkp", "Joint OPERA vs tabular ceiling"),
+    ("opera", "dapt", "Contrastive adds over DAPT"),
+    ("dapt", "base_pretrain", "DAPT adds over base pretrain"),
+    ("opera", "tabular_ehr", "OPERA vs tabular EHR-only"),
+    ("opera", "tabular_rkkp", "OPERA vs tabular ceiling"),
+    ("opera_joint", "opera", "Joint training adds over per-cohort"),
+    ("opera_joint", "tabular_rkkp", "Joint OPERA vs tabular ceiling"),
 ]
 
 
@@ -308,9 +307,9 @@ def load_predictions(predictions_dir: Path) -> Optional[Dict[str, np.ndarray]]:
         return None
     data = np.load(p)
     out = {
-        "labels":        data["labels"],
+        "labels": data["labels"],
         "probabilities": data["probabilities"],
-        "subject_ids":   data["subject_ids"],
+        "subject_ids": data["subject_ids"],
     }
     # Survival fields (may not exist in older prediction files)
     for field in ("times", "events", "binary_mask"):
@@ -323,7 +322,10 @@ def load_predictions(predictions_dir: Path) -> Optional[Dict[str, np.ndarray]]:
 # 4b. Concordance-index bootstrap test (survival metric)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _concordance_index(times: np.ndarray, events: np.ndarray, risk: np.ndarray) -> float:
+
+def _concordance_index(
+    times: np.ndarray, events: np.ndarray, risk: np.ndarray
+) -> float:
     """
     Harrell's concordance index (C-statistic) for survival data.
 
@@ -335,14 +337,17 @@ def _concordance_index(times: np.ndarray, events: np.ndarray, risk: np.ndarray) 
     """
     try:
         from lifelines.utils import concordance_index as _ci
-        return float(_ci(times, -risk, events))  # lifelines: lower risk → longer survival
+
+        return float(
+            _ci(times, -risk, events)
+        )  # lifelines: lower risk → longer survival
     except ImportError:
         pass
 
     # Pure-numpy fallback (O(n²) — fine for test sets up to ~5 k patients)
     n = len(times)
     concordant = 0.0
-    tied       = 0.0
+    tied = 0.0
     comparable = 0.0
     for i in range(n):
         if events[i] != 1:
@@ -379,7 +384,7 @@ def concordance_bootstrap_test(
     Uses the shift-corrected bootstrap (Davison & Hinkley §4.4).
     """
     rng = np.random.RandomState(seed)
-    n   = len(times_a)
+    n = len(times_a)
 
     observed_a = _concordance_index(times_a, events_a, risk_a)
     observed_b = _concordance_index(times_a, events_a, risk_b)
@@ -401,38 +406,45 @@ def concordance_bootstrap_test(
     boot_deltas = np.array(boot_deltas)
     if len(boot_deltas) < 10:
         return {
-            "metric": "concordance_index", "model_a": model_a_name,
-            "model_b": model_b_name, "score_a": float(observed_a),
-            "score_b": float(observed_b), "delta_mean": float(observed_delta),
-            "delta_lower": float("nan"), "delta_upper": float("nan"),
-            "p_value": float("nan"), "significant_95": False,
-            "significant_99": False, "method": "concordance_bootstrap",
-            "n_bootstrap": len(boot_deltas), "n_patients": n,
+            "metric": "concordance_index",
+            "model_a": model_a_name,
+            "model_b": model_b_name,
+            "score_a": float(observed_a),
+            "score_b": float(observed_b),
+            "delta_mean": float(observed_delta),
+            "delta_lower": float("nan"),
+            "delta_upper": float("nan"),
+            "p_value": float("nan"),
+            "significant_95": False,
+            "significant_99": False,
+            "method": "concordance_bootstrap",
+            "n_bootstrap": len(boot_deltas),
+            "n_patients": n,
             "note": "too few valid bootstrap resamples",
         }
 
     ci_lower = float(np.percentile(boot_deltas, 2.5))
     ci_upper = float(np.percentile(boot_deltas, 97.5))
-    shifted  = boot_deltas - boot_deltas.mean()
-    p_value  = float((np.abs(shifted) >= np.abs(observed_delta)).mean())
-    p_value  = max(p_value, 1.0 / len(boot_deltas))
+    shifted = boot_deltas - boot_deltas.mean()
+    p_value = float((np.abs(shifted) >= np.abs(observed_delta)).mean())
+    p_value = max(p_value, 1.0 / len(boot_deltas))
 
     return {
-        "metric":         "concordance_index",
-        "model_a":        model_a_name,
-        "model_b":        model_b_name,
-        "score_a":        float(observed_a),
-        "score_b":        float(observed_b),
-        "delta_mean":     float(observed_delta),
-        "delta_lower":    ci_lower,
-        "delta_upper":    ci_upper,
-        "p_value":        p_value,
+        "metric": "concordance_index",
+        "model_a": model_a_name,
+        "model_b": model_b_name,
+        "score_a": float(observed_a),
+        "score_b": float(observed_b),
+        "delta_mean": float(observed_delta),
+        "delta_lower": ci_lower,
+        "delta_upper": ci_upper,
+        "p_value": p_value,
         "significant_95": ci_lower > 0 or ci_upper < 0,
-        "significant_99": float(np.percentile(boot_deltas, 0.5)) > 0 or
-                          float(np.percentile(boot_deltas, 99.5)) < 0,
-        "method":         "concordance_bootstrap",
-        "n_bootstrap":    len(boot_deltas),
-        "n_patients":     n,
+        "significant_99": float(np.percentile(boot_deltas, 0.5)) > 0
+        or float(np.percentile(boot_deltas, 99.5)) < 0,
+        "method": "concordance_bootstrap",
+        "n_bootstrap": len(boot_deltas),
+        "n_patients": n,
     }
 
 
@@ -524,8 +536,10 @@ def run_pairwise_comparisons(
                     if "binary_mask" in p:
                         id_mask = id_mask & p["binary_mask"].astype(bool)
                     order = np.argsort(p["subject_ids"][id_mask])
-                    return (p["labels"][id_mask][order],
-                            p["probabilities"][id_mask][order])
+                    return (
+                        p["labels"][id_mask][order],
+                        p["probabilities"][id_mask][order],
+                    )
 
                 labels_a, probs_a = _filter(pa, shared)
                 labels_b, probs_b = _filter(pb, shared)
@@ -533,6 +547,7 @@ def run_pairwise_comparisons(
                 # Sanity: labels must be identical (same test set)
                 if not np.array_equal(labels_a, labels_b):
                     import warnings
+
                     warnings.warn(
                         f"Labels differ for {cohort}/{outcome} "
                         f"{model_a} vs {model_b} — skipping"
@@ -541,63 +556,74 @@ def run_pairwise_comparisons(
 
                 # Survival fields — needed only for concordance_index
                 def _filter_survival(p, ids):
-                    mask  = np.isin(p["subject_ids"], ids)
+                    mask = np.isin(p["subject_ids"], ids)
                     order = np.argsort(p["subject_ids"][mask])
-                    times = p["times"][mask][order]  if "times"  in p else None
-                    events= p["events"][mask][order] if "events" in p else None
-                    risk  = p["probabilities"][mask][order]
+                    times = p["times"][mask][order] if "times" in p else None
+                    events = p["events"][mask][order] if "events" in p else None
+                    risk = p["probabilities"][mask][order]
                     return times, events, risk
 
                 for metric in metrics:
                     try:
                         if metric == "concordance_index":
                             t_a, e_a, r_a = _filter_survival(pa, shared)
-                            _,   _,   r_b = _filter_survival(pb, shared)
+                            _, _, r_b = _filter_survival(pb, shared)
                             if t_a is None or e_a is None:
                                 import warnings
+
                                 warnings.warn(
                                     f"No survival data for {cohort}/{outcome} "
                                     f"— skipping concordance_index"
                                 )
                                 continue
                             result = concordance_bootstrap_test(
-                                t_a, e_a, r_a, r_b,
+                                t_a,
+                                e_a,
+                                r_a,
+                                r_b,
                                 n_bootstrap=n_bootstrap,
                                 model_a_name=model_a,
                                 model_b_name=model_b,
                             )
                         elif metric == "auroc" and use_delong_for_auroc:
                             result = delong_test(
-                                labels_a, probs_a, probs_b,
+                                labels_a,
+                                probs_a,
+                                probs_b,
                                 model_a_name=model_a,
                                 model_b_name=model_b,
                             )
                         else:
                             result = paired_bootstrap_test(
-                                labels_a, probs_a, probs_b,
+                                labels_a,
+                                probs_a,
+                                probs_b,
                                 metric=metric,
                                 n_bootstrap=n_bootstrap,
                                 model_a_name=model_a,
                                 model_b_name=model_b,
                             )
-                        rows.append({
-                            "cohort":          cohort,
-                            "outcome":         outcome,
-                            "model_a":         model_a,
-                            "model_b":         model_b,
-                            "contrast_label":  contrast_label,
-                            "metric":          metric,
-                            "score_a":         result["score_a"],
-                            "score_b":         result["score_b"],
-                            "delta_mean":      result["delta_mean"],
-                            "delta_lower":     result["delta_lower"],
-                            "delta_upper":     result["delta_upper"],
-                            "p_value":         result["p_value"],
-                            "method":          result["method"],
-                            "n_patients":      result.get("n_patients", len(labels_a)),
-                        })
+                        rows.append(
+                            {
+                                "cohort": cohort,
+                                "outcome": outcome,
+                                "model_a": model_a,
+                                "model_b": model_b,
+                                "contrast_label": contrast_label,
+                                "metric": metric,
+                                "score_a": result["score_a"],
+                                "score_b": result["score_b"],
+                                "delta_mean": result["delta_mean"],
+                                "delta_lower": result["delta_lower"],
+                                "delta_upper": result["delta_upper"],
+                                "p_value": result["p_value"],
+                                "method": result["method"],
+                                "n_patients": result.get("n_patients", len(labels_a)),
+                            }
+                        )
                     except Exception as e:
                         import warnings
+
                         warnings.warn(
                             f"Test failed for {cohort}/{outcome} "
                             f"{model_a} vs {model_b} [{metric}]: {e}"
@@ -614,11 +640,15 @@ def run_pairwise_comparisons(
 
     # Convenience: significance stars
     def _stars(p):
-        if p < 0.001: return "***"
-        if p < 0.01:  return "**"
-        if p < 0.05:  return "*"
+        if p < 0.001:
+            return "***"
+        if p < 0.01:
+            return "**"
+        if p < 0.05:
+            return "*"
         return ""
-    df["stars"]         = df["p_value"].apply(_stars)
+
+    df["stars"] = df["p_value"].apply(_stars)
     df["stars_adjusted"] = df["p_adjusted"].apply(_stars)
 
     return df.sort_values(["cohort", "outcome", "contrast_label", "metric"])
@@ -637,8 +667,10 @@ def format_significance_table(
         sub = sub[sub["contrast_label"] == contrast_filter]
 
     lines = ["=" * 80, f"Significance table — {metric.upper()}", "=" * 80]
-    lines.append(f"{'Cohort':<10} {'Outcome':<25} {'Contrast':<35} "
-                 f"{'Δ':>8} {'95% CI':>18} {'p':>8} {'p_adj':>8} {'sig':>4}")
+    lines.append(
+        f"{'Cohort':<10} {'Outcome':<25} {'Contrast':<35} "
+        f"{'Δ':>8} {'95% CI':>18} {'p':>8} {'p_adj':>8} {'sig':>4}"
+    )
     lines.append("-" * 80)
 
     for _, r in sub.iterrows():
@@ -667,8 +699,9 @@ def to_latex_significance_table(
     lines = [
         "\\begin{table}[ht]",
         "\\centering",
-        "\\caption{Pairwise significance tests — " + metric.upper() +
-        " (DeLong's test; Benjamini-Hochberg FDR correction)}",
+        "\\caption{Pairwise significance tests — "
+        + metric.upper()
+        + " (DeLong's test; Benjamini-Hochberg FDR correction)}",
         "\\begin{tabular}{llllrrrl}",
         "\\toprule",
         "Cohort & Outcome & Model A & Model B & $\\Delta$ & 95\\% CI & $p$ & $p_{\\text{adj}}$ \\\\",
@@ -680,8 +713,8 @@ def to_latex_significance_table(
         delta_str = f"{r['delta_mean']:+.3f}"
         if r["significant"]:
             delta_str = f"\\textbf{{{delta_str}}}"
-        p_str     = f"{r['p_value']:.4f}"
-        padj_str  = f"{r['p_adjusted']:.4f}{r['stars_adjusted']}"
+        p_str = f"{r['p_value']:.4f}"
+        padj_str = f"{r['p_adjusted']:.4f}{r['stars_adjusted']}"
 
         lines.append(
             f"{r['cohort'].upper()} & "

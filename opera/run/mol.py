@@ -69,7 +69,7 @@ def main(cfg: DictConfig) -> None:
     encoder_state = {}
     for k, v in state_dict.items():
         if k.startswith("model."):
-            clean_key = k[len("model."):]
+            clean_key = k[len("model.") :]
             if clean_key.startswith("head.") or clean_key.startswith("decoder."):
                 continue
             encoder_state[clean_key] = v

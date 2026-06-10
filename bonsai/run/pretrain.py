@@ -9,6 +9,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.paths import get_config_path
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
 from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
 from bonsai.modules.networks.bonsai_nets import BonsaiPretrain
@@ -75,6 +76,10 @@ def main(cfg: DictConfig) -> None:
         learning_rate=cfg.training.learning_rate,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
+        checkpoint_metadata={
+            "training_stage": "general_pretraining",
+            "dataset": cfg.dataset,
+        },
     )
 
     trainer = L.Trainer(
@@ -95,6 +100,7 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
         ckpt_path=cfg.paths.ckpt_path,
     )
+    save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
 
 
 if __name__ == "__main__":

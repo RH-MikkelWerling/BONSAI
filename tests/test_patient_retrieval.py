@@ -37,7 +37,9 @@ def _make_retrieval_inputs():
         }
     )
     disease_cohorts = {"DLBCL": patient_ids[:4], "FL": patient_ids[4:]}
-    embeddings_base = {patient_id: vector.copy() for patient_id, vector in embeddings.items()}
+    embeddings_base = {
+        patient_id: vector.copy() for patient_id, vector in embeddings.items()
+    }
     embeddings_dapt = {
         patient_id: 0.6 * embeddings_base[patient_id] + 0.4 * embeddings[patient_id]
         for patient_id in patient_ids
@@ -46,7 +48,9 @@ def _make_retrieval_inputs():
 
 
 def test_retrieve_similar_returns_ranked_neighbors():
-    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = _make_retrieval_inputs()
+    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = (
+        _make_retrieval_inputs()
+    )
     retriever = PatientRetriever(
         embeddings_base=embeddings_base,
         embeddings_dapt=embeddings_dapt,
@@ -65,7 +69,9 @@ def test_retrieve_similar_returns_ranked_neighbors():
 
 
 def test_retrieval_validation_methods_return_structured_outputs():
-    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = _make_retrieval_inputs()
+    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = (
+        _make_retrieval_inputs()
+    )
     retriever = PatientRetriever(
         embeddings_base=embeddings_base,
         embeddings_dapt=embeddings_dapt,
@@ -76,7 +82,9 @@ def test_retrieval_validation_methods_return_structured_outputs():
         use_faiss=False,
     )
 
-    concordance = retriever.validate_outcome_concordance(k=2, n_bootstrap=20, outcome_name="OS_2y")
+    concordance = retriever.validate_outcome_concordance(
+        k=2, n_bootstrap=20, outcome_name="OS_2y"
+    )
     gradient = retriever.validate_rkkp_gradient(max_rank=3, n_bootstrap=20)
     case = retriever.get_case_study("p0", k=2)
 
@@ -87,8 +95,12 @@ def test_retrieval_validation_methods_return_structured_outputs():
     assert len(case["retrieved_patients"]) == 2
 
 
-def test_pairwise_rkkp_embedding_correlation_returns_cached_structured_outputs(tmp_path):
-    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = _make_retrieval_inputs()
+def test_pairwise_rkkp_embedding_correlation_returns_cached_structured_outputs(
+    tmp_path,
+):
+    embeddings_base, embeddings_dapt, embeddings, outcomes, rkkp, disease_cohorts = (
+        _make_retrieval_inputs()
+    )
     retriever = PatientRetriever(
         embeddings_base=embeddings_base,
         embeddings_dapt=embeddings_dapt,

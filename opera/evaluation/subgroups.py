@@ -5,7 +5,10 @@ from typing import Iterable, List, Optional
 import numpy as np
 import pandas as pd
 
-from opera.evaluation.metrics import compute_calibration_metrics, compute_discrimination_metrics
+from opera.evaluation.metrics import (
+    compute_calibration_metrics,
+    compute_discrimination_metrics,
+)
 
 
 def load_subgroup_table(path: str) -> pd.DataFrame:
@@ -174,16 +177,24 @@ def build_subgroup_delta_table(
     if baseline.empty or comparator.empty:
         return pd.DataFrame()
 
-    base_cols = key_cols + metrics + [
-        col
-        for col in ("n_total", "n_positive", "prevalence")
-        if col in baseline.columns
-    ]
-    comp_cols = key_cols + metrics + [
-        col
-        for col in ("n_total", "n_positive", "prevalence")
-        if col in comparator.columns
-    ]
+    base_cols = (
+        key_cols
+        + metrics
+        + [
+            col
+            for col in ("n_total", "n_positive", "prevalence")
+            if col in baseline.columns
+        ]
+    )
+    comp_cols = (
+        key_cols
+        + metrics
+        + [
+            col
+            for col in ("n_total", "n_positive", "prevalence")
+            if col in comparator.columns
+        ]
+    )
     base = baseline[base_cols].rename(
         columns={
             **{metric: f"baseline_{metric}" for metric in metrics},

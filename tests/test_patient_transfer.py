@@ -74,7 +74,9 @@ def test_build_patient_transfer_table_and_profile_summary():
         {"subject_id": [1, 2], "cohort": ["a", "b"], "label": [1, 0]}
     )
 
-    table = build_patient_transfer_table(baseline, comparator, embeddings, metadata, k=1)
+    table = build_patient_transfer_table(
+        baseline, comparator, embeddings, metadata, k=1
+    )
     summary = summarize_beneficiary_profile(table, top_fraction=0.5)
 
     assert len(table) == 2

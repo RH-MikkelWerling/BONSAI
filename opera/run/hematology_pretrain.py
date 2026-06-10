@@ -44,7 +44,9 @@ def main(cfg: DictConfig) -> None:
         cutoff_date=cfg.training.get("cutoff_date"),
         max_len=cfg.training.max_len,
         train_truncation_strategy=cfg.training.get("truncation_strategy", "tail"),
-        val_truncation_strategy=cfg.training.get("validation_truncation_strategy", "tail"),
+        val_truncation_strategy=cfg.training.get(
+            "validation_truncation_strategy", "tail"
+        ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
     )
 

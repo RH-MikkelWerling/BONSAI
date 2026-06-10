@@ -30,14 +30,15 @@ from opera.compat.bonsai import BonsaiEncoder, BiGRU
 # Projection heads
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class ProjectionHead(nn.Module):
     """Two-layer MLP projection head (SimCLR-style)."""
 
     def __init__(
         self,
         input_dim: int = 768,
-        hidden_dim: int = 256,          # TUNE: intermediate projection width
-        output_dim: int = 128,          # TUNE: contrastive embedding dimension
+        hidden_dim: int = 256,  # TUNE: intermediate projection width
+        output_dim: int = 128,  # TUNE: contrastive embedding dimension
     ):
         super().__init__()
         self.net = nn.Sequential(
@@ -53,6 +54,7 @@ class ProjectionHead(nn.Module):
 # ═══════════════════════════════════════════════════════════════════════════
 # Multi-outcome contrastive loss (SupCon + Kendall weighting)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class _LegacySurvivalSoftContrastiveLoss(nn.Module):
     """
@@ -100,8 +102,8 @@ class _LegacySurvivalSoftContrastiveLoss(nn.Module):
 
     def __init__(
         self,
-        temperature: float = 0.07,     # TUNE: contrastive temperature
-        cdf_scale: float = 0.25,       # quartile distance gives exp(-1)
+        temperature: float = 0.07,  # TUNE: contrastive temperature
+        cdf_scale: float = 0.25,  # quartile distance gives exp(-1)
         min_weight_threshold: float = 1e-4,  # ignore near-zero-weight pairs
     ):
         super().__init__()
@@ -151,12 +153,12 @@ class _LegacySurvivalSoftContrastiveLoss(nn.Module):
         time_sim = torch.exp(-torch.abs(q_i - q_j) / self.cdf_scale)
         # -- 2. Reliability mask (competing-risk-aware) -------------------
         # Use explicit boolean masks — avoids broken arithmetic when event=2.
-        obs_i  = (events == 1).unsqueeze(1).float()   # (B, 1) primary event
-        obs_j  = (events == 1).unsqueeze(0).float()   # (1, B)
-        cens_i = (events == 0).unsqueeze(1).float()   # (B, 1) admin censored
-        cens_j = (events == 0).unsqueeze(0).float()   # (1, B)
-        comp_i = (events == 2).unsqueeze(1).float()   # (B, 1) competing death
-        comp_j = (events == 2).unsqueeze(0).float()   # (1, B)
+        obs_i = (events == 1).unsqueeze(1).float()  # (B, 1) primary event
+        obs_j = (events == 1).unsqueeze(0).float()  # (1, B)
+        cens_i = (events == 0).unsqueeze(1).float()  # (B, 1) admin censored
+        cens_j = (events == 0).unsqueeze(0).float()  # (1, B)
+        comp_i = (events == 2).unsqueeze(1).float()  # (B, 1) competing death
+        comp_j = (events == 2).unsqueeze(0).float()  # (1, B)
 
         # Pair reliability by combination:
         #   obs  + obs  → 1.0  both primary events, timing fully known
@@ -166,16 +168,16 @@ class _LegacySurvivalSoftContrastiveLoss(nn.Module):
         #   comp + comp → 0.3  both confirmed non-events, max both-censored weight
         #   comp + cens → 0.2  one confirmed, one uncertain
         #   cens + cens → 0.1–0.3  both uncertain, scaled by min quantile
-        both_obs     = obs_i  * obs_j
-        obs_comp     = obs_i  * comp_j + comp_i * obs_j
-        obs_cens_ord = (obs_i  * cens_j * (q_i <= q_j).float()
-                      + cens_i * obs_j  * (q_j <= q_i).float())
-        both_comp    = comp_i * comp_j
-        comp_cens    = comp_i * cens_j + cens_i * comp_j
-        both_cens    = cens_i * cens_j
-        both_cens_reliability = (
-            0.1 + 0.2 * torch.minimum(q_i, q_j)
-        ).clamp(0.1, 0.3)
+        both_obs = obs_i * obs_j
+        obs_comp = obs_i * comp_j + comp_i * obs_j
+        obs_cens_ord = (
+            obs_i * cens_j * (q_i <= q_j).float()
+            + cens_i * obs_j * (q_j <= q_i).float()
+        )
+        both_comp = comp_i * comp_j
+        comp_cens = comp_i * cens_j + cens_i * comp_j
+        both_cens = cens_i * cens_j
+        both_cens_reliability = (0.1 + 0.2 * torch.minimum(q_i, q_j)).clamp(0.1, 0.3)
 
         reliability = (
             1.0 * both_obs
@@ -184,10 +186,10 @@ class _LegacySurvivalSoftContrastiveLoss(nn.Module):
             + 0.3 * both_comp
             + 0.2 * comp_cens
             + both_cens_reliability * both_cens
-        )                                            # (B, B), in [0.1, 1.0]
+        )  # (B, B), in [0.1, 1.0]
 
         # ── 3. Pair weights ────────────────────────────────────────────────
-        pair_weights = time_sim * reliability        # (B, B)
+        pair_weights = time_sim * reliability  # (B, B)
 
         if dapt_weights is not None:
             pair_weights = pair_weights * dapt_weights.to(device)
@@ -264,7 +266,9 @@ class SurvivalSoftContrastiveLoss(nn.Module):
                 probs,
             )
         if event_time_probs is None:
-            probs = torch.full((times.numel(),), 1.0 / float(times.numel()), device=device)
+            probs = torch.full(
+                (times.numel(),), 1.0 / float(times.numel()), device=device
+            )
         else:
             probs = event_time_probs.to(device).float().contiguous()
             if probs.numel() != times.numel():
@@ -413,6 +417,8 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         per_anchor_loss = -(pair_weights[valid] * log_softmax[valid]).sum(dim=1)
         anchor_weights = row_sum[valid] / (row_sum[valid].sum() + 1e-12)
         loss = (anchor_weights * per_anchor_loss).sum()
+        if not loss.requires_grad:
+            loss.requires_grad_()
         if return_diagnostics:
             return loss, {"n_effective_pairs": n_eff}
         return loss
@@ -452,7 +458,7 @@ class MultiOutcomeSurvivalLoss(nn.Module):
         outcome_names: List[str],
         temperature: float = 0.07,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
-        dapt_lambda_floor: float = 0.3,   # TUNE: cross-disease floor weight
+        dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor weight
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         competing_event_weight: float = 0.0,
         effective_pair_normalization: bool = True,
@@ -513,7 +519,9 @@ class MultiOutcomeSurvivalLoss(nn.Module):
         # Pairs involving an unknown subject get weight 1.0, so the
         # outcome/time/censoring weights are left unchanged for that pair.
         pair_known = known_mask.unsqueeze(0) & known_mask.unsqueeze(1)
-        dapt_weights = torch.where(pair_known, dapt_weights, torch.ones_like(dapt_weights))
+        dapt_weights = torch.where(
+            pair_known, dapt_weights, torch.ones_like(dapt_weights)
+        )
         return dapt_weights, known_mask  # (B, B), (B,)
 
     def forward(
@@ -556,7 +564,7 @@ class MultiOutcomeSurvivalLoss(nn.Module):
 
         for k, name in enumerate(self.outcome_names):
             survival_k = outcome_survival.get(name, {})
-            times_k  = survival_k.get("times",  None)
+            times_k = survival_k.get("times", None)
             events_k = survival_k.get("events", None)
 
             if times_k is None or events_k is None:
@@ -567,8 +575,8 @@ class MultiOutcomeSurvivalLoss(nn.Module):
             if valid_mask.sum() < 2:
                 continue
 
-            emb_k    = embeddings[valid_mask]
-            times_v  = times_k[valid_mask]
+            emb_k = embeddings[valid_mask]
+            times_v = times_k[valid_mask]
             events_v = events_k[valid_mask]
 
             dapt_w_k = None
@@ -594,7 +602,9 @@ class MultiOutcomeSurvivalLoss(nn.Module):
 
             # Kendall weighting
             n_eff = diagnostics_k["n_effective_pairs"].to(device)
-            max_pairs = max(float(valid_mask.sum().item() * (valid_mask.sum().item() - 1)), 1.0)
+            max_pairs = max(
+                float(valid_mask.sum().item() * (valid_mask.sum().item() - 1)), 1.0
+            )
             effective_pair_fraction = (n_eff / max_pairs).clamp(1e-6, 1.0)
             sigma_loss_k = (
                 loss_k * torch.sqrt(effective_pair_fraction)
@@ -606,13 +616,15 @@ class MultiOutcomeSurvivalLoss(nn.Module):
             total_loss = total_loss + weighted_loss_k
 
             sigma_k = torch.exp(self.log_sigma[k])
-            log_dict[f"loss/{name}"]             = loss_k.detach()
+            log_dict[f"loss/{name}"] = loss_k.detach()
             log_dict[f"loss_sigma_input/{name}"] = sigma_loss_k.detach()
-            log_dict[f"sigma/{name}"]            = sigma_k.detach()
-            log_dict[f"precision/{name}"]        = precision.detach()
-            log_dict[f"n_valid/{name}"]          = valid_mask.sum().float().detach()
+            log_dict[f"sigma/{name}"] = sigma_k.detach()
+            log_dict[f"precision/{name}"] = precision.detach()
+            log_dict[f"n_valid/{name}"] = valid_mask.sum().float().detach()
             log_dict[f"n_effective_pairs/{name}"] = n_eff.detach()
-            log_dict[f"effective_pair_fraction/{name}"] = effective_pair_fraction.detach()
+            log_dict[f"effective_pair_fraction/{name}"] = (
+                effective_pair_fraction.detach()
+            )
 
         log_dict["loss"] = total_loss
         return log_dict
@@ -620,6 +632,7 @@ class MultiOutcomeSurvivalLoss(nn.Module):
 
 # ── Backwards-compatible alias ─────────────────────────────────────────────
 # Keep the old binary loss available for ablations / unit tests.
+
 
 class SupervisedContrastiveLoss(nn.Module):
     """Binary SupCon loss — kept for ablation experiments."""
@@ -675,8 +688,8 @@ class MultiOutcomeContrastiveLoss(nn.Module):
             loss_k = self.sup_con(embeddings[valid_mask], labels_k[valid_mask])
             precision = 0.5 * torch.exp(-2 * self.log_sigma[k])
             total_loss = total_loss + precision * loss_k + self.log_sigma[k]
-            log_dict[f"loss/{name}"]      = loss_k.detach()
-            log_dict[f"sigma/{name}"]     = torch.exp(self.log_sigma[k]).detach()
+            log_dict[f"loss/{name}"] = loss_k.detach()
+            log_dict[f"sigma/{name}"] = torch.exp(self.log_sigma[k]).detach()
             log_dict[f"precision/{name}"] = precision.detach()
         log_dict["loss"] = total_loss
         return log_dict
@@ -685,6 +698,7 @@ class MultiOutcomeContrastiveLoss(nn.Module):
 # ═══════════════════════════════════════════════════════════════════════════
 # Full OPERA contrastive model
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class OperaContrastiveModel(nn.Module):
     """
@@ -718,7 +732,7 @@ class OperaContrastiveModel(nn.Module):
         temperature: float = 0.07,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
-        dapt_lambda_floor: float = 0.3,     # TUNE: cross-disease floor
+        dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor
         dapt_anchor_weight: float = 0.0,
         competing_event_weight: float = 0.0,
         effective_pair_normalization: bool = True,
@@ -776,9 +790,7 @@ class OperaContrastiveModel(nn.Module):
         hidden = outputs[0]  # (B, L, H)
 
         if self.pooling == "bigru":
-            return self.pooler(
-                hidden, batch["attention_mask"], return_embedding=True
-            )
+            return self.pooler(hidden, batch["attention_mask"], return_embedding=True)
 
         lengths = batch["attention_mask"].sum(dim=1) - 1
         return hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]

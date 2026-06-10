@@ -27,7 +27,9 @@ def _norm(x: torch.Tensor) -> torch.Tensor:
     return F.normalize(x, dim=-1)
 
 
-def _km_q(sorted_et: torch.Tensor, t: float, probs: torch.Tensor | None = None) -> float:
+def _km_q(
+    sorted_et: torch.Tensor, t: float, probs: torch.Tensor | None = None
+) -> float:
     if probs is None:
         probs = torch.full((sorted_et.numel(),), 1.0 / max(sorted_et.numel(), 1))
     probs = probs / probs.sum().clamp_min(1e-12)
@@ -130,7 +132,9 @@ def test_noisy_anchor_perturb_moves_loss_less_than_signal_rich():
 def test_admin_censoring_uses_future_event_distribution():
     sorted_et = torch.tensor([10.0, 50.0, 100.0, 300.0, 500.0])
     loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
-    event_grid, km_grid, event_probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
+    event_grid, km_grid, event_probs = loss_fn._event_grid(
+        sorted_et, None, torch.device("cpu")
+    )
     dist = loss_fn._patient_quantile_distributions(
         torch.tensor([5.0, 600.0]),
         torch.tensor([0, 0]),
@@ -171,7 +175,9 @@ def test_admin_censoring_uses_km_tail_probabilities_when_available():
 def test_competing_death_before_first_event_maps_to_zero_quantile():
     sorted_et = torch.tensor([30.0, 90.0])
     loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
-    event_grid, km_grid, probs = loss_fn._event_grid(sorted_et, None, torch.device("cpu"))
+    event_grid, km_grid, probs = loss_fn._event_grid(
+        sorted_et, None, torch.device("cpu")
+    )
     dist = loss_fn._patient_quantile_distributions(
         torch.tensor([5.0]),
         torch.tensor([2]),
@@ -228,11 +234,11 @@ def test_multi_outcome_end_to_end():
     emb = _norm(torch.randn(8, 16))
     outcome_survival = {
         "mortality": {
-            "times": torch.tensor([30., 90., 180., 365., 730., 60., 0., 730.]),
+            "times": torch.tensor([30.0, 90.0, 180.0, 365.0, 730.0, 60.0, 0.0, 730.0]),
             "events": torch.tensor([1, 1, 0, 1, 0, 1, 0, 0]),
         },
         "aki": {
-            "times": torch.tensor([5., 10., 20., 30., 5., 15., -1., -1.]),
+            "times": torch.tensor([5.0, 10.0, 20.0, 30.0, 5.0, 15.0, -1.0, -1.0]),
             "events": torch.tensor([1, 0, 1, 1, 1, 0, -1, -1]),
         },
     }
@@ -257,7 +263,7 @@ def test_missing_sorted_event_times_raises_valueerror():
     emb = _norm(torch.randn(4, 8))
     outcome_survival = {
         "mortality": {
-            "times": torch.tensor([10., 20., 30., 40.]),
+            "times": torch.tensor([10.0, 20.0, 30.0, 40.0]),
             "events": torch.tensor([1, 1, 0, 1]),
         }
     }
@@ -266,7 +272,7 @@ def test_missing_sorted_event_times_raises_valueerror():
 
 
 def test_gradient_flows_to_embeddings():
-    sorted_et = {"mortality": torch.tensor([30., 90., 180., 365.])}
+    sorted_et = {"mortality": torch.tensor([30.0, 90.0, 180.0, 365.0])}
     loss_fn = MultiOutcomeSurvivalLoss(
         outcome_names=["mortality"],
         outcome_sorted_event_times=sorted_et,
@@ -276,7 +282,7 @@ def test_gradient_flows_to_embeddings():
     emb = F.normalize(raw, dim=-1)
     outcome_survival = {
         "mortality": {
-            "times": torch.tensor([30., 90., 180., 365.]),
+            "times": torch.tensor([30.0, 90.0, 180.0, 365.0]),
             "events": torch.tensor([1, 1, 1, 1]),
         }
     }
@@ -336,8 +342,12 @@ def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
     times = torch.tensor([90.0, 60.0])
     events = torch.tensor([1, 2])
-    conservative = SurvivalSoftContrastiveLoss(km_time_scale=0.25, competing_event_weight=0.0)
-    sensitivity = SurvivalSoftContrastiveLoss(km_time_scale=0.25, competing_event_weight=0.5)
+    conservative = SurvivalSoftContrastiveLoss(
+        km_time_scale=0.25, competing_event_weight=0.0
+    )
+    sensitivity = SurvivalSoftContrastiveLoss(
+        km_time_scale=0.25, competing_event_weight=0.5
+    )
 
     w0, _ = conservative._compute_pair_weights(times, events, sorted_et)
     w1, _ = sensitivity._compute_pair_weights(times, events, sorted_et)
@@ -348,8 +358,8 @@ def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
 
 def test_loss_with_all_three_event_types_is_finite():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
-    times  = torch.tensor([90.0, 180.0, 60.0, 200.0, 30.0])
-    events = torch.tensor([1,    1,     2,    0,     1   ])
+    times = torch.tensor([90.0, 180.0, 60.0, 200.0, 30.0])
+    events = torch.tensor([1, 1, 2, 0, 1])
     torch.manual_seed(7)
     emb = F.normalize(torch.randn(5, 8), dim=-1)
 

@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from opera.evaluation.sigma_context import build_sigma_context_table, residualize_log_sigma
+from opera.evaluation.sigma_context import (
+    build_sigma_context_table,
+    residualize_log_sigma,
+)
 
 
 def _read_table(path: str) -> pd.DataFrame:
@@ -17,8 +20,12 @@ def _read_table(path: str) -> pd.DataFrame:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Contextualize learned OPERA sigmas")
-    parser.add_argument("--sigmas", required=True, help="CSV/parquet with outcome and sigma columns")
-    parser.add_argument("--metadata", default=None, help="Optional outcome metadata table")
+    parser.add_argument(
+        "--sigmas", required=True, help="CSV/parquet with outcome and sigma columns"
+    )
+    parser.add_argument(
+        "--metadata", default=None, help="Optional outcome metadata table"
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--outcome_col", default="outcome")
     parser.add_argument("--sigma_col", default="sigma")

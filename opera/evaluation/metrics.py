@@ -16,15 +16,23 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    roc_auc_score, average_precision_score, brier_score_loss,
-    confusion_matrix, classification_report,
-    precision_recall_curve, roc_curve, f1_score,
-    matthews_corrcoef, log_loss,
+    roc_auc_score,
+    average_precision_score,
+    brier_score_loss,
+    confusion_matrix,
+    classification_report,
+    precision_recall_curve,
+    roc_curve,
+    f1_score,
+    matthews_corrcoef,
+    log_loss,
 )
 from sklearn.calibration import calibration_curve
 from sklearn.linear_model import LogisticRegression
+
 try:
     from scipy.stats import chi2 as _chi2
+
     _SCIPY_AVAILABLE = True
 except ImportError:
     _SCIPY_AVAILABLE = False
@@ -33,6 +41,7 @@ except ImportError:
 # ═════════════════════════════════════════════════════════════════════
 # 1. Discrimination metrics
 # ═════════════════════════════════════════════════════════════════════
+
 
 def compute_discrimination_metrics(
     labels: np.ndarray,
@@ -132,6 +141,7 @@ def find_optimal_threshold(
 # 2. Calibration metrics
 # ═════════════════════════════════════════════════════════════════════
 
+
 def compute_calibration_metrics(
     labels: np.ndarray,
     probabilities: np.ndarray,
@@ -152,13 +162,15 @@ def compute_calibration_metrics(
         bin_acc = labels[mask].mean()
         bin_conf = probabilities[mask].mean()
         bin_count = mask.sum()
-        bin_data.append({
-            "bin_lower": bin_edges[i],
-            "bin_upper": bin_edges[i + 1],
-            "bin_accuracy": bin_acc,
-            "bin_confidence": bin_conf,
-            "bin_count": int(bin_count),
-        })
+        bin_data.append(
+            {
+                "bin_lower": bin_edges[i],
+                "bin_upper": bin_edges[i + 1],
+                "bin_accuracy": bin_acc,
+                "bin_confidence": bin_conf,
+                "bin_count": int(bin_count),
+            }
+        )
         ece += (bin_count / len(labels)) * abs(bin_acc - bin_conf)
 
     # Maximum calibration error
@@ -234,20 +246,24 @@ def hosmer_lemeshow_test(
     NaN values are returned if scipy is unavailable or n < n_groups.
     """
     if len(labels) < n_groups:
-        return {"hl_statistic": float("nan"), "hl_pvalue": float("nan"), "hl_df": n_groups - 2}
+        return {
+            "hl_statistic": float("nan"),
+            "hl_pvalue": float("nan"),
+            "hl_df": n_groups - 2,
+        }
 
     order = np.argsort(probabilities)
     labels_s = labels[order]
-    probs_s  = probabilities[order]
+    probs_s = probabilities[order]
 
     hl_stat = 0.0
     indices = np.array_split(np.arange(len(labels)), n_groups)
     for idx in indices:
-        obs_pos  = labels_s[idx].sum()
-        exp_pos  = probs_s[idx].sum()
-        n_g      = len(idx)
-        obs_neg  = n_g - obs_pos
-        exp_neg  = n_g - exp_pos
+        obs_pos = labels_s[idx].sum()
+        exp_pos = probs_s[idx].sum()
+        n_g = len(idx)
+        obs_neg = n_g - obs_pos
+        exp_neg = n_g - exp_pos
         hl_stat += (obs_pos - exp_pos) ** 2 / max(exp_pos, 1e-8)
         hl_stat += (obs_neg - exp_neg) ** 2 / max(exp_neg, 1e-8)
 
@@ -274,6 +290,7 @@ def get_calibration_curve_data(
 # 3. Confusion matrices
 # ═════════════════════════════════════════════════════════════════════
 
+
 def get_confusion_matrix(
     labels: np.ndarray,
     probabilities: np.ndarray,
@@ -298,6 +315,7 @@ def get_classification_report(
 # ═════════════════════════════════════════════════════════════════════
 # 4. Decision curve analysis
 # ═════════════════════════════════════════════════════════════════════
+
 
 def decision_curve_analysis(
     labels: np.ndarray,
@@ -326,12 +344,14 @@ def decision_curve_analysis(
         net_benefit_model = tp / N - fp / N * (pt / (1 - pt))
         net_benefit_treat_all = prevalence - (1 - prevalence) * (pt / (1 - pt))
 
-        rows.append({
-            "threshold": pt,
-            "net_benefit_model": net_benefit_model,
-            "net_benefit_treat_all": net_benefit_treat_all,
-            "net_benefit_treat_none": 0.0,
-        })
+        rows.append(
+            {
+                "threshold": pt,
+                "net_benefit_model": net_benefit_model,
+                "net_benefit_treat_all": net_benefit_treat_all,
+                "net_benefit_treat_none": 0.0,
+            }
+        )
 
     return pd.DataFrame(rows)
 
@@ -373,8 +393,12 @@ def high_risk_enrichment(
                     if prevalence and np.isfinite(prevalence)
                     else float("nan")
                 ),
-                "min_probability": float(probabilities[idx].min()) if n_top > 0 else float("nan"),
-                "max_probability": float(probabilities[idx].max()) if n_top > 0 else float("nan"),
+                "min_probability": float(probabilities[idx].min())
+                if n_top > 0
+                else float("nan"),
+                "max_probability": float(probabilities[idx].max())
+                if n_top > 0
+                else float("nan"),
             }
         )
     return pd.DataFrame(rows)
@@ -383,6 +407,7 @@ def high_risk_enrichment(
 # ═════════════════════════════════════════════════════════════════════
 # 5. Bootstrap confidence intervals
 # ═════════════════════════════════════════════════════════════════════
+
 
 def bootstrap_metrics(
     labels: np.ndarray,
@@ -402,9 +427,17 @@ def bootstrap_metrics(
     alpha = (1 - ci) / 2
 
     metric_names = [
-        "auroc", "auprc", "brier_score",
-        "sensitivity", "specificity", "ppv", "npv",
-        "f1", "mcc", "accuracy", "log_loss",
+        "auroc",
+        "auprc",
+        "brier_score",
+        "sensitivity",
+        "specificity",
+        "ppv",
+        "npv",
+        "f1",
+        "mcc",
+        "accuracy",
+        "log_loss",
     ]
     boot_results: Dict[str, list] = {m: [] for m in metric_names}
 
@@ -435,12 +468,16 @@ def bootstrap_metrics(
     for m in metric_names:
         vals = np.array([v for v in boot_results[m] if np.isfinite(v)])
         if len(vals) == 0:
-            ci_results[m] = {"mean": float("nan"), "std": float("nan"),
-                             "lower": float("nan"), "upper": float("nan")}
+            ci_results[m] = {
+                "mean": float("nan"),
+                "std": float("nan"),
+                "lower": float("nan"),
+                "upper": float("nan"),
+            }
         else:
             ci_results[m] = {
-                "mean":  float(vals.mean()),
-                "std":   float(vals.std()),
+                "mean": float(vals.mean()),
+                "std": float(vals.std()),
                 "lower": float(np.quantile(vals, alpha)),
                 "upper": float(np.quantile(vals, 1 - alpha)),
             }
@@ -468,6 +505,7 @@ def _stratified_bootstrap_indices(n, events, rng):
 # ═════════════════════════════════════════════════════════════════════
 # 6. Survival analysis metrics
 # ═════════════════════════════════════════════════════════════════════
+
 
 def _derive_time_horizons(window_days: float) -> List[float]:
     """
@@ -552,7 +590,7 @@ def compute_timedep_auc_curve(
     }
     """
     valid = np.isfinite(times) & np.isfinite(predicted_risk) & (events >= 0)
-    times  = times[valid].astype(float)
+    times = times[valid].astype(float)
     events = events[valid].astype(int)
     predicted_risk = predicted_risk[valid].astype(float)
 
@@ -577,8 +615,14 @@ def compute_timedep_auc_curve(
         valid_horizons.append(h)
 
     if not valid_horizons:
-        return {"horizons": [], "auc": [], "ci_lower": [], "ci_upper": [],
-                "n_events": int((events == 1).sum()), "n_total": len(times)}
+        return {
+            "horizons": [],
+            "auc": [],
+            "ci_lower": [],
+            "ci_upper": [],
+            "n_events": int((events == 1).sum()),
+            "n_total": len(times),
+        }
 
     # ── Bootstrap CI at anchor points ─────────────────────────────────
     rng = np.random.RandomState(seed)
@@ -621,12 +665,13 @@ def compute_timedep_auc_curve(
 
     return {
         "horizons": valid_horizons,
-        "auc":      [float(v) for v in aucs],
+        "auc": [float(v) for v in aucs],
         "ci_lower": lo_interp.tolist(),
         "ci_upper": hi_interp.tolist(),
         "n_events": int((events == 1).sum()),  # primary events only
-        "n_total":  len(times),
+        "n_total": len(times),
     }
+
 
 def _km_censoring_fn(times: np.ndarray, events: np.ndarray):
     """
@@ -643,18 +688,18 @@ def _km_censoring_fn(times: np.ndarray, events: np.ndarray):
 
     G = 1.0
     step_times = [0.0]
-    step_vals  = [1.0]
+    step_vals = [1.0]
 
     for t in unique_times:
         n_at_risk = np.sum(times >= t)
-        n_cens    = np.sum((times == t) & (cens_event == 1))
+        n_cens = np.sum((times == t) & (cens_event == 1))
         if n_at_risk > 0:
-            G *= (1.0 - n_cens / n_at_risk)
+            G *= 1.0 - n_cens / n_at_risk
         step_times.append(float(t))
         step_vals.append(float(G))
 
     step_times = np.array(step_times)
-    step_vals  = np.array(step_vals)
+    step_vals = np.array(step_vals)
 
     def G_fn(t: float) -> float:
         """G(t-): censoring survival just before time t."""
@@ -679,15 +724,15 @@ def compute_concordance_index(
 
     All patients are used (censored patients contribute as controls).
     """
-    t_i = times[:, None]          # (n, 1)
-    t_j = times[None, :]          # (1, n)
+    t_i = times[:, None]  # (n, 1)
+    t_j = times[None, :]  # (1, n)
     e_i = events[:, None].astype(float)
     r_i = predicted_risk[:, None]
     r_j = predicted_risk[None, :]
 
-    comparable = (e_i == 1) & (t_i < t_j)          # (n, n) bool
+    comparable = (e_i == 1) & (t_i < t_j)  # (n, n) bool
     concordant = comparable & (r_i > r_j)
-    tied_risk  = comparable & (r_i == r_j)
+    tied_risk = comparable & (r_i == r_j)
 
     n_comp = float(comparable.sum())
     if n_comp == 0:
@@ -732,29 +777,29 @@ def compute_ipcw_metrics_at_horizon(
     #  primary-event endpoint at this horizon)
     excl_mask = (times <= horizon) & (events != 1)
 
-    n_cases    = int(case_mask.sum())
+    n_cases = int(case_mask.sum())
     n_controls = int(ctrl_mask.sum())
     n_excluded = int(excl_mask.sum())
 
     # ── IPCW AUC ─────────────────────────────────────────────────────
     ipcw_auc = float("nan")
     if n_cases > 0 and n_controls > 0:
-        case_times  = times[case_mask]
-        case_risks  = predicted_risk[case_mask]
-        ctrl_risks  = predicted_risk[ctrl_mask]
+        case_times = times[case_mask]
+        case_risks = predicted_risk[case_mask]
+        ctrl_risks = predicted_risk[ctrl_mask]
 
         # IPCW weights: 1/G(t_i) for cases, 1/G(τ) for controls
         case_weights = np.array([1.0 / max(G_fn(t), 1e-6) for t in case_times])
-        ctrl_weight  = 1.0 / max(G_fn(horizon), 1e-6)
+        ctrl_weight = 1.0 / max(G_fn(horizon), 1e-6)
 
         # Vectorised concordance (case risk > control risk)
-        r_case = case_risks[:, None]       # (n_cases, 1)
-        r_ctrl = ctrl_risks[None, :]       # (1, n_controls)
-        w_case = case_weights[:, None]     # (n_cases, 1)
+        r_case = case_risks[:, None]  # (n_cases, 1)
+        r_ctrl = ctrl_risks[None, :]  # (1, n_controls)
+        w_case = case_weights[:, None]  # (n_cases, 1)
 
         conc = (r_case > r_ctrl).astype(float) + 0.5 * (r_case == r_ctrl).astype(float)
-        num  = (conc * w_case * ctrl_weight).sum()
-        den  = (w_case * ctrl_weight).sum() * n_controls
+        num = (conc * w_case * ctrl_weight).sum()
+        den = (w_case * ctrl_weight).sum() * n_controls
         ipcw_auc = float(num / den) if den > 0 else float("nan")
 
     # ── IPCW Brier score ─────────────────────────────────────────────
@@ -772,11 +817,11 @@ def compute_ipcw_metrics_at_horizon(
     ipcw_brier = brier_sum / n if n > 0 else float("nan")
 
     return {
-        "ipcw_auc":    ipcw_auc,
-        "ipcw_brier":  ipcw_brier,
-        "n_cases":     n_cases,
-        "n_controls":  n_controls,
-        "n_excluded":  n_excluded,
+        "ipcw_auc": ipcw_auc,
+        "ipcw_brier": ipcw_brier,
+        "n_cases": n_cases,
+        "n_controls": n_controls,
+        "n_excluded": n_excluded,
     }
 
 
@@ -810,19 +855,19 @@ def compute_survival_metrics(
 
     # Remove patients with missing survival data
     valid = np.isfinite(times) & np.isfinite(predicted_risk) & (events >= 0)
-    times  = times[valid].astype(float)
+    times = times[valid].astype(float)
     events = events[valid].astype(int)
     predicted_risk = predicted_risk[valid].astype(float)
 
-    n_total  = int(len(times))
+    n_total = int(len(times))
     n_events = int((events == 1).sum())  # primary events only
 
     if n_total < 2 or n_events == 0:
         return {
             "concordance_index": float("nan"),
-            "n_total":           n_total,
-            "n_events":          n_events,
-            "per_horizon":       {},
+            "n_total": n_total,
+            "n_events": n_events,
+            "per_horizon": {},
         }
 
     c_index = compute_concordance_index(times, events, predicted_risk)
@@ -843,9 +888,9 @@ def compute_survival_metrics(
 
     return {
         "concordance_index": c_index,
-        "n_total":           n_total,
-        "n_events":          n_events,
-        "per_horizon":       per_horizon,
+        "n_total": n_total,
+        "n_events": n_events,
+        "per_horizon": per_horizon,
     }
 
 
@@ -882,7 +927,7 @@ def bootstrap_survival_metrics(
 
         if time_horizons is not None:
             G_fn_b = _km_censoring_fn(t_b, e_b)
-            max_t  = float(t_b.max())
+            max_t = float(t_b.max())
             for h in time_horizons:
                 label = f"{int(h)}d"
                 if h > max_t:
@@ -895,7 +940,7 @@ def bootstrap_survival_metrics(
         if len(vals) == 0:
             return {"mean": float("nan"), "lower": float("nan"), "upper": float("nan")}
         return {
-            "mean":  float(vals.mean()),
+            "mean": float(vals.mean()),
             "lower": float(np.quantile(vals, alpha)),
             "upper": float(np.quantile(vals, 1 - alpha)),
         }
@@ -909,6 +954,7 @@ def bootstrap_survival_metrics(
 # ═════════════════════════════════════════════════════════════════════
 # 7. Aggregated evaluation report
 # ═════════════════════════════════════════════════════════════════════
+
 
 def full_evaluation(
     labels: np.ndarray,
@@ -963,9 +1009,7 @@ def full_evaluation(
     report["optimal_threshold_youden"] = find_optimal_threshold(
         labels, probabilities, "youden"
     )
-    report["optimal_threshold_f1"] = find_optimal_threshold(
-        labels, probabilities, "f1"
-    )
+    report["optimal_threshold_f1"] = find_optimal_threshold(labels, probabilities, "f1")
     report["decision_curve"] = decision_curve_analysis(labels, probabilities)
     report["high_risk_enrichment"] = high_risk_enrichment(labels, probabilities)
     report["bootstrap_ci"] = bootstrap_metrics(
@@ -990,7 +1034,9 @@ def full_evaluation(
             times, events, risk_scores, time_horizons=time_horizons
         )
         report["survival_bootstrap_ci"] = bootstrap_survival_metrics(
-            times, events, risk_scores,
+            times,
+            events,
+            risk_scores,
             time_horizons=time_horizons,
             n_bootstrap=min(n_bootstrap, 500),  # survival CI is slower
             seed=seed,
@@ -1019,10 +1065,12 @@ def format_evaluation_summary(report: Dict) -> str:
         lines.append(f"  F1:           {d['f1']:.4f}")
         lines.append(f"  MCC:          {d['mcc']:.4f}")
         lines.append(f"  Log loss:     {d['log_loss']:.4f}")
-    lines.append(f"  Prevalence:   {d['prevalence']:.4f} ({d['n_positive']}/{d['n_total']})")
+    lines.append(
+        f"  Prevalence:   {d['prevalence']:.4f} ({d['n_positive']}/{d['n_total']})"
+    )
 
     c = report["calibration"]
-    lines.append(f"\n── Calibration ──")
+    lines.append("\n── Calibration ──")
     lines.append(f"  Brier score:  {c['brier_score']:.4f}")
     lines.append(f"  ECE:          {c['ece']:.4f}")
     lines.append(f"  MCE:          {c['mce']:.4f}")
@@ -1037,8 +1085,10 @@ def format_evaluation_summary(report: Dict) -> str:
 
     t_y, m_y = report["optimal_threshold_youden"]
     t_f, m_f = report["optimal_threshold_f1"]
-    lines.append(f"\n── Optimal thresholds ──")
-    lines.append(f"  Youden:  {t_y:.3f}  (Sens={m_y['sensitivity']:.3f}, Spec={m_y['specificity']:.3f})")
+    lines.append("\n── Optimal thresholds ──")
+    lines.append(
+        f"  Youden:  {t_y:.3f}  (Sens={m_y['sensitivity']:.3f}, Spec={m_y['specificity']:.3f})"
+    )
     lines.append(f"  F1-max:  {t_f:.3f}  (F1={m_f['f1']:.3f})")
 
     if "high_risk_enrichment" in report and len(report["high_risk_enrichment"]) > 0:
@@ -1051,30 +1101,47 @@ def format_evaluation_summary(report: Dict) -> str:
                 f"({int(row['n_events'])}/{int(row['n_top'])})"
             )
 
-    lines.append(f"\n── Bootstrap 95% CIs ──")
-    display_order = ["auroc", "auprc", "sensitivity", "specificity", "ppv", "npv",
-                     "f1", "mcc", "accuracy", "brier_score", "log_loss"]
+    lines.append("\n── Bootstrap 95% CIs ──")
+    display_order = [
+        "auroc",
+        "auprc",
+        "sensitivity",
+        "specificity",
+        "ppv",
+        "npv",
+        "f1",
+        "mcc",
+        "accuracy",
+        "brier_score",
+        "log_loss",
+    ]
     for metric in display_order:
         if metric not in report["bootstrap_ci"]:
             continue
         vals = report["bootstrap_ci"][metric]
         if np.isnan(vals["mean"]):
             continue
-        lines.append(f"  {metric:15s}: {vals['mean']:.4f} [{vals['lower']:.4f}, {vals['upper']:.4f}]")
+        lines.append(
+            f"  {metric:15s}: {vals['mean']:.4f} [{vals['lower']:.4f}, {vals['upper']:.4f}]"
+        )
 
     lines.append(f"\n── Confusion Matrix (threshold={d['threshold']:.2f}) ──")
     cm = report["confusion_matrix"]
-    lines.append(f"  TN={cm[0,0]:5d}  FP={cm[0,1]:5d}")
-    lines.append(f"  FN={cm[1,0]:5d}  TP={cm[1,1]:5d}")
+    lines.append(f"  TN={cm[0, 0]:5d}  FP={cm[0, 1]:5d}")
+    lines.append(f"  FN={cm[1, 0]:5d}  TP={cm[1, 1]:5d}")
 
     if "survival" in report:
         sv = report["survival"]
         sv_ci = report.get("survival_bootstrap_ci", {})
-        lines.append(f"\n── Survival metrics (all patients, n={sv['n_total']}, events={sv['n_events']}) ──")
+        lines.append(
+            f"\n── Survival metrics (all patients, n={sv['n_total']}, events={sv['n_events']}) ──"
+        )
         c_idx = sv["concordance_index"]
-        c_ci  = sv_ci.get("concordance_index", {})
+        c_ci = sv_ci.get("concordance_index", {})
         if c_ci:
-            lines.append(f"  C-index:      {c_idx:.4f} [{c_ci.get('lower', float('nan')):.4f}, {c_ci.get('upper', float('nan')):.4f}]")
+            lines.append(
+                f"  C-index:      {c_idx:.4f} [{c_ci.get('lower', float('nan')):.4f}, {c_ci.get('upper', float('nan')):.4f}]"
+            )
         else:
             lines.append(f"  C-index:      {c_idx:.4f}")
         for label, hmet in sv.get("per_horizon", {}).items():
@@ -1082,8 +1149,8 @@ def format_evaluation_summary(report: Dict) -> str:
             ipcw_auc = hmet.get("ipcw_auc", float("nan"))
             ipcw_brier = hmet.get("ipcw_brier", float("nan"))
             n_cases = hmet.get("n_cases", 0)
-            n_ctrl  = hmet.get("n_controls", 0)
-            n_excl  = hmet.get("n_excluded", 0)
+            n_ctrl = hmet.get("n_controls", 0)
+            n_excl = hmet.get("n_excluded", 0)
             if auc_ci:
                 lines.append(
                     f"  IPCW-AUC@{label:>4s}: {ipcw_auc:.4f} [{auc_ci.get('lower', float('nan')):.4f}, "

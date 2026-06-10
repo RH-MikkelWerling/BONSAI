@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -54,7 +54,9 @@ class IntegratedGradientsExplainer:
         token_embeddings = batch["token_embeddings"]
         if not torch.is_tensor(token_embeddings):
             raise TypeError("batch['token_embeddings'] must be a torch.Tensor.")
-        token_embeddings = token_embeddings.detach().to(self.device or token_embeddings.device)
+        token_embeddings = token_embeddings.detach().to(
+            self.device or token_embeddings.device
+        )
         batch = dict(batch)
         batch["token_embeddings"] = token_embeddings
 
@@ -64,7 +66,8 @@ class IntegratedGradientsExplainer:
         )
 
         scaled_inputs = [
-            baseline_tensor + (float(step) / n_steps) * (token_embeddings - baseline_tensor)
+            baseline_tensor
+            + (float(step) / n_steps) * (token_embeddings - baseline_tensor)
             for step in range(1, n_steps + 1)
         ]
 
@@ -84,7 +87,10 @@ class IntegratedGradientsExplainer:
             grads.append(scaled.grad.detach().cpu())
 
         mean_grad = torch.stack(grads, dim=0).mean(dim=0)
-        attributions = ((token_embeddings.detach().cpu() - baseline_tensor.detach().cpu()) * mean_grad).sum(dim=-1)
+        attributions = (
+            (token_embeddings.detach().cpu() - baseline_tensor.detach().cpu())
+            * mean_grad
+        ).sum(dim=-1)
         metadata = self.token_metadata_getter(patient_id).copy()
         metadata = metadata.reset_index(drop=True)
         if len(metadata) != len(attributions):
@@ -111,7 +117,9 @@ class IntegratedGradientsExplainer:
     ) -> Dict[str, Any]:
         """Aggregate token attributions for a patient set."""
         rows: List[pd.DataFrame] = []
-        iterator = tqdm(range(0, len(patient_ids), batch_size), desc=f"ig:{outcome_head}")
+        iterator = tqdm(
+            range(0, len(patient_ids), batch_size), desc=f"ig:{outcome_head}"
+        )
         for start in iterator:
             batch_ids = patient_ids[start : start + batch_size]
             for patient_id in batch_ids:
@@ -127,18 +135,26 @@ class IntegratedGradientsExplainer:
             return {"aggregate": pd.DataFrame(), "top_event_codes": pd.DataFrame()}
 
         attributions = pd.concat(rows, axis=0, ignore_index=True)
-        attributions["time_window"] = attributions["timestamp_relative_to_index"].apply(_time_window_label)
+        attributions["time_window"] = attributions["timestamp_relative_to_index"].apply(
+            _time_window_label
+        )
         attributions["risk_group"] = "all"
         if risk_scores is not None:
             risk_series = pd.Series(risk_scores, dtype=float)
             q1 = float(risk_series.quantile(0.25))
             q3 = float(risk_series.quantile(0.75))
             attributions["risk_score"] = attributions["patient_id"].map(risk_scores)
-            attributions.loc[attributions["risk_score"] <= q1, "risk_group"] = "low_risk"
-            attributions.loc[attributions["risk_score"] >= q3, "risk_group"] = "high_risk"
+            attributions.loc[attributions["risk_score"] <= q1, "risk_group"] = (
+                "low_risk"
+            )
+            attributions.loc[attributions["risk_score"] >= q3, "risk_group"] = (
+                "high_risk"
+            )
 
         aggregate = (
-            attributions.groupby([*groupby, "risk_group"], dropna=False)["abs_attribution"]
+            attributions.groupby([*groupby, "risk_group"], dropna=False)[
+                "abs_attribution"
+            ]
             .agg(["mean", "sum", "count"])
             .reset_index()
             .rename(
@@ -178,7 +194,9 @@ class IntegratedGradientsExplainer:
                 )
             base = self.cohort_mean_embedding
             if not torch.is_tensor(base):
-                base = torch.tensor(base, dtype=token_embeddings.dtype, device=token_embeddings.device)
+                base = torch.tensor(
+                    base, dtype=token_embeddings.dtype, device=token_embeddings.device
+                )
             if base.ndim == 1:
                 base = base.unsqueeze(0).expand_as(token_embeddings)
             return base.to(token_embeddings.device, dtype=token_embeddings.dtype)
@@ -288,9 +306,7 @@ def aggregate_attributions_by_namespace(attr_df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
-    agg["pct_of_total"] = (
-        agg["total_abs_attribution"] / total if total > 0 else 0.0
-    )
+    agg["pct_of_total"] = agg["total_abs_attribution"] / total if total > 0 else 0.0
     return agg.drop(columns=["total_abs_attribution"])
 
 

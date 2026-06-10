@@ -3,6 +3,9 @@ import logging
 from datetime import datetime
 from typing import Tuple, Union
 
+import numpy as np
+import pandas as pd
+
 
 def create_features(df: pl.DataFrame) -> pl.DataFrame:
     """
@@ -101,8 +104,8 @@ def compute_age(time: pl.Expr, dob_time: pl.Expr) -> pl.Expr:
 
 
 def compute_abspos(
-    timestamps: Union[pl.Expr, pl.Series, datetime],
-) -> Union[pl.Expr, pl.Series, float]:
+    timestamps: Union[pl.Expr, pl.Series, pd.Series, datetime],
+) -> Union[pl.Expr, pl.Series, pd.Series, float]:
     if isinstance(timestamps, datetime):
         return pl.Series([timestamps]).cast(pl.Datetime("ms")).dt.timestamp("ms").cast(
             pl.Float32
@@ -113,8 +116,20 @@ def compute_abspos(
             pl.Float32
         ) / (3600 * 1_000)
 
+    if isinstance(timestamps, pd.Series):
+        datetimes = pd.to_datetime(timestamps, errors="coerce")
+        milliseconds = datetimes.to_numpy(dtype="datetime64[ms]").astype(np.float64)
+        result = pd.Series(
+            milliseconds / (3600 * 1_000),
+            index=timestamps.index,
+            name=timestamps.name,
+            dtype=np.float32,
+        )
+        return result.mask(datetimes.isna())
+
     raise TypeError(
-        "Invalid type for timestamps, only pl.Expr, pl.Series, and datetime are supported."
+        "Invalid type for timestamps; expected a Polars expression/series, "
+        "pandas Series, or datetime."
     )
 
 

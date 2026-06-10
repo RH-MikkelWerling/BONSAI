@@ -5,7 +5,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from opera.visualization.style import CATEGORICAL, FIG_FULL, model_color, model_label, save_fig, setup_style
+from opera.visualization.style import (
+    CATEGORICAL,
+    FIG_FULL,
+    model_color,
+    model_label,
+    save_fig,
+    setup_style,
+)
 
 
 def _finish_delta_axis(ax: plt.Axes) -> None:
@@ -214,9 +221,10 @@ def plot_combined_rarity_delta(
     handles, labels = ax_syn.get_legend_handles_labels()
     handles2, labels2 = ax_real.get_legend_handles_labels()
     by_label = dict(zip(labels + labels2, handles + handles2))
-    if "supplement_only" in real_task_level.columns and real_task_level[
-        "supplement_only"
-    ].fillna(False).any():
+    if (
+        "supplement_only" in real_task_level.columns
+        and real_task_level["supplement_only"].fillna(False).any()
+    ):
         by_label.setdefault(
             "Supplement-only real rare cell",
             Line2D(
@@ -287,16 +295,33 @@ def plot_rarity_delta(
     key_cols = ["cohort", "outcome"]
     if "outcome_window_hours" in df.columns:
         key_cols.append("outcome_window_hours")
-    wide = df.pivot_table(index=key_cols, columns="model_family", values="auroc", aggfunc="first")
+    wide = df.pivot_table(
+        index=key_cols, columns="model_family", values="auroc", aggfunc="first"
+    )
     meta_cols = [c for c in ["n_train", "rarity_tier"] if c in df.columns]
-    meta = df.groupby(key_cols, dropna=False)[meta_cols].first() if meta_cols else pd.DataFrame(index=wide.index)
+    meta = (
+        df.groupby(key_cols, dropna=False)[meta_cols].first()
+        if meta_cols
+        else pd.DataFrame(index=wide.index)
+    )
     plot_df = wide.join(meta).reset_index()
     plot_df["delta"] = plot_df.get("opera") - plot_df.get(baseline_model)
-    plot_df["label"] = plot_df["cohort"].astype(str).str.upper() + "-" + plot_df["outcome"].astype(str).str.replace("_", "")
-    plot_df = plot_df.dropna(subset=["delta"]).sort_values("n_train" if "n_train" in plot_df.columns else "delta")
+    plot_df["label"] = (
+        plot_df["cohort"].astype(str).str.upper()
+        + "-"
+        + plot_df["outcome"].astype(str).str.replace("_", "")
+    )
+    plot_df = plot_df.dropna(subset=["delta"]).sort_values(
+        "n_train" if "n_train" in plot_df.columns else "delta"
+    )
 
     fig, ax = plt.subplots(figsize=FIG_FULL)
-    ax.axhspan(plot_df["delta"].min() if not plot_df.empty else -0.01, 0, color="#F3F3F3", zorder=0)
+    ax.axhspan(
+        plot_df["delta"].min() if not plot_df.empty else -0.01,
+        0,
+        color="#F3F3F3",
+        zorder=0,
+    )
     for i, row in plot_df.reset_index(drop=True).iterrows():
         tier = str(row.get("rarity_tier", "unknown"))
         color = CATEGORICAL[hash(tier) % len(CATEGORICAL)]

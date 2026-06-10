@@ -119,15 +119,16 @@ class SklearnBinaryPredictor:
             return self.pipeline.decision_function(features).astype(float)
         probs = self.predict_proba(features)
         return np.log(
-            np.clip(probs, 1e-6, 1.0 - 1e-6)
-            / np.clip(1.0 - probs, 1e-6, 1.0)
+            np.clip(probs, 1e-6, 1.0 - 1e-6) / np.clip(1.0 - probs, 1e-6, 1.0)
         )
 
 
 class CoxSurvivalPredictor:
     """Thin wrapper around a fitted lifelines CoxPHFitter."""
 
-    def __init__(self, cox_model: Any, feature_columns: Sequence[str], tau_days: float) -> None:
+    def __init__(
+        self, cox_model: Any, feature_columns: Sequence[str], tau_days: float
+    ) -> None:
         self.cox_model = cox_model
         self.feature_columns = list(feature_columns)
         self.tau_days = float(tau_days)
@@ -189,8 +190,7 @@ class XGBoostAFTPredictor:
     def predict_risk(self, features: pd.DataFrame) -> np.ndarray:
         probs = self.predict_proba(features)
         return np.log(
-            np.clip(probs, 1e-6, 1.0 - 1e-6)
-            / np.clip(1.0 - probs, 1e-6, 1.0)
+            np.clip(probs, 1e-6, 1.0 - 1e-6) / np.clip(1.0 - probs, 1e-6, 1.0)
         )
 
 
@@ -215,8 +215,7 @@ class TorchMLPPredictor:
     def predict_risk(self, features: pd.DataFrame) -> np.ndarray:
         probs = self.predict_proba(features)
         return np.log(
-            np.clip(probs, 1e-6, 1.0 - 1e-6)
-            / np.clip(1.0 - probs, 1e-6, 1.0)
+            np.clip(probs, 1e-6, 1.0 - 1e-6) / np.clip(1.0 - probs, 1e-6, 1.0)
         )
 
 
@@ -257,17 +256,23 @@ class ComparisonRunner:
         self.seed = int(seed)
         self.n_splits = int(n_splits)
         self.n_bootstrap = int(n_bootstrap)
-        self.tau_days = float(tau_days) if tau_days is not None else infer_tau_days(outcome_name)
+        self.tau_days = (
+            float(tau_days) if tau_days is not None else infer_tau_days(outcome_name)
+        )
         self.evaluation_strategy = evaluation_strategy
-        self.enabled_models = list(enabled_models) if enabled_models is not None else [
-            "ClinicalScore",
-            "XGBoost_specific",
-            "XGBoost_all",
-            "LinearProbe_base",
-            "LinearProbe_dapt",
-            "OPERA",
-            "OPERA_mlp",
-        ]
+        self.enabled_models = (
+            list(enabled_models)
+            if enabled_models is not None
+            else [
+                "ClinicalScore",
+                "XGBoost_specific",
+                "XGBoost_all",
+                "LinearProbe_base",
+                "LinearProbe_dapt",
+                "OPERA",
+                "OPERA_mlp",
+            ]
+        )
         self.show_progress = show_progress
 
         if self.mode not in {"disease_specific", "pooled"}:
@@ -310,7 +315,9 @@ class ComparisonRunner:
                 "tau_days": prepared.tau_days,
                 "n_patients": int(prepared.evaluation_mask.sum()),
                 "n_binary_eligible": int(
-                    prepared.frame.loc[prepared.evaluation_mask, "binary_eligible"].sum()
+                    prepared.frame.loc[
+                        prepared.evaluation_mask, "binary_eligible"
+                    ].sum()
                 ),
                 "score_column": prepared.score_column,
                 "age_column": prepared.age_column,
@@ -373,7 +380,9 @@ class ComparisonRunner:
         )
 
         merged["event_indicator"] = merged["event_indicator"].fillna(0).astype(int)
-        merged["time_to_event"] = pd.to_numeric(merged["time_to_event"], errors="coerce")
+        merged["time_to_event"] = pd.to_numeric(
+            merged["time_to_event"], errors="coerce"
+        )
         merged = merged.loc[np.isfinite(merged["time_to_event"])].copy()
         merged = merged.loc[merged["time_to_event"] >= 0].copy()
 
@@ -446,7 +455,9 @@ class ComparisonRunner:
         for patient_id, vector in embeddings.items():
             arr = np.asarray(vector, dtype=float).reshape(-1)
             row = {"patient_id": patient_id}
-            row.update({f"emb_{prefix}_{i}": float(value) for i, value in enumerate(arr)})
+            row.update(
+                {f"emb_{prefix}_{i}": float(value) for i, value in enumerate(arr)}
+            )
             rows.append(row)
         if not rows:
             raise ValueError(f"Embedding mapping for prefix={prefix!r} is empty.")
@@ -492,10 +503,12 @@ class ComparisonRunner:
                     "Prospective holdout evaluation requires non-empty train/tuning "
                     "and held_out splits."
                 )
-            return [(
-                np.flatnonzero(train_mask.to_numpy()),
-                np.flatnonzero(test_mask.to_numpy()),
-            )]
+            return [
+                (
+                    np.flatnonzero(train_mask.to_numpy()),
+                    np.flatnonzero(test_mask.to_numpy()),
+                )
+            ]
 
         y = frame["event_indicator"].fillna(0).astype(str)
         if self.mode == "pooled":
@@ -536,7 +549,9 @@ class ComparisonRunner:
 
         for fold_id, (train_idx, test_idx) in enumerate(folds):
             test_frame = frame.iloc[test_idx].copy()
-            test_frame = test_frame.loc[prepared.evaluation_mask.iloc[test_idx].to_numpy()].copy()
+            test_frame = test_frame.loc[
+                prepared.evaluation_mask.iloc[test_idx].to_numpy()
+            ].copy()
             if test_frame.empty:
                 continue
             train_frame = self._training_frame_for_model(
@@ -599,13 +614,17 @@ class ComparisonRunner:
         train_frame = full_frame.iloc[train_idx].copy()
         if self.mode == "disease_specific" and model_name != "XGBoost_all":
             cohort_ids = set(self._resolve_cohort_ids(full_frame))
-            train_frame = train_frame.loc[train_frame["patient_id"].isin(cohort_ids)].copy()
+            train_frame = train_frame.loc[
+                train_frame["patient_id"].isin(cohort_ids)
+            ].copy()
         if (
             self.evaluation_strategy == "prospective_holdout"
             and "split" in full_frame.columns
             and model_name == "XGBoost_all"
         ):
-            train_frame = full_frame.loc[full_frame["split"].isin(["train", "tuning"])].copy()
+            train_frame = full_frame.loc[
+                full_frame["split"].isin(["train", "tuning"])
+            ].copy()
         return train_frame
 
     def _select_feature_frame(
@@ -624,7 +643,11 @@ class ComparisonRunner:
         if model_name == "ClinicalScore":
             columns = [
                 column
-                for column in (prepared.score_column, prepared.age_column, prepared.sex_column)
+                for column in (
+                    prepared.score_column,
+                    prepared.age_column,
+                    prepared.sex_column,
+                )
                 if column is not None
             ]
             if not columns:
@@ -664,7 +687,12 @@ class ComparisonRunner:
         feature_columns = self._feature_columns(model_name, prepared)
         feature_frame = train_frame[feature_columns].copy()
 
-        if model_name in {"ClinicalScore", "LinearProbe_base", "LinearProbe_dapt", "OPERA"}:
+        if model_name in {
+            "ClinicalScore",
+            "LinearProbe_base",
+            "LinearProbe_dapt",
+            "OPERA",
+        }:
             return fit_linear_survival_or_logistic(
                 features=feature_frame,
                 times=train_frame["time_to_event"].to_numpy(dtype=float),
@@ -739,7 +767,7 @@ def infer_tau_days(outcome_name: str) -> float:
         if unit == "d":
             return value
         if unit == "m":
-            return value * 30.4375
+            return value * (365.0 / 12.0)
         if unit == "y":
             return value * 365.25
     for key, tau in DEFAULT_TAU_DAYS.items():
@@ -811,7 +839,9 @@ def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
     return ColumnTransformer(transformers=transformers)
 
 
-def _fit_constant_from_labels(labels: np.ndarray, eligible: np.ndarray) -> ConstantPredictor:
+def _fit_constant_from_labels(
+    labels: np.ndarray, eligible: np.ndarray
+) -> ConstantPredictor:
     eligible_labels = labels[eligible]
     if len(eligible_labels) == 0 or not np.isfinite(eligible_labels).any():
         return ConstantPredictor(0.5)
@@ -856,7 +886,11 @@ def fit_linear_survival_or_logistic(
         )
         predictor = CoxSurvivalPredictor(
             cox,
-            [c for c in design.columns if c not in {"time_to_event", "event_indicator"}],
+            [
+                c
+                for c in design.columns
+                if c not in {"time_to_event", "event_indicator"}
+            ],
             tau_days,
         )
         return predictor, "lifelines_cox", notes
@@ -893,8 +927,7 @@ def fit_linear_survival_or_logistic(
         return SklearnBinaryPredictor(pipeline), "sklearn_logistic", notes
     except Exception as exc:
         notes.append(
-            "Logistic fit failed and constant fallback was used: "
-            f"{type(exc).__name__}."
+            f"Logistic fit failed and constant fallback was used: {type(exc).__name__}."
         )
         return _fit_constant_from_labels(labels, eligible), "constant", notes
 
@@ -1129,9 +1162,7 @@ def compute_comparison_metrics(
         predicted_risk=predictions["predicted_risk"].to_numpy(dtype=float),
         time_horizons=[float(tau_days)],
     )
-    metrics["c_index"] = float(
-        survival.get("concordance_index", float("nan"))
-    )
+    metrics["c_index"] = float(survival.get("concordance_index", float("nan")))
     horizon_key = f"{int(round(tau_days))}d"
     horizon_metrics = survival.get("per_horizon", {}).get(horizon_key, {})
     metrics["ipcw_auroc"] = float(horizon_metrics.get("ipcw_auc", float("nan")))
@@ -1160,7 +1191,9 @@ def bootstrap_comparison_metrics(
     n = len(predictions)
 
     for _ in range(n_bootstrap):
-        sampled = predictions.iloc[rng.randint(0, n, size=n)].copy().reset_index(drop=True)
+        sampled = (
+            predictions.iloc[rng.randint(0, n, size=n)].copy().reset_index(drop=True)
+        )
         metrics = compute_comparison_metrics(sampled, tau_days=tau_days)
         for name in metric_names:
             value = metrics.get(name)

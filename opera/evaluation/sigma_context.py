@@ -24,7 +24,10 @@ def build_sigma_context_table(
     """
     if isinstance(sigma_values, dict):
         frame = pd.DataFrame(
-            {outcome_col: list(sigma_values.keys()), sigma_col: list(sigma_values.values())}
+            {
+                outcome_col: list(sigma_values.keys()),
+                sigma_col: list(sigma_values.values()),
+            }
         )
     else:
         frame = sigma_values.copy()
@@ -39,18 +42,28 @@ def build_sigma_context_table(
     sigma = np.asarray(frame[sigma_col], dtype=float)
     frame["log_sigma"] = np.log(np.maximum(sigma, 1e-12))
     frame["precision"] = 0.5 * np.exp(-2.0 * frame["log_sigma"])
-    if "n_events" in frame.columns and "n_total" in frame.columns and "prevalence" not in frame.columns:
+    if (
+        "n_events" in frame.columns
+        and "n_total" in frame.columns
+        and "prevalence" not in frame.columns
+    ):
         frame["prevalence"] = frame["n_events"] / frame["n_total"].replace(0, np.nan)
     if "n_effective_pairs" in frame.columns:
-        denom = np.maximum(pd.to_numeric(frame["n_effective_pairs"], errors="coerce"), 1.0)
+        denom = np.maximum(
+            pd.to_numeric(frame["n_effective_pairs"], errors="coerce"), 1.0
+        )
         frame["sigma_per_sqrt_effective_pair"] = sigma / np.sqrt(denom)
         frame["log_n_effective_pairs"] = np.log(denom)
     if "n_events" in frame.columns:
         events = np.maximum(pd.to_numeric(frame["n_events"], errors="coerce"), 1.0)
         frame["sigma_per_sqrt_event"] = sigma / np.sqrt(events)
         frame["log_n_events"] = np.log(events)
-    if {"n_censored", "n_total"}.issubset(frame.columns) and "censoring_fraction" not in frame.columns:
-        frame["censoring_fraction"] = frame["n_censored"] / frame["n_total"].replace(0, np.nan)
+    if {"n_censored", "n_total"}.issubset(
+        frame.columns
+    ) and "censoring_fraction" not in frame.columns:
+        frame["censoring_fraction"] = frame["n_censored"] / frame["n_total"].replace(
+            0, np.nan
+        )
     return frame
 
 
@@ -86,7 +99,9 @@ def residualize_log_sigma(
         frame["log_sigma_residual"] = frame["log_sigma"]
         return frame
 
-    model_df = frame[[*covariates, "log_sigma"]].replace([np.inf, -np.inf], np.nan).dropna()
+    model_df = (
+        frame[[*covariates, "log_sigma"]].replace([np.inf, -np.inf], np.nan).dropna()
+    )
     if len(model_df) <= len(covariates):
         frame["log_sigma_residual"] = frame["log_sigma"]
         return frame
@@ -96,7 +111,11 @@ def residualize_log_sigma(
     beta, *_ = np.linalg.lstsq(x, y, rcond=None)
     all_x = frame[covariates].replace([np.inf, -np.inf], np.nan)
     valid = all_x.notna().all(axis=1) & frame["log_sigma"].notna()
-    pred_x = np.column_stack([np.ones(int(valid.sum())), all_x.loc[valid].to_numpy(dtype=float)])
-    frame.loc[valid, "log_sigma_residual"] = frame.loc[valid, "log_sigma"] - pred_x @ beta
+    pred_x = np.column_stack(
+        [np.ones(int(valid.sum())), all_x.loc[valid].to_numpy(dtype=float)]
+    )
+    frame.loc[valid, "log_sigma_residual"] = (
+        frame.loc[valid, "log_sigma"] - pred_x @ beta
+    )
     frame["sigma_residual_ratio"] = np.exp(frame["log_sigma_residual"])
     return frame

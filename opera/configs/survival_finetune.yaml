@@ -3,6 +3,10 @@ defaults:
   - /hardware/1gpu6cpu@hardware
   - _self_
 
+hydra:
+  searchpath:
+    - file://${oc.env:BONSAI_CONFIG_PATH}
+
 encoder_ckpt: ???
 encoder_source: contrastive
 dataset: ???

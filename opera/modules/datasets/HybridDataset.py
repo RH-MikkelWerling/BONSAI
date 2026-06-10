@@ -5,7 +5,7 @@ The tabular features (e.g. RKKP variables) are loaded from a separate
 CSV/parquet file keyed by subject_id.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 import torch
 import pandas as pd
 import numpy as np
@@ -53,8 +53,7 @@ class HybridDataset(Dataset):
         tabular_df = tabular_df.set_index("subject_id")
         tabular_df = tabular_df[feature_columns].fillna(0.0)
         self.tabular_lookup = {
-            sid: row.values.astype(np.float32)
-            for sid, row in tabular_df.iterrows()
+            sid: row.values.astype(np.float32) for sid, row in tabular_df.iterrows()
         }
         self.default_tabular = np.zeros(len(feature_columns), dtype=np.float32)
 

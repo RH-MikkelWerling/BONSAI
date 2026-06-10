@@ -4,6 +4,10 @@ from torch import nn
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 from torchmetrics import MetricCollection, Accuracy, AUROC, AveragePrecision
+from bonsai.functional.checkpointing import (
+    attach_checkpoint_metadata,
+    attach_model_config,
+)
 
 
 class FinetuneModule(L.LightningModule):
@@ -15,6 +19,7 @@ class FinetuneModule(L.LightningModule):
         learning_rate: float = 5e-4,
         optimizer_epsilon: float = 1e-6,
         scheduler_warmup_epochs: int = 0,
+        checkpoint_metadata: dict = None,
     ):
         super().__init__()
         self.learning_rate = learning_rate
@@ -39,6 +44,8 @@ class FinetuneModule(L.LightningModule):
             }
         )
         self.save_hyperparameters(hparams)
+        attach_model_config(self, model)
+        attach_checkpoint_metadata(self, checkpoint_metadata)
 
     def configure_metrics(self, prefix: str):
         return MetricCollection(
@@ -76,7 +83,7 @@ class FinetuneModule(L.LightningModule):
 
     def test_step(self, batch, batch_idx):
         labels = batch["target"]
-        logits, _ = self.model(batch)
+        logits = self.model(batch)
         self.test_metrics(logits, labels)
         self.log_dict(self.test_metrics, on_step=True, on_epoch=True)
 

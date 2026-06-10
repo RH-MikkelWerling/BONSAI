@@ -27,7 +27,6 @@ from bonsai.functional.checkpointing import (
 )
 from opera.compat.bonsai import BonsaiEncoder
 from opera.modules.networks.opera_nets import OperaContrastiveModel
-from typing import Dict
 from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
     MultiCohortContrastiveDataModule,
@@ -43,7 +42,9 @@ load_dotenv()
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
-    logger = CSVLogger(get_experiment_output_path(), name="contrastive_multicohort_runs")
+    logger = CSVLogger(
+        get_experiment_output_path(), name="contrastive_multicohort_runs"
+    )
     model_save_dir = logger.log_dir
 
     # ── Load encoder from DAPT checkpoint ─────────────────────────────
@@ -53,6 +54,7 @@ def main(cfg: DictConfig) -> None:
     # Vocabulary: use any cohort's vocab (shared token space)
     first_cohort = next(iter(cfg.cohorts.values()))
     import os
+
     vocab_path = os.path.join(first_cohort["data_dir"], "vocabulary.pt")
     vocab = torch.load(vocab_path)
 
@@ -74,7 +76,7 @@ def main(cfg: DictConfig) -> None:
     encoder_state = {}
     for k, v in state_dict.items():
         if k.startswith("model."):
-            clean = k[len("model."):]
+            clean = k[len("model.") :]
             if clean.startswith("head.") or clean.startswith("decoder."):
                 continue
             encoder_state[clean] = v
@@ -89,15 +91,19 @@ def main(cfg: DictConfig) -> None:
 
     # ── Build model ────────────────────────────────────────────────────
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
-    outcome_names   = sorted(outcome_configs.keys())
+    outcome_names = sorted(outcome_configs.keys())
 
     cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
-    outcome_sorted_event_times, outcome_event_time_probs = compute_pooled_event_time_probability_grids(
-        cohort_configs,
-        outcome_configs,
-        split="train",
+    outcome_sorted_event_times, outcome_event_time_probs = (
+        compute_pooled_event_time_probability_grids(
+            cohort_configs,
+            outcome_configs,
+            split="train",
+        )
     )
-    print(f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes.")
+    print(
+        f"KM event-time grids computed for {len(outcome_sorted_event_times)} outcomes."
+    )
     for name, t in outcome_sorted_event_times.items():
         print(f"  {name}: {len(t)} pooled KM-weighted training event locations")
 
@@ -113,7 +119,9 @@ def main(cfg: DictConfig) -> None:
         dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
         competing_event_weight=cfg.model.get("competing_event_weight", 0.0),
-        effective_pair_normalization=cfg.model.get("effective_pair_normalization", True),
+        effective_pair_normalization=cfg.model.get(
+            "effective_pair_normalization", True
+        ),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
@@ -147,7 +155,7 @@ def main(cfg: DictConfig) -> None:
 
     ckpt_callback = ModelCheckpoint(
         dirpath=model_save_dir,
-        monitor="val/loss",   # sigma-weighted contrastive loss: consistent with training objective
+        monitor="val/loss",  # sigma-weighted contrastive loss: consistent with training objective
         mode="min",
         save_top_k=1,
         filename="best",

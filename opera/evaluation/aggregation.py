@@ -58,7 +58,9 @@ def validate_compatible_result_rows(
             )
         subsets = sorted(
             str(item)
-            for item in results.loc[~missing_subset, "evaluation_subset"].dropna().unique()
+            for item in results.loc[~missing_subset, "evaluation_subset"]
+            .dropna()
+            .unique()
         )
         if len(subsets) > 1:
             warnings.append(
@@ -70,9 +72,8 @@ def validate_compatible_result_rows(
                     "n_rows": int(len(results)),
                 }
             )
-        off_subset = (
-            results["evaluation_subset"].notna()
-            & (results["evaluation_subset"].astype(str) != evaluation_subset)
+        off_subset = results["evaluation_subset"].notna() & (
+            results["evaluation_subset"].astype(str) != evaluation_subset
         )
         if off_subset.any():
             warnings.append(
@@ -97,9 +98,7 @@ def validate_compatible_result_rows(
             )
 
     duplicate_cols = [
-        col
-        for col in [*INDEX_COLUMNS, "model_family"]
-        if col in results.columns
+        col for col in [*INDEX_COLUMNS, "model_family"] if col in results.columns
     ]
     if duplicate_cols:
         duplicates = results.duplicated(subset=duplicate_cols, keep=False)
@@ -179,7 +178,9 @@ def read_result_jsonl(path: Path) -> List[dict]:
     return rows
 
 
-def collect_result_rows(results_dir: str, pattern: str = "**/result.jsonl") -> pd.DataFrame:
+def collect_result_rows(
+    results_dir: str, pattern: str = "**/result.jsonl"
+) -> pd.DataFrame:
     rows = []
     for path in Path(results_dir).glob(pattern):
         rows.extend(read_result_jsonl(path))
@@ -242,8 +243,9 @@ def compute_model_delta_table(
             base_col = f"{baseline}__{metric}"
             comp_col = f"{comparator}__{metric}"
             if base_col in wide.columns and comp_col in wide.columns:
-                out[f"{comparator}_minus_{baseline}__{metric}"] = (
-                    row[comp_col] - row[base_col]
+                out[f"{comparator}_minus_{baseline}__{metric}"] = round(
+                    float(row[comp_col] - row[base_col]),
+                    12,
                 )
         rows.append(out)
     return pd.DataFrame(rows)
@@ -294,7 +296,7 @@ def build_delta_vs_baseline_table(
     for metric in metrics:
         merged[f"delta_{metric}_vs_baseline"] = (
             merged[metric] - merged[f"baseline_{metric}"]
-        )
+        ).round(12)
     return merged
 
 
@@ -461,7 +463,9 @@ def split_rarity_delta_tables(
             real,
             group_cols=[
                 "model_family",
-                "rarity_size_bin" if "rarity_size_bin" in real.columns else "rarity_tier",
+                "rarity_size_bin"
+                if "rarity_size_bin" in real.columns
+                else "rarity_tier",
             ],
             metric="auroc",
         ),

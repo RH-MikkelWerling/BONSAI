@@ -50,7 +50,7 @@ class HybridClassifier(nn.Module):
         self,
         encoder: BonsaiEncoder,
         hidden_size: int = 768,
-        tabular_dim: int = 87,              # TUNE: number of RKKP features
+        tabular_dim: int = 87,  # TUNE: number of RKKP features
         mlp_hidden_dims: Optional[list] = None,
         dropout: float = 0.1,
         freeze_encoder: bool = True,
@@ -74,18 +74,20 @@ class HybridClassifier(nn.Module):
 
         # MLP on concatenated features
         if mlp_hidden_dims is None:
-            mlp_hidden_dims = [256, 64]        # TUNE: MLP architecture
+            mlp_hidden_dims = [256, 64]  # TUNE: MLP architecture
 
         concat_dim = hidden_size + tabular_dim
         layers = []
         in_dim = concat_dim
         for h_dim in mlp_hidden_dims:
-            layers.extend([
-                nn.Linear(in_dim, h_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.LayerNorm(h_dim),
-            ])
+            layers.extend(
+                [
+                    nn.Linear(in_dim, h_dim),
+                    nn.GELU(),
+                    nn.Dropout(dropout),
+                    nn.LayerNorm(h_dim),
+                ]
+            )
             in_dim = h_dim
         layers.append(nn.Linear(in_dim, 1))
         self.mlp = nn.Sequential(*layers)
@@ -105,9 +107,7 @@ class HybridClassifier(nn.Module):
 
         # Pool
         if self.pooling == "bigru":
-            pooled = self.pooler(
-                hidden, batch["attention_mask"], return_embedding=True
-            )
+            pooled = self.pooler(hidden, batch["attention_mask"], return_embedding=True)
         else:
             lengths = batch["attention_mask"].sum(dim=1) - 1
             pooled = hidden[torch.arange(hidden.size(0)), lengths]

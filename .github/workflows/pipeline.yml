@@ -10,9 +10,12 @@ permissions:
 
 env:
   BONSAI_CONFIG_PATH: "${{ github.workspace }}/configs"
-  BONSAI_MODELS: "${{ github.workspace }}/tests/models"
-  CKPT_PATH: "${{ github.workspace }}/tests/models/pretrain/run_id_000/version_0/best.ckpt"
+  BONSAI_MODELS: "${{ github.workspace }}/.ci/models"
+  BONSAI_PROCESSED_DATA: "${{ github.workspace }}/.ci/processed"
+  BONSAI_PREDICTIONS: "${{ github.workspace }}/.ci/predictions"
+  CKPT_PATH: "${{ github.workspace }}/.ci/models/correlated_MEDS_data/examples/example_pretrain/run_id_0/version_0/best.ckpt"
   HYDRA_FULL_ERROR: 1
+  MPLBACKEND: Agg
 
 jobs:
     pipeline_tests:
@@ -29,30 +32,20 @@ jobs:
                 cache-dependency-path: 'pyproject.toml'
 
             - name: Install Dependencies
-              run: |
-                pip install .[dev]
-
-            - name: copy .env
-              run: |
-                cp template_env .env
+              run: python -m pip install -c requirements/constraints-ci.txt -e ".[dev]"
 
             - name: create_data
-              run: |
-                python bonsai/run/create_data.py --config-name examples/example_data dataset=correlated_MEDS_data
+              run: python -m bonsai.run.create_data --config-name examples/example_data dataset=correlated_MEDS_data
 
             - name: create_outcome
-              run: |
-                python bonsai/run/create_outcome.py --config-name examples/example_outcome1 dataset=correlated_MEDS_data
+              run: python -m bonsai.run.create_outcome --config-name examples/example_outcome1 dataset=correlated_MEDS_data
 
             - name: pretrain
-              run: |
-                python bonsai/run/pretrain.py --config-name examples/example_pretrain dataset=correlated_MEDS_data
+              run: python -m bonsai.run.pretrain --config-name examples/example_pretrain dataset=correlated_MEDS_data hardware.accelerator=cpu hardware.num_workers=0 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=0
 
-            - name: finetune 
-              run: |
-                python bonsai/run/finetune.py --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 pretrain_path=$CKPT_PATH
+            - name: finetune
+              run: python -m bonsai.run.finetune --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 pretrain_path=$CKPT_PATH hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=1
 
             - name: train (no pretrain path)
-              run: |
-                python bonsai/run/train.py --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1
+              run: python -m bonsai.run.train --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=2
 

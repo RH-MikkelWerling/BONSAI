@@ -71,9 +71,7 @@ def _quantile_rank_matrix(
 
         qs = np.linspace(0.0, 1.0, n_quantiles + 1)[1:-1]
         boundaries = np.nanquantile(times[valid], qs)
-        ranks[valid, col] = np.searchsorted(
-            boundaries, times[valid], side="right"
-        )
+        ranks[valid, col] = np.searchsorted(boundaries, times[valid], side="right")
 
     return ranks
 
@@ -125,9 +123,11 @@ def _project_rank_matrix(ranks: np.ndarray, n_quantiles: int) -> np.ndarray:
     try:
         from sklearn.decomposition import TruncatedSVD
 
-        return TruncatedSVD(n_components=2, random_state=0).fit_transform(
-            standardized
-        ).astype(np.float32)
+        return (
+            TruncatedSVD(n_components=2, random_state=0)
+            .fit_transform(standardized)
+            .astype(np.float32)
+        )
     except Exception:
         return ranks[:, :2].astype(np.float32)
 
@@ -229,4 +229,3 @@ def log_bucket_stats(
             lines.append(f"  {name}: no data")
 
     return "\n".join(lines)
-

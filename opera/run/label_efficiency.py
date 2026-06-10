@@ -18,11 +18,20 @@ import numpy as np
 import pandas as pd
 import yaml
 from opera.compat.bonsai import binarize_outcomes
-from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path, parse_task_ref
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.evaluation.tasks import (
+    normalize_outcome_config,
+    outcome_file_path,
+    parse_task_ref,
+)
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 
 
-def _allocate_stratified_counts(train_df: pd.DataFrame, n_sample: int) -> Dict[int, int]:
+def _allocate_stratified_counts(
+    train_df: pd.DataFrame, n_sample: int
+) -> Dict[int, int]:
     counts = train_df["label"].value_counts().sort_index()
     labels = list(counts.index)
     if n_sample < len(labels):
@@ -37,9 +46,7 @@ def _allocate_stratified_counts(train_df: pd.DataFrame, n_sample: int) -> Dict[i
 
     while sum(allocated.values()) < n_sample:
         candidates = [
-            label
-            for label in labels
-            if allocated[label] < int(counts[label])
+            label for label in labels if allocated[label] < int(counts[label])
         ]
         if not candidates:
             break
@@ -75,8 +82,14 @@ def subsample_outcome_parquet(
     is already present, sampling is stratified to preserve event rate.
     """
     df = pd.read_parquet(outcome_path)
+    if "index_date" in df.columns:
+        df = attach_prediction_censor_abspos(df)
+    elif registry_start_date not in (None, "", "null"):
+        raise ValueError(
+            "registry_start_date requires an index_date column in the outcome file."
+        )
     df = filter_registry_eligible_outcomes(
-        attach_prediction_censor_abspos(df),
+        df,
         registry_start_date,
         cohort=cohort,
         outcome_name=outcome_name,
@@ -107,7 +120,10 @@ def subsample_outcome_parquet(
         )
         sampling_label_col = "_sampling_label"
 
-    if sampling_label_col in sampling_df.columns and sampling_df[sampling_label_col].nunique() > 1:
+    if (
+        sampling_label_col in sampling_df.columns
+        and sampling_df[sampling_label_col].nunique() > 1
+    ):
         allocation = _allocate_stratified_counts(
             sampling_df.rename(columns={sampling_label_col: "label"}),
             n_sample,
@@ -144,8 +160,14 @@ def outcome_split_size_metadata(
     outcome_name: Optional[str] = None,
 ) -> Dict[str, float]:
     df = pd.read_parquet(outcome_path)
+    if "index_date" in df.columns:
+        df = attach_prediction_censor_abspos(df)
+    elif registry_start_date not in (None, "", "null"):
+        raise ValueError(
+            "registry_start_date requires an index_date column in the outcome file."
+        )
     df = filter_registry_eligible_outcomes(
-        attach_prediction_censor_abspos(df),
+        df,
         registry_start_date,
         cohort=cohort,
         outcome_name=outcome_name,
@@ -279,14 +301,11 @@ def aggregate_task_results(all_task_results: Dict[str, Dict[str, Dict[float, lis
     if len(task_df) == 0:
         return nested_summary, task_df, pd.DataFrame()
 
-    pooled = (
-        task_df.groupby(["model_family", "training_fraction"], as_index=False)
-        .agg(
-            median_auroc=("mean", "median"),
-            lower=("mean", lambda x: float(np.percentile(x, 2.5))),
-            upper=("mean", lambda x: float(np.percentile(x, 97.5))),
-            n_tasks=("task", "nunique"),
-        )
+    pooled = task_df.groupby(["model_family", "training_fraction"], as_index=False).agg(
+        median_auroc=("mean", "median"),
+        lower=("mean", lambda x: float(np.percentile(x, 2.5))),
+        upper=("mean", lambda x: float(np.percentile(x, 97.5))),
+        n_tasks=("task", "nunique"),
     )
     return nested_summary, task_df, pooled
 
@@ -323,18 +342,15 @@ def compute_baseline_delta_tables(
     merged["delta_auroc"] = merged["mean"] - merged["baseline_mean"]
     merged["headroom_normalized_delta"] = merged["delta_auroc"] / denom
 
-    pooled = (
-        merged.groupby(["model_family", "training_fraction"], as_index=False)
-        .agg(
-            median_delta_auroc=("delta_auroc", "median"),
-            lower_delta_auroc=("delta_auroc", lambda x: float(np.percentile(x, 2.5))),
-            upper_delta_auroc=("delta_auroc", lambda x: float(np.percentile(x, 97.5))),
-            median_headroom_normalized_delta=(
-                "headroom_normalized_delta",
-                "median",
-            ),
-            n_tasks=("task", "nunique"),
-        )
+    pooled = merged.groupby(["model_family", "training_fraction"], as_index=False).agg(
+        median_delta_auroc=("delta_auroc", "median"),
+        lower_delta_auroc=("delta_auroc", lambda x: float(np.percentile(x, 2.5))),
+        upper_delta_auroc=("delta_auroc", lambda x: float(np.percentile(x, 97.5))),
+        median_headroom_normalized_delta=(
+            "headroom_normalized_delta",
+            "median",
+        ),
+        n_tasks=("task", "nunique"),
     )
     return merged, pooled
 
@@ -345,7 +361,9 @@ def _plot_summary_curves(summary: Dict[str, Dict[str, Dict]], save_path: Path) -
     plot_label_efficiency(summary, save_path=str(save_path))
 
 
-def _pooled_summary_for_plot(pooled_df: pd.DataFrame) -> Dict[str, Dict[float, Dict[str, float]]]:
+def _pooled_summary_for_plot(
+    pooled_df: pd.DataFrame,
+) -> Dict[str, Dict[float, Dict[str, float]]]:
     summary: Dict[str, Dict[float, Dict[str, float]]] = {}
     for _, row in pooled_df.iterrows():
         summary.setdefault(row["model_family"], {})[float(row["training_fraction"])] = {

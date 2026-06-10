@@ -32,13 +32,19 @@ from opera.compat.bonsai import (
     binarize_outcomes,
     dynamic_padding,
     filter_subject_data,
-    split_and_binarize_outcomes,
 )
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 from bonsai.functional.checkpointing import load_joint_model_from_checkpoint
 
 from opera.modules.networks.joint_finetune_net import JointFinetuneModel
-from opera.evaluation.metrics import full_evaluation, format_evaluation_summary, _derive_time_horizons
+from opera.evaluation.metrics import (
+    full_evaluation,
+    format_evaluation_summary,
+    _derive_time_horizons,
+)
 from opera.evaluation.results_schema import (
     bootstrap_ci_rows,
     build_result_row,
@@ -63,7 +69,7 @@ def load_joint_model(ckpt_path: str) -> JointFinetuneModel:
 
 @hydra.main(
     config_path="../configs",
-    config_name="evaluate",   # reuse evaluate.yaml paths structure
+    config_name="evaluate",  # reuse evaluate.yaml paths structure
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
@@ -96,7 +102,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     test_key = cfg.labels.get("test_key", "held_out")
-    test_df  = outcomes[outcomes["split"] == test_key].copy()
+    test_df = outcomes[outcomes["split"] == test_key].copy()
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")
@@ -160,27 +166,27 @@ def main(cfg: DictConfig) -> None:
     all_sids, all_labels, all_logits = [], [], []
     with torch.no_grad():
         for batch in test_loader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                     for k, v in batch.items()}
+            batch = {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
             logits = model.predict(batch, outcome_name)
             all_sids.append(batch["subject_id"].cpu().numpy())
             all_labels.append(batch["target"].cpu().numpy().squeeze())
             all_logits.append(logits.cpu().numpy())
 
-    labels_all  = np.concatenate(all_labels)
-    logits_all  = np.concatenate(all_logits)
-    probs_all   = 1.0 / (1.0 + np.exp(-logits_all))
-    sids_all    = np.concatenate(all_sids)
+    labels_all = np.concatenate(all_labels)
+    logits_all = np.concatenate(all_logits)
+    probs_all = 1.0 / (1.0 + np.exp(-logits_all))
+    sids_all = np.concatenate(all_sids)
 
     # ── Survival fields (all patients) ────────────────────────────────
-    times_all  = np.array([
-        all_test_outcomes[int(sid)].get("time_days", float("nan"))
-        for sid in sids_all
-    ])
-    events_all = np.array([
-        all_test_outcomes[int(sid)].get("event", -1)
-        for sid in sids_all
-    ])
+    times_all = np.array(
+        [all_test_outcomes[int(sid)].get("time_days", float("nan")) for sid in sids_all]
+    )
+    events_all = np.array(
+        [all_test_outcomes[int(sid)].get("event", -1) for sid in sids_all]
+    )
 
     # Determine time horizons from config (n_hours_end_include → days)
     n_hours_end = cfg.labels.get("n_hours_end_include")
@@ -192,8 +198,8 @@ def main(cfg: DictConfig) -> None:
 
     # ── Binary metrics (full-follow-up patients only) ─────────────────
     binary_mask = np.array([int(sid) in full_fu_sids for sid in sids_all])
-    labels_bin  = labels_all[binary_mask]
-    probs_bin   = probs_all[binary_mask]
+    labels_bin = labels_all[binary_mask]
+    probs_bin = probs_all[binary_mask]
 
     print(
         f"Evaluation: {len(sids_all)} total patients | "
@@ -202,8 +208,9 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Evaluate ───────────────────────────────────────────────────────
-    report  = full_evaluation(
-        labels_bin, probs_bin,
+    report = full_evaluation(
+        labels_bin,
+        probs_bin,
         threshold=cfg.get("threshold", 0.5),
         n_bootstrap=cfg.get("n_bootstrap", 1000),
         times=times_all,
@@ -276,14 +283,17 @@ def main(cfg: DictConfig) -> None:
 
     write_result_artifacts(result_row, output_dir)
 
-    plot_full_evaluation(labels_bin, probs_bin,
-                         output_dir=str(output_dir / "plots"),
-                         bootstrap_ci=report["bootstrap_ci"],
-                         times=times_all,
-                         events=events_all,
-                         survival_probabilities=probs_all,
-                         window_days=(n_hours_end / 24.0) if n_hours_end is not None else None,
-                         outcome_name=outcome_name or "")
+    plot_full_evaluation(
+        labels_bin,
+        probs_bin,
+        output_dir=str(output_dir / "plots"),
+        bootstrap_ci=report["bootstrap_ci"],
+        times=times_all,
+        events=events_all,
+        survival_probabilities=probs_all,
+        window_days=(n_hours_end / 24.0) if n_hours_end is not None else None,
+        outcome_name=outcome_name or "",
+    )
     print(f"\nJoint evaluation complete: {output_dir}")
 
 

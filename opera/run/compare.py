@@ -20,7 +20,6 @@ python -m opera.run.compare \\
 """
 
 import argparse
-import json
 from pathlib import Path
 import pandas as pd
 
@@ -34,26 +33,32 @@ from opera.evaluation.significance import (
 
 def main():
     parser = argparse.ArgumentParser(description="OPERA significance comparisons")
-    parser.add_argument("--sweep_output_dir", required=True,
-                        help="Root dir from sweep.py")
+    parser.add_argument(
+        "--sweep_output_dir", required=True, help="Root dir from sweep.py"
+    )
     parser.add_argument("--output_dir", default="./results/comparisons")
-    parser.add_argument("--metrics", default="auroc",
-                        help="Comma-separated: auroc,auprc,brier")
+    parser.add_argument(
+        "--metrics", default="auroc", help="Comma-separated: auroc,auprc,brier"
+    )
     parser.add_argument("--n_bootstrap", type=int, default=2000)
-    parser.add_argument("--alpha", type=float, default=0.05,
-                        help="FDR threshold")
-    parser.add_argument("--no_delong", action="store_true",
-                        help="Use bootstrap for AUROC too (slower, less powerful)")
+    parser.add_argument("--alpha", type=float, default=0.05, help="FDR threshold")
+    parser.add_argument(
+        "--no_delong",
+        action="store_true",
+        help="Use bootstrap for AUROC too (slower, less powerful)",
+    )
     args = parser.parse_args()
 
     metrics = [m.strip() for m in args.metrics.split(",")]
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Running pairwise comparisons...")
+    print("Running pairwise comparisons...")
     print(f"  Contrasts: {len(DEFAULT_CONTRASTS)}")
     print(f"  Metrics:   {metrics}")
-    print(f"  Method:    {'DeLong (AUROC) + bootstrap' if not args.no_delong else 'bootstrap only'}")
+    print(
+        f"  Method:    {'DeLong (AUROC) + bootstrap' if not args.no_delong else 'bootstrap only'}"
+    )
     print(f"  FDR α:     {args.alpha}")
     print()
 
@@ -98,9 +103,11 @@ def main():
     if results_csv.exists():
         try:
             from opera.visualization.analysis_plots import plot_delta_with_significance
+
             results_df = pd.read_csv(results_csv)
-            fig = plot_delta_with_significance(
-                results_df, df,
+            plot_delta_with_significance(
+                results_df,
+                df,
                 save_path=str(output_dir / "delta_plot_significant.png"),
             )
             print(f"Delta plot: {output_dir / 'delta_plot_significant.png'}")

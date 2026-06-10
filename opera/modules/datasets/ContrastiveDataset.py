@@ -10,7 +10,7 @@ The binary ``outcome_<n>`` label is also retained for compatibility
 with the ablation (binary SupCon) loss.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 import torch
 import pandas as pd
 from torch.utils.data import Dataset
@@ -90,17 +90,17 @@ class ContrastiveDataset(Dataset):
         for name in self.outcome_names:
             if sid in self.outcome_dicts[name]:
                 rec = self.outcome_dicts[name][sid]
-                label     = int(rec["label"])
+                label = int(rec["label"])
                 time_days = float(rec.get("time_days", -1.0))
-                event     = int(rec.get("event", label))  # fallback: label IS event
+                event = int(rec.get("event", label))  # fallback: label IS event
 
-                subject[f"outcome_{name}"] = torch.tensor(label,     dtype=torch.long)
-                subject[f"time_{name}"]    = torch.tensor(time_days, dtype=torch.float)
-                subject[f"event_{name}"]   = torch.tensor(event,     dtype=torch.long)
+                subject[f"outcome_{name}"] = torch.tensor(label, dtype=torch.long)
+                subject[f"time_{name}"] = torch.tensor(time_days, dtype=torch.float)
+                subject[f"event_{name}"] = torch.tensor(event, dtype=torch.long)
             else:
-                subject[f"outcome_{name}"] = torch.tensor(-1,   dtype=torch.long)
-                subject[f"time_{name}"]    = torch.tensor(-1.0, dtype=torch.float)
-                subject[f"event_{name}"]   = torch.tensor(-1,   dtype=torch.long)
+                subject[f"outcome_{name}"] = torch.tensor(-1, dtype=torch.long)
+                subject[f"time_{name}"] = torch.tensor(-1.0, dtype=torch.float)
+                subject[f"event_{name}"] = torch.tensor(-1, dtype=torch.long)
 
         # Dummy target for collate compatibility
         subject["target"] = torch.tensor([0], dtype=torch.long)

@@ -74,7 +74,10 @@ import yaml
 
 from opera.evaluation.results_schema import build_result_row, write_result_artifacts
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
-from opera.functional.outcomes import attach_prediction_censor_abspos, filter_registry_eligible_outcomes
+from opera.functional.outcomes import (
+    attach_prediction_censor_abspos,
+    filter_registry_eligible_outcomes,
+)
 
 
 def _expand_config_values(value):
@@ -89,10 +92,7 @@ def _expand_config_values(value):
     if isinstance(value, list):
         return [_expand_config_values(item) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _expand_config_values(item)
-            for key, item in value.items()
-        }
+        return {key: _expand_config_values(item) for key, item in value.items()}
     return value
 
 
@@ -116,7 +116,9 @@ def rank_normalize_scores(values: pd.Series) -> np.ndarray:
     if numeric.notna().all():
         ranks = numeric.rank(method="dense").to_numpy(float)
     else:
-        ranks = pd.Series(pd.factorize(values.astype(str), sort=True)[0] + 1).to_numpy(float)
+        ranks = pd.Series(pd.factorize(values.astype(str), sort=True)[0] + 1).to_numpy(
+            float
+        )
     denom = float(ranks.max() - ranks.min()) if len(ranks) else 0.0
     return np.full(len(ranks), 0.5) if denom == 0 else (ranks - ranks.min()) / denom
 
@@ -167,6 +169,7 @@ def append_cell_status(status_rows: list[dict], **row) -> None:
 
 # ── IPI baseline ───────────────────────────────────────────────────────────
 
+
 def compute_ipi_auroc(
     population_csv: str,
     outcome_parquet: str,
@@ -190,20 +193,24 @@ def compute_ipi_auroc(
     Returns None if the IPI column is missing or has insufficient coverage.
     """
     try:
-        from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+        from sklearn.metrics import (
+            roc_auc_score,
+            average_precision_score,
+            brier_score_loss,
+        )
         from opera.compat.bonsai import binarize_outcomes
         from opera.evaluation.metrics import compute_survival_metrics
 
         population = pd.read_csv(population_csv)
-        outcomes   = pd.read_parquet(outcome_parquet)
-        outcomes   = attach_prediction_censor_abspos(outcomes)
+        outcomes = pd.read_parquet(outcome_parquet)
+        outcomes = attach_prediction_censor_abspos(outcomes)
         outcomes = filter_registry_eligible_outcomes(
             outcomes,
             registry_start_date,
             cohort=cohort,
             outcome_name=outcome_name,
         )
-        test_df    = outcomes[outcomes["split"] == split].copy()
+        test_df = outcomes[outcomes["split"] == split].copy()
 
         # Merge IPI score
         merged_all = test_df.merge(
@@ -234,16 +241,23 @@ def compute_ipi_auroc(
             require_min_followup=False,
             competing_event_df=competing_df,
         )
-        times_all  = np.array([all_outcomes[sid].get("time_days", float("nan"))
-                                for sid in merged_all["subject_id"]])
-        events_all = np.array([all_outcomes[sid].get("event", -1)
-                                for sid in merged_all["subject_id"]])
+        times_all = np.array(
+            [
+                all_outcomes[sid].get("time_days", float("nan"))
+                for sid in merged_all["subject_id"]
+            ]
+        )
+        events_all = np.array(
+            [all_outcomes[sid].get("event", -1) for sid in merged_all["subject_id"]]
+        )
 
         time_horizons = None
         if n_hours_end_include is not None:
             horizon_days = n_hours_end_include / 24.0
             defaults = [30.0, 90.0, 365.0, 730.0]
-            time_horizons = sorted(set(h for h in defaults if h <= horizon_days) | {horizon_days})
+            time_horizons = sorted(
+                set(h for h in defaults if h <= horizon_days) | {horizon_days}
+            )
 
         survival_metrics = compute_survival_metrics(
             times_all, events_all, scores_norm, time_horizons=time_horizons
@@ -257,26 +271,27 @@ def compute_ipi_auroc(
             require_min_followup=True,
             competing_event_df=competing_df,
         )
-        fu_sids   = set(full_fu.keys())
-        fu_mask   = merged_all["subject_id"].isin(fu_sids).values
-        labels_bin = np.array([full_fu[sid]["label"]
-                                for sid in merged_all["subject_id"][fu_mask]])
+        fu_sids = set(full_fu.keys())
+        fu_mask = merged_all["subject_id"].isin(fu_sids).values
+        labels_bin = np.array(
+            [full_fu[sid]["label"] for sid in merged_all["subject_id"][fu_mask]]
+        )
         scores_bin = scores_norm[fu_mask]
 
         binary_metrics: Dict = {}
         if len(labels_bin) >= 20 and len(np.unique(labels_bin)) == 2:
             binary_metrics = {
-                "auroc":       float(roc_auc_score(labels_bin, scores_bin)),
-                "auprc":       float(average_precision_score(labels_bin, scores_bin)),
+                "auroc": float(roc_auc_score(labels_bin, scores_bin)),
+                "auprc": float(average_precision_score(labels_bin, scores_bin)),
                 "brier_score": float(brier_score_loss(labels_bin, scores_bin)),
-                "n_total":     int(len(labels_bin)),
-                "n_positive":  int(labels_bin.sum()),
+                "n_total": int(len(labels_bin)),
+                "n_positive": int(labels_bin.sum()),
             }
 
         return {
             **binary_metrics,
-            "coverage":  ipi_coverage,
-            "survival":  survival_metrics,
+            "coverage": ipi_coverage,
+            "survival": survival_metrics,
         }
     except Exception as e:
         print(f"    IPI baseline failed: {e}")
@@ -319,9 +334,7 @@ def prepare_ipi_subset_predictions(
     coverage = float(merged[ipi_score_col].notna().mean())
     complete = merged.dropna(subset=[ipi_score_col]).copy()
     if coverage < 0.5:
-        print(
-            f"  IPI coverage {coverage:.0%} below 50%; skipping IPI-complete rows."
-        )
+        print(f"  IPI coverage {coverage:.0%} below 50%; skipping IPI-complete rows.")
         return None, coverage, set(complete["subject_id"])
     if complete.empty:
         return None, coverage, set()
@@ -347,7 +360,11 @@ def write_prediction_subset(
     source = Path(predictions_path)
     if not source.exists() or not subject_ids:
         return None
-    pred = pd.read_parquet(source) if source.suffix.lower() in {".parquet", ".pq"} else pd.read_csv(source)
+    pred = (
+        pd.read_parquet(source)
+        if source.suffix.lower() in {".parquet", ".pq"}
+        else pd.read_csv(source)
+    )
     if "subject_id" not in pred.columns or probability_col not in pred.columns:
         raise ValueError(f"Prediction file {predictions_path} lacks required columns.")
     subset = pred[pred["subject_id"].isin(subject_ids)].copy()
@@ -357,7 +374,9 @@ def write_prediction_subset(
     return output_path
 
 
-def write_npz_prediction_subset(npz_path: Path, subject_ids: set, output_path: Path) -> Optional[Path]:
+def write_npz_prediction_subset(
+    npz_path: Path, subject_ids: set, output_path: Path
+) -> Optional[Path]:
     """
     Convert evaluator NPZ predictions to an IPI-complete prediction CSV.
 
@@ -380,6 +399,7 @@ def write_npz_prediction_subset(npz_path: Path, subject_ids: set, output_path: P
 
 
 # ── Per-cell finetune + evaluate ───────────────────────────────────────────
+
 
 def run_finetune(
     encoder_ckpt: str,
@@ -428,7 +448,9 @@ def run_finetune(
         else "opera.run.finetune"
     )
     cmd = [
-        sys.executable, "-m", module,
+        sys.executable,
+        "-m",
+        module,
         f"--config-name={'survival_finetune' if training_mode in {'cox', 'ipcw_bce'} else Path(base_config).stem}",
     ] + overrides
 
@@ -436,7 +458,9 @@ def run_finetune(
     result = run_logged_subprocess(cmd, log_dir or output_dir / "logs", "finetune")
 
     if result.returncode != 0:
-        print(f"    FINETUNE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-2000:]}")
+        print(
+            f"    FINETUNE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-2000:]}"
+        )
         return None
 
     return output_dir / "best.ckpt"
@@ -484,14 +508,20 @@ def run_evaluate(
     if competing_outcome_path:
         overrides.append(f"paths.competing_outcome={competing_outcome_path}")
 
-    module = "opera.run.evaluate_joint" if encoder_source == "joint" else "opera.run.evaluate"
+    module = (
+        "opera.run.evaluate_joint"
+        if encoder_source == "joint"
+        else "opera.run.evaluate"
+    )
     if encoder_source == "joint":
         overrides = [f"outcome_name={outcome_name}"] + overrides
     cmd = [sys.executable, "-m", module] + overrides
     result = run_logged_subprocess(cmd, log_dir or output_dir / "logs", "evaluate")
 
     if result.returncode != 0:
-        print(f"    EVALUATE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-1000:]}")
+        print(
+            f"    EVALUATE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-1000:]}"
+        )
         return None
 
     metrics_path = output_dir / "metrics.json"
@@ -566,7 +596,9 @@ def run_prediction_evaluate(
         f"evaluate_predictions_{evaluation_subset}",
     )
     if result.returncode != 0:
-        print(f"    PREDICTION EVALUATE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-1000:]}")
+        print(
+            f"    PREDICTION EVALUATE FAILED (logs: {(log_dir or output_dir / 'logs')})\n{result.stderr[-1000:]}"
+        )
         return None
     metrics_path = output_dir / "metrics.json"
     if metrics_path.exists():
@@ -647,14 +679,24 @@ def write_sweep_result_artifact(
 
 # ── Results aggregation ────────────────────────────────────────────────────
 
+
 def flatten_metrics(metrics: Dict, prefix: str = "") -> Dict:
     """Flatten nested metrics dict to scalar values for the results table."""
     flat = {}
     disc = metrics.get("discrimination", {})
-    cal  = metrics.get("calibration", {})
-    ci   = metrics.get("bootstrap_ci", {})
+    cal = metrics.get("calibration", {})
+    ci = metrics.get("bootstrap_ci", {})
 
-    for key in ("auroc", "auprc", "sensitivity", "specificity", "f1", "n_total", "n_positive", "prevalence"):
+    for key in (
+        "auroc",
+        "auprc",
+        "sensitivity",
+        "specificity",
+        "f1",
+        "n_total",
+        "n_positive",
+        "prevalence",
+    ):
         if key in disc:
             flat[f"{prefix}{key}"] = disc[key]
 
@@ -672,16 +714,20 @@ def flatten_metrics(metrics: Dict, prefix: str = "") -> Dict:
     sv = metrics.get("survival", {})
     if sv:
         flat[f"{prefix}concordance_index"] = sv.get("concordance_index", float("nan"))
-        flat[f"{prefix}n_total_survival"]  = sv.get("n_total", float("nan"))
+        flat[f"{prefix}n_total_survival"] = sv.get("n_total", float("nan"))
         for label, hmet in sv.get("per_horizon", {}).items():
-            flat[f"{prefix}ipcw_auc_{label}"]   = hmet.get("ipcw_auc",   float("nan"))
+            flat[f"{prefix}ipcw_auc_{label}"] = hmet.get("ipcw_auc", float("nan"))
             flat[f"{prefix}ipcw_brier_{label}"] = hmet.get("ipcw_brier", float("nan"))
 
     # Survival bootstrap CIs
     sv_ci = metrics.get("survival_bootstrap_ci", {})
     if "concordance_index" in sv_ci:
-        flat[f"{prefix}concordance_index_lower"] = sv_ci["concordance_index"].get("lower", float("nan"))
-        flat[f"{prefix}concordance_index_upper"] = sv_ci["concordance_index"].get("upper", float("nan"))
+        flat[f"{prefix}concordance_index_lower"] = sv_ci["concordance_index"].get(
+            "lower", float("nan")
+        )
+        flat[f"{prefix}concordance_index_upper"] = sv_ci["concordance_index"].get(
+            "upper", float("nan")
+        )
 
     return flat
 
@@ -696,7 +742,7 @@ def build_results_table(all_results: List[Dict]) -> pd.DataFrame:
     rows = []
     for r in all_results:
         row = {
-            "cohort":  r["cohort"],
+            "cohort": r["cohort"],
             "outcome": r["outcome"],
             "variant": r["variant"],
         }
@@ -725,18 +771,23 @@ def to_latex_table(df: pd.DataFrame, metric: str = "auroc") -> str:
     """
     Generate a LaTeX table showing `metric` for all cohort × outcome × variant.
     """
-    variant_cols = sorted(set(
-        col.split("__")[0] for col in df.columns
-        if "__" in col and col.endswith(f"__{metric}")
-    ))
+    variant_cols = sorted(
+        set(
+            col.split("__")[0]
+            for col in df.columns
+            if "__" in col and col.endswith(f"__{metric}")
+        )
+    )
 
     lines = [
         "\\begin{table}[ht]",
         "\\centering",
-        f"\\caption{{AUROC by cohort, outcome, and model variant}}",
+        "\\caption{AUROC by cohort, outcome, and model variant}",
         "\\begin{tabular}{ll" + "r" * len(variant_cols) + "}",
         "\\toprule",
-        "Cohort & Outcome & " + " & ".join(v.replace("_", "\\_") for v in variant_cols) + " \\\\",
+        "Cohort & Outcome & "
+        + " & ".join(v.replace("_", "\\_") for v in variant_cols)
+        + " \\\\",
         "\\midrule",
     ]
 
@@ -761,7 +812,7 @@ def to_latex_table(df: pd.DataFrame, metric: str = "auroc") -> str:
             else:
                 vals.append(f"{val:.3f}")
 
-        cohort  = str(row["cohort"]).upper()
+        cohort = str(row["cohort"]).upper()
         outcome = str(row["outcome"]).replace("_", "\\_")
         lines.append(f"{cohort} & {outcome} & " + " & ".join(vals) + " \\\\")
 
@@ -775,6 +826,7 @@ def to_latex_table(df: pd.DataFrame, metric: str = "auroc") -> str:
 
 # ── Main sweep loop ────────────────────────────────────────────────────────
 
+
 def run_sweep(
     config_path: str,
     dry_run: bool = False,
@@ -787,14 +839,16 @@ def run_sweep(
     output_dir = Path(cfg.get("output_dir", "./sweep_results"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cohorts         = cfg["cohorts"]
-    model_variants  = cfg["model_variants"]
-    base_config     = cfg.get("finetune_base_config", "opera/configs/finetune.yaml")
-    rarity_cfg      = cfg.get("rarity", {}) or {}
-    rarity_mode     = cfg.get("rarity_mode", rarity_cfg.get("mode", "none"))
-    baseline_model  = cfg.get("baseline_model", rarity_cfg.get("baseline_model"))
-    seeds           = cfg.get("seeds", [cfg.get("seed", 42)])
-    subgroup_path   = (cfg.get("paths", {}) or {}).get("subgroups") or (cfg.get("subgroups", {}) or {}).get("path")
+    cohorts = cfg["cohorts"]
+    model_variants = cfg["model_variants"]
+    base_config = cfg.get("finetune_base_config", "opera/configs/finetune.yaml")
+    rarity_cfg = cfg.get("rarity", {}) or {}
+    rarity_mode = cfg.get("rarity_mode", rarity_cfg.get("mode", "none"))
+    baseline_model = cfg.get("baseline_model", rarity_cfg.get("baseline_model"))
+    seeds = cfg.get("seeds", [cfg.get("seed", 42)])
+    subgroup_path = (cfg.get("paths", {}) or {}).get("subgroups") or (
+        cfg.get("subgroups", {}) or {}
+    ).get("path")
     subgroup_columns = (cfg.get("subgroups", {}) or {}).get("columns", [])
     if len(seeds) > 1:
         expanded_variants = {}
@@ -818,21 +872,26 @@ def run_sweep(
     total_cells = len(cohorts) * len(outcomes) * len(model_variants)
     cell_idx = 0
 
-    print(f"\nOPERA Sweep: {len(cohorts)} cohorts × {len(outcomes)} outcomes × "
-          f"{len(model_variants)} variants = {total_cells} cells\n")
+    print(
+        f"\nOPERA Sweep: {len(cohorts)} cohorts × {len(outcomes)} outcomes × "
+        f"{len(model_variants)} variants = {total_cells} cells\n"
+    )
 
     for cohort_name, cohort_cfg in cohorts.items():
-        data_dir   = cohort_cfg["data_dir"]
-        ipi_col    = cohort_cfg.get("ipi_score_col")
+        data_dir = cohort_cfg["data_dir"]
+        ipi_col = cohort_cfg.get("ipi_score_col")
         registry_start_date = cohort_cfg.get("registry_start_date")
-        pop_file   = cohort_cfg.get("population_file",
-                                    str(Path(data_dir) / "population_full.csv"))
+        pop_file = cohort_cfg.get(
+            "population_file", str(Path(data_dir) / "population_full.csv")
+        )
 
         # ── IPI baseline (one per cohort × outcome, not per variant) ──
         for outcome_name, outcome_cfg in outcomes.items():
             outcome_parquet = outcome_file_path(data_dir, outcome_name, outcome_cfg)
             if dry_run:
-                print(f"  [DRY RUN] Would evaluate IPI for {cohort_name}/{outcome_name}")
+                print(
+                    f"  [DRY RUN] Would evaluate IPI for {cohort_name}/{outcome_name}"
+                )
                 append_cell_status(
                     cell_status,
                     cohort=cohort_name,
@@ -863,8 +922,14 @@ def run_sweep(
                             outcome_name=outcome_name,
                             outcome_path=outcome_parquet,
                             model_family="ipi",
-                            output_dir=output_dir / cohort_name / outcome_name / "ipi" / f"seed_{seed}",
-                            n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
+                            output_dir=output_dir
+                            / cohort_name
+                            / outcome_name
+                            / "ipi"
+                            / f"seed_{seed}",
+                            n_hours_start_include=outcome_cfg.get(
+                                "n_hours_start_include", 1
+                            ),
                             n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
                             competing_outcome_path=competing_parquet,
                             registry_start_date=registry_start_date,
@@ -875,15 +940,22 @@ def run_sweep(
                             seed=seed,
                             subgroup_path=subgroup_path,
                             subgroup_columns=subgroup_columns,
-                            log_dir=output_dir / cohort_name / outcome_name / "ipi" / f"seed_{seed}" / "logs",
+                            log_dir=output_dir
+                            / cohort_name
+                            / outcome_name
+                            / "ipi"
+                            / f"seed_{seed}"
+                            / "logs",
                         )
                         if metrics:
-                            all_results.append({
-                                "cohort": cohort_name,
-                                "outcome": outcome_name,
-                                "variant": "ipi",
-                                "metrics": metrics,
-                            })
+                            all_results.append(
+                                {
+                                    "cohort": cohort_name,
+                                    "outcome": outcome_name,
+                                    "variant": "ipi",
+                                    "metrics": metrics,
+                                }
+                            )
                             append_cell_status(
                                 cell_status,
                                 cohort=cohort_name,
@@ -893,7 +965,13 @@ def run_sweep(
                                 stage="evaluate_predictions",
                                 status="success",
                                 evaluation_subset="ipi_complete",
-                                output_dir=str(output_dir / cohort_name / outcome_name / "ipi" / f"seed_{seed}"),
+                                output_dir=str(
+                                    output_dir
+                                    / cohort_name
+                                    / outcome_name
+                                    / "ipi"
+                                    / f"seed_{seed}"
+                                ),
                             )
                         else:
                             append_cell_status(
@@ -905,7 +983,13 @@ def run_sweep(
                                 stage="evaluate_predictions",
                                 status="failed",
                                 evaluation_subset="ipi_complete",
-                                output_dir=str(output_dir / cohort_name / outcome_name / "ipi" / f"seed_{seed}"),
+                                output_dir=str(
+                                    output_dir
+                                    / cohort_name
+                                    / outcome_name
+                                    / "ipi"
+                                    / f"seed_{seed}"
+                                ),
                                 reason="evaluate_predictions returned no metrics",
                             )
                             if fail_fast:
@@ -927,7 +1011,9 @@ def run_sweep(
                     reason="IPI coverage below threshold or no complete subset",
                 )
                 ipi_metrics = compute_ipi_auroc(
-                    pop_file, outcome_parquet, ipi_col,
+                    pop_file,
+                    outcome_parquet,
+                    ipi_col,
                     n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
                     n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
                     competing_outcome_parquet=competing_parquet,
@@ -945,13 +1031,19 @@ def run_sweep(
                         cohort=cohort_name,
                         outcome_name=outcome_name,
                     )
-                    all_results.append({
-                        "cohort":  cohort_name,
-                        "outcome": outcome_name,
-                        "variant": "ipi",
-                        "metrics": {"discrimination": ipi_metrics, "calibration": {}, "bootstrap_ci": {},
-                                    "survival": ipi_metrics.get("survival", {})},
-                    })
+                    all_results.append(
+                        {
+                            "cohort": cohort_name,
+                            "outcome": outcome_name,
+                            "variant": "ipi",
+                            "metrics": {
+                                "discrimination": ipi_metrics,
+                                "calibration": {},
+                                "bootstrap_ci": {},
+                                "survival": ipi_metrics.get("survival", {}),
+                            },
+                        }
+                    )
                     write_sweep_result_artifact(
                         metrics={
                             "discrimination": ipi_metrics,
@@ -968,8 +1060,10 @@ def run_sweep(
                         checkpoint_path="precomputed_ipi",
                     )
                     auroc = ipi_metrics.get("auroc", float("nan"))
-                    print(f"  IPI [{cohort_name} × {outcome_name}]: AUROC={auroc:.3f} "
-                          f"(coverage={ipi_metrics['coverage']:.0%})")
+                    print(
+                        f"  IPI [{cohort_name} × {outcome_name}]: AUROC={auroc:.3f} "
+                        f"(coverage={ipi_metrics['coverage']:.0%})"
+                    )
 
         # ── Foundation model variants ──────────────────────────────────
         for variant_name, variant_cfg in model_variants.items():
@@ -977,15 +1071,25 @@ def run_sweep(
             seed = variant_cfg.get("seed", cfg.get("seed", 42))
             for outcome_name, outcome_cfg in outcomes.items():
                 n_hours_start = outcome_cfg.get("n_hours_start_include", 1)
-                n_hours_end   = outcome_cfg.get("n_hours_end_include")
+                n_hours_end = outcome_cfg.get("n_hours_end_include")
                 competing_outcome = competing_outcome_path(data_dir, outcome_cfg)
 
                 cell_idx += 1
-                cell_dir = output_dir / cohort_name / outcome_name / result_variant / f"seed_{seed}"
+                cell_dir = (
+                    output_dir
+                    / cohort_name
+                    / outcome_name
+                    / result_variant
+                    / f"seed_{seed}"
+                )
                 cell_dir.mkdir(parents=True, exist_ok=True)
 
-                window_str = f"{n_hours_end}h" if n_hours_end is not None else "open-ended"
-                print(f"\n[{cell_idx}/{total_cells}] {cohort_name} × {outcome_name} ({window_str}) × {variant_name}")
+                window_str = (
+                    f"{n_hours_end}h" if n_hours_end is not None else "open-ended"
+                )
+                print(
+                    f"\n[{cell_idx}/{total_cells}] {cohort_name} × {outcome_name} ({window_str}) × {variant_name}"
+                )
 
                 # ── Pre-computed results (tabular baselines) ───────────
                 if "results_file" in variant_cfg:
@@ -1001,7 +1105,9 @@ def run_sweep(
                         "enrichment fields may be missing."
                     )
                     if dry_run:
-                        print(f"  [DRY RUN] Would load pre-computed results: {results_path}")
+                        print(
+                            f"  [DRY RUN] Would load pre-computed results: {results_path}"
+                        )
                         append_cell_status(
                             cell_status,
                             cohort=cohort_name,
@@ -1016,10 +1122,14 @@ def run_sweep(
                     if Path(results_path).exists():
                         with open(results_path) as f:
                             metrics = json.load(f)
-                        all_results.append({
-                            "cohort": cohort_name, "outcome": outcome_name,
-                            "variant": result_variant, "metrics": metrics,
-                        })
+                        all_results.append(
+                            {
+                                "cohort": cohort_name,
+                                "outcome": outcome_name,
+                                "variant": result_variant,
+                                "metrics": metrics,
+                            }
+                        )
                         write_sweep_result_artifact(
                             metrics=metrics,
                             output_dir=cell_dir,
@@ -1030,7 +1140,9 @@ def run_sweep(
                             cfg={**cfg, "seed": seed},
                             checkpoint_path=results_path,
                         )
-                        auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+                        auroc = metrics.get("discrimination", {}).get(
+                            "auroc", float("nan")
+                        )
                         print(f"  Loaded pre-computed: AUROC={auroc:.3f}")
                         append_cell_status(
                             cell_status,
@@ -1069,7 +1181,9 @@ def run_sweep(
                         seed,
                     )
                     if dry_run:
-                        print(f"  [DRY RUN] Would evaluate prediction file: {predictions_path}")
+                        print(
+                            f"  [DRY RUN] Would evaluate prediction file: {predictions_path}"
+                        )
                         append_cell_status(
                             cell_status,
                             cohort=cohort_name,
@@ -1106,13 +1220,17 @@ def run_sweep(
                             log_dir=cell_dir / "logs",
                         )
                         if metrics is not None:
-                            all_results.append({
-                                "cohort": cohort_name,
-                                "outcome": outcome_name,
-                                "variant": result_variant,
-                                "metrics": metrics,
-                            })
-                            auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+                            all_results.append(
+                                {
+                                    "cohort": cohort_name,
+                                    "outcome": outcome_name,
+                                    "variant": result_variant,
+                                    "metrics": metrics,
+                                }
+                            )
+                            auroc = metrics.get("discrimination", {}).get(
+                                "auroc", float("nan")
+                            )
                             print(f"  Evaluated predictions: AUROC={auroc:.3f}")
                             append_cell_status(
                                 cell_status,
@@ -1127,27 +1245,34 @@ def run_sweep(
                                 artifact=predictions_path,
                             )
                             if ipi_col and result_variant in {"tabular_ehr", "opera"}:
-                                ipi_path, ipi_coverage, ipi_subjects = prepare_ipi_subset_predictions(
-                                    pop_file,
-                                    outcome_file_path(data_dir, outcome_name, outcome_cfg),
-                                    ipi_col,
-                                    output_dir / cohort_name / outcome_name / "ipi",
-                                    registry_start_date=registry_start_date,
-                                    cohort=cohort_name,
-                                    outcome_name=outcome_name,
+                                ipi_path, ipi_coverage, ipi_subjects = (
+                                    prepare_ipi_subset_predictions(
+                                        pop_file,
+                                        outcome_file_path(
+                                            data_dir, outcome_name, outcome_cfg
+                                        ),
+                                        ipi_col,
+                                        output_dir / cohort_name / outcome_name / "ipi",
+                                        registry_start_date=registry_start_date,
+                                        cohort=cohort_name,
+                                        outcome_name=outcome_name,
+                                    )
                                 )
                                 if ipi_path is not None:
                                     subset_pred = write_prediction_subset(
                                         predictions_path,
                                         ipi_subjects,
-                                        cell_dir / f"{result_variant}_ipi_subset_predictions.csv",
+                                        cell_dir
+                                        / f"{result_variant}_ipi_subset_predictions.csv",
                                     )
                                     if subset_pred is not None:
                                         run_prediction_evaluate(
                                             predictions_path=str(subset_pred),
                                             cohort=cohort_name,
                                             outcome_name=outcome_name,
-                                            outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                                            outcome_path=outcome_file_path(
+                                                data_dir, outcome_name, outcome_cfg
+                                            ),
                                             model_family=result_variant,
                                             output_dir=cell_dir / "ipi_complete",
                                             n_hours_start_include=n_hours_start,
@@ -1178,7 +1303,9 @@ def run_sweep(
                                 reason="evaluate_predictions returned no metrics",
                             )
                             if fail_fast:
-                                raise RuntimeError(f"Prediction evaluation failed: {predictions_path}")
+                                raise RuntimeError(
+                                    f"Prediction evaluation failed: {predictions_path}"
+                                )
                     else:
                         print(f"  Prediction file not found: {predictions_path}")
                         append_cell_status(
@@ -1200,13 +1327,17 @@ def run_sweep(
                 # ── Foundation model: finetune + evaluate ──────────────
                 metrics_path = cell_dir / "metrics.json"
                 if metrics_path.exists() and not overwrite:
-                    print(f"  Already done (use --overwrite to redo).")
+                    print("  Already done (use --overwrite to redo).")
                     with open(metrics_path) as f:
                         metrics = json.load(f)
-                    all_results.append({
-                        "cohort": cohort_name, "outcome": outcome_name,
-                        "variant": result_variant, "metrics": metrics,
-                    })
+                    all_results.append(
+                        {
+                            "cohort": cohort_name,
+                            "outcome": outcome_name,
+                            "variant": result_variant,
+                            "metrics": metrics,
+                        }
+                    )
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
                     print(f"  Loaded cached: AUROC={auroc:.3f}")
                     append_cell_status(
@@ -1224,7 +1355,10 @@ def run_sweep(
 
                 encoder_source = variant_cfg.get("encoder_source", "contrastive")
                 training_mode = variant_cfg.get("training_mode")
-                if training_mode is not None and training_mode not in {"cox", "ipcw_bce"}:
+                if training_mode is not None and training_mode not in {
+                    "cox",
+                    "ipcw_bce",
+                }:
                     print(f"  Invalid training_mode={training_mode!r}, skipping.")
                     append_cell_status(
                         cell_status,
@@ -1300,7 +1434,9 @@ def run_sweep(
                         reason="missing encoder_ckpt",
                     )
                     if fail_fast:
-                        raise ValueError(f"Variant {result_variant!r} is missing encoder_ckpt.")
+                        raise ValueError(
+                            f"Variant {result_variant!r} is missing encoder_ckpt."
+                        )
                     continue
                 encoder_ckpt = (
                     format_variant_path(
@@ -1323,7 +1459,9 @@ def run_sweep(
                         cohort=cohort_name,
                         cohort_data_dir=data_dir,
                         outcome_name=outcome_name,
-                        outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                        outcome_path=outcome_file_path(
+                            data_dir, outcome_name, outcome_cfg
+                        ),
                         output_dir=cell_dir,
                         base_config=base_config,
                         n_hours_start_include=n_hours_start,
@@ -1331,7 +1469,10 @@ def run_sweep(
                         competing_outcome_path=competing_outcome,
                         registry_start_date=registry_start_date,
                         training_mode=training_mode,
-                        extra_overrides=[*(variant_cfg.get("extra_overrides") or []), f"seed={seed}"],
+                        extra_overrides=[
+                            *(variant_cfg.get("extra_overrides") or []),
+                            f"seed={seed}",
+                        ],
                         log_dir=cell_dir / "logs",
                     )
 
@@ -1372,7 +1513,9 @@ def run_sweep(
                         else variant_cfg.get("training_stage", "per_task_finetuning")
                     ),
                     encoder_frozen=(
-                        True if variant_cfg.get("training_stage") == "linear_probe" else None
+                        True
+                        if variant_cfg.get("training_stage") == "linear_probe"
+                        else None
                     ),
                     head_type=(
                         "linear_probe"
@@ -1383,10 +1526,14 @@ def run_sweep(
                 )
 
                 if metrics is not None:
-                    all_results.append({
-                        "cohort": cohort_name, "outcome": outcome_name,
-                        "variant": result_variant, "metrics": metrics,
-                    })
+                    all_results.append(
+                        {
+                            "cohort": cohort_name,
+                            "outcome": outcome_name,
+                            "variant": result_variant,
+                            "metrics": metrics,
+                        }
+                    )
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
                     print(f"  Done: AUROC={auroc:.3f}")
                     append_cell_status(
@@ -1402,14 +1549,16 @@ def run_sweep(
                         artifact=str(cell_dir / "metrics.json"),
                     )
                     if ipi_col and result_variant == "opera":
-                        ipi_path, ipi_coverage, ipi_subjects = prepare_ipi_subset_predictions(
-                            pop_file,
-                            outcome_file_path(data_dir, outcome_name, outcome_cfg),
-                            ipi_col,
-                            output_dir / cohort_name / outcome_name / "ipi",
-                            registry_start_date=registry_start_date,
-                            cohort=cohort_name,
-                            outcome_name=outcome_name,
+                        ipi_path, ipi_coverage, ipi_subjects = (
+                            prepare_ipi_subset_predictions(
+                                pop_file,
+                                outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                                ipi_col,
+                                output_dir / cohort_name / outcome_name / "ipi",
+                                registry_start_date=registry_start_date,
+                                cohort=cohort_name,
+                                outcome_name=outcome_name,
+                            )
                         )
                         if ipi_path is not None:
                             subset_pred = write_npz_prediction_subset(
@@ -1422,7 +1571,9 @@ def run_sweep(
                                     predictions_path=str(subset_pred),
                                     cohort=cohort_name,
                                     outcome_name=outcome_name,
-                                    outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                                    outcome_path=outcome_file_path(
+                                        data_dir, outcome_name, outcome_cfg
+                                    ),
                                     model_family=result_variant,
                                     output_dir=cell_dir / "ipi_complete",
                                     n_hours_start_include=n_hours_start,
@@ -1452,7 +1603,9 @@ def run_sweep(
                         reason="evaluate returned no metrics",
                     )
                     if fail_fast:
-                        raise RuntimeError(f"Evaluation failed for {cohort_name}/{outcome_name}/{result_variant}")
+                        raise RuntimeError(
+                            f"Evaluation failed for {cohort_name}/{outcome_name}/{result_variant}"
+                        )
 
     # ── Save sweep status and raw results ──────────────────────────────
     if cell_status:
@@ -1491,10 +1644,16 @@ def run_sweep(
 def main():
     parser = argparse.ArgumentParser(description="OPERA evaluation sweep")
     parser.add_argument("--config", required=True, help="Path to sweep_config.yaml")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print what would be run without executing")
-    parser.add_argument("--overwrite", action="store_true",
-                        help="Rerun cells even if results already exist")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be run without executing",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Rerun cells even if results already exist",
+    )
     parser.add_argument(
         "--fail-fast",
         action="store_true",

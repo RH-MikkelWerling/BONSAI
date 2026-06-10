@@ -7,9 +7,14 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from opera.compat.bonsai import compute_abspos
+from bonsai.functional.features import compute_abspos
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _pandas_abspos(timestamps: pd.Series) -> pd.Series:
+    """Convert timestamps to float32 hours since Unix epoch."""
+    return compute_abspos(timestamps)
 
 
 def attach_prediction_censor_abspos(
@@ -27,7 +32,7 @@ def attach_prediction_censor_abspos(
             f"Outcome frame is missing prediction-time column {prediction_time_col!r}."
         )
     outcomes = outcomes.copy()
-    outcomes["censor_abspos"] = compute_abspos(outcomes[prediction_time_col])
+    outcomes["censor_abspos"] = _pandas_abspos(outcomes[prediction_time_col])
     return outcomes
 
 

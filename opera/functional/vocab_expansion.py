@@ -35,8 +35,7 @@ This is consistent with the BONSAI convention (BACKGROUND//sex_male, etc.)
 and lets you analyse attention patterns by source downstream.
 """
 
-from typing import Dict, Tuple, Optional, List
-from pathlib import Path
+from typing import Dict, Tuple, Optional
 import logging
 import torch
 import torch.nn as nn
@@ -94,9 +93,7 @@ def merge_vocabularies(
         n_new += 1
 
     n_base = len(base_vocab)
-    logging.info(
-        f"Vocabulary merge: {n_base} base + {n_new} new = {len(merged)} total"
-    )
+    logging.info(f"Vocabulary merge: {n_base} base + {n_new} new = {len(merged)} total")
     return merged, n_base, n_new
 
 
@@ -198,7 +195,9 @@ def expand_model_vocab(
     # ── Expand decoder (Linear: hidden_size → vocab_size) ────────────
     if hasattr(model, "decoder"):
         old_decoder = model.decoder
-        new_decoder = nn.Linear(hidden_size, new_vocab_size, bias=old_decoder.bias is not None)
+        new_decoder = nn.Linear(
+            hidden_size, new_vocab_size, bias=old_decoder.bias is not None
+        )
         with torch.no_grad():
             new_decoder.weight[:old_vocab_size] = old_decoder.weight
             nn.init.normal_(new_decoder.weight[old_vocab_size:], mean=0.0, std=init_std)
@@ -249,8 +248,12 @@ def get_vocab_aware_param_groups(
     """
     if old_vocab_size == 0:
         # No expansion — single param group
-        return [{"params": [p for p in model.parameters() if p.requires_grad],
-                 "lr": base_lr}]
+        return [
+            {
+                "params": [p for p in model.parameters() if p.requires_grad],
+                "lr": base_lr,
+            }
+        ]
 
     embed_decoder_params = []
     other_params = []
@@ -258,7 +261,9 @@ def get_vocab_aware_param_groups(
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if "code_embedding" in name or (name.startswith("decoder") and "weight" in name):
+        if "code_embedding" in name or (
+            name.startswith("decoder") and "weight" in name
+        ):
             embed_decoder_params.append(param)
         else:
             other_params.append(param)
@@ -267,10 +272,12 @@ def get_vocab_aware_param_groups(
         {"params": other_params, "lr": base_lr},
     ]
     if embed_decoder_params:
-        groups.append({
-            "params": embed_decoder_params,
-            "lr": base_lr * new_embed_lr_multiplier,
-        })
+        groups.append(
+            {
+                "params": embed_decoder_params,
+                "lr": base_lr * new_embed_lr_multiplier,
+            }
+        )
 
     return groups
 

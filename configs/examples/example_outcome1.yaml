@@ -40,4 +40,4 @@ outcome:
     conditions: # exposure
 
   censor: # ALWAYS RELATIVE TO INDEX
-    relative_hour_shift: -1000 # 0 sets index=censor
+    relative_hour_shift: 8760 # one year of follow-up after index

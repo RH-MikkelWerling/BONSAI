@@ -41,14 +41,13 @@ def _expand_config_values(value):
     if isinstance(value, list):
         return [_expand_config_values(item) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _expand_config_values(item)
-            for key, item in value.items()
-        }
+        return {key: _expand_config_values(item) for key, item in value.items()}
     return value
 
 
-def check_sweep_config(config_path: str, require_existing_paths: bool = False) -> list[str]:
+def check_sweep_config(
+    config_path: str, require_existing_paths: bool = False
+) -> list[str]:
     with open(config_path) as f:
         cfg = _expand_config_values(yaml.safe_load(f) or {})
 
@@ -65,11 +64,15 @@ def check_sweep_config(config_path: str, require_existing_paths: bool = False) -
         issues.append("No foundation-model variants with encoder_ckpt were configured.")
 
     if cfg.get("rarity_mode") in {"synthetic", "real"} or cfg.get("rarity"):
-        baseline = cfg.get("baseline_model") or cfg.get("rarity", {}).get("baseline_model")
+        baseline = cfg.get("baseline_model") or cfg.get("rarity", {}).get(
+            "baseline_model"
+        )
         if not baseline:
             issues.append("Rarity config is missing baseline_model.")
         elif baseline not in variants:
-            issues.append(f"Rarity baseline_model={baseline!r} is not in model_variants.")
+            issues.append(
+                f"Rarity baseline_model={baseline!r} is not in model_variants."
+            )
 
     for name, variant in variants.items():
         training_mode = variant.get("training_mode")
@@ -78,19 +81,27 @@ def check_sweep_config(config_path: str, require_existing_paths: bool = False) -
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
             )
         if training_mode == "cox" and variant.get("pos_weight") is not None:
-            issues.append(f"Variant {name!r} uses Cox training with pos_weight configured.")
+            issues.append(
+                f"Variant {name!r} uses Cox training with pos_weight configured."
+            )
         for key in ("encoder_ckpt", "results_file", "predictions_file"):
             value = variant.get(key)
             if not value:
                 continue
             if _looks_like_placeholder(str(value)):
-                issues.append(f"Variant {name!r} uses placeholder-looking {key}: {value}")
-            if require_existing_paths and "{" not in str(value) and not Path(value).exists():
+                issues.append(
+                    f"Variant {name!r} uses placeholder-looking {key}: {value}"
+                )
+            if (
+                require_existing_paths
+                and key != "encoder_ckpt"
+                and "{" not in str(value)
+                and not Path(value).exists()
+            ):
                 issues.append(f"Variant {name!r} {key} does not exist: {value}")
 
     has_ipcw_bce_variant = any(
-        variant.get("training_mode") == "ipcw_bce"
-        for variant in variants.values()
+        variant.get("training_mode") == "ipcw_bce" for variant in variants.values()
     )
     normalized_outcomes = normalize_outcome_config(cfg.get("outcomes") or {})
     if has_ipcw_bce_variant:
@@ -147,8 +158,14 @@ def check_sweep_config(config_path: str, require_existing_paths: bool = False) -
                                 str(Path(data_dir) / "population_full.csv"),
                             )
                         )
-                        if ipi_col and pop_path.exists() and "subject_id" in test_df.columns:
-                            population = pd.read_csv(pop_path, usecols=["subject_id", ipi_col])
+                        if (
+                            ipi_col
+                            and pop_path.exists()
+                            and "subject_id" in test_df.columns
+                        ):
+                            population = pd.read_csv(
+                                pop_path, usecols=["subject_id", ipi_col]
+                            )
                             merged = test_df[["subject_id"]].merge(
                                 population,
                                 on="subject_id",

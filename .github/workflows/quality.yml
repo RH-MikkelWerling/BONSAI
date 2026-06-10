@@ -1,0 +1,57 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BONSAI_CONFIG_PATH: ${{ github.workspace }}/configs
+  BONSAI_MODELS: ${{ github.workspace }}/.ci/models
+  BONSAI_PROCESSED_DATA: ${{ github.workspace }}/.ci/processed
+  BONSAI_PREDICTIONS: ${{ github.workspace }}/.ci/predictions
+  HYDRA_FULL_ERROR: "1"
+  MPLBACKEND: Agg
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements/constraints-ci.txt
+
+      - name: Install
+        run: python -m pip install -c requirements/constraints-ci.txt -e ".[dev]"
+
+      - name: Validate environment
+        run: |
+          python -m pip check
+          python -c "import bonsai, opera; print(bonsai.__version__, opera.__version__)"
+
+      - name: Compile
+        run: python -m compileall -q bonsai opera tests
+
+      - name: Lint
+        run: ruff check bonsai opera tests
+
+      - name: Format
+        run: ruff format --check bonsai opera tests
+
+      - name: Test with coverage
+        run: |
+          coverage run -m pytest tests -q
+          coverage report
+          coverage xml

@@ -48,7 +48,9 @@ def _spearman(x: pd.Series, y: pd.Series) -> tuple[float, float]:
         return float(rho), float("nan")
 
 
-def _required_paths(contrast: dict[str, Any], cohort: str, outcome: str) -> dict[str, str]:
+def _required_paths(
+    contrast: dict[str, Any], cohort: str, outcome: str
+) -> dict[str, str]:
     keys = [
         "baseline_predictions",
         "comparator_predictions",
@@ -111,9 +113,17 @@ def run_patient_benefit_analysis(
                 missing = _cell_missing(paths)
                 cell_dir = contrast_dir / cohort / outcome
                 if missing:
-                    LOGGER.warning("Skipping %s/%s/%s; missing %s", name, cohort, outcome, "; ".join(missing))
+                    LOGGER.warning(
+                        "Skipping %s/%s/%s; missing %s",
+                        name,
+                        cohort,
+                        outcome,
+                        "; ".join(missing),
+                    )
                     if dry_run:
-                        print(f"[DRY RUN] missing {name}/{cohort}/{outcome}: {'; '.join(missing)}")
+                        print(
+                            f"[DRY RUN] missing {name}/{cohort}/{outcome}: {'; '.join(missing)}"
+                        )
                     continue
                 if dry_run:
                     print(f"[DRY RUN] would run {name}/{cohort}/{outcome}")
@@ -129,7 +139,9 @@ def run_patient_benefit_analysis(
                     metadata[cohort_col] = cohort
                 if cohort_col not in embeddings.columns:
                     embeddings = embeddings.merge(
-                        metadata[[subject_col, cohort_col]].drop_duplicates(subject_col),
+                        metadata[[subject_col, cohort_col]].drop_duplicates(
+                            subject_col
+                        ),
                         on=subject_col,
                         how="left",
                     )
@@ -161,7 +173,9 @@ def run_patient_benefit_analysis(
                 atypicality.to_csv(cell_dir / "atypicality.csv", index=False)
                 pooled_transfer.append(transfer)
                 pooled_atypicality.append(atypicality)
-                pooled_embeddings.append(embeddings.assign(cohort=cohort, outcome=outcome))
+                pooled_embeddings.append(
+                    embeddings.assign(cohort=cohort, outcome=outcome)
+                )
 
         if dry_run or not pooled_transfer:
             continue
@@ -204,29 +218,43 @@ def run_patient_benefit_analysis(
             }
         )
         if contrast.get("primary", False):
-            primary_outputs.append((contrast, transfer_all, atypicality_all, embeddings_all))
+            primary_outputs.append(
+                (contrast, transfer_all, atypicality_all, embeddings_all)
+            )
 
         subject_col = contrast.get("subject_col", "subject_id")
         cohort_col = contrast.get("cohort_col", "cohort")
-        merge_keys = _identity_keys(transfer_all, atypicality_all, subject_col, cohort_col)
+        merge_keys = _identity_keys(
+            transfer_all, atypicality_all, subject_col, cohort_col
+        )
         merged = transfer_all.merge(
             atypicality_all,
             on=merge_keys,
             how="inner",
             suffixes=("", "_atyp"),
         )
-        rho_own, p_own = _spearman(merged.get("atypicality_own", pd.Series(dtype=float)), merged[contrast.get("gain_col", "brier_gain")])
-        rho_nearest, p_nearest = _spearman(merged.get("atypicality_nearest", pd.Series(dtype=float)), merged[contrast.get("gain_col", "brier_gain")])
+        rho_own, p_own = _spearman(
+            merged.get("atypicality_own", pd.Series(dtype=float)),
+            merged[contrast.get("gain_col", "brier_gain")],
+        )
+        rho_nearest, p_nearest = _spearman(
+            merged.get("atypicality_nearest", pd.Series(dtype=float)),
+            merged[contrast.get("gain_col", "brier_gain")],
+        )
         summary_rows.append(
             {
                 "contrast_name": name,
                 "n_patients": int(len(merged)),
-                "mean_brier_gain": float(merged[contrast.get("gain_col", "brier_gain")].mean()),
+                "mean_brier_gain": float(
+                    merged[contrast.get("gain_col", "brier_gain")].mean()
+                ),
                 "spearman_rho_own": rho_own,
                 "spearman_p_own": p_own,
                 "spearman_rho_nearest": rho_nearest,
                 "spearman_p_nearest": p_nearest,
-                "fraction_positive_gain": float((merged[contrast.get("gain_col", "brier_gain")] > 0).mean()),
+                "fraction_positive_gain": float(
+                    (merged[contrast.get("gain_col", "brier_gain")] > 0).mean()
+                ),
                 "n_cohorts": int(transfer_all["cohort"].nunique()),
                 "n_outcomes": int(transfer_all["outcome"].nunique()),
             }
@@ -241,7 +269,9 @@ def run_patient_benefit_analysis(
 
         plt.close(ladder)
     if not dry_run and primary_outputs:
-        for i, (contrast, transfer, atypicality, embeddings) in enumerate(primary_outputs):
+        for i, (contrast, transfer, atypicality, embeddings) in enumerate(
+            primary_outputs
+        ):
             path = output_dir / (
                 "main_figure_patient_benefit.pdf"
                 if i == 0
@@ -269,7 +299,9 @@ def run_patient_benefit_analysis(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run patient-level OPERA benefit analysis")
+    parser = argparse.ArgumentParser(
+        description="Run patient-level OPERA benefit analysis"
+    )
     parser.add_argument("--config", required=True)
     parser.add_argument("--contrast", default=None)
     parser.add_argument("--dry_run", action="store_true")
