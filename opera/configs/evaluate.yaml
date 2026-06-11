@@ -4,11 +4,13 @@ defaults:
 ckpt_path: ???
 dataset: ???
 outcome: ???
+outcome_name: null
 output_dir: ???
 model_family: null
 training_stage: evaluation
 encoder_frozen: null
 head_type: null
+max_len: null
 
 device: auto    # "cuda", "cpu", or "auto"
 batch_size: 64
@@ -23,6 +25,8 @@ paths:
   vocabulary: ${paths.dir}/vocabulary.pt
   population: ${paths.dir}/population_full.csv
   outcome: ${paths.dir}/outcomes/${outcome}.parquet
+  competing_outcome: null
+  eligibility: null
   subgroups: null
 
 subgroups:

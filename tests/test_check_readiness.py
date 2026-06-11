@@ -124,3 +124,51 @@ def test_check_readiness_validates_competing_outcome_paths(tmp_path):
     issues = check_sweep_config(str(path), require_existing_paths=True)
 
     assert any("competing outcome file does not exist" in issue for issue in issues)
+
+
+def test_check_readiness_uses_strict_shared_config_contract(tmp_path):
+    config = {
+        "cohorts": {
+            "dlbcl": {
+                "data_dir": "data/dlbcl",
+                "registry_start_dat": "2017-01-01",
+            }
+        },
+        "outcomes": {"mortality": {}},
+        "model_variants": {
+            "random": {"encoder_source": "random_init"},
+        },
+    }
+    path = tmp_path / "sweep.yaml"
+    path.write_text(yaml.safe_dump(config))
+
+    issues = check_sweep_config(str(path))
+
+    assert any("unknown fields" in issue for issue in issues)
+
+
+def test_check_readiness_validates_configured_eligibility_file(tmp_path):
+    data_dir = tmp_path / "data" / "dlbcl"
+    outcomes_dir = data_dir / "outcomes"
+    outcomes_dir.mkdir(parents=True)
+    (outcomes_dir / "mortality.parquet").write_text("placeholder")
+    (outcomes_dir / "mortality_eligibility.csv").write_text(
+        "subject_id,split,eligible,eligibility_reason\n1,held_out,false,\n"
+    )
+    config = {
+        "cohorts": {"dlbcl": {"data_dir": str(data_dir)}},
+        "outcomes": {
+            "mortality": {
+                "eligibility_file": "mortality_eligibility.csv",
+            }
+        },
+        "model_variants": {
+            "random": {"encoder_source": "random_init"},
+        },
+    }
+    path = tmp_path / "sweep.yaml"
+    path.write_text(yaml.safe_dump(config))
+
+    issues = check_sweep_config(str(path), require_existing_paths=True)
+
+    assert any("non-empty eligibility_reason" in issue for issue in issues)

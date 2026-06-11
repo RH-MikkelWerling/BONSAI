@@ -46,27 +46,41 @@ cohorts:
 # `outcome_file` points to the event-time parquet in each cohort's outcomes/ dir.
 # Multiple tasks can reuse the same source event file with different windows.
 # n_hours_end_include: null means open-ended (no upper window).
+# eligibility_file is an optional patient-level ascertainment audit. Confirmatory
+# runs should configure one for every outcome; see DATA_FORMAT.md.
+# An outcome-level registry_start_date overrides the cohort fallback. Explicit
+# null means no date restriction for that outcome.
 outcomes:
   mortality_1y:
     outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 8760       # 365 days
+    registry_start_date: null
+    eligibility_file: mortality_1y_eligibility.parquet
   mortality_2y:
     outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 17520      # 730 days
+    registry_start_date: null
+    eligibility_file: mortality_2y_eligibility.parquet
   treatment_failure:
     outcome_file: treatment_failure.parquet
     n_hours_start_include: 1
     n_hours_end_include: null       # open-ended
+    registry_start_date: null
+    eligibility_file: treatment_failure_eligibility.parquet
   aki_30d:
     outcome_file: aki.parquet
     n_hours_start_include: 1
     n_hours_end_include: 720        # 30 days
+    registry_start_date: null       # replace after the laboratory-source audit
+    eligibility_file: aki_30d_eligibility.parquet
   severe_infection_90d:
     outcome_file: severe_infection.parquet
     n_hours_start_include: 1
     n_hours_end_include: 2160       # 90 days
+    registry_start_date: null
+    eligibility_file: severe_infection_90d_eligibility.parquet
 
 # ── Model variants ────────────────────────────────────────────────────
 # Foundation model variants: need encoder_ckpt + encoder_source.
@@ -164,6 +178,7 @@ model_variants:
     encoder_ckpt: /ckpts/contrastive/best.ckpt
     encoder_source: contrastive
     training_mode: ipcw_bce
+    exclude_outcomes: [treatment_failure]
 
   mol:
     encoder_ckpt: /ckpts/mol/best.ckpt

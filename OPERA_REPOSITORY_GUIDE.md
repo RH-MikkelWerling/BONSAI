@@ -101,6 +101,33 @@ python -m bonsai.run.validate_splits \
 Finetuning entry points write `label_split_summary.csv` with subject retention,
 event counts, prevalence, and insufficient-follow-up exclusions.
 
+### Outcome-Specific Ascertainment
+
+Registry availability is an outcome-level property. A cohort-wide
+`registry_start_date` is only a fallback; an outcome may override it or set
+`registry_start_date: null` explicitly when that source has complete coverage.
+This prevents a laboratory coverage date from unnecessarily excluding patients
+from mortality or other broadly ascertainable endpoints.
+
+For patient-specific ascertainment, configure `eligibility_file` on each
+outcome. The sidecar contract is documented in `DATA_FORMAT.md`. Its final
+`eligible` value must come from a locked source/follow-up rule, not from whether
+the outcome-defining test or event happened to appear. Keep source coverage,
+baseline adequacy, post-index observability, follow-up, and observed event state
+as separate fields.
+
+Generate the auditable denominator table before a paper run:
+
+```bash
+python -m opera.run.summarize_cohort_flow \
+  --config opera/configs/sweep_example.yaml \
+  --output ./results/cohort_flow.csv
+```
+
+Readiness remains backward compatible with older configs, but
+`--require_existing_paths` validates every sidecar that is configured. The
+cohort-flow command is stricter and fails if any configured cell lacks one.
+
 ## Training Stages
 
 The canonical stage names are:
@@ -219,10 +246,11 @@ The core comparison should include:
 
 The example sweep config is `opera/configs/sweep_example.yaml`.
 
-The sweep runner crosses every configured cohort with every configured outcome
-task and model variant. To run beyond DLBCL/treatment failure, add the cohort
-directories and all endpoint tasks to the same config; the scripts will produce
-one output cell per cohort-outcome-model combination.
+The sweep runner crosses every configured cohort with every applicable outcome
+task and model variant. Variants may declare `include_outcomes` or
+`exclude_outcomes`; these filters are validated before execution and omitted
+cells are not counted as planned work. To run beyond DLBCL/treatment failure,
+add the cohort directories and all endpoint tasks to the same config.
 
 The foundation-model variants include both full outcome finetuning and frozen
 linear probes. Linear-probe variants set `model.freeze_encoder=true` and
@@ -524,6 +552,8 @@ Calibration and clinical utility are emitted during ordinary evaluation through
 Before launching the full experiment sweep:
 
 - Outcome parquet files exist for every cohort-outcome cell.
+- Outcome-specific eligibility sidecars exist for every confirmatory paper cell.
+- `cohort_flow.csv` has been generated and reviewed for unexpected exclusions.
 - Prospective split summaries have been generated and validated.
 - Validation/test follow-up rules match the paper protocol.
 - The model variants in `sweep_example.yaml` point to real checkpoints.

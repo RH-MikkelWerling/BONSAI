@@ -23,7 +23,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from opera.compat.bonsai import (
-    BonsaiFinetune,
+    BonsaiEncoder,
     FinetuneDataset,
     binarize_outcomes,
     dynamic_padding,
@@ -66,6 +66,22 @@ def checkpoint_training_mode(ckpt_path: str) -> str:
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     metadata = ckpt.get("hyper_parameters", {}).get("checkpoint_metadata", {})
     return metadata.get("training_mode", "bce")
+
+
+def extract_patient_embeddings(model, batch: dict) -> torch.Tensor:
+    """Return the pooled representation used by a supported prediction head."""
+    if hasattr(model, "pooled_embedding"):
+        return model.pooled_embedding(batch)
+    if hasattr(model, "cls"):
+        hidden = BonsaiEncoder.forward(model, batch)[0]
+        return model.cls(
+            hidden,
+            batch["attention_mask"],
+            return_embedding=True,
+        )
+    raise TypeError(
+        f"Cannot extract patient embeddings from model type {type(model).__name__}."
+    )
 
 
 def mark_probability_metrics_not_applicable(report: dict) -> None:
@@ -248,12 +264,16 @@ def main(cfg: DictConfig) -> None:
         )
 
     background_length = (test_data[0]["segment"] == 0).sum()
+    max_len = cfg.get("max_len")
+    if max_len is None:
+        max_len = model.config.max_position_embeddings
 
     test_dataset = FinetuneDataset(
         test_data,
         outcomes=all_test_outcomes,
         predict_token_id=vocab["[CLS]"],
         background_length=background_length,
+        max_len=int(max_len),
     )
 
     test_loader = DataLoader(
@@ -276,10 +296,7 @@ def main(cfg: DictConfig) -> None:
 
             logits = model(batch).squeeze(-1)
 
-            # Get embeddings (BiGRU pooled)
-            enc_out = BonsaiFinetune.__bases__[0].forward(model, batch)
-            hidden = enc_out[0]
-            emb = model.cls(hidden, batch["attention_mask"], return_embedding=True)
+            emb = extract_patient_embeddings(model, batch)
 
             all_sids.append(batch["subject_id"].cpu().numpy())
             all_labels.append(batch["target"].cpu().numpy().squeeze())
@@ -353,10 +370,10 @@ def main(cfg: DictConfig) -> None:
         if training_mode == "cox"
         else format_evaluation_summary(report)
     )
-    print(summary)
+    print(summary.encode("ascii", errors="replace").decode("ascii"))
 
     # Save text report
-    with open(output_dir / "evaluation_report.txt", "w") as f:
+    with open(output_dir / "evaluation_report.txt", "w", encoding="utf-8") as f:
         f.write(summary)
 
     # Save detailed results
@@ -391,7 +408,7 @@ def main(cfg: DictConfig) -> None:
         elif isinstance(v, np.ndarray):
             json_safe[k] = v.tolist()
     json_safe["result_metadata"] = result_row
-    with open(output_dir / "metrics.json", "w") as f:
+    with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(json_safe, f, indent=2, default=str)
 
     report["threshold_sweep"].to_csv(output_dir / "threshold_sweep.csv", index=False)

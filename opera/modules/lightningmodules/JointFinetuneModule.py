@@ -14,6 +14,7 @@ from transformers import get_linear_schedule_with_warmup
 from torchmetrics import AUROC, AveragePrecision
 from typing import Dict, List
 from bonsai.functional.checkpointing import (
+    MODEL_INIT_CONFIG_KEY,
     attach_checkpoint_metadata,
     attach_model_config,
 )
@@ -43,6 +44,12 @@ class JointFinetuneModule(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         attach_model_config(self, model)
+        self.hparams[MODEL_INIT_CONFIG_KEY] = {
+            "hidden_size": model.encoder.config.hidden_size,
+            "pooling": model.pooling,
+            "freeze_encoder": model.freeze_encoder,
+            "dropout": model.dropout.p,
+        }
         attach_checkpoint_metadata(self, checkpoint_metadata)
         self.model = model
         self.outcome_names = outcome_names
@@ -107,13 +114,18 @@ class JointFinetuneModule(L.LightningModule):
             try:
                 auroc = self.val_auroc[name].compute()
                 auprc = self.val_auprc[name].compute()
+                if not torch.isfinite(auroc):
+                    self.val_auroc[name].reset()
+                    self.val_auprc[name].reset()
+                    continue
                 self.log(f"val/auroc_{name}", auroc)
-                self.log(f"val/auprc_{name}", auprc)
+                if torch.isfinite(auprc):
+                    self.log(f"val/auprc_{name}", auprc)
                 aurocs.append(auroc)
                 self.val_auroc[name].reset()
                 self.val_auprc[name].reset()
-            except Exception:
-                pass  # metric may not have enough data for some outcomes
+            except (RuntimeError, ValueError):
+                continue
 
         # Macro-average AUROC — used as the primary monitor metric
         if aurocs:

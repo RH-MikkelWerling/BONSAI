@@ -61,8 +61,6 @@ output_dir: /results/sweep
 
 import argparse
 import json
-import os
-import re
 import subprocess
 import sys
 import time
@@ -70,30 +68,15 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-import yaml
 
+from opera.config_contracts import load_sweep_config, variant_applies_to_outcome
 from opera.evaluation.results_schema import build_result_row, write_result_artifacts
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_registry_eligible_outcomes,
+    resolve_registry_start_date,
 )
-
-
-def _expand_config_values(value):
-    """Recursively expand environment variables in YAML config values."""
-    if isinstance(value, str):
-        value = re.sub(
-            r"\$\{([^}]+)\}",
-            lambda match: os.environ.get(match.group(1), match.group(0)),
-            value,
-        )
-        return os.path.expandvars(value)
-    if isinstance(value, list):
-        return [_expand_config_values(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _expand_config_values(item) for key, item in value.items()}
-    return value
 
 
 def competing_outcome_path(data_dir: str, outcome_cfg: Dict) -> Optional[str]:
@@ -833,8 +816,7 @@ def run_sweep(
     overwrite: bool = False,
     fail_fast: bool = False,
 ):
-    with open(config_path) as f:
-        cfg = _expand_config_values(yaml.safe_load(f) or {})
+    cfg = load_sweep_config(config_path).to_mapping()
 
     output_dir = Path(cfg.get("output_dir", "./sweep_results"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -869,7 +851,13 @@ def run_sweep(
 
     all_results = []
     cell_status: list[dict] = []
-    total_cells = len(cohorts) * len(outcomes) * len(model_variants)
+    planned_variant_cells = sum(
+        1
+        for variant in model_variants.values()
+        for outcome_name in outcomes
+        if variant_applies_to_outcome(variant, outcome_name)
+    )
+    total_cells = len(cohorts) * planned_variant_cells
     cell_idx = 0
 
     print(
@@ -880,13 +868,16 @@ def run_sweep(
     for cohort_name, cohort_cfg in cohorts.items():
         data_dir = cohort_cfg["data_dir"]
         ipi_col = cohort_cfg.get("ipi_score_col")
-        registry_start_date = cohort_cfg.get("registry_start_date")
         pop_file = cohort_cfg.get(
             "population_file", str(Path(data_dir) / "population_full.csv")
         )
 
         # ── IPI baseline (one per cohort × outcome, not per variant) ──
         for outcome_name, outcome_cfg in outcomes.items():
+            registry_start_date = resolve_registry_start_date(
+                cohort_cfg,
+                outcome_cfg,
+            )
             outcome_parquet = outcome_file_path(data_dir, outcome_name, outcome_cfg)
             if dry_run:
                 print(
@@ -1070,6 +1061,8 @@ def run_sweep(
             result_variant = variant_cfg.get("model_family", variant_name)
             seed = variant_cfg.get("seed", cfg.get("seed", 42))
             for outcome_name, outcome_cfg in outcomes.items():
+                if not variant_applies_to_outcome(variant_cfg, outcome_name):
+                    continue
                 n_hours_start = outcome_cfg.get("n_hours_start_include", 1)
                 n_hours_end = outcome_cfg.get("n_hours_end_include")
                 competing_outcome = competing_outcome_path(data_dir, outcome_cfg)

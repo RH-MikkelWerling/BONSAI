@@ -10,6 +10,7 @@ import torch
 
 MODEL_CONFIG_KEY = "model_config"
 ENCODER_CONFIG_KEY = "encoder_config"
+MODEL_INIT_CONFIG_KEY = "model_init_config"
 
 
 def attach_model_config(module: Any, model: Any) -> None:
@@ -55,6 +56,7 @@ def save_checkpoint_metadata_sidecar(
         "model_class",
         MODEL_CONFIG_KEY,
         ENCODER_CONFIG_KEY,
+        MODEL_INIT_CONFIG_KEY,
         "checkpoint_metadata",
     ):
         if key in hparams:
@@ -80,14 +82,21 @@ def get_saved_encoder_config(hparams: dict) -> dict:
 
 
 def clean_lightning_state_dict(state_dict: dict) -> dict:
-    """Strip the Lightning 'model.' prefix from all state-dict keys."""
-    result = {}
-    for key, value in state_dict.items():
-        if key.startswith("model."):
-            result[key[len("model.") :]] = value
-        else:
-            result[key] = value
-    return result
+    """Extract a bare model state dict from a Lightning checkpoint.
+
+    Lightning modules commonly persist loss buffers and metric state beside
+    the wrapped model under keys such as ``train_loss.pos_weight``. When the
+    checkpoint contains ``model.*`` keys, only that namespace belongs to the
+    reconstructable network and all wrapper state must be excluded.
+
+    Bare state dictionaries without a ``model.`` namespace remain supported.
+    """
+    model_items = {
+        key[len("model.") :]: value
+        for key, value in state_dict.items()
+        if key.startswith("model.")
+    }
+    return model_items or dict(state_dict)
 
 
 def load_state_dict_checked(
@@ -182,11 +191,22 @@ def load_joint_model_from_checkpoint(
         )
     model_config = hparams[MODEL_CONFIG_KEY]
     outcome_names = list(hparams.get("outcome_names", []))
+    if not outcome_names:
+        raise ValueError(
+            f"Checkpoint {ckpt_path!r} is missing non-empty 'outcome_names'."
+        )
+    model_init_config = dict(hparams.get(MODEL_INIT_CONFIG_KEY, {}))
     encoder = BonsaiEncoder(ModernBertConfig(**model_config))
     model = JointFinetuneModel(
         encoder=encoder,
         outcome_names=outcome_names,
-        hidden_size=model_config.get("hidden_size", 768),
+        hidden_size=model_init_config.get(
+            "hidden_size",
+            model_config.get("hidden_size", 768),
+        ),
+        pooling=model_init_config.get("pooling", "bigru"),
+        freeze_encoder=model_init_config.get("freeze_encoder", False),
+        dropout=model_init_config.get("dropout", 0.1),
     )
     clean_state = clean_lightning_state_dict(ckpt["state_dict"])
     load_state_dict_checked(model, clean_state, strict=strict)

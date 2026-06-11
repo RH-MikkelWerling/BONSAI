@@ -210,6 +210,24 @@ python -m opera.run.check_readiness \
   --fail_on_issue
 ```
 
+For confirmatory runs, validate source paths and build the outcome-specific
+cohort-flow table:
+
+```bash
+python -m opera.run.check_readiness \
+  --config opera/configs/sweep_example.yaml \
+  --require_existing_paths \
+  --fail_on_issue
+
+python -m opera.run.summarize_cohort_flow \
+  --config opera/configs/sweep_example.yaml \
+  --output ./results/cohort_flow.csv
+```
+
+Eligibility sidecars are outcome-specific. They distinguish source coverage,
+baseline adequacy, post-index observability, follow-up, and final eligibility;
+unascertainable outcomes must not be encoded as negative labels.
+
 This writes:
 
 - `all_results.csv`

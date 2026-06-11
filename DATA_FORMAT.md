@@ -124,7 +124,76 @@ For censored patients (`outcome_date = NaT`), `censor_date` is the last known al
 
 ---
 
-## 5. Population CSV (`population_full.csv`)
+## 5. Outcome eligibility sidecars
+
+When outcome ascertainment differs by patient or outcome, write one eligibility
+sidecar per cohort-outcome cell. Do not encode an unascertainable outcome as a
+negative label.
+
+The sidecar may be CSV or parquet and must contain exactly one row per patient:
+
+| Column | Required | Description |
+|---|---|---|
+| `subject_id` | yes | Stable patient identifier. Duplicate rows are invalid. |
+| `split` | yes | `train`, `tuning`, or `held_out`. |
+| `eligible` | yes | Whether this outcome is ascertainable under the locked outcome-specific rule. |
+| `eligibility_reason` | yes | `eligible` or a specific primary exclusion reason. Ineligible rows may not have an empty reason. |
+| `source_covered` | no | Whether the relevant registry/source could observe the outcome at the prediction date. |
+| `baseline_adequate` | no | Whether required pre-index measurements exist, for definitions such as creatinine-change AKI. |
+| `post_index_adequate` | no | Whether the source remains observable over the endpoint's risk window. |
+| `followup_adequate` | no | Whether follow-up is sufficient for the endpoint definition. |
+| `outcome_observed` | no | Whether an outcome event was actually observed. This must not define source coverage. |
+
+The eligibility rule must be fixed before model fitting. In particular:
+
+- `eligible` means the event could have been ascertained, not that a clinician
+  ordered the outcome-defining test.
+- Absence of a laboratory result is not automatically a negative outcome.
+- Presence of the outcome-defining result must not be used to prove coverage;
+  that makes eligibility depend on the label.
+- Death before a laboratory endpoint is handled according to the endpoint's
+  declared censoring or competing-event rule. It is not automatically a
+  full-window negative.
+- AKI-like definitions should expose baseline adequacy separately from source
+  coverage and post-index follow-up.
+
+Configure a sidecar and, where appropriate, an outcome-specific coverage date:
+
+```yaml
+outcomes:
+  mortality_1y:
+    outcome_file: mortality.parquet
+    registry_start_date: null
+    eligibility_file: mortality_1y_eligibility.parquet
+  aki_30d:
+    outcome_file: aki.parquet
+    registry_start_date: "2017-01-01"
+    eligibility_file: aki_30d_eligibility.parquet
+```
+
+An explicitly configured `registry_start_date: null` disables a cohort-level
+fallback for that outcome. If the key is omitted, the cohort-level date is used.
+
+Validate configured sidecars during readiness checks and create a tidy
+cohort-flow artifact:
+
+```bash
+python -m opera.run.check_readiness \
+  --config opera/configs/sweep_example.yaml \
+  --require_existing_paths \
+  --fail_on_issue
+
+python -m opera.run.summarize_cohort_flow \
+  --config opera/configs/sweep_example.yaml \
+  --output ./results/cohort_flow.csv
+```
+
+The cohort-flow command is intentionally strict: every configured
+cohort-outcome cell must name an existing, valid sidecar.
+
+---
+
+## 6. Population CSV (`population_full.csv`)
 
 One row per patient. Used to filter subject data to a defined study population and to supply clinical score baselines (IPI etc.).
 
@@ -144,7 +213,7 @@ The population CSV should contain **all patients** across all splits. It is used
 
 ---
 
-## 6. Outcome config in `contrastive_multicohort.yaml` / `joint_finetune.yaml`
+## 7. Outcome config in `contrastive_multicohort.yaml` / `joint_finetune.yaml`
 
 ```yaml
 outcomes:
@@ -171,7 +240,7 @@ The per-outcome time scale for the contrastive loss is **auto-derived** from `n_
 
 ---
 
-## 7. Sweep config (`sweep_example.yaml`)
+## 8. Sweep config (`sweep_example.yaml`)
 
 ```yaml
 output_dir: /results/opera_sweep

@@ -4,10 +4,15 @@ from transformers import ModernBertConfig
 
 from bonsai.functional.checkpointing import (
     MODEL_CONFIG_KEY,
+    MODEL_INIT_CONFIG_KEY,
+    clean_lightning_state_dict,
     load_finetune_model_from_checkpoint,
+    load_joint_model_from_checkpoint,
     load_pretrained_encoder_checked,
 )
 from bonsai.modules.networks.bonsai_nets import BonsaiFinetune, BonsaiPretrain
+from opera.compat.bonsai import BonsaiEncoder
+from opera.modules.networks.joint_finetune_net import JointFinetuneModel
 
 
 def _small_config():
@@ -37,7 +42,12 @@ def test_finetune_checkpoint_reconstructs_exact_config_and_shapes(tmp_path):
                 "model_class": model.__class__.__name__,
             },
             "state_dict": {
-                f"model.{key}": value for key, value in model.state_dict().items()
+                **{
+                    f"model.{key}": value
+                    for key, value in model.state_dict().items()
+                },
+                "train_loss.pos_weight": torch.tensor([2.0]),
+                "val_loss.pos_weight": torch.tensor([2.0]),
             },
         },
         ckpt_path,
@@ -46,6 +56,60 @@ def test_finetune_checkpoint_reconstructs_exact_config_and_shapes(tmp_path):
     loaded = load_finetune_model_from_checkpoint(str(ckpt_path), strict=True)
 
     assert loaded.config.to_dict() == model.config.to_dict()
+    assert {key: tuple(value.shape) for key, value in loaded.state_dict().items()} == {
+        key: tuple(value.shape) for key, value in model.state_dict().items()
+    }
+
+
+def test_clean_lightning_state_dict_preserves_bare_state_dict():
+    state = {"encoder.weight": torch.ones(2, 2)}
+
+    cleaned = clean_lightning_state_dict(state)
+
+    assert set(cleaned) == {"encoder.weight"}
+
+
+def test_joint_checkpoint_reconstructs_saved_model_settings(tmp_path):
+    config = _small_config()
+    model = JointFinetuneModel(
+        encoder=BonsaiEncoder(config),
+        outcome_names=["aki_30d", "mortality_1y"],
+        hidden_size=config.hidden_size,
+        pooling="cls_last",
+        freeze_encoder=True,
+        dropout=0.25,
+    )
+    ckpt_path = tmp_path / "joint.ckpt"
+    torch.save(
+        {
+            "hyper_parameters": {
+                MODEL_CONFIG_KEY: config.to_dict(),
+                MODEL_INIT_CONFIG_KEY: {
+                    "hidden_size": config.hidden_size,
+                    "pooling": "cls_last",
+                    "freeze_encoder": True,
+                    "dropout": 0.25,
+                },
+                "model_class": model.__class__.__name__,
+                "outcome_names": model.outcome_names,
+            },
+            "state_dict": {
+                **{
+                    f"model.{key}": value
+                    for key, value in model.state_dict().items()
+                },
+                "val_auroc.aki_30d._update_count": torch.tensor(1),
+            },
+        },
+        ckpt_path,
+    )
+
+    loaded = load_joint_model_from_checkpoint(str(ckpt_path), strict=True)
+
+    assert loaded.outcome_names == model.outcome_names
+    assert loaded.pooling == "cls_last"
+    assert loaded.freeze_encoder is True
+    assert loaded.dropout.p == pytest.approx(0.25)
     assert {key: tuple(value.shape) for key, value in loaded.state_dict().items()} == {
         key: tuple(value.shape) for key, value in model.state_dict().items()
     }

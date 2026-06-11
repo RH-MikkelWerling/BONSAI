@@ -45,13 +45,23 @@ representations, with the largest benefit in small cohort-outcome cells.
    separated into `tabular`, `visualization`, `survival`, `retrieval`, and
    `tabpfn` extras. Transformers is constrained below the incompatible 5.x
    ModernBERT schema.
+9. **Sweep configuration could drift between readiness and execution.**
+   A shared dataclass-backed contract now validates cohorts, outcomes, variants,
+   seeds, rarity settings, unknown fields, and incompatible outcome/training
+   combinations before either path runs. Variant-specific outcome filters are
+   explicit and planned-cell counts now match executed work.
+10. **Outcome coverage and exclusion denominators were not auditable.**
+    Outcome-level registry-date overrides now preserve explicit null values.
+    Optional eligibility sidecars have a validated patient-level schema, and a
+    strict CLI produces tidy cohort-flow counts by split, criterion, final
+    eligibility, and exclusion reason.
 
 ## High-Priority Remaining Work
 
-1. **Typed orchestration is incomplete.**
-   `sweep.py` remains a large dictionary-driven runner. Introduce validated
-   cohort, outcome, variant, cell, and artifact dataclasses or Pydantic models,
-   reject unknown fields, and use one contract in readiness and execution.
+1. **Typed runtime orchestration is incomplete.**
+   Configuration now has one validated contract, but `sweep.py` remains a large
+   dictionary-driven runner. Introduce typed runtime cell/status/artifact
+   records and split command construction from execution and result ingestion.
 2. **The paper manifests are descriptive, not executable.**
    Either make them the canonical DAG consumed by the runner or explicitly
    generate them from the executable sweep contract. Two sources of truth
@@ -69,10 +79,11 @@ representations, with the largest benefit in small cohort-outcome cells.
    Primary endpoints, model contrasts, multiplicity families, seeds, minimum
    event thresholds, and exploratory/confirmatory status should be validated
    from one immutable analysis manifest.
-6. **Cohort-flow artifacts are incomplete.**
-   Generate per-cell inclusion/exclusion tables covering registry eligibility,
-   prediction-index eligibility, follow-up, missing features, competing events,
-   and final paired-comparison denominators.
+6. **Cohort-flow derivation is still upstream and partly procedural.**
+   The repository validates and summarizes outcome-specific eligibility
+   sidecars, but adverse-event creation must still generate the criterion flags.
+   Extend aggregation with missing-feature, competing-event, and final
+   paired-comparison denominators.
 7. **Large modules need decomposition.**
    `opera/run/sweep.py`, comparison/evaluation, retrieval, and visualization
    modules should be split along stable contracts. Refactor behind tests and

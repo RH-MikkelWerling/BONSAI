@@ -63,11 +63,19 @@ Preserve these repairs and advance beyond them:
 - the checked-in synthetic BONSAI lifecycle runs on CPU;
 - `.env` and generated LaTeX files are no longer tracked;
 - optional heavy research dependencies are separated into named extras;
-- Benjamini-Hochberg correction and configured event-grid failures are tested.
+- Benjamini-Hochberg correction and configured event-grid failures are tested;
+- readiness and sweep execution share a strict typed configuration contract;
+- variants can explicitly include or exclude outcomes, with truthful planned
+  cell counts;
+- outcome-level registry dates preserve explicit null overrides instead of
+  inheriting an unrelated cohort-wide date;
+- outcome eligibility sidecars are validated and can be aggregated into a
+  strict split-level cohort-flow artifact.
 
 Read `REPOSITORY_AUDIT.md` before editing. Prioritize its remaining
-high-severity findings, especially typed orchestration, manifest convergence,
-cohort-flow artifacts, and genuinely tiny end-to-end OPERA smoke coverage.
+high-severity findings, especially typed runtime cell/artifact records,
+manifest convergence, automatic eligibility derivation, final paired
+denominators, and genuinely tiny end-to-end OPERA smoke coverage.
 
 ## Phase 1: Restore one executable system
 

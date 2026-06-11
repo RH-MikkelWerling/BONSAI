@@ -105,6 +105,8 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
+        require_min_followup_train=True,
+        require_min_followup_val=True,
     )
 
     # ── Lightning module ─────────────────────────────────────────────

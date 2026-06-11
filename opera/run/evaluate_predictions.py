@@ -271,7 +271,7 @@ def main() -> None:
         survival_probabilities=survival_probabilities,
     )
     summary = format_evaluation_summary(report)
-    with open(output_dir / "evaluation_report.txt", "w") as f:
+    with open(output_dir / "evaluation_report.txt", "w", encoding="utf-8") as f:
         f.write(summary)
     report["threshold_sweep"].to_csv(output_dir / "threshold_sweep.csv", index=False)
     report["decision_curve"].to_csv(output_dir / "decision_curve.csv", index=False)
@@ -355,9 +355,9 @@ def main() -> None:
         if isinstance(payload, dict)
     }
     json_safe["result_metadata"] = row
-    with open(output_dir / "metrics.json", "w") as f:
+    with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(json_safe, f, indent=2, default=str)
-    print(summary)
+    print(summary.encode("ascii", errors="replace").decode("ascii"))
     print(f"Prediction evaluation complete: {output_dir}")
 
 

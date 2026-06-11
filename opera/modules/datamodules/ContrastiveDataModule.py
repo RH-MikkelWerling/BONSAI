@@ -205,6 +205,8 @@ class ContrastiveDataModule(L.LightningDataModule):
         predict_token_id: int,
         batch_size: int,
         num_workers: int,
+        require_min_followup_train: bool = False,
+        require_min_followup_val: bool = False,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -214,6 +216,8 @@ class ContrastiveDataModule(L.LightningDataModule):
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.require_min_followup_train = require_min_followup_train
+        self.require_min_followup_val = require_min_followup_val
         self.outcome_names = sorted(outcome_configs.keys())
 
     def _load_outcomes(self, split_key: str) -> Dict[str, Dict[int, dict]]:
@@ -244,6 +248,11 @@ class ContrastiveDataModule(L.LightningDataModule):
                 split_df,
                 n_hours_start_include=ocfg["n_hours_start_include"],
                 n_hours_end_include=ocfg.get("n_hours_end_include"),
+                require_min_followup=(
+                    self.require_min_followup_train
+                    if split_key == "train"
+                    else self.require_min_followup_val
+                ),
                 competing_event_df=competing_df,
             )
         return outcome_dicts

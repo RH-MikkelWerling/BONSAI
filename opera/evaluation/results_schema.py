@@ -243,6 +243,6 @@ def build_result_row(
 
 def write_result_artifacts(row: Dict[str, Any], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    with open(output_dir / "result.jsonl", "w") as f:
+    with open(output_dir / "result.jsonl", "w", encoding="utf-8") as f:
         f.write(json.dumps(row, default=str) + "\n")
     pd.DataFrame([row]).to_csv(output_dir / "result.csv", index=False)

@@ -3,13 +3,29 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import pandas as pd
 
 from bonsai.functional.features import compute_abspos
 
 LOGGER = logging.getLogger(__name__)
+
+
+def resolve_registry_start_date(
+    cohort_config: Mapping[str, Any],
+    outcome_config: Mapping[str, Any],
+) -> Optional[Any]:
+    """Resolve outcome coverage, allowing an explicit outcome-level exemption.
+
+    Outcome-level coverage takes precedence when the key is present. This
+    includes an explicit ``null``, which means the outcome is not restricted by
+    a cohort-level registry date. If the outcome omits the key, the cohort
+    default is used.
+    """
+    if "registry_start_date" in outcome_config:
+        return outcome_config.get("registry_start_date")
+    return cohort_config.get("registry_start_date")
 
 
 def _pandas_abspos(timestamps: pd.Series) -> pd.Series:

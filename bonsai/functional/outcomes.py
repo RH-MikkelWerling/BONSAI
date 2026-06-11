@@ -230,10 +230,17 @@ def _binarize_outcomes_pandas(
         )
 
         competing_date = competing_dates.get(subject_id)
+        competing_hours = None
+        if competing_date is not None:
+            competing_hours = (competing_date - index_date).total_seconds() / 3600.0
         competing_observed = (
             competing_date is not None
             and competing_date >= index_date
             and competing_date <= censor_date
+            and (
+                n_hours_end_include is None
+                or competing_hours <= n_hours_end_include
+            )
             and not (primary_in_window and pd.Timestamp(outcome_date) <= competing_date)
         )
 
@@ -249,6 +256,9 @@ def _binarize_outcomes_pandas(
             label = 0
             event = 0
             followup_date = censor_date
+            if n_hours_end_include is not None:
+                horizon_date = index_date + timedelta(hours=n_hours_end_include)
+                followup_date = min(followup_date, horizon_date)
 
         followup_hours = (followup_date - index_date).total_seconds() / 3600.0
         if (

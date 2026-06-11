@@ -7,19 +7,19 @@ rarity configs without a named baseline.
 """
 
 import argparse
-import os
-import re
 from pathlib import Path
 
+from opera.config_contracts import (
+    ConfigValidationError,
+    load_sweep_config,
+    variant_applies_to_outcome,
+)
+from opera.evaluation.cohort_flow import (
+    eligibility_file_path,
+    load_eligibility_frame,
+    validate_eligibility_frame,
+)
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
-
-try:
-    import yaml
-except ModuleNotFoundError as exc:  # pragma: no cover - exercised in bare envs.
-    raise SystemExit(
-        "PyYAML is required for readiness checks. Install the repo with "
-        '`python -m pip install -e ".[dev]"` first.'
-    ) from exc
 
 
 PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
@@ -29,27 +29,13 @@ def _looks_like_placeholder(value: str) -> bool:
     return value.startswith(PLACEHOLDER_PREFIXES)
 
 
-def _expand_config_values(value):
-    """Recursively expand environment variables in YAML config values."""
-    if isinstance(value, str):
-        value = re.sub(
-            r"\$\{([^}]+)\}",
-            lambda match: os.environ.get(match.group(1), match.group(0)),
-            value,
-        )
-        return os.path.expandvars(value)
-    if isinstance(value, list):
-        return [_expand_config_values(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _expand_config_values(item) for key, item in value.items()}
-    return value
-
-
 def check_sweep_config(
     config_path: str, require_existing_paths: bool = False
 ) -> list[str]:
-    with open(config_path) as f:
-        cfg = _expand_config_values(yaml.safe_load(f) or {})
+    try:
+        cfg = load_sweep_config(config_path).to_mapping()
+    except ConfigValidationError as exc:
+        return [f"Invalid sweep config: {issue}" for issue in exc.issues]
 
     issues: list[str] = []
     for key in ("cohorts", "outcomes", "model_variants"):
@@ -105,12 +91,18 @@ def check_sweep_config(
     )
     normalized_outcomes = normalize_outcome_config(cfg.get("outcomes") or {})
     if has_ipcw_bce_variant:
-        for outcome_name, outcome_cfg in normalized_outcomes.items():
-            if outcome_cfg.get("n_hours_end_include") is None:
-                issues.append(
-                    f"Outcome {outcome_name!r} has no n_hours_end_include; "
-                    "IPCW-BCE variants require a fixed horizon."
-                )
+        for variant_name, variant in variants.items():
+            if variant.get("training_mode") != "ipcw_bce":
+                continue
+            for outcome_name, outcome_cfg in normalized_outcomes.items():
+                if not variant_applies_to_outcome(variant, outcome_name):
+                    continue
+                if outcome_cfg.get("n_hours_end_include") is None:
+                    issues.append(
+                        f"Outcome {outcome_name!r} selected by variant "
+                        f"{variant_name!r} has no n_hours_end_include; "
+                        "IPCW-BCE variants require a fixed horizon."
+                    )
 
     for cohort, cohort_cfg in cfg.get("cohorts", {}).items():
         data_dir = cohort_cfg.get("data_dir")
@@ -191,6 +183,36 @@ def check_sweep_config(
                         print(
                             f"Could not inspect outcome data for {cohort!r}/"
                             f"{outcome_name!r}: {exc}"
+                        )
+                eligibility_path = eligibility_file_path(
+                    data_dir,
+                    cohort,
+                    outcome_name,
+                    outcome_cfg,
+                )
+                if eligibility_path is None:
+                    print(
+                        f"Cohort {cohort!r} outcome {outcome_name!r} has no "
+                        "eligibility_file; cohort-flow denominators cannot be audited."
+                    )
+                elif not eligibility_path.exists():
+                    issues.append(
+                        f"Cohort {cohort!r} outcome {outcome_name!r} eligibility "
+                        f"file does not exist: {eligibility_path}"
+                    )
+                else:
+                    try:
+                        eligibility = load_eligibility_frame(eligibility_path)
+                        eligibility_issues = validate_eligibility_frame(eligibility)
+                        issues.extend(
+                            f"Cohort {cohort!r} outcome {outcome_name!r} "
+                            f"eligibility file {issue}."
+                            for issue in eligibility_issues
+                        )
+                    except Exception as exc:
+                        issues.append(
+                            f"Could not inspect eligibility file for "
+                            f"{cohort!r}/{outcome_name!r}: {exc}"
                         )
                 competing_path = outcome_cfg.get("competing_outcome_path")
                 competing_file = outcome_cfg.get("competing_outcome_file")

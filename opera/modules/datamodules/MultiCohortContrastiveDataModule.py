@@ -45,6 +45,7 @@ from opera.compat.bonsai import filter_subject_data, binarize_outcomes
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_registry_eligible_outcomes,
+    resolve_registry_start_date,
 )
 
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
@@ -93,9 +94,7 @@ def compute_pooled_sorted_event_times(
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
                     df,
-                    cohort_cfg.get(
-                        "registry_start_date", ocfg.get("registry_start_date")
-                    ),
+                    resolve_registry_start_date(cohort_cfg, ocfg),
                     cohort=cohort_cfg.get("name"),
                     outcome_name=name,
                 )
@@ -148,9 +147,7 @@ def compute_pooled_event_time_probability_grids(
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
                     df,
-                    cohort_cfg.get(
-                        "registry_start_date", ocfg.get("registry_start_date")
-                    ),
+                    resolve_registry_start_date(cohort_cfg, ocfg),
                     cohort=cohort_cfg.get("name"),
                     outcome_name=name,
                 )
@@ -215,6 +212,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         predict_token_id: int,
         batch_size: int,
         num_workers: int,
+        require_min_followup_train: bool = False,
+        require_min_followup_val: bool = False,
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -222,6 +221,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.require_min_followup_train = require_min_followup_train
+        self.require_min_followup_val = require_min_followup_val
         self.outcome_names = sorted(outcome_configs.keys())
 
     # ── Internal helpers ──────────────────────────────────────────────
@@ -252,7 +253,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
                 df,
-                cohort_cfg.get("registry_start_date", ocfg.get("registry_start_date")),
+                resolve_registry_start_date(cohort_cfg, ocfg),
                 cohort=cohort_name,
                 outcome_name=name,
             )
@@ -275,6 +276,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 split_df,
                 n_hours_start_include=ocfg["n_hours_start_include"],
                 n_hours_end_include=ocfg.get("n_hours_end_include"),
+                require_min_followup=(
+                    self.require_min_followup_train
+                    if split_key == "train"
+                    else self.require_min_followup_val
+                ),
                 competing_event_df=competing_df,
             )
 

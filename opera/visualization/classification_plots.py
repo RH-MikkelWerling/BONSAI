@@ -57,7 +57,7 @@ def plot_roc_curve(
 
     color = color or PALETTE["opera"]
     fpr, tpr, _ = roc_curve(labels, probabilities)
-    auroc = float(np.trapz(tpr, fpr))
+    auroc = float(np.trapezoid(tpr, fpr))
 
     ci_str = ""
     if bootstrap_ci and "auroc" in bootstrap_ci:
@@ -96,7 +96,7 @@ def plot_roc_comparison(
 
     for (name, (labels, probs)), color in zip(results.items(), CATEGORICAL):
         fpr, tpr, _ = roc_curve(labels, probs)
-        auroc = float(np.trapz(tpr, fpr))
+        auroc = float(np.trapezoid(tpr, fpr))
         ci = bootstrap_cis.get(name, {}).get("auroc", {})
         ci_str = f" [{ci['lower']:.3f}–{ci['upper']:.3f}]" if ci else ""
         display = f"{name.replace('_', ' ').title()}  {auroc:.3f}{ci_str}"

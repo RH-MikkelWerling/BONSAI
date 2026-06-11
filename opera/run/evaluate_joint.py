@@ -147,12 +147,16 @@ def main(cfg: DictConfig) -> None:
             f"match loaded vocabulary size={len(vocab)} from {cfg.paths.vocabulary}."
         )
     background_length = int((test_data[0]["segment"] == 0).sum())
+    max_len = cfg.get("max_len")
+    if max_len is None:
+        max_len = model.encoder.config.max_position_embeddings
 
     test_dataset = FinetuneDataset(
         test_data,
         outcomes=all_test_outcomes,
         predict_token_id=vocab["[CLS]"],
         background_length=background_length,
+        max_len=int(max_len),
     )
     test_loader = DataLoader(
         test_dataset,
@@ -219,9 +223,9 @@ def main(cfg: DictConfig) -> None:
         time_horizons=time_horizons,
     )
     summary = format_evaluation_summary(report)
-    print(summary)
+    print(summary.encode("ascii", errors="replace").decode("ascii"))
 
-    with open(output_dir / "evaluation_report.txt", "w") as f:
+    with open(output_dir / "evaluation_report.txt", "w", encoding="utf-8") as f:
         f.write(summary)
 
     np.savez(
@@ -256,7 +260,7 @@ def main(cfg: DictConfig) -> None:
         elif isinstance(v, np.ndarray):
             json_safe[k] = v.tolist()
     json_safe["result_metadata"] = result_row
-    with open(output_dir / "metrics.json", "w") as f:
+    with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(json_safe, f, indent=2, default=str)
 
     report["threshold_sweep"].to_csv(output_dir / "threshold_sweep.csv", index=False)
