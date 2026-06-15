@@ -94,11 +94,15 @@ def main(cfg: DictConfig) -> None:
     outcome_names = sorted(outcome_configs.keys())
 
     cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
+    require_all_configured_cells = cfg.training.get(
+        "require_all_configured_cells", True
+    )
     outcome_sorted_event_times, outcome_event_time_probs = (
         compute_pooled_event_time_probability_grids(
             cohort_configs,
             outcome_configs,
             split="train",
+            require_all_configured_cells=require_all_configured_cells,
         )
     )
     print(
@@ -122,6 +126,10 @@ def main(cfg: DictConfig) -> None:
         effective_pair_normalization=cfg.model.get(
             "effective_pair_normalization", True
         ),
+        cross_outcome_config=OmegaConf.to_container(
+            cfg.get("cross_outcome", {}),
+            resolve=True,
+        ),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
@@ -134,6 +142,8 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
+        require_all_configured_cells=require_all_configured_cells,
+        max_len=encoder.config.max_position_embeddings,
     )
 
     # ── Lightning ──────────────────────────────────────────────────────

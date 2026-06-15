@@ -125,11 +125,18 @@ class JointFinetuneModule(L.LightningModule):
                 self.val_auroc[name].reset()
                 self.val_auprc[name].reset()
             except (RuntimeError, ValueError):
+                self.val_auroc[name].reset()
+                self.val_auprc[name].reset()
                 continue
 
         # Macro-average AUROC — used as the primary monitor metric
-        if aurocs:
-            self.log("val/auroc_macro", torch.stack(aurocs).mean(), prog_bar=True)
+        if not aurocs:
+            raise RuntimeError(
+                "No validation outcome produced a finite AUROC. Ensure at least "
+                "one configured outcome has both classes after eligibility and "
+                "minimum-follow-up filtering."
+            )
+        self.log("val/auroc_macro", torch.stack(aurocs).mean(), prog_bar=True)
 
     def configure_optimizers(self):
         lr = self.hparams.learning_rate

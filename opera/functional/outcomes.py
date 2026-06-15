@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Mapping, Optional
 
 import pandas as pd
@@ -86,6 +87,88 @@ def filter_registry_eligible_outcomes(
         start.date(),
         n_excluded,
         n_before,
+        len(filtered),
+    )
+    return filtered
+
+
+def filter_outcome_eligibility(
+    outcomes: pd.DataFrame,
+    eligibility: Optional[pd.DataFrame | str | Path],
+    *,
+    cohort: Optional[str] = None,
+    outcome_name: Optional[str] = None,
+) -> pd.DataFrame:
+    """Apply a patient-level outcome ascertainment sidecar.
+
+    The sidecar must satisfy the repository eligibility schema and contain an
+    entry for every row in the outcome frame. Rows marked ``eligible=false``
+    are excluded before binarization, giving multi-outcome datasets a genuine
+    per-patient, per-outcome missingness mask.
+    """
+    if eligibility is None or (
+        isinstance(eligibility, str) and eligibility in ("", "null")
+    ):
+        return outcomes.copy()
+
+    from opera.evaluation.cohort_flow import (
+        load_eligibility_frame,
+        validate_eligibility_frame,
+    )
+
+    frame = (
+        eligibility.copy()
+        if isinstance(eligibility, pd.DataFrame)
+        else load_eligibility_frame(eligibility)
+    )
+    issues = validate_eligibility_frame(frame)
+    if issues:
+        raise ValueError(
+            f"Invalid eligibility sidecar for {cohort or 'unknown'}/"
+            f"{outcome_name or 'unknown'}: {'; '.join(issues)}"
+        )
+    frame = frame.copy()
+    frame["eligible"] = frame["eligible"].map(
+        lambda value: (
+            value
+            if isinstance(value, bool)
+            else str(value).strip().lower() in {"1", "true", "yes"}
+        )
+    )
+
+    required = {"subject_id", "split"}
+    missing = required - set(outcomes.columns)
+    if missing:
+        raise ValueError(
+            "Outcome eligibility filtering requires columns: "
+            f"{sorted(required)}; missing {sorted(missing)}."
+        )
+
+    outcome_keys = outcomes[["subject_id", "split"]].copy()
+    eligibility_keys = frame[["subject_id", "split", "eligible"]].copy()
+    merged = outcome_keys.merge(
+        eligibility_keys,
+        on=["subject_id", "split"],
+        how="left",
+        validate="many_to_one",
+    )
+    missing_sidecar = merged["eligible"].isna()
+    if missing_sidecar.any():
+        examples = merged.loc[missing_sidecar, ["subject_id", "split"]].head(10)
+        raise ValueError(
+            f"Eligibility sidecar for {cohort or 'unknown'}/"
+            f"{outcome_name or 'unknown'} is missing {int(missing_sidecar.sum())} "
+            f"outcome rows; examples={examples.to_dict('records')}."
+        )
+
+    eligible_mask = merged["eligible"].astype(bool).to_numpy()
+    filtered = outcomes.loc[eligible_mask].copy()
+    LOGGER.info(
+        "outcome_eligibility_filter cohort=%s outcome=%s excluded=%s/%s retained=%s",
+        cohort or "unknown",
+        outcome_name or "unknown",
+        int((~eligible_mask).sum()),
+        len(outcomes),
         len(filtered),
     )
     return filtered

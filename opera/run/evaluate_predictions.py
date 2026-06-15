@@ -22,6 +22,7 @@ import pandas as pd
 from opera.compat.bonsai import binarize_outcomes
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
 )
 from opera.evaluation.metrics import (
@@ -53,6 +54,7 @@ def build_eval_frame(
     n_hours_end_include,
     require_min_followup: bool,
     competing_outcome_path: str = None,
+    eligibility_path: str = None,
     registry_start_date=None,
     cohort: str = None,
     outcome_name: str = None,
@@ -72,6 +74,12 @@ def build_eval_frame(
 
     outcomes = pd.read_parquet(outcome_path)
     outcomes = outcomes[outcomes["split"] == split].copy()
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        eligibility_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(
         outcomes,
@@ -128,12 +136,19 @@ def outcome_window_size_metadata(
     n_hours_start_include: int,
     n_hours_end_include,
     competing_outcome_path: str = None,
+    eligibility_path: str = None,
     registry_start_date=None,
     cohort: str = None,
     outcome_name: str = None,
 ) -> dict:
     """Compute split sizes/events for the same horizon used in evaluation."""
     outcomes = pd.read_parquet(outcome_path)
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        eligibility_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(
         outcomes,
@@ -210,6 +225,11 @@ def main() -> None:
         help="Optional path to competing-event (death) parquet for event=2 annotation",
     )
     parser.add_argument(
+        "--eligibility",
+        default=None,
+        help="Optional patient-level outcome eligibility CSV/parquet",
+    )
+    parser.add_argument(
         "--registry_start_date",
         default=None,
         help="Optional first date with reliable registry outcome coverage",
@@ -238,6 +258,7 @@ def main() -> None:
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=args.n_hours_end_include is not None,
         competing_outcome_path=args.competing_outcome,
+        eligibility_path=args.eligibility,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
         outcome_name=args.outcome_name,
@@ -306,6 +327,7 @@ def main() -> None:
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
         competing_outcome_path=args.competing_outcome,
+        eligibility_path=args.eligibility,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
         outcome_name=args.outcome_name,

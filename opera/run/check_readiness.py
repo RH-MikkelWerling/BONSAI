@@ -12,6 +12,7 @@ from pathlib import Path
 from opera.config_contracts import (
     ConfigValidationError,
     load_sweep_config,
+    validate_analysis_manifest,
     variant_applies_to_outcome,
 )
 from opera.evaluation.cohort_flow import (
@@ -20,6 +21,7 @@ from opera.evaluation.cohort_flow import (
     validate_eligibility_frame,
 )
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
+from opera.functional.outcomes import filter_outcome_eligibility
 
 
 PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
@@ -27,6 +29,10 @@ PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
 
 def _looks_like_placeholder(value: str) -> bool:
     return value.startswith(PLACEHOLDER_PREFIXES)
+
+
+def _has_unresolved_environment(value: str) -> bool:
+    return "${" in value
 
 
 def check_sweep_config(
@@ -48,6 +54,11 @@ def check_sweep_config(
 
     if not any("encoder_ckpt" in item for item in variants.values()):
         issues.append("No foundation-model variants with encoder_ckpt were configured.")
+    if _has_unresolved_environment(str(cfg.get("output_dir", ""))):
+        issues.append(
+            f"Sweep output_dir contains an unresolved environment variable: "
+            f"{cfg.get('output_dir')}"
+        )
 
     if cfg.get("rarity_mode") in {"synthetic", "real"} or cfg.get("rarity"):
         baseline = cfg.get("baseline_model") or cfg.get("rarity", {}).get(
@@ -78,10 +89,24 @@ def check_sweep_config(
                 issues.append(
                     f"Variant {name!r} uses placeholder-looking {key}: {value}"
                 )
+            if _has_unresolved_environment(str(value)):
+                issues.append(
+                    f"Variant {name!r} {key} contains an unresolved environment "
+                    f"variable: {value}"
+                )
             if (
                 require_existing_paths
                 and key != "encoder_ckpt"
                 and "{" not in str(value)
+                and not _has_unresolved_environment(str(value))
+                and not Path(value).exists()
+            ):
+                issues.append(f"Variant {name!r} {key} does not exist: {value}")
+            if (
+                require_existing_paths
+                and key == "encoder_ckpt"
+                and "{" not in str(value)
+                and not _has_unresolved_environment(str(value))
                 and not Path(value).exists()
             ):
                 issues.append(f"Variant {name!r} {key} does not exist: {value}")
@@ -108,6 +133,11 @@ def check_sweep_config(
         data_dir = cohort_cfg.get("data_dir")
         if not data_dir:
             issues.append(f"Cohort {cohort!r} is missing data_dir.")
+        elif _has_unresolved_environment(str(data_dir)):
+            issues.append(
+                f"Cohort {cohort!r} data_dir contains an unresolved environment "
+                f"variable: {data_dir}"
+            )
         elif require_existing_paths and not Path(data_dir).exists():
             issues.append(f"Cohort {cohort!r} data_dir does not exist: {data_dir}")
         if cohort_cfg.get("registry_start_date") in (None, "", "null"):
@@ -126,6 +156,7 @@ def check_sweep_config(
                         f"does not exist: {outcome_path}"
                     )
                 else:
+                    outcome_df = None
                     try:
                         import pandas as pd
 
@@ -209,6 +240,13 @@ def check_sweep_config(
                             f"eligibility file {issue}."
                             for issue in eligibility_issues
                         )
+                        if outcome_df is not None and not eligibility_issues:
+                            filter_outcome_eligibility(
+                                outcome_df,
+                                eligibility,
+                                cohort=cohort,
+                                outcome_name=outcome_name,
+                            )
                     except Exception as exc:
                         issues.append(
                             f"Could not inspect eligibility file for "
@@ -224,11 +262,36 @@ def check_sweep_config(
                         f"outcome file does not exist: {competing_path}"
                     )
                 for variant_name, variant in variants.items():
+                    checkpoint_template = variant.get("encoder_ckpt")
+                    if (
+                        checkpoint_template
+                        and "{" in str(checkpoint_template)
+                        and not _has_unresolved_environment(str(checkpoint_template))
+                    ):
+                        cohort_training = cohort_cfg.get("training_cohort", cohort)
+                        checkpoint_path = Path(
+                            str(checkpoint_template).format(
+                                cohort=cohort,
+                                outcome=outcome_name,
+                                seed=cfg.get("seeds", [42])[0],
+                                training_cohort=cohort_training,
+                            )
+                        )
+                        if not checkpoint_path.exists():
+                            issues.append(
+                                f"Variant {variant_name!r} encoder_ckpt does not "
+                                f"exist: {checkpoint_path}"
+                            )
                     template = variant.get("predictions_file")
                     if not template:
                         continue
+                    cohort_training = cohort_cfg.get("training_cohort", cohort)
                     pred_path = Path(
-                        str(template).format(cohort=cohort, outcome=outcome_name)
+                        str(template).format(
+                            cohort=cohort,
+                            outcome=outcome_name,
+                            training_cohort=cohort_training,
+                        )
                     )
                     if not pred_path.exists():
                         issues.append(
@@ -278,9 +341,89 @@ def check_sweep_config(
     return issues
 
 
+def check_manifest_consistency(
+    manifest_path: str | Path,
+    sweep_config_path: str | Path,
+) -> list[str]:
+    """Cross-check the analysis manifest against a sweep config.
+
+    Returns a list of human-readable issue strings. Empty list means consistent.
+
+    Checks:
+    1. Every outcome in manifest.primary_endpoints exists in the sweep outcomes block.
+    2. Every model name appearing in manifest.primary_contrasts exists in model_variants.
+    3. manifest.seeds is a subset of the sweep config seeds (or equal).
+    4. manifest.min_events.test is a positive integer.
+    """
+    try:
+        manifest = validate_analysis_manifest(manifest_path)
+    except ConfigValidationError as exc:
+        return [f"Invalid analysis manifest: {issue}" for issue in exc.issues]
+
+    issues: list[str] = []
+
+    try:
+        cfg = load_sweep_config(sweep_config_path).to_mapping()
+    except ConfigValidationError as exc:
+        return [f"Invalid sweep config: {issue}" for issue in exc.issues]
+
+    sweep_outcomes = set(normalize_outcome_config(cfg.get("outcomes") or {}))
+    sweep_variants = set(cfg.get("model_variants") or {})
+    sweep_seeds = cfg.get("seeds")
+
+    # Check 1: primary endpoints exist in sweep outcomes.
+    primary_endpoints = manifest.get("primary_endpoints")
+    if isinstance(primary_endpoints, list):
+        for endpoint in primary_endpoints:
+            if endpoint not in sweep_outcomes:
+                issues.append(
+                    f"Manifest primary_endpoint {endpoint!r} is not present in the "
+                    f"sweep outcomes block."
+                )
+
+    # Check 2: every model in primary_contrasts exists in model_variants.
+    primary_contrasts = manifest.get("primary_contrasts")
+    if isinstance(primary_contrasts, list):
+        contrast_models: list[str] = []
+        for pair in primary_contrasts:
+            if isinstance(pair, (list, tuple)):
+                contrast_models.extend(
+                    model for model in pair if isinstance(model, str)
+                )
+        for model in dict.fromkeys(contrast_models):
+            if model not in sweep_variants:
+                issues.append(
+                    f"Manifest primary_contrasts references model {model!r} that is "
+                    f"not in the sweep model_variants block."
+                )
+
+    # Check 3: manifest seeds are a subset of (or equal to) the sweep seeds.
+    manifest_seeds = manifest.get("seeds")
+    if isinstance(manifest_seeds, list) and isinstance(sweep_seeds, list):
+        extra_seeds = [seed for seed in manifest_seeds if seed not in set(sweep_seeds)]
+        if extra_seeds:
+            issues.append(
+                f"Manifest seeds {sorted(extra_seeds)} are not present in the sweep "
+                f"config seeds {sorted(sweep_seeds)}."
+            )
+
+    # Check 4: min_events.test is a positive integer.
+    min_events = manifest.get("min_events")
+    if isinstance(min_events, dict) and "test" in min_events:
+        test_min = min_events.get("test")
+        if isinstance(test_min, bool) or not isinstance(test_min, int) or test_min < 1:
+            issues.append(
+                f"Manifest min_events.test must be a positive integer, got "
+                f"{test_min!r}."
+            )
+
+    return issues
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check OPERA sweep readiness")
     parser.add_argument("--config", required=True)
+    parser.add_argument("--manifest", default=None)
     parser.add_argument("--require_existing_paths", action="store_true")
     parser.add_argument("--fail_on_issue", action="store_true")
     args = parser.parse_args()
@@ -297,6 +440,18 @@ def main() -> None:
             raise SystemExit(1)
     else:
         print("Readiness check passed.")
+
+    if args.manifest and Path(args.manifest).exists():
+        manifest_issues = check_manifest_consistency(args.manifest, args.config)
+        if manifest_issues:
+            print(f"Manifest consistency check: {len(manifest_issues)} issues found.")
+            for issue in manifest_issues:
+                print(f"  - {issue}")
+            issues.extend(manifest_issues)
+            if args.fail_on_issue:
+                raise SystemExit(1)
+        else:
+            print("Manifest consistency check passed.")
 
 
 if __name__ == "__main__":

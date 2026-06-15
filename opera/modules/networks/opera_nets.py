@@ -19,11 +19,23 @@ NOTE: The projection dimension (default 128) and the number / identity of
 outcomes are the main knobs to tune.  Search for "# TUNE:" comments below.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.modules.networks.cross_outcome_weighters import (
+    KendallWeighter,
+    build_cross_outcome_weighter,
+)
+
+
+def outcome_eligibility_mask(
+    times: torch.Tensor,
+    events: torch.Tensor,
+) -> torch.Tensor:
+    """Return rows with observable time and event values."""
+    return (times >= 0) & (events >= 0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -424,7 +436,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         return loss
 
 
-class MultiOutcomeSurvivalLoss(nn.Module):
+class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
     """
     Aggregates per-outcome survival-soft-contrastive losses using learnable
     log-variance (Kendall et al. 2018):
@@ -634,6 +646,233 @@ class MultiOutcomeSurvivalLoss(nn.Module):
 # Keep the old binary loss available for ablations / unit tests.
 
 
+class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
+    """Survival contrastive loss with pluggable cross-outcome aggregation.
+
+    Direct construction without ``cross_outcome_config`` preserves the legacy
+    Kendall plus pooled behavior. New training configs can select uniform or
+    FAMO weighting explicitly.
+    """
+
+    def __init__(
+        self,
+        outcome_names: List[str],
+        temperature: float = 0.07,
+        outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
+        dapt_lambda_floor: float = 0.3,
+        outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
+        competing_event_weight: float = 0.0,
+        effective_pair_normalization: bool = True,
+        cross_outcome_config: Optional[Mapping[str, object]] = None,
+    ):
+        super().__init__(
+            outcome_names=outcome_names,
+            temperature=temperature,
+            outcome_sorted_event_times=outcome_sorted_event_times,
+            dapt_lambda_floor=dapt_lambda_floor,
+            outcome_event_time_probs=outcome_event_time_probs,
+            competing_event_weight=competing_event_weight,
+            effective_pair_normalization=effective_pair_normalization,
+        )
+        del self.log_sigma
+        (
+            self.weighter,
+            self.aggregation,
+            class_balance_factors,
+        ) = build_cross_outcome_weighter(outcome_names, cross_outcome_config)
+        self.register_buffer(
+            "class_balance_factors",
+            class_balance_factors,
+            persistent=False,
+        )
+
+    @property
+    def log_sigma(self) -> torch.Tensor:
+        """Expose the legacy Kendall parameter for analysis utilities."""
+        if not isinstance(self.weighter, KendallWeighter):
+            raise AttributeError("log_sigma is only available with Kendall weighting.")
+        return self.weighter.log_sigma
+
+    @log_sigma.deleter
+    def log_sigma(self) -> None:
+        self._parameters.pop("log_sigma", None)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        old_key = f"{prefix}log_sigma"
+        new_key = f"{prefix}weighter.log_sigma"
+        if (
+            isinstance(self.weighter, KendallWeighter)
+            and old_key in state_dict
+            and new_key not in state_dict
+        ):
+            state_dict[new_key] = state_dict.pop(old_key)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+
+    def compute_per_outcome_losses(
+        self,
+        embeddings: torch.Tensor,
+        outcome_survival: Dict[str, Dict[str, torch.Tensor]],
+        subject_ids: Optional[torch.Tensor] = None,
+        dapt_embedding_store: Optional[Dict] = None,
+    ) -> tuple[Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]:
+        """Return differentiable outcome terms before final aggregation."""
+        device = embeddings.device
+        terms: Dict[str, Dict[str, torch.Tensor]] = {}
+        log_dict: Dict[str, torch.Tensor] = {}
+
+        dapt_weights = None
+        dapt_known_mask = None
+        if subject_ids is not None and dapt_embedding_store is not None:
+            dapt_weights, dapt_known_mask = self._compute_dapt_weights(
+                subject_ids,
+                dapt_embedding_store,
+            )
+            if dapt_weights is not None:
+                dapt_weights = dapt_weights.to(device)
+                log_dict["dapt/weight_mean"] = dapt_weights.mean().detach()
+                log_dict["dapt/weight_std"] = dapt_weights.std(unbiased=False).detach()
+                log_dict["dapt/weight_min"] = dapt_weights.min().detach()
+                log_dict["dapt/weight_max"] = dapt_weights.max().detach()
+                if dapt_known_mask is not None:
+                    log_dict["dapt/coverage"] = dapt_known_mask.float().mean().detach()
+
+        for name in self.outcome_names:
+            survival = outcome_survival.get(name, {})
+            times = survival.get("times")
+            events = survival.get("events")
+            if times is None or events is None:
+                continue
+
+            valid_mask = outcome_eligibility_mask(times, events)
+            log_dict[f"n_valid/{name}"] = valid_mask.sum().float().detach()
+            if int(valid_mask.sum().item()) < 2:
+                continue
+
+            valid_indices = torch.where(valid_mask)[0]
+            outcome_dapt_weights = None
+            if dapt_weights is not None:
+                outcome_dapt_weights = dapt_weights[valid_indices][:, valid_indices]
+
+            sorted_event_times = self.outcome_sorted_event_times.get(name)
+            if sorted_event_times is None:
+                raise ValueError(
+                    f"No sorted_event_times provided for outcome {name!r}. "
+                    "Pass outcome_sorted_event_times to MultiOutcomeSurvivalLoss."
+                )
+            loss, diagnostics = self.survival_con(
+                embeddings[valid_mask],
+                times[valid_mask],
+                events[valid_mask],
+                sorted_event_times=sorted_event_times,
+                event_time_probs=self.outcome_event_time_probs.get(name),
+                dapt_weights=outcome_dapt_weights,
+                return_diagnostics=True,
+            )
+
+            n_effective_pairs = diagnostics["n_effective_pairs"].to(device)
+            n_valid = int(valid_mask.sum().item())
+            max_pairs = max(float(n_valid * (n_valid - 1)), 1.0)
+            effective_pair_fraction = (n_effective_pairs / max_pairs).clamp(1e-6, 1.0)
+            aggregation_loss = (
+                loss * torch.sqrt(effective_pair_fraction)
+                if self.effective_pair_normalization
+                else loss
+            )
+            terms[name] = {
+                "loss": loss,
+                "aggregation_loss": aggregation_loss,
+                "valid_mask": valid_mask,
+                "n_effective_pairs": n_effective_pairs,
+                "effective_pair_fraction": effective_pair_fraction,
+            }
+            log_dict[f"loss/{name}"] = loss.detach()
+            log_dict[f"loss_sigma_input/{name}"] = aggregation_loss.detach()
+            log_dict[f"n_effective_pairs/{name}"] = n_effective_pairs.detach()
+            log_dict[f"effective_pair_fraction/{name}"] = (
+                effective_pair_fraction.detach()
+            )
+        return terms, log_dict
+
+    def forward(
+        self,
+        embeddings: torch.Tensor,
+        outcome_survival: Dict[str, Dict[str, torch.Tensor]],
+        subject_ids: Optional[torch.Tensor] = None,
+        dapt_embedding_store: Optional[Dict] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute and aggregate all informative outcome losses in the batch."""
+        terms, log_dict = self.compute_per_outcome_losses(
+            embeddings,
+            outcome_survival,
+            subject_ids=subject_ids,
+            dapt_embedding_store=dapt_embedding_store,
+        )
+        device = embeddings.device
+        per_outcome_losses = torch.full(
+            (self.n_outcomes,),
+            float("nan"),
+            device=device,
+            dtype=embeddings.dtype,
+        )
+
+        for index, name in enumerate(self.outcome_names):
+            term = terms.get(name)
+            if term is None:
+                continue
+            if float(term["n_effective_pairs"].detach().item()) <= 0.0:
+                continue
+            factor = self.class_balance_factors[index].to(
+                device=device,
+                dtype=embeddings.dtype,
+            )
+            per_outcome_losses[index] = term["aggregation_loss"] * factor
+            log_dict[f"class_balance_factor/{name}"] = factor.detach()
+
+        active_mask = torch.isfinite(per_outcome_losses)
+        outcome_weights = self.weighter.weights(per_outcome_losses)
+        finite_losses = torch.where(
+            active_mask,
+            per_outcome_losses,
+            torch.zeros_like(per_outcome_losses),
+        )
+
+        if active_mask.any():
+            total_loss = torch.sum(outcome_weights * finite_losses)
+            total_loss = total_loss + self.weighter.regularizer(active_mask)
+            if self.aggregation == "macro":
+                total_loss = total_loss / active_mask.sum().to(total_loss.dtype)
+        else:
+            total_loss = embeddings.sum() * 0.0
+
+        for index, name in enumerate(self.outcome_names):
+            log_dict[f"cross_outcome_weight/{name}"] = outcome_weights[index].detach()
+            if isinstance(self.weighter, KendallWeighter):
+                log_dict[f"sigma/{name}"] = torch.exp(
+                    self.weighter.log_sigma[index]
+                ).detach()
+                log_dict[f"precision/{name}"] = outcome_weights[index].detach()
+
+        log_dict["loss"] = total_loss
+        return log_dict
+
+
 class SupervisedContrastiveLoss(nn.Module):
     """Binary SupCon loss — kept for ablation experiments."""
 
@@ -736,6 +975,7 @@ class OperaContrastiveModel(nn.Module):
         dapt_anchor_weight: float = 0.0,
         competing_event_weight: float = 0.0,
         effective_pair_normalization: bool = True,
+        cross_outcome_config: Optional[Mapping[str, object]] = None,
         freeze_encoder: bool = False,
         pooling: str = "cls_last",
         dapt_embedding_store: Optional[Dict] = None,
@@ -745,6 +985,19 @@ class OperaContrastiveModel(nn.Module):
         self.freeze_encoder = freeze_encoder
         self.dapt_embedding_store = dapt_embedding_store  # {subject_id: tensor}
         self.dapt_anchor_weight = dapt_anchor_weight
+        self.model_init_config = {
+            "hidden_size": hidden_size,
+            "projection_hidden_dim": projection_hidden_dim,
+            "projection_dim": projection_dim,
+            "temperature": temperature,
+            "dapt_lambda_floor": dapt_lambda_floor,
+            "dapt_anchor_weight": dapt_anchor_weight,
+            "competing_event_weight": competing_event_weight,
+            "effective_pair_normalization": effective_pair_normalization,
+            "cross_outcome_config": dict(cross_outcome_config or {}),
+            "freeze_encoder": freeze_encoder,
+            "pooling": pooling,
+        }
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -768,6 +1021,7 @@ class OperaContrastiveModel(nn.Module):
             dapt_lambda_floor=dapt_lambda_floor,
             competing_event_weight=competing_event_weight,
             effective_pair_normalization=effective_pair_normalization,
+            cross_outcome_config=cross_outcome_config,
         )
 
     def _pool(

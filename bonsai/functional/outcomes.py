@@ -237,10 +237,8 @@ def _binarize_outcomes_pandas(
             competing_date is not None
             and competing_date >= index_date
             and competing_date <= censor_date
-            and (
-                n_hours_end_include is None
-                or competing_hours <= n_hours_end_include
-            )
+            and competing_hours >= n_hours_start_include
+            and (n_hours_end_include is None or competing_hours <= n_hours_end_include)
             and not (primary_in_window and pd.Timestamp(outcome_date) <= competing_date)
         )
 

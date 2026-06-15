@@ -4,12 +4,17 @@ import pytest
 
 from opera.evaluation.aggregation import (
     add_task_size_bins,
+    build_consort_table,
     build_joint_vs_per_cohort_table,
     build_delta_vs_baseline_table,
     build_wide_metric_table,
+    check_competing_event_denominator_consistency,
+    collect_label_split_summaries,
     collect_result_rows,
     compute_model_delta_table,
+    compute_paired_denominators,
     filter_results_for_paper_aggregates,
+    validate_result_rows_denominators,
     mark_rare_cohort_stability,
     split_rarity_delta_tables,
     summarize_by_model,
@@ -345,3 +350,253 @@ def test_paper_aggregate_filter_can_build_ipi_credibility_subset():
     )
 
     assert filtered["model_family"].tolist() == ["ipi", "opera"]
+
+
+def test_duplicate_result_keys_are_strict_aggregation_errors():
+    pd = pytest.importorskip("pandas")
+    row = {
+        "cohort": "dlbcl",
+        "outcome": "mortality_1y",
+        "split": "held_out",
+        "seed": 42,
+        "training_fraction": 1.0,
+        "rarity_mode": "none",
+        "evaluation_subset": "full",
+        "model_family": "opera",
+        "auroc": 0.8,
+    }
+
+    issues = validate_compatible_result_rows(pd.DataFrame([row, row]))
+    duplicate = issues[issues["category"] == "duplicate_result_keys"].iloc[0]
+
+    assert duplicate["severity"] == "error"
+
+
+def _paired_denominator_rows(pd, n_totals):
+    return pd.DataFrame(
+        [
+            {
+                "cohort": "dlbcl",
+                "outcome": "mortality",
+                "evaluation_subset": "full",
+                "model_family": family,
+                "auroc": 0.7,
+                "n_total": n_total,
+            }
+            for family, n_total in n_totals.items()
+        ]
+    )
+
+
+def test_compute_paired_denominators_consistent():
+    pd = pytest.importorskip("pandas")
+    rows = _paired_denominator_rows(
+        pd,
+        {"baseline": 200, "opera": 200, "joint": 200},
+    )
+
+    summary = compute_paired_denominators(rows)
+
+    assert len(summary) == 1
+    cell = summary.iloc[0]
+    assert cell["n_variants"] == 3
+    assert cell["n_total_min"] == 200
+    assert cell["n_total_max"] == 200
+    assert cell["n_total_cv"] == 0.0
+    assert bool(cell["mismatch_flag"]) is False
+
+
+def test_compute_paired_denominators_mismatch():
+    pd = pytest.importorskip("pandas")
+    rows = _paired_denominator_rows(
+        pd,
+        {"baseline": 200, "opera": 260, "joint": 200},
+    )
+
+    summary = compute_paired_denominators(rows)
+
+    assert len(summary) == 1
+    cell = summary.iloc[0]
+    assert cell["n_total_min"] == 200
+    assert cell["n_total_max"] == 260
+    assert cell["n_total_cv"] > 0.05
+    assert bool(cell["mismatch_flag"]) is True
+
+
+def test_compute_paired_denominators_raises():
+    pd = pytest.importorskip("pandas")
+    rows = _paired_denominator_rows(
+        pd,
+        {"baseline": 200, "opera": 260},
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        compute_paired_denominators(rows, raise_on_mismatch=True)
+
+    message = str(excinfo.value)
+    assert "dlbcl" in message
+    assert "mortality" in message
+    assert "full" in message
+
+
+def test_compute_paired_denominators_nan_n_total():
+    pd = pytest.importorskip("pandas")
+    rows = _paired_denominator_rows(
+        pd,
+        {"baseline": 200, "opera": None, "joint": 200},
+    )
+
+    summary = compute_paired_denominators(rows)
+
+    assert len(summary) == 1
+    cell = summary.iloc[0]
+    assert cell["n_variants"] == 2
+    assert cell["n_total_cv"] == 0.0
+    assert bool(cell["mismatch_flag"]) is False
+
+
+def test_validate_result_rows_denominators_returns_empty_on_clean_data():
+    pd = pytest.importorskip("pandas")
+    rows = _paired_denominator_rows(
+        pd,
+        {"baseline": 200, "opera": 200, "joint": 200},
+    )
+
+    assert validate_result_rows_denominators(rows) == []
+
+
+def _write_label_split_summary(pd, path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def _label_split_row(
+    split,
+    *,
+    cohort="dlbcl",
+    outcome="mortality",
+    n_subjects=100,
+    n_labelled=90,
+    n_positive=30,
+    n_negative=55,
+    n_insufficient_followup=5,
+):
+    return {
+        "split": split,
+        "n_subjects": n_subjects,
+        "n_labelled": n_labelled,
+        "n_positive": n_positive,
+        "n_negative": n_negative,
+        "n_insufficient_followup": n_insufficient_followup,
+        "prevalence": n_positive / n_labelled,
+        "outcome": outcome,
+        "cohort": cohort,
+    }
+
+
+def test_collect_label_split_summaries_empty_dir(tmp_path):
+    collected = collect_label_split_summaries(tmp_path)
+
+    assert collected.empty
+
+
+def test_collect_label_split_summaries_finds_nested_csvs(tmp_path):
+    pd = pytest.importorskip("pandas")
+    _write_label_split_summary(
+        pd,
+        tmp_path / "variant_a" / "label_split_summary.csv",
+        [_label_split_row("train"), _label_split_row("held_out")],
+    )
+    _write_label_split_summary(
+        pd,
+        tmp_path / "variant_b" / "nested" / "label_split_summary.csv",
+        [_label_split_row("train"), _label_split_row("held_out")],
+    )
+
+    collected = collect_label_split_summaries(tmp_path)
+
+    assert len(collected) == 4
+    assert "cell_dir" in collected.columns
+    assert collected["cell_dir"].nunique() == 2
+
+
+def test_build_consort_table_empty_input():
+    pd = pytest.importorskip("pandas")
+
+    table = build_consort_table(pd.DataFrame())
+
+    assert table.empty
+
+
+def test_build_consort_table_basic_structure():
+    pd = pytest.importorskip("pandas")
+    splits = ["train", "val", "held_out"]
+    outcomes = ["mortality", "relapse"]
+    variants = ["variant_a", "variant_b"]
+    rows = []
+    for variant in variants:
+        for outcome in outcomes:
+            for split in splits:
+                row = _label_split_row(split, outcome=outcome)
+                row["model_family"] = variant
+                rows.append(row)
+    label_summaries = pd.DataFrame(rows)
+
+    table = build_consort_table(label_summaries)
+
+    assert list(table.columns) == [
+        "cohort",
+        "outcome",
+        "split",
+        "n_subjects",
+        "n_labelled",
+        "n_positive",
+        "n_negative",
+        "n_insufficient_followup",
+        "prevalence",
+        "n_model_variants",
+    ]
+    assert len(table) == len(splits) * len(outcomes)
+    assert (table["n_model_variants"] == 2).all()
+    cell = table[
+        (table["outcome"] == "mortality") & (table["split"] == "held_out")
+    ].iloc[0]
+    assert cell["n_subjects"] == 100
+    assert cell["prevalence"] == pytest.approx(30 / 90)
+
+
+def _competing_event_rows(pd, values):
+    return pd.DataFrame(
+        [
+            {
+                "cohort": "dlbcl",
+                "outcome": "mortality",
+                "model_family": family,
+                "n_competing_events_test": value,
+            }
+            for family, value in values.items()
+        ]
+    )
+
+
+def test_check_competing_event_denominator_consistency_clean():
+    pd = pytest.importorskip("pandas")
+    rows = _competing_event_rows(
+        pd,
+        {"baseline": 12, "opera": 12, "joint": 12},
+    )
+
+    assert check_competing_event_denominator_consistency(rows) == []
+
+
+def test_check_competing_event_denominator_consistency_mismatch():
+    pd = pytest.importorskip("pandas")
+    rows = _competing_event_rows(
+        pd,
+        {"baseline": 12, "opera": 30, "joint": 12},
+    )
+
+    messages = check_competing_event_denominator_consistency(rows)
+
+    assert messages
+    assert any("dlbcl" in message and "mortality" in message for message in messages)

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
@@ -330,6 +331,75 @@ def plot_rarity_delta(
     ax.axhline(0, color="#333333", linewidth=0.9)
     ax.set_xlabel("Cohort-outcome cells sorted by training set size")
     ax.set_ylabel(f"AUROC(OPERA) - AUROC({baseline_model})")
+    fig.tight_layout()
+    save_fig(fig, save_path)
+    return fig
+
+
+def plot_rarity_invariance_panel(
+    task_deltas: pd.DataFrame,
+    *,
+    baseline_model: str,
+    metric: str = "auroc",
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot matched outcome deltas against event rate for each weighter."""
+    setup_style()
+    delta_column = f"delta_{metric}_vs_baseline"
+    required = {"weighter", "event_rate", delta_column}
+    missing = sorted(required.difference(task_deltas.columns))
+    if missing:
+        raise ValueError(
+            "Rarity invariance plot is missing columns: " + ", ".join(missing)
+        )
+    task_columns = [
+        column
+        for column in ("cohort", "outcome", "outcome_window_hours")
+        if column in task_deltas.columns
+    ]
+    plot_data = (
+        task_deltas.groupby([*task_columns, "weighter"], as_index=False, dropna=False)
+        .agg(
+            event_rate=("event_rate", "first"),
+            delta=(delta_column, "median"),
+        )
+        .sort_values("event_rate")
+    )
+
+    fig, ax = plt.subplots(figsize=FIG_FULL)
+    for index, (weighter, group) in enumerate(plot_data.groupby("weighter")):
+        color = CATEGORICAL[index % len(CATEGORICAL)]
+        group = group.sort_values("event_rate")
+        ax.scatter(
+            group["event_rate"],
+            group["delta"],
+            color=color,
+            alpha=0.82,
+            s=34,
+            label=weighter.title(),
+            zorder=3,
+        )
+        x = np.log10(group["event_rate"].to_numpy(dtype=float))
+        y = group["delta"].to_numpy(dtype=float)
+        if len(group) >= 3 and np.unique(x).size >= 2:
+            slope, intercept = np.polyfit(x, y, deg=1)
+            grid = np.geomspace(
+                group["event_rate"].min(),
+                group["event_rate"].max(),
+                100,
+            )
+            ax.plot(
+                grid,
+                slope * np.log10(grid) + intercept,
+                color=color,
+                linewidth=1.7,
+            )
+    ax.axhline(0.0, color="#333333", linewidth=0.9)
+    ax.set_xscale("log")
+    ax.set_xlabel("Held-out event rate")
+    ax.set_ylabel(f"{metric.upper()}(OPERA) - {metric.upper()}({baseline_model})")
+    ax.set_title("Rarity gradient by cross-outcome weighter")
+    ax.legend(frameon=False)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig

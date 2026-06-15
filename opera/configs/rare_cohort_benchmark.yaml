@@ -3,7 +3,7 @@
 # This is separate from synthetic label-efficiency experiments. `rarity_mode:
 # real` means the task is genuinely small before any artificial subsampling.
 
-output_dir: /results/opera_real_rarity
+output_dir: ${BONSAI_RESULTS_ROOT}/opera_real_rarity
 baseline_model: tabular_ehr
 rarity_mode: real
 
@@ -11,29 +11,33 @@ size_bins:
   n_train: [0, 25, 50, 100, 250, 500]
 
 tasks:
-  # Replace paths and outcomes with the paper's locked rare-cohort cells.
-  - cohort: rare_lymphoma
-    outcome: mortality_1y
-    outcome_file: mortality.parquet
-    data_dir: ${BONSAI_PROCESSED_DATA}/rare_lymphoma
-    rarity_tier: real_rare_disease
-    n_hours_start_include: 1
-    n_hours_end_include: 8760
-
+  # Confirm these cells against the locked event-count table before paper use.
   - cohort: mds
     outcome: aki_30d
-    outcome_file: aki.parquet
+    outcome_file: aki_first_documented.parquet
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_file: mortality.parquet
     data_dir: ${BONSAI_PROCESSED_DATA}/mds
     rarity_tier: small_cohort_outcome_cell
     n_hours_start_include: 1
     n_hours_end_include: 720
 
+  - cohort: fl
+    outcome: severe_infection_90d
+    outcome_file: severe_infection.parquet
+    eligibility_file: severe_infection__audit.parquet
+    competing_outcome_file: mortality.parquet
+    data_dir: ${BONSAI_PROCESSED_DATA}/fl
+    rarity_tier: small_cohort_outcome_cell
+    n_hours_start_include: 1
+    n_hours_end_include: 2160
+
 model_variants:
   tabular_ehr:
-    predictions_file: /results/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
   opera:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
   opera_joint:
-    encoder_ckpt: /ckpts/joint_finetune/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/joint_finetune/best.ckpt
     encoder_source: joint

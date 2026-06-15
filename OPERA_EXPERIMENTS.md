@@ -110,6 +110,10 @@ outcomes:
 Use one event-time parquet per endpoint where possible. `censor_date` is the
 end of observed follow-up and can be present for both event and non-event
 patients; bounded binary windows derive full-follow-up eligibility from it.
+The hour bounds are inclusive. Event-free follow-up is capped at the horizon,
+and early administratively censored controls are excluded from BCE training and
+binary evaluation. A configured death table produces competing `event=2` only
+when death occurs inside the task window.
 
 Each evaluation run writes:
 
@@ -226,7 +230,9 @@ python -m opera.run.summarize_cohort_flow \
 
 Eligibility sidecars are outcome-specific. They distinguish source coverage,
 baseline adequacy, post-index observability, follow-up, and final eligibility;
-unascertainable outcomes must not be encoded as negative labels.
+unascertainable outcomes must not be encoded as negative labels. The sidecars
+are enforced before label construction in training and evaluation, which gives
+multi-outcome models a real patient-by-outcome missingness mask.
 
 This writes:
 
@@ -238,6 +244,10 @@ This writes:
 - `joint_minus_per_cohort.csv` when baseline/comparator are provided
 - rarity-specific delta tables when `--baseline` is provided
 - rarity plots when `--rarity_plots` is set
+
+Use `--strict_aggregation` for paper outputs. Duplicate
+cohort/outcome/split/seed/model keys are errors because selecting the first row
+would make paired denominators ambiguous.
 
 For task-size binned summaries, the default bins are `<100`, `100-499`,
 `500-999`, `1k-4,999`, and `>=5k` labelled evaluation subjects.
@@ -343,13 +353,134 @@ Compare multiple upstream checkpoints on the same downstream tasks:
 python -m opera.run.pretraining_scale_ablation \
   --sweep_config opera/configs/sweep_example.yaml \
   --tasks dlbcl:mortality_1y,myeloma:aki_30d \
-  --checkpoints small=/ckpts/pretrain_small.ckpt,large=/ckpts/pretrain_large.ckpt \
+  --checkpoints small="${BONSAI_CHECKPOINT_ROOT}/pretrain_small.ckpt",large="${BONSAI_CHECKPOINT_ROOT}/pretrain_large.ckpt" \
   --encoder_source pretrain \
-  --output_dir ./results/pretraining_scale
+  --output_dir "${BONSAI_RESULTS_ROOT}/pretraining_scale"
 ```
 
 The runner tags evaluation rows with `model_family` and `pretraining_scale`,
 so `opera.run.aggregate_results` can produce `pretraining_scale_summary.csv`.
+
+## Cross-Outcome Weighting
+
+Contrastive training computes one survival-aware loss for each outcome with
+eligible patients and then applies the `cross_outcome` configuration:
+
+```yaml
+cross_outcome:
+  weighter: uniform
+  aggregation: macro
+  class_balanced: false
+  class_balanced_cap: 50.0
+  class_balanced_beta: 0.9999
+  class_counts: {}
+```
+
+Configured training currently supports `uniform` and `kendall`. Uniform with
+macro aggregation is the explicit production setting in the checked-in
+contrastive configs. The FAMO task-weighting core is present for isolated
+algorithm work, but configured FAMO training fails closed because the current
+Lightning path does not recompute same-batch task losses after the shared model
+optimizer step. That lifecycle is required by the
+[FAMO method](https://arxiv.org/abs/2306.03792) and must be implemented before
+the confound panel is run. To reproduce the historical objective exactly, use:
+
+```yaml
+cross_outcome:
+  weighter: kendall
+  aggregation: pooled
+  class_balanced: false
+```
+
+`aggregation: macro` divides the weighted objective by the number of active
+outcomes in the batch. Outcomes with no eligible patients or no informative
+pairs contribute zero and do not update weighter state.
+
+Class-balanced normalization uses global positive and negative counts, not
+batch prevalence. When enabled, supply `class_counts.<outcome>.positive` and
+`class_counts.<outcome>.negative` for every configured outcome. Apply the same
+normalization to tabular and single-task baselines used in rarity-delta
+comparisons, otherwise the weighting choice becomes a model-specific
+confounder.
+
+## Gradient Conflict Diagnostic
+
+Measure whether outcome gradients conflict on shared patient support without
+running full-model backward passes:
+
+```bash
+python -m opera.diagnostics.representation_gradient_conflict \
+  --config-name leukemia_contrastive \
+  --checkpoints /checkpoints/epoch_01.ckpt /checkpoints/best.ckpt \
+  --output-dir /results/gradient_conflict \
+  --batches 16 \
+  --min-overlap 8
+```
+
+Use repeated `--override key=value` arguments for Hydra overrides. The
+diagnostic also writes `gradient_pair_batches.csv`, with one row per batch and
+off-diagonal outcome pair. Each row contains the cosine when computable, joint
+support, and whether the diagnostic overlap threshold was met.
+
+Turn that batch-level artifact into the gradient-surgery verdict with:
+
+```bash
+python -m opera.diagnostics.conflict_verdict \
+  --pair-batches "${BONSAI_RESULTS_ROOT}/gradient_conflict/00_best/gradient_pair_batches.csv" \
+  --output-dir "${BONSAI_RESULTS_ROOT}/gradient_conflict/00_best/verdict" \
+  --min-mean-support 8 \
+  --n-bootstrap 2000
+```
+
+The verdict classifies adequately supported pairs from bootstrap intervals over
+batches. Low-support pairs remain visible in the output table but are
+indeterminate and do not justify surgery. Conflict clustering uses connected
+components and reports a group as coherent only when the largest component is
+dense and captures at least half of the significant conflict edges.
+
+## Rarity Invariance Across Outcome Weighters
+
+The analysis harness consumes standard evaluated result rows, not raw
+contrastive encoder checkpoints. A contrastive encoder has no task prediction
+head, so each weighter first needs matched downstream evaluation artifacts from
+the existing evaluation pipeline.
+
+Run the panel after Kendall, uniform, and a valid FAMO comparator have produced
+held-out result rows:
+
+```bash
+python -m opera.analysis.rarity_invariance_panel \
+  --results "${BONSAI_RESULTS_ROOT}/weighter_comparison" \
+  --event-rates "${BONSAI_RESULTS_ROOT}/weighter_comparison/event_rates.csv" \
+  --output-dir "${BONSAI_RESULTS_ROOT}/weighter_comparison/rarity_invariance" \
+  --weighter-model kendall=opera_kendall \
+  --weighter-model uniform=opera_uniform \
+  --weighter-model famo=opera_famo \
+  --baseline-model tabular_ehr \
+  --evaluation-subset full \
+  --n-bootstrap 2000
+```
+
+The command requires the baseline and evaluation subset explicitly. It rejects
+IPI on the full subset, task-set differences, denominator mismatches, baseline
+drift, and asymmetric class balancing. It computes deltas through
+`build_delta_vs_baseline_table` and draws the panel through
+`rarity_plots.py`.
+
+For an IPI sensitivity analysis, use `--baseline-model ipi` together with
+`--evaluation-subset ipi_complete`. This is a different patient population and
+must not replace the current full-cohort tabular-EHR primary endpoint without a
+locked analysis-plan change.
+
+The current training path intentionally rejects `weighter: famo`. Final
+three-weighter numbers remain blocked until the published same-batch,
+post-optimizer FAMO update has been implemented and validated. The complete
+input status is recorded in
+`opera/configs/manifests/analysis_artifact_readiness.yaml`.
+The diagnostic writes cosine and support matrices, event rates, a heatmap, and
+ranked JSON summaries in one directory per checkpoint. It runs the encoder
+once per batch and computes gradients only with respect to a detached
+representation leaf.
 
 ## Manifests
 

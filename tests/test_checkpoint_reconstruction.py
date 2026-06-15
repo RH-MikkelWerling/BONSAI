@@ -42,10 +42,7 @@ def test_finetune_checkpoint_reconstructs_exact_config_and_shapes(tmp_path):
                 "model_class": model.__class__.__name__,
             },
             "state_dict": {
-                **{
-                    f"model.{key}": value
-                    for key, value in model.state_dict().items()
-                },
+                **{f"model.{key}": value for key, value in model.state_dict().items()},
                 "train_loss.pos_weight": torch.tensor([2.0]),
                 "val_loss.pos_weight": torch.tensor([2.0]),
             },
@@ -94,10 +91,7 @@ def test_joint_checkpoint_reconstructs_saved_model_settings(tmp_path):
                 "outcome_names": model.outcome_names,
             },
             "state_dict": {
-                **{
-                    f"model.{key}": value
-                    for key, value in model.state_dict().items()
-                },
+                **{f"model.{key}": value for key, value in model.state_dict().items()},
                 "val_auroc.aki_30d._update_count": torch.tensor(1),
             },
         },

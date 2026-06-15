@@ -88,13 +88,24 @@ def _integer(value: Any, path: str, issues: list[str]) -> Optional[int]:
 
 @dataclass(frozen=True)
 class CohortSpec:
-    """One disease cohort participating in a sweep."""
+    """One disease cohort participating in a sweep.
+
+    ``training_cohort`` is optional and names the grouped disease cohort whose
+    pre-trained checkpoint should be used when finetuning on this (possibly
+    fine-grained) cohort.  When absent the cohort name itself is used as the
+    training cohort key.  This supports the train-on-grouped / eval-on-fine
+    paradigm where models are trained on, e.g., ``DLBCL_like`` and then
+    evaluated separately on ``DLBCL``, ``BCL``, ``RT``, and ``RT_DERIVED``.
+    """
 
     name: str
     data_dir: str
     ipi_score_col: Optional[str] = None
     registry_start_date: Optional[str] = None
     population_file: Optional[str] = None
+    training_cohort: Optional[str] = None
+    cohort_fine_col: Optional[str] = None
+    cohort_fine_value: Optional[str] = None
 
     @classmethod
     def from_mapping(
@@ -112,6 +123,9 @@ class CohortSpec:
                 "ipi_score_col",
                 "registry_start_date",
                 "population_file",
+                "training_cohort",
+                "cohort_fine_col",
+                "cohort_fine_value",
             },
             path,
             issues,
@@ -120,6 +134,26 @@ class CohortSpec:
         if not isinstance(data_dir, str) or not data_dir:
             issues.append(f"{path}.data_dir must be a non-empty string.")
             data_dir = ""
+        training_cohort = _optional_string(
+            value.get("training_cohort"),
+            f"{path}.training_cohort",
+            issues,
+        )
+        cohort_fine_col = _optional_string(
+            value.get("cohort_fine_col"),
+            f"{path}.cohort_fine_col",
+            issues,
+        )
+        cohort_fine_value = _optional_string(
+            value.get("cohort_fine_value"),
+            f"{path}.cohort_fine_value",
+            issues,
+        )
+        if (cohort_fine_col is None) != (cohort_fine_value is None):
+            issues.append(
+                f"{path}: cohort_fine_col and cohort_fine_value must both be "
+                "set or both be absent."
+            )
         return cls(
             name=name,
             data_dir=data_dir,
@@ -138,6 +172,9 @@ class CohortSpec:
                 f"{path}.population_file",
                 issues,
             ),
+            training_cohort=training_cohort,
+            cohort_fine_col=cohort_fine_col,
+            cohort_fine_value=cohort_fine_value,
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -148,6 +185,12 @@ class CohortSpec:
         }
         if self.population_file is not None:
             result["population_file"] = self.population_file
+        if self.training_cohort is not None:
+            result["training_cohort"] = self.training_cohort
+        if self.cohort_fine_col is not None:
+            result["cohort_fine_col"] = self.cohort_fine_col
+        if self.cohort_fine_value is not None:
+            result["cohort_fine_value"] = self.cohort_fine_value
         return result
 
 
@@ -585,6 +628,112 @@ def load_sweep_config(path: str | Path) -> SweepConfig:
     with open(path, encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
     return SweepConfig.from_mapping(expand_config_values(raw))
+
+
+_MANIFEST_TOP_LEVEL_KEYS = {
+    "version",
+    "primary_endpoints",
+    "exploratory_outcomes",
+    "primary_contrasts",
+    "multiplicity",
+    "min_events",
+    "seeds",
+    "cohort_analysis",
+    "confirmatory_fine_cohorts",
+    "calibration",
+}
+
+_MANIFEST_MULTIPLICITY_METHODS = {"benjamini_hochberg", "bonferroni", "holm"}
+
+
+def validate_analysis_manifest(path: str | Path) -> dict:
+    """Load and validate the locked analysis manifest.
+
+    Returns the parsed manifest dict if valid.
+    Raises ConfigValidationError if required fields are missing or invalid.
+    """
+    with open(path, encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+
+    issues: list[str] = []
+    manifest = _as_mapping(raw, "manifest", issues)
+    _reject_unknown(manifest, _MANIFEST_TOP_LEVEL_KEYS, "manifest", issues)
+
+    if not isinstance(manifest.get("version"), str):
+        issues.append("manifest.version must be a string.")
+
+    primary_endpoints = manifest.get("primary_endpoints")
+    if (
+        not isinstance(primary_endpoints, list)
+        or not primary_endpoints
+        or any(not isinstance(item, str) for item in primary_endpoints)
+    ):
+        issues.append("manifest.primary_endpoints must be a non-empty list of strings.")
+
+    primary_contrasts = manifest.get("primary_contrasts")
+    if not isinstance(primary_contrasts, list) or not primary_contrasts:
+        issues.append(
+            "manifest.primary_contrasts must be a non-empty list of "
+            "[reference, comparator] pairs."
+        )
+    else:
+        for index, pair in enumerate(primary_contrasts):
+            if (
+                not isinstance(pair, list)
+                or len(pair) != 2
+                or any(not isinstance(item, str) for item in pair)
+            ):
+                issues.append(
+                    f"manifest.primary_contrasts[{index}] must be a pair of "
+                    "two strings."
+                )
+
+    multiplicity = _as_mapping(
+        manifest.get("multiplicity", {}),
+        "manifest.multiplicity",
+        issues,
+    )
+    method = multiplicity.get("method")
+    if method not in _MANIFEST_MULTIPLICITY_METHODS:
+        issues.append(
+            "manifest.multiplicity.method must be one of "
+            f"{sorted(_MANIFEST_MULTIPLICITY_METHODS)}."
+        )
+    alpha = multiplicity.get("alpha")
+    if (
+        isinstance(alpha, bool)
+        or not isinstance(alpha, (int, float))
+        or not (0 < float(alpha) < 1)
+    ):
+        issues.append("manifest.multiplicity.alpha must be a float in (0, 1).")
+
+    min_events = _as_mapping(
+        manifest.get("min_events", {}),
+        "manifest.min_events",
+        issues,
+    )
+    for key in ("test", "train"):
+        value = _integer(
+            min_events.get(key),
+            f"manifest.min_events.{key}",
+            issues,
+        )
+        if value is not None and value < 1:
+            issues.append(f"manifest.min_events.{key} must be >= 1.")
+
+    seeds = manifest.get("seeds")
+    if (
+        not isinstance(seeds, list)
+        or not seeds
+        or any(isinstance(s, bool) or not isinstance(s, int) for s in seeds)
+    ):
+        issues.append("manifest.seeds must be a non-empty list of integers.")
+    elif len(set(seeds)) != len(seeds):
+        issues.append("manifest.seeds must not contain duplicates.")
+
+    if issues:
+        raise ConfigValidationError(issues)
+    return dict(manifest)
 
 
 def variant_applies_to_outcome(

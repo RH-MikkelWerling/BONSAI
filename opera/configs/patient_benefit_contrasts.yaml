@@ -1,13 +1,13 @@
-output_dir: /results/patient_benefit
+output_dir: ${BONSAI_RESULTS_ROOT}/patient_benefit
 
 contrasts:
   - name: opera_vs_tabular_ehr
     description: "Foundation model vs. tabular EHR baseline - primary claim"
     primary: true
-    baseline_predictions: /results/tabular_ehr/{cohort}/{outcome}/predictions.csv
-    comparator_predictions: /results/opera/{cohort}/{outcome}/predictions.csv
-    baseline_embeddings: /embeddings/per_cohort_contrastive/{cohort}.parquet
-    metadata: /data/{cohort}/population.csv
+    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/tabular_ehr/seed_42/predictions.npz
+    comparator_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera/seed_42/predictions.npz
+    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera/seed_42/predictions.npz
+    metadata: ${BONSAI_PROCESSED_DATA}/{cohort}/population_full.csv
     cohort_col: cohort
     subject_col: subject_id
     gain_col: brier_gain
@@ -16,10 +16,10 @@ contrasts:
   - name: dapt_vs_contrastive
     description: "DAPT-only vs. per-cohort contrastive - effect of outcome-guided adaptation"
     primary: false
-    baseline_predictions: /results/dapt/{cohort}/{outcome}/predictions.csv
-    comparator_predictions: /results/opera_per_cohort/{cohort}/{outcome}/predictions.csv
-    baseline_embeddings: /embeddings/dapt/{cohort}.parquet
-    metadata: /data/{cohort}/population.csv
+    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/dapt/seed_42/predictions.npz
+    comparator_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera_per_cohort/seed_42/predictions.npz
+    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/dapt/seed_42/predictions.npz
+    metadata: ${BONSAI_PROCESSED_DATA}/{cohort}/population_full.csv
     cohort_col: cohort
     subject_col: subject_id
     gain_col: brier_gain
@@ -28,10 +28,10 @@ contrasts:
   - name: hematology_pretrain_vs_general_pretrain
     description: "General population pretraining vs. hematology-only pretraining - the irrelevant patients"
     primary: true
-    baseline_predictions: /results/hematology_only_pretrain/{cohort}/{outcome}/predictions.csv
-    comparator_predictions: /results/general_pretrain/{cohort}/{outcome}/predictions.csv
-    baseline_embeddings: /embeddings/hematology_only_pretrain/{cohort}.parquet
-    metadata: /data/{cohort}/population.csv
+    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/hematology_only_pretrain/seed_42/predictions.npz
+    comparator_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/base_pretrain/seed_42/predictions.npz
+    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/hematology_only_pretrain/seed_42/predictions.npz
+    metadata: ${BONSAI_PROCESSED_DATA}/{cohort}/population_full.csv
     cohort_col: cohort
     subject_col: subject_id
     gain_col: brier_gain
@@ -40,10 +40,10 @@ contrasts:
   - name: per_cohort_vs_joint_contrastive
     description: "Per-cohort vs. joint contrastive - cross-disease representation learning"
     primary: false
-    baseline_predictions: /results/opera_per_cohort/{cohort}/{outcome}/predictions.csv
-    comparator_predictions: /results/opera_joint/{cohort}/{outcome}/predictions.csv
-    baseline_embeddings: /embeddings/per_cohort_contrastive/{cohort}.parquet
-    metadata: /data/{cohort}/population.csv
+    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera_per_cohort/seed_42/predictions.npz
+    comparator_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera_joint_contrastive/seed_42/predictions.npz
+    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/opera_per_cohort/seed_42/predictions.npz
+    metadata: ${BONSAI_PROCESSED_DATA}/{cohort}/population_full.csv
     cohort_col: cohort
     subject_col: subject_id
     gain_col: brier_gain

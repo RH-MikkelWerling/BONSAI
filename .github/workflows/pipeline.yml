@@ -13,6 +13,8 @@ env:
   BONSAI_MODELS: "${{ github.workspace }}/.ci/models"
   BONSAI_PROCESSED_DATA: "${{ github.workspace }}/.ci/processed"
   BONSAI_PREDICTIONS: "${{ github.workspace }}/.ci/predictions"
+  BONSAI_CHECKPOINT_ROOT: "${{ github.workspace }}/.ci/checkpoints"
+  BONSAI_RESULTS_ROOT: "${{ github.workspace }}/.ci/results"
   CKPT_PATH: "${{ github.workspace }}/.ci/models/correlated_MEDS_data/examples/example_pretrain/run_id_0/version_0/best.ckpt"
   HYDRA_FULL_ERROR: 1
   MPLBACKEND: Agg
@@ -48,4 +50,29 @@ jobs:
 
             - name: train (no pretrain path)
               run: python -m bonsai.run.train --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=2
+
+            - name: evaluate with OPERA
+              shell: bash
+              run: |
+                FINETUNE_CKPT="$(find "$BONSAI_MODELS/correlated_MEDS_data/examples/example_finetune/run_id_1/training_runs" -name best.ckpt -print -quit)"
+                test -n "$FINETUNE_CKPT"
+                python -m opera.run.evaluate \
+                  ckpt_path="$FINETUNE_CKPT" \
+                  dataset=correlated_MEDS_data \
+                  outcome=examples/example_outcome1 \
+                  output_dir="$BONSAI_RESULTS_ROOT/synthetic_opera" \
+                  device=cpu \
+                  batch_size=256 \
+                  num_workers=0 \
+                  n_bootstrap=2 \
+                  strict_checkpoint_load=true
+
+            - name: aggregate OPERA results
+              run: |
+                python -m opera.run.aggregate_results \
+                  --results_dir "$BONSAI_RESULTS_ROOT" \
+                  --output_dir "$BONSAI_RESULTS_ROOT/aggregated" \
+                  --strict_aggregation
+                test -f "$BONSAI_RESULTS_ROOT/aggregated/all_results.csv"
+                test -f "$BONSAI_RESULTS_ROOT/aggregated/model_summary.csv"
 

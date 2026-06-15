@@ -33,38 +33,45 @@ cohorts:
   cll:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll
     registry_start_date: null
-  # mds:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
-  #   registry_start_date: null
-  # myeloma:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
-  #   registry_start_date: null
-  # fl:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
-  #   registry_start_date: null
+  mds:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
+    registry_start_date: null
+  myeloma:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
+    registry_start_date: null
+  fl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
+    registry_start_date: null
 
 # ── Outcomes: all outcomes trained jointly ─────────────────────────
-# Missing parquets per cohort are silently skipped. Multiple task windows can
-# reuse the same source event-time parquet via `outcome_file`.
+# Production runs require every configured cohort-outcome cell. Multiple task
+# windows can reuse the same source event-time parquet via `outcome_file`.
 outcomes:
   mortality_1y:
     outcome_file: mortality.parquet
+    eligibility_file: mortality__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: 8760
   mortality_2y:
     outcome_file: mortality.parquet
+    eligibility_file: mortality__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: 17520
   treatment_failure:
     outcome_file: treatment_failure.parquet
+    eligibility_file: treatment_failure__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
   aki_30d:
-    outcome_file: aki.parquet
+    outcome_file: aki_first_documented.parquet
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 720
   severe_infection_90d:
     outcome_file: severe_infection.parquet
+    eligibility_file: severe_infection__audit.parquet
+    competing_outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 2160
 
@@ -74,6 +81,7 @@ model:
   dropout: 0.1
 
 training:
+  require_all_configured_cells: true
   batch_size: 64
   accumulate_grad_batches: 2
   epochs: 20

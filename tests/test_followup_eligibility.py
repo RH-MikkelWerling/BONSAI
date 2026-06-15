@@ -195,6 +195,83 @@ def test_competing_event_satisfies_min_followup_requirement():
     assert result[1]["event"] == 2
 
 
+def test_competing_event_after_fixed_horizon_is_a_known_non_event():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", None, "2023-06-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-04-01", "2023-06-01"),
+        ]
+    )
+
+    result = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        require_min_followup=True,
+        competing_event_df=death_df,
+    )
+
+    assert result[1]["label"] == 0
+    assert result[1]["event"] == 0
+    assert result[1]["time_days"] == 30.0
+
+
+def test_competing_event_before_window_start_is_not_used():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(
+                1,
+                "train",
+                "2023-01-01 00:00:00",
+                None,
+                "2023-01-31 00:00:00",
+            ),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(
+                1,
+                "train",
+                "2023-01-01 00:00:00",
+                "2023-01-01 00:00:00",
+                "2023-01-31 00:00:00",
+            ),
+        ]
+    )
+
+    result = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        competing_event_df=death_df,
+    )
+
+    assert result[1]["event"] == 0
+    assert result[1]["time_days"] == 30.0
+
+
+def test_event_free_followup_is_capped_at_fixed_horizon():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", None, "2024-01-01"),
+        ]
+    )
+
+    result = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 90,
+    )
+
+    assert result[1]["event"] == 0
+    assert result[1]["time_days"] == 90.0
+
+
 def test_find_does_not_mutate_input_dataframe():
     source = pd.DataFrame(
         {

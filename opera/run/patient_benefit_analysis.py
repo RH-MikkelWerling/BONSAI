@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,13 +26,51 @@ LOGGER = logging.getLogger(__name__)
 
 def _read_table(path: str) -> pd.DataFrame:
     source = Path(path)
+    if source.suffix.lower() == ".npz":
+        payload = np.load(source)
+        required = {"subject_ids", "labels", "probabilities"}
+        missing = required - set(payload.files)
+        if missing:
+            raise ValueError(
+                f"Prediction artifact {source} is missing arrays: {sorted(missing)}"
+            )
+        frame = pd.DataFrame(
+            {
+                "subject_id": payload["subject_ids"],
+                "label": payload["labels"],
+                "probability": payload["probabilities"],
+            }
+        )
+        if "binary_mask" in payload.files:
+            frame = frame.loc[payload["binary_mask"].astype(bool)].copy()
+        if "embeddings" in payload.files:
+            embeddings = np.asarray(payload["embeddings"])
+            if embeddings.ndim != 2 or len(embeddings) != len(payload["subject_ids"]):
+                raise ValueError(
+                    f"Prediction artifact {source} has invalid embeddings shape "
+                    f"{embeddings.shape}."
+                )
+            embedding_frame = pd.DataFrame(
+                embeddings,
+                columns=[f"embedding_{index}" for index in range(embeddings.shape[1])],
+            )
+            embedding_frame.insert(0, "subject_id", payload["subject_ids"])
+            if "binary_mask" in payload.files:
+                embedding_frame = embedding_frame.loc[
+                    payload["binary_mask"].astype(bool)
+                ].copy()
+            frame = frame.merge(embedding_frame, on="subject_id", how="left")
+        return frame.reset_index(drop=True)
     if source.suffix.lower() in {".parquet", ".pq"}:
         return pd.read_parquet(source)
     return pd.read_csv(source)
 
 
 def _resolve(template: str, cohort: str, outcome: str) -> str:
-    return template.format(cohort=cohort, outcome=outcome)
+    resolved = os.path.expandvars(template).format(cohort=cohort, outcome=outcome)
+    if "${" in resolved:
+        raise ValueError(f"Unresolved environment variable in path: {resolved}")
+    return resolved
 
 
 def _spearman(x: pd.Series, y: pd.Series) -> tuple[float, float]:
@@ -85,7 +124,7 @@ def run_patient_benefit_analysis(
 ) -> pd.DataFrame:
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
-    output_dir = Path(cfg["output_dir"])
+    output_dir = Path(_resolve(cfg["output_dir"], "", ""))
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -304,7 +343,7 @@ def main() -> None:
     )
     parser.add_argument("--config", required=True)
     parser.add_argument("--contrast", default=None)
-    parser.add_argument("--dry_run", action="store_true")
+    parser.add_argument("--dry-run", "--dry_run", dest="dry_run", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     run_patient_benefit_analysis(

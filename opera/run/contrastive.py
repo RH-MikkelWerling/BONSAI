@@ -116,6 +116,10 @@ def main(cfg: DictConfig) -> None:
         effective_pair_normalization=cfg.model.get(
             "effective_pair_normalization", True
         ),
+        cross_outcome_config=OmegaConf.to_container(
+            cfg.get("cross_outcome", {}),
+            resolve=True,
+        ),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
@@ -130,6 +134,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
+        max_len=encoder.config.max_position_embeddings,
     )
 
     # ── Lightning ────────────────────────────────────────────────────

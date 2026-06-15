@@ -116,6 +116,12 @@ the outcome-defining test or event happened to appear. Keep source coverage,
 baseline adequacy, post-index observability, follow-up, and observed event state
 as separate fields.
 
+These sidecars are operational inputs, not merely cohort-flow documentation.
+All OPERA training and evaluation paths remove `eligible=false` rows before
+binarization. In multi-outcome training, the resulting missing patient-outcome
+entries become `-1` mask values, so broadly ascertainable mortality can use the
+full cohort while laboratory outcomes use their valid subsets.
+
 Generate the auditable denominator table before a paper run:
 
 ```bash
@@ -124,9 +130,11 @@ python -m opera.run.summarize_cohort_flow \
   --output ./results/cohort_flow.csv
 ```
 
-Readiness remains backward compatible with older configs, but
-`--require_existing_paths` validates every sidecar that is configured. The
-cohort-flow command is stricter and fails if any configured cell lacks one.
+Readiness remains backward compatible with older configs, but production runs
+should use `--require_existing_paths --fail_on_issue`. This validates every
+configured outcome, sidecar, competing-event file, and non-templated
+checkpoint. The cohort-flow command is stricter and fails if any configured
+cell lacks a sidecar.
 
 ## Training Stages
 
@@ -153,9 +161,10 @@ python -m opera.run.joint_finetune
 
 Each training run should save checkpoint metadata and a sidecar
 `checkpoint_metadata.json` so the lineage of a final checkpoint can be traced.
-Checkpoint paths in manifests are placeholders until the corresponding upstream
-training stage has actually been run. The normal handoff is to train a stage,
-take its emitted `best.ckpt`, and place that concrete path into the next config.
+The checked-in configs use environment-rooted expected artifact locations.
+Those locations become usable only after the corresponding upstream training
+stage has emitted its `best.ckpt`; readiness verifies that the concrete files
+exist before a production sweep.
 
 OPERA imports BONSAI architecture and data helpers through
 `opera.compat.bonsai` where practical. If a collaborator updates BONSAI and
@@ -201,21 +210,21 @@ Single-task model evaluation:
 
 ```bash
 python -m opera.run.evaluate \
-  ckpt_path=/ckpts/opera/best.ckpt \
+  ckpt_path="${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt" \
   dataset=dlbcl \
   outcome=mortality_1y \
-  output_dir=./results/dlbcl/mortality_1y/opera
+  output_dir="${BONSAI_RESULTS_ROOT}/dlbcl/mortality_1y/opera"
 ```
 
 Joint model evaluation for one cell:
 
 ```bash
 python -m opera.run.evaluate_joint \
-  ckpt_path=/ckpts/joint_finetune/best.ckpt \
+  ckpt_path="${BONSAI_CHECKPOINT_ROOT}/joint_finetune/best.ckpt" \
   dataset=dlbcl \
   outcome=mortality_1y \
   outcome_name=mortality_1y \
-  output_dir=./results/dlbcl/mortality_1y/opera_joint
+  output_dir="${BONSAI_RESULTS_ROOT}/dlbcl/mortality_1y/opera_joint"
 ```
 
 Evaluation artifacts include:
@@ -519,9 +528,9 @@ Pretraining scale:
 python -m opera.run.pretraining_scale_ablation \
   --sweep_config opera/configs/sweep_example.yaml \
   --tasks dlbcl:mortality_1y,myeloma:aki_30d \
-  --checkpoints small=/ckpts/pretrain_small.ckpt,large=/ckpts/pretrain_large.ckpt \
+  --checkpoints small="${BONSAI_CHECKPOINT_ROOT}/pretrain_small.ckpt",large="${BONSAI_CHECKPOINT_ROOT}/pretrain_large.ckpt" \
   --encoder_source pretrain \
-  --output_dir ./results/pretraining_scale
+  --output_dir "${BONSAI_RESULTS_ROOT}/pretraining_scale"
 ```
 
 Subgroup robustness:
@@ -554,11 +563,19 @@ Before launching the full experiment sweep:
 - Outcome parquet files exist for every cohort-outcome cell.
 - Outcome-specific eligibility sidecars exist for every confirmatory paper cell.
 - `cohort_flow.csv` has been generated and reviewed for unexpected exclusions.
+- Every patient has one shared `index_date` across configured outcomes.
+- Laboratory eligibility reflects ascertainability, with AKI baseline and
+  post-index adequacy represented separately from the observed event.
+- Competing death files are configured for nonfatal endpoints where death ends
+  the possibility of observing the endpoint.
 - Prospective split summaries have been generated and validated.
 - Validation/test follow-up rules match the paper protocol.
 - The model variants in `sweep_example.yaml` point to real checkpoints.
-- `opera.run.check_readiness --fail_on_issue` passes for the sweep config.
-- The rare-cohort benchmark config has real locked rare cells, not placeholders.
+- `opera.run.check_readiness --require_existing_paths --fail_on_issue` passes
+  for the sweep config.
+- The rare-cohort benchmark tasks have been confirmed against the locked
+  event-count table; the checked-in MDS/AKI and FL/infection cells are candidates
+  until that confirmation is recorded.
 - The named rarity baseline exists as `result.jsonl` rows or precomputed files.
 - Each final checkpoint has `checkpoint_metadata.json`.
 - `python -m pytest tests` passes in a fresh editable install.

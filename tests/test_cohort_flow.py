@@ -39,6 +39,18 @@ def test_validate_eligibility_frame_rejects_duplicates_and_missing_reason():
     assert any("non-empty eligibility_reason" in issue for issue in issues)
 
 
+def test_validate_eligibility_frame_rejects_incoherent_lab_coverage():
+    frame = _eligibility_frame()
+    frame["post_index_adequate"] = [True, True, True, True]
+    frame["last_measurement_date"] = pd.to_datetime(
+        ["2020-01-02", None, "2020-01-04", "2020-01-05"]
+    )
+
+    issues = validate_eligibility_frame(frame)
+
+    assert any("last_measurement_date" in issue for issue in issues)
+
+
 def test_summarize_eligibility_frame_reports_criteria_and_final_denominator():
     summary = summarize_eligibility_frame(
         _eligibility_frame(),

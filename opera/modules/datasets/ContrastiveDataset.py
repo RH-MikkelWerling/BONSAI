@@ -59,6 +59,28 @@ class ContrastiveDataset(Dataset):
         self.predict_token_id = predict_token_id
         self.background_length = background_length
         self.max_len = max_len
+        self._validate_shared_prediction_origins()
+
+    def _validate_shared_prediction_origins(self) -> None:
+        """Require one prediction origin per patient across all outcomes."""
+        origins: Dict[int, tuple[str, float]] = {}
+        for outcome_name, records in self.outcome_dicts.items():
+            for subject_id, record in records.items():
+                value = record.get("censor_abspos")
+                if value is None or pd.isnull(value):
+                    continue
+                origin = float(value)
+                previous = origins.get(subject_id)
+                if previous is None:
+                    origins[subject_id] = (outcome_name, origin)
+                    continue
+                previous_name, previous_origin = previous
+                if abs(previous_origin - origin) > 1e-6:
+                    raise ValueError(
+                        f"Patient {subject_id} has inconsistent prediction "
+                        f"origins across outcomes {previous_name!r} "
+                        f"({previous_origin}) and {outcome_name!r} ({origin})."
+                    )
 
     def __getitem__(self, index: int) -> dict:
         subject = clone_subject(self.subjects[index])

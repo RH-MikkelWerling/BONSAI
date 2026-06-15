@@ -1,5 +1,6 @@
 import copy
 
+import pytest
 import torch
 
 from bonsai.functional.censoring import censor_subject
@@ -116,6 +117,36 @@ def test_contrastive_dataset_passes_through_competing_death_event():
 
     sample = dataset[0]
     assert sample["event_tx_failure"].item() == 2
+
+
+def test_contrastive_dataset_rejects_inconsistent_prediction_origins():
+    outcomes = {
+        "aki_30d": {
+            11: {
+                "label": 0,
+                "censor_abspos": 3.5,
+                "time_days": 30.0,
+                "event": 0,
+            }
+        },
+        "mortality_1y": {
+            11: {
+                "label": 0,
+                "censor_abspos": 4.5,
+                "time_days": 365.0,
+                "event": 0,
+            }
+        },
+    }
+
+    with pytest.raises(ValueError, match="inconsistent prediction origins"):
+        ContrastiveDataset(
+            [_subject()],
+            outcome_dicts=outcomes,
+            predict_token_id=1,
+            background_length=2,
+            max_len=4,
+        )
 
 
 def test_pretrain_dataset_indexing_and_helpers_do_not_mutate_subject():

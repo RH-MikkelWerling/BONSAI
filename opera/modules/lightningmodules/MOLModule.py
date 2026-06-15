@@ -106,18 +106,25 @@ class MOLModule(L.LightningModule):
 
     def on_validation_epoch_end(self):
         for name in self.outcome_names:
-            try:
-                auroc_val = self.val_aurocs[name].compute()
-                self.log(f"val/auroc/{name}", auroc_val, prog_bar=False)
-                self.val_aurocs[name].reset()
-            except Exception:
-                pass
-            try:
-                auprc_val = self.val_auprcs[name].compute()
-                self.log(f"val/auprc/{name}", auprc_val, prog_bar=False)
-                self.val_auprcs[name].reset()
-            except Exception:
-                pass
+            for metric_name, metric in (
+                ("auroc", self.val_aurocs[name]),
+                ("auprc", self.val_auprcs[name]),
+            ):
+                try:
+                    value = metric.compute()
+                    if torch.isfinite(value):
+                        self.log(
+                            f"val/{metric_name}/{name}",
+                            value,
+                            prog_bar=False,
+                        )
+                except (RuntimeError, ValueError) as exc:
+                    self.print(
+                        f"Skipping val/{metric_name}/{name}: metric could not "
+                        f"be computed ({exc})."
+                    )
+                finally:
+                    metric.reset()
 
     def configure_optimizers(self):
         encoder_params = []

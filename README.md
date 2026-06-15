@@ -134,21 +134,21 @@ Standalone evaluation:
 
 ```bash
 python -m opera.run.evaluate \
-  ckpt_path=/ckpts/opera/best.ckpt \
+  ckpt_path="${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt" \
   dataset=dlbcl \
   outcome=mortality_1y \
-  output_dir=./results/dlbcl/mortality_1y/opera
+  output_dir="${BONSAI_RESULTS_ROOT}/dlbcl/mortality_1y/opera"
 ```
 
 Joint-model evaluation for one cohort-outcome cell:
 
 ```bash
 python -m opera.run.evaluate_joint \
-  ckpt_path=/ckpts/joint_finetune/best.ckpt \
+  ckpt_path="${BONSAI_CHECKPOINT_ROOT}/joint_finetune/best.ckpt" \
   dataset=dlbcl \
   outcome=mortality_1y \
   outcome_name=mortality_1y \
-  output_dir=./results/dlbcl/mortality_1y/opera_joint
+  output_dir="${BONSAI_RESULTS_ROOT}/dlbcl/mortality_1y/opera_joint"
 ```
 
 ## Prospective Splits And Follow-Up
@@ -223,6 +223,12 @@ mortality_2y:
 `censor_date` is the end of observed follow-up, not only a fallback field for
 non-events. A single event-time parquet can therefore support survival metrics
 and multiple horizon-classification tasks.
+
+Outcome-specific `eligibility_file` sidecars are applied before labels are
+constructed. This lets a patient contribute to mortality while being masked
+for an unascertainable laboratory endpoint. Fixed-horizon binary training
+requires complete follow-up for event-free controls; configured death tables
+encode death inside the risk window as competing `event=2`.
 
 External/tabular baselines can be evaluated from prediction files with
 `python -m opera.run.evaluate_predictions`.

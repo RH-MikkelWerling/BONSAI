@@ -62,7 +62,6 @@ output_dir: /results/sweep
 import argparse
 import json
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -70,13 +69,21 @@ import numpy as np
 import pandas as pd
 
 from opera.config_contracts import load_sweep_config, variant_applies_to_outcome
+from opera.evaluation.cohort_flow import eligibility_file_path
 from opera.evaluation.results_schema import build_result_row, write_result_artifacts
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
     resolve_registry_start_date,
 )
+from opera.run.sweep_commands import (
+    build_evaluate_cmd,
+    build_finetune_cmd,
+    build_prediction_evaluate_cmd,
+)
+from opera.run.sweep_types import StatusTracker
 
 
 def competing_outcome_path(data_dir: str, outcome_cfg: Dict) -> Optional[str]:
@@ -88,9 +95,25 @@ def competing_outcome_path(data_dir: str, outcome_cfg: Dict) -> Optional[str]:
     return None
 
 
-def format_variant_path(value: str, cohort: str, outcome: str, seed: int) -> str:
-    """Expand common sweep placeholders in model artifact paths."""
-    return value.format(cohort=cohort, outcome=outcome, seed=seed)
+def format_variant_path(
+    value: str,
+    cohort: str,
+    outcome: str,
+    seed: int,
+    training_cohort: Optional[str] = None,
+) -> str:
+    """Expand sweep placeholders in model artifact paths.
+
+    Supported placeholders: ``{cohort}``, ``{outcome}``, ``{seed}``, and
+    ``{training_cohort}`` (the grouped training cohort for train-on-grouped /
+    eval-on-fine sweeps; falls back to ``cohort`` when not set).
+    """
+    return value.format(
+        cohort=cohort,
+        outcome=outcome,
+        seed=seed,
+        training_cohort=training_cohort if training_cohort is not None else cohort,
+    )
 
 
 def rank_normalize_scores(values: pd.Series) -> np.ndarray:
@@ -144,12 +167,6 @@ def run_logged_subprocess(
     return result
 
 
-def append_cell_status(status_rows: list[dict], **row) -> None:
-    """Append one sweep status row for later CSV/JSONL audit output."""
-    row.setdefault("timestamp", time.time())
-    status_rows.append(row)
-
-
 # ── IPI baseline ───────────────────────────────────────────────────────────
 
 
@@ -161,6 +178,7 @@ def compute_ipi_auroc(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_parquet: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
@@ -186,6 +204,12 @@ def compute_ipi_auroc(
 
         population = pd.read_csv(population_csv)
         outcomes = pd.read_parquet(outcome_parquet)
+        outcomes = filter_outcome_eligibility(
+            outcomes,
+            eligibility_path,
+            cohort=cohort,
+            outcome_name=outcome_name,
+        )
         outcomes = attach_prediction_censor_abspos(outcomes)
         outcomes = filter_registry_eligible_outcomes(
             outcomes,
@@ -287,6 +311,7 @@ def prepare_ipi_subset_predictions(
     ipi_score_col: str,
     output_dir: Path,
     split: str = "held_out",
+    eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
@@ -300,6 +325,12 @@ def prepare_ipi_subset_predictions(
     """
     population = pd.read_csv(population_csv)
     outcomes = pd.read_parquet(outcome_parquet)
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        eligibility_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+    )
     outcomes = filter_registry_eligible_outcomes(
         attach_prediction_censor_abspos(outcomes),
         registry_start_date,
@@ -396,6 +427,7 @@ def run_finetune(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     training_mode: Optional[str] = None,
     extra_overrides: Optional[List[str]] = None,
@@ -406,38 +438,25 @@ def run_finetune(
 
     Returns the checkpoint directory path.
     """
-    overrides = [
-        f"encoder_ckpt={encoder_ckpt}",
-        f"encoder_source={encoder_source}",
-        f"dataset={cohort}",
-        f"outcome={outcome_name}",
-        f"paths.dir={cohort_data_dir}",
-        f"paths.outcome={outcome_path}",
-        f"labels.n_hours_start_include={n_hours_start_include}",
-        f"labels.n_hours_end_include={'null' if n_hours_end_include is None else n_hours_end_include}",
-        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
-        f"hydra.run.dir={output_dir}",
-    ]
-    if competing_outcome_path:
-        overrides.append(f"paths.competing_outcome={competing_outcome_path}")
-    if training_mode is not None:
-        overrides.append(f"training_mode={training_mode}")
-    if extra_overrides:
-        overrides.extend(extra_overrides)
-
-    module = (
-        "opera.run.survival_finetune"
-        if training_mode in {"cox", "ipcw_bce"}
-        else "opera.run.finetune"
+    cmd = build_finetune_cmd(
+        encoder_ckpt=encoder_ckpt,
+        encoder_source=encoder_source,
+        cohort=cohort,
+        cohort_data_dir=cohort_data_dir,
+        outcome_name=outcome_name,
+        outcome_path=outcome_path,
+        output_dir=output_dir,
+        base_config=base_config,
+        n_hours_start_include=n_hours_start_include,
+        n_hours_end_include=n_hours_end_include,
+        competing_outcome_path=competing_outcome_path,
+        eligibility_path=eligibility_path,
+        registry_start_date=registry_start_date,
+        training_mode=training_mode,
+        extra_overrides=extra_overrides,
     )
-    cmd = [
-        sys.executable,
-        "-m",
-        module,
-        f"--config-name={'survival_finetune' if training_mode in {'cox', 'ipcw_bce'} else Path(base_config).stem}",
-    ] + overrides
 
-    print(f"    Running finetune: {' '.join(overrides[:4])} ...")
+    print(f"    Running finetune: {' '.join(cmd[4:8])} ...")
     result = run_logged_subprocess(cmd, log_dir or output_dir / "logs", "finetune")
 
     if result.returncode != 0:
@@ -460,45 +479,39 @@ def run_evaluate(
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     model_family: Optional[str] = None,
     training_stage: str = "evaluation",
     encoder_frozen: Optional[bool] = None,
     head_type: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
     log_dir: Optional[Path] = None,
 ) -> Optional[Dict]:
     """
     Launch evaluate.py and return parsed metrics dict.
     """
-    overrides = [
-        f"ckpt_path={ckpt_path}",
-        f"dataset={cohort}",
-        f"outcome={outcome_name}",
-        f"paths.dir={cohort_data_dir}",
-        f"paths.outcome={outcome_path}",
-        f"output_dir={output_dir}",
-        f"labels.n_hours_start_include={n_hours_start_include}",
-        f"labels.n_hours_end_include={'null' if n_hours_end_include is None else n_hours_end_include}",
-        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
-        f"training_stage={training_stage}",
-    ]
-    if model_family:
-        overrides.append(f"model_family={model_family}")
-    if encoder_frozen is not None:
-        overrides.append(f"encoder_frozen={str(encoder_frozen).lower()}")
-    if head_type is not None:
-        overrides.append(f"head_type={head_type}")
-    if competing_outcome_path:
-        overrides.append(f"paths.competing_outcome={competing_outcome_path}")
-
-    module = (
-        "opera.run.evaluate_joint"
-        if encoder_source == "joint"
-        else "opera.run.evaluate"
+    cmd = build_evaluate_cmd(
+        ckpt_path=ckpt_path,
+        cohort=cohort,
+        cohort_data_dir=cohort_data_dir,
+        outcome_name=outcome_name,
+        outcome_path=outcome_path,
+        output_dir=output_dir,
+        encoder_source=encoder_source,
+        n_hours_start_include=n_hours_start_include,
+        n_hours_end_include=n_hours_end_include,
+        competing_outcome_path=competing_outcome_path,
+        eligibility_path=eligibility_path,
+        registry_start_date=registry_start_date,
+        model_family=model_family,
+        training_stage=training_stage,
+        encoder_frozen=encoder_frozen,
+        head_type=head_type,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
     )
-    if encoder_source == "joint":
-        overrides = [f"outcome_name={outcome_name}"] + overrides
-    cmd = [sys.executable, "-m", module] + overrides
     result = run_logged_subprocess(cmd, log_dir or output_dir / "logs", "evaluate")
 
     if result.returncode != 0:
@@ -511,7 +524,7 @@ def run_evaluate(
     if not metrics_path.exists():
         return None
 
-    with open(metrics_path) as f:
+    with open(metrics_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -525,6 +538,7 @@ def run_prediction_evaluate(
     n_hours_start_include: int,
     n_hours_end_include,
     competing_outcome_path: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     rarity_mode: str = "none",
     baseline_model: Optional[str] = None,
@@ -535,44 +549,26 @@ def run_prediction_evaluate(
     subgroup_columns: Optional[List[str]] = None,
     log_dir: Optional[Path] = None,
 ) -> Optional[Dict]:
-    end_value = "null" if n_hours_end_include is None else str(n_hours_end_include)
-    cmd = [
-        sys.executable,
-        "-m",
-        "opera.run.evaluate_predictions",
-        "--predictions",
-        predictions_path,
-        "--outcome",
-        outcome_path,
-        "--output_dir",
-        str(output_dir),
-        "--cohort",
-        cohort,
-        "--outcome_name",
-        outcome_name,
-        "--model_family",
-        model_family,
-        "--n_hours_start_include",
-        str(n_hours_start_include),
-        "--rarity_mode",
-        rarity_mode,
-        "--seed",
-        str(seed),
-    ]
-    if baseline_model:
-        cmd.extend(["--baseline_model", baseline_model])
-    if ipi_coverage is not None:
-        cmd.extend(["--ipi_coverage", str(ipi_coverage)])
-    cmd.extend(["--evaluation_subset", evaluation_subset])
-    if n_hours_end_include is not None:
-        cmd.extend(["--n_hours_end_include", end_value])
-    if competing_outcome_path:
-        cmd.extend(["--competing_outcome", competing_outcome_path])
-    if registry_start_date is not None:
-        cmd.extend(["--registry_start_date", registry_start_date])
-    if subgroup_path and subgroup_columns:
-        cmd.extend(["--subgroups", subgroup_path])
-        cmd.extend(["--subgroup_columns", ",".join(subgroup_columns)])
+    cmd = build_prediction_evaluate_cmd(
+        predictions_path=predictions_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+        outcome_path=outcome_path,
+        model_family=model_family,
+        output_dir=output_dir,
+        n_hours_start_include=n_hours_start_include,
+        n_hours_end_include=n_hours_end_include,
+        competing_outcome_path=competing_outcome_path,
+        eligibility_path=eligibility_path,
+        registry_start_date=registry_start_date,
+        rarity_mode=rarity_mode,
+        baseline_model=baseline_model,
+        ipi_coverage=ipi_coverage,
+        evaluation_subset=evaluation_subset,
+        seed=seed,
+        subgroup_path=subgroup_path,
+        subgroup_columns=subgroup_columns,
+    )
     result = run_logged_subprocess(
         cmd,
         log_dir or output_dir / "logs",
@@ -585,7 +581,7 @@ def run_prediction_evaluate(
         return None
     metrics_path = output_dir / "metrics.json"
     if metrics_path.exists():
-        with open(metrics_path) as f:
+        with open(metrics_path, encoding="utf-8") as f:
             return json.load(f)
     return None
 
@@ -807,6 +803,747 @@ def to_latex_table(df: pd.DataFrame, metric: str = "auroc") -> str:
     return "\n".join(lines)
 
 
+# ── Per-cell orchestration ─────────────────────────────────────────────────
+
+
+def _run_ipi_baseline_cell(
+    cohort_name: str,
+    outcome_name: str,
+    outcome_cfg: Dict,
+    ipi_col: Optional[str],
+    pop_file: str,
+    data_dir: str,
+    output_dir: Path,
+    seeds: List[int],
+    tracker: "StatusTracker",
+    cfg: Dict,
+    dry_run: bool,
+    fail_fast: bool,
+    rarity_mode: str,
+    baseline_model: Optional[str],
+    subgroup_path: Optional[str],
+    subgroup_columns: Optional[List[str]],
+) -> List[Dict]:
+    """Evaluate the IPI clinical-score baseline for one cohort × outcome cell.
+
+    Returns a list of result dicts (one per seed that produced metrics).
+    Appends status records to tracker. Raises RuntimeError / FileNotFoundError
+    only when fail_fast=True.
+    """
+    results: List[Dict] = []
+    registry_start_date = resolve_registry_start_date(cfg, outcome_cfg)
+    outcome_parquet = outcome_file_path(data_dir, outcome_name, outcome_cfg)
+    eligibility = eligibility_file_path(
+        data_dir,
+        cohort_name,
+        outcome_name,
+        outcome_cfg,
+    )
+    eligibility = str(eligibility) if eligibility is not None else None
+    if dry_run:
+        print(f"  [DRY RUN] Would evaluate IPI for {cohort_name}/{outcome_name}")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant="ipi",
+            seed=None,
+            stage="ipi",
+            status="dry_run",
+            output_dir=str(output_dir / cohort_name / outcome_name / "ipi"),
+        )
+        return results
+    if ipi_col and Path(outcome_parquet).exists():
+        competing_parquet = competing_outcome_path(data_dir, outcome_cfg)
+        subset_path, ipi_coverage, _ = prepare_ipi_subset_predictions(
+            pop_file,
+            outcome_parquet,
+            ipi_col,
+            output_dir / cohort_name / outcome_name / "ipi",
+            eligibility_path=eligibility,
+            registry_start_date=registry_start_date,
+            cohort=cohort_name,
+            outcome_name=outcome_name,
+        )
+        if subset_path is not None:
+            for seed in seeds:
+                metrics = run_prediction_evaluate(
+                    predictions_path=str(subset_path),
+                    cohort=cohort_name,
+                    outcome_name=outcome_name,
+                    outcome_path=outcome_parquet,
+                    model_family="ipi",
+                    output_dir=output_dir
+                    / cohort_name
+                    / outcome_name
+                    / "ipi"
+                    / f"seed_{seed}",
+                    n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
+                    n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
+                    competing_outcome_path=competing_parquet,
+                    eligibility_path=eligibility,
+                    registry_start_date=registry_start_date,
+                    rarity_mode=rarity_mode,
+                    baseline_model=baseline_model,
+                    ipi_coverage=ipi_coverage,
+                    evaluation_subset="ipi_complete",
+                    seed=seed,
+                    subgroup_path=subgroup_path,
+                    subgroup_columns=subgroup_columns,
+                    log_dir=output_dir
+                    / cohort_name
+                    / outcome_name
+                    / "ipi"
+                    / f"seed_{seed}"
+                    / "logs",
+                )
+                if metrics:
+                    results.append(
+                        {
+                            "cohort": cohort_name,
+                            "outcome": outcome_name,
+                            "variant": "ipi",
+                            "metrics": metrics,
+                        }
+                    )
+                    tracker.append(
+                        cohort=cohort_name,
+                        outcome=outcome_name,
+                        variant="ipi",
+                        seed=seed,
+                        stage="evaluate_predictions",
+                        status="success",
+                        evaluation_subset="ipi_complete",
+                        output_dir=str(
+                            output_dir
+                            / cohort_name
+                            / outcome_name
+                            / "ipi"
+                            / f"seed_{seed}"
+                        ),
+                    )
+                else:
+                    tracker.append(
+                        cohort=cohort_name,
+                        outcome=outcome_name,
+                        variant="ipi",
+                        seed=seed,
+                        stage="evaluate_predictions",
+                        status="failed",
+                        evaluation_subset="ipi_complete",
+                        output_dir=str(
+                            output_dir
+                            / cohort_name
+                            / outcome_name
+                            / "ipi"
+                            / f"seed_{seed}"
+                        ),
+                        reason="evaluate_predictions returned no metrics",
+                    )
+                    if fail_fast:
+                        raise RuntimeError("IPI prediction evaluation failed")
+            print(
+                f"  IPI [{cohort_name} x {outcome_name}]: "
+                f"coverage={ipi_coverage:.0%}, evaluated IPI-complete subset"
+            )
+            return results
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant="ipi",
+            seed=None,
+            stage="coverage",
+            status="skipped",
+            output_dir=str(output_dir / cohort_name / outcome_name / "ipi"),
+            reason="IPI coverage below threshold or no complete subset",
+        )
+        ipi_metrics = compute_ipi_auroc(
+            pop_file,
+            outcome_parquet,
+            ipi_col,
+            n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
+            n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
+            competing_outcome_parquet=competing_parquet,
+            eligibility_path=eligibility,
+            registry_start_date=registry_start_date,
+            cohort=cohort_name,
+            outcome_name=outcome_name,
+        )
+        if ipi_metrics:
+            prepare_ipi_subset_predictions(
+                pop_file,
+                outcome_parquet,
+                ipi_col,
+                output_dir / cohort_name / outcome_name / "ipi",
+                eligibility_path=eligibility,
+                registry_start_date=registry_start_date,
+                cohort=cohort_name,
+                outcome_name=outcome_name,
+            )
+            results.append(
+                {
+                    "cohort": cohort_name,
+                    "outcome": outcome_name,
+                    "variant": "ipi",
+                    "metrics": {
+                        "discrimination": ipi_metrics,
+                        "calibration": {},
+                        "bootstrap_ci": {},
+                        "survival": ipi_metrics.get("survival", {}),
+                    },
+                }
+            )
+            write_sweep_result_artifact(
+                metrics={
+                    "discrimination": ipi_metrics,
+                    "calibration": {},
+                    "bootstrap_ci": {},
+                    "survival": ipi_metrics.get("survival", {}),
+                },
+                output_dir=output_dir / cohort_name / outcome_name / "ipi",
+                cohort=cohort_name,
+                outcome=outcome_name,
+                outcome_cfg=outcome_cfg,
+                variant="ipi",
+                cfg=cfg,
+                checkpoint_path="precomputed_ipi",
+            )
+            auroc = ipi_metrics.get("auroc", float("nan"))
+            print(
+                f"  IPI [{cohort_name} × {outcome_name}]: AUROC={auroc:.3f} "
+                f"(coverage={ipi_metrics['coverage']:.0%})"
+            )
+    return results
+
+
+def _run_variant_cell(
+    cohort_name: str,
+    outcome_name: str,
+    outcome_cfg: Dict,
+    variant_name: str,
+    variant_cfg: Dict,
+    result_variant: str,
+    seed: int,
+    training_cohort: str,
+    cohort_fine_col: Optional[str],
+    cohort_fine_value: Optional[str],
+    data_dir: str,
+    output_dir: Path,
+    base_config: str,
+    tracker: "StatusTracker",
+    cfg: Dict,
+    dry_run: bool,
+    overwrite: bool,
+    fail_fast: bool,
+    rarity_mode: str,
+    baseline_model: Optional[str],
+    ipi_col: Optional[str],
+    pop_file: str,
+    subgroup_path: Optional[str],
+    subgroup_columns: Optional[List[str]],
+) -> Optional[Dict]:
+    """Run one (cohort, outcome, variant, seed) cell of the evaluation sweep.
+
+    Handles the three variant paths: results_file, predictions_file, and
+    foundation-model finetune+evaluate. Returns a result dict or None.
+    Appends status records to tracker.
+    """
+    registry_start_date = resolve_registry_start_date(cfg, outcome_cfg)
+    n_hours_start = outcome_cfg.get("n_hours_start_include", 1)
+    n_hours_end = outcome_cfg.get("n_hours_end_include")
+    competing_outcome = competing_outcome_path(data_dir, outcome_cfg)
+    eligibility = eligibility_file_path(
+        data_dir,
+        cohort_name,
+        outcome_name,
+        outcome_cfg,
+    )
+    eligibility = str(eligibility) if eligibility is not None else None
+
+    cell_dir = output_dir / cohort_name / outcome_name / result_variant / f"seed_{seed}"
+    cell_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Pre-computed results (tabular baselines) ───────────
+    if "results_file" in variant_cfg:
+        results_path = format_variant_path(
+            variant_cfg["results_file"],
+            cohort_name,
+            outcome_name,
+            seed,
+            training_cohort=training_cohort,
+        )
+        print(
+            "  Warning: results_file bypasses shared prediction "
+            "evaluation; calibration, DCA, bootstrap CI, and "
+            "enrichment fields may be missing."
+        )
+        if dry_run:
+            print(f"  [DRY RUN] Would load pre-computed results: {results_path}")
+            tracker.append(
+                cohort=cohort_name,
+                outcome=outcome_name,
+                variant=result_variant,
+                seed=seed,
+                stage="results_file",
+                status="dry_run",
+                output_dir=str(cell_dir),
+            )
+            return None
+        if Path(results_path).exists():
+            with open(results_path) as f:
+                metrics = json.load(f)
+            write_sweep_result_artifact(
+                metrics=metrics,
+                output_dir=cell_dir,
+                cohort=cohort_name,
+                outcome=outcome_name,
+                outcome_cfg=outcome_cfg,
+                variant=result_variant,
+                cfg={**cfg, "seed": seed},
+                checkpoint_path=results_path,
+            )
+            auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+            print(f"  Loaded pre-computed: AUROC={auroc:.3f}")
+            tracker.append(
+                cohort=cohort_name,
+                outcome=outcome_name,
+                variant=result_variant,
+                seed=seed,
+                stage="results_file",
+                status="success",
+                output_dir=str(cell_dir),
+                artifact=results_path,
+            )
+            return {
+                "cohort": cohort_name,
+                "outcome": outcome_name,
+                "variant": result_variant,
+                "metrics": metrics,
+            }
+        print(f"  Pre-computed results not found: {results_path}")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="results_file",
+            status="failed",
+            output_dir=str(cell_dir),
+            artifact=results_path,
+            reason="results_file not found",
+        )
+        if fail_fast:
+            raise FileNotFoundError(results_path)
+        return None
+
+    if "predictions_file" in variant_cfg:
+        predictions_path = format_variant_path(
+            variant_cfg["predictions_file"],
+            cohort_name,
+            outcome_name,
+            seed,
+            training_cohort=training_cohort,
+        )
+        if dry_run:
+            print(f"  [DRY RUN] Would evaluate prediction file: {predictions_path}")
+            tracker.append(
+                cohort=cohort_name,
+                outcome=outcome_name,
+                variant=result_variant,
+                seed=seed,
+                stage="evaluate_predictions",
+                status="dry_run",
+                output_dir=str(cell_dir),
+                artifact=predictions_path,
+            )
+            return None
+        if Path(predictions_path).exists():
+            metrics = run_prediction_evaluate(
+                predictions_path=predictions_path,
+                cohort=cohort_name,
+                outcome_name=outcome_name,
+                outcome_path=outcome_file_path(
+                    data_dir,
+                    outcome_name,
+                    outcome_cfg,
+                ),
+                model_family=result_variant,
+                output_dir=cell_dir,
+                n_hours_start_include=n_hours_start,
+                n_hours_end_include=n_hours_end,
+                competing_outcome_path=competing_outcome,
+                eligibility_path=eligibility,
+                registry_start_date=registry_start_date,
+                rarity_mode=rarity_mode,
+                baseline_model=baseline_model,
+                seed=seed,
+                subgroup_path=subgroup_path,
+                subgroup_columns=subgroup_columns,
+                log_dir=cell_dir / "logs",
+            )
+            if metrics is not None:
+                auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+                print(f"  Evaluated predictions: AUROC={auroc:.3f}")
+                tracker.append(
+                    cohort=cohort_name,
+                    outcome=outcome_name,
+                    variant=result_variant,
+                    seed=seed,
+                    stage="evaluate_predictions",
+                    status="success",
+                    evaluation_subset="full",
+                    output_dir=str(cell_dir),
+                    artifact=predictions_path,
+                )
+                if ipi_col and result_variant in {"tabular_ehr", "opera"}:
+                    ipi_path, ipi_coverage, ipi_subjects = (
+                        prepare_ipi_subset_predictions(
+                            pop_file,
+                            outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                            ipi_col,
+                            output_dir / cohort_name / outcome_name / "ipi",
+                            eligibility_path=eligibility,
+                            registry_start_date=registry_start_date,
+                            cohort=cohort_name,
+                            outcome_name=outcome_name,
+                        )
+                    )
+                    if ipi_path is not None:
+                        subset_pred = write_prediction_subset(
+                            predictions_path,
+                            ipi_subjects,
+                            cell_dir / f"{result_variant}_ipi_subset_predictions.csv",
+                        )
+                        if subset_pred is not None:
+                            run_prediction_evaluate(
+                                predictions_path=str(subset_pred),
+                                cohort=cohort_name,
+                                outcome_name=outcome_name,
+                                outcome_path=outcome_file_path(
+                                    data_dir, outcome_name, outcome_cfg
+                                ),
+                                model_family=result_variant,
+                                output_dir=cell_dir / "ipi_complete",
+                                n_hours_start_include=n_hours_start,
+                                n_hours_end_include=n_hours_end,
+                                competing_outcome_path=competing_outcome,
+                                eligibility_path=eligibility,
+                                registry_start_date=registry_start_date,
+                                rarity_mode=rarity_mode,
+                                baseline_model=baseline_model,
+                                ipi_coverage=ipi_coverage,
+                                evaluation_subset="ipi_complete",
+                                seed=seed,
+                                subgroup_path=subgroup_path,
+                                subgroup_columns=subgroup_columns,
+                                log_dir=cell_dir / "ipi_complete" / "logs",
+                            )
+                return {
+                    "cohort": cohort_name,
+                    "outcome": outcome_name,
+                    "variant": result_variant,
+                    "metrics": metrics,
+                }
+            tracker.append(
+                cohort=cohort_name,
+                outcome=outcome_name,
+                variant=result_variant,
+                seed=seed,
+                stage="evaluate_predictions",
+                status="failed",
+                evaluation_subset="full",
+                output_dir=str(cell_dir),
+                artifact=predictions_path,
+                reason="evaluate_predictions returned no metrics",
+            )
+            if fail_fast:
+                raise RuntimeError(f"Prediction evaluation failed: {predictions_path}")
+            return None
+        print(f"  Prediction file not found: {predictions_path}")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="evaluate_predictions",
+            status="failed",
+            output_dir=str(cell_dir),
+            artifact=predictions_path,
+            reason="predictions_file not found",
+        )
+        if fail_fast:
+            raise FileNotFoundError(predictions_path)
+        return None
+
+    # ── Foundation model: finetune + evaluate ──────────────
+    metrics_path = cell_dir / "metrics.json"
+    if metrics_path.exists() and not overwrite:
+        print("  Already done (use --overwrite to redo).")
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+        auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+        print(f"  Loaded cached: AUROC={auroc:.3f}")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="cached",
+            status="success",
+            output_dir=str(cell_dir),
+            artifact=str(metrics_path),
+        )
+        return {
+            "cohort": cohort_name,
+            "outcome": outcome_name,
+            "variant": result_variant,
+            "metrics": metrics,
+        }
+
+    encoder_source = variant_cfg.get("encoder_source", "contrastive")
+    training_mode = variant_cfg.get("training_mode")
+    if training_mode is not None and training_mode not in {
+        "cox",
+        "ipcw_bce",
+    }:
+        print(f"  Invalid training_mode={training_mode!r}, skipping.")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="configuration",
+            status="failed",
+            output_dir=str(cell_dir),
+            reason=f"invalid training_mode={training_mode!r}",
+        )
+        if fail_fast:
+            raise ValueError(f"Invalid training_mode={training_mode!r}")
+        return None
+    if training_mode == "ipcw_bce" and n_hours_end is None:
+        print("  IPCW-BCE requires n_hours_end_include, skipping.")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="configuration",
+            status="skipped",
+            output_dir=str(cell_dir),
+            reason="ipcw_bce requires n_hours_end_include",
+        )
+        return None
+    if dry_run:
+        action = (
+            "evaluate joint checkpoint"
+            if encoder_source == "joint"
+            else (
+                f"{training_mode} finetune and evaluate"
+                if training_mode in {"cox", "ipcw_bce"}
+                else "finetune and evaluate"
+            )
+        )
+        print(
+            f"  [DRY RUN] Would {action} {result_variant} "
+            f"on {cohort_name}/{outcome_name}"
+        )
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="finetune_evaluate",
+            status="dry_run",
+            output_dir=str(cell_dir),
+        )
+        return None
+
+    encoder_ckpt_template = variant_cfg.get("encoder_ckpt")
+    if encoder_ckpt_template is None and encoder_source not in {
+        "random_init",
+        "none",
+        "scratch",
+        "no_pretraining",
+    }:
+        print("  Missing encoder_ckpt for checkpointed variant, skipping.")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="configuration",
+            status="failed",
+            output_dir=str(cell_dir),
+            reason="missing encoder_ckpt",
+        )
+        if fail_fast:
+            raise ValueError(f"Variant {result_variant!r} is missing encoder_ckpt.")
+        return None
+    encoder_ckpt = (
+        format_variant_path(
+            encoder_ckpt_template,
+            cohort_name,
+            outcome_name,
+            seed,
+            training_cohort=training_cohort,
+        )
+        if encoder_ckpt_template is not None
+        else "null"
+    )
+    if encoder_source == "joint":
+        ckpt_path = Path(encoder_ckpt)
+    else:
+        ckpt_path = cell_dir / "best.ckpt"
+    if encoder_source != "joint" and (not ckpt_path.exists() or overwrite):
+        ckpt_path = run_finetune(
+            encoder_ckpt=encoder_ckpt,
+            encoder_source=encoder_source,
+            cohort=cohort_name,
+            cohort_data_dir=data_dir,
+            outcome_name=outcome_name,
+            outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
+            output_dir=cell_dir,
+            base_config=base_config,
+            n_hours_start_include=n_hours_start,
+            n_hours_end_include=n_hours_end,
+            competing_outcome_path=competing_outcome,
+            eligibility_path=eligibility,
+            registry_start_date=registry_start_date,
+            training_mode=training_mode,
+            extra_overrides=[
+                *(variant_cfg.get("extra_overrides") or []),
+                f"seed={seed}",
+            ],
+            log_dir=cell_dir / "logs",
+        )
+
+    if ckpt_path is None or not Path(ckpt_path).exists():
+        print(f"  Checkpoint not found: {ckpt_path}, skipping.")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="finetune",
+            status="failed",
+            output_dir=str(cell_dir),
+            artifact=str(ckpt_path),
+            reason="checkpoint not produced or not found",
+        )
+        if fail_fast:
+            raise FileNotFoundError(str(ckpt_path))
+        return None
+
+    metrics = run_evaluate(
+        ckpt_path=Path(ckpt_path),
+        cohort=cohort_name,
+        cohort_data_dir=data_dir,
+        outcome_name=outcome_name,
+        outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
+        output_dir=cell_dir,
+        encoder_source=encoder_source,
+        n_hours_start_include=n_hours_start,
+        n_hours_end_include=n_hours_end,
+        competing_outcome_path=competing_outcome,
+        eligibility_path=eligibility,
+        registry_start_date=registry_start_date,
+        model_family=result_variant,
+        training_stage=(
+            "survival_finetuning"
+            if training_mode in {"cox", "ipcw_bce"}
+            else variant_cfg.get("training_stage", "per_task_finetuning")
+        ),
+        encoder_frozen=(
+            True if variant_cfg.get("training_stage") == "linear_probe" else None
+        ),
+        head_type=(
+            "linear_probe"
+            if variant_cfg.get("training_stage") == "linear_probe"
+            else None
+        ),
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
+        log_dir=cell_dir / "logs",
+    )
+
+    if metrics is not None:
+        auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
+        print(f"  Done: AUROC={auroc:.3f}")
+        tracker.append(
+            cohort=cohort_name,
+            outcome=outcome_name,
+            variant=result_variant,
+            seed=seed,
+            stage="evaluate",
+            status="success",
+            evaluation_subset="full",
+            output_dir=str(cell_dir),
+            artifact=str(cell_dir / "metrics.json"),
+        )
+        if ipi_col and result_variant == "opera":
+            ipi_path, ipi_coverage, ipi_subjects = prepare_ipi_subset_predictions(
+                pop_file,
+                outcome_file_path(data_dir, outcome_name, outcome_cfg),
+                ipi_col,
+                output_dir / cohort_name / outcome_name / "ipi",
+                eligibility_path=eligibility,
+                registry_start_date=registry_start_date,
+                cohort=cohort_name,
+                outcome_name=outcome_name,
+            )
+            if ipi_path is not None:
+                subset_pred = write_npz_prediction_subset(
+                    cell_dir / "predictions.npz",
+                    ipi_subjects,
+                    cell_dir / "opera_ipi_subset_predictions.csv",
+                )
+                if subset_pred is not None:
+                    run_prediction_evaluate(
+                        predictions_path=str(subset_pred),
+                        cohort=cohort_name,
+                        outcome_name=outcome_name,
+                        outcome_path=outcome_file_path(
+                            data_dir, outcome_name, outcome_cfg
+                        ),
+                        model_family=result_variant,
+                        output_dir=cell_dir / "ipi_complete",
+                        n_hours_start_include=n_hours_start,
+                        n_hours_end_include=n_hours_end,
+                        competing_outcome_path=competing_outcome,
+                        eligibility_path=eligibility,
+                        registry_start_date=registry_start_date,
+                        rarity_mode=rarity_mode,
+                        baseline_model=baseline_model,
+                        ipi_coverage=ipi_coverage,
+                        evaluation_subset="ipi_complete",
+                        seed=seed,
+                        subgroup_path=subgroup_path,
+                        subgroup_columns=subgroup_columns,
+                        log_dir=cell_dir / "ipi_complete" / "logs",
+                    )
+        return {
+            "cohort": cohort_name,
+            "outcome": outcome_name,
+            "variant": result_variant,
+            "metrics": metrics,
+        }
+    tracker.append(
+        cohort=cohort_name,
+        outcome=outcome_name,
+        variant=result_variant,
+        seed=seed,
+        stage="evaluate",
+        status="failed",
+        evaluation_subset="full",
+        output_dir=str(cell_dir),
+        reason="evaluate returned no metrics",
+    )
+    if fail_fast:
+        raise RuntimeError(
+            f"Evaluation failed for {cohort_name}/{outcome_name}/{result_variant}"
+        )
+    return None
+
+
 # ── Main sweep loop ────────────────────────────────────────────────────────
 
 
@@ -850,7 +1587,7 @@ def run_sweep(
     outcomes = normalize_outcome_config(cfg["outcomes"])
 
     all_results = []
-    cell_status: list[dict] = []
+    tracker = StatusTracker()
     planned_variant_cells = sum(
         1
         for variant in model_variants.values()
@@ -871,747 +1608,86 @@ def run_sweep(
         pop_file = cohort_cfg.get(
             "population_file", str(Path(data_dir) / "population_full.csv")
         )
+        cohort_fine_col = cohort_cfg.get("cohort_fine_col")
+        cohort_fine_value = cohort_cfg.get("cohort_fine_value")
+        # For train-on-grouped / eval-on-fine sweeps, training_cohort names the
+        # grouped cohort whose checkpoint to use.  Falls back to cohort_name so
+        # ordinary sweeps are unaffected.
+        training_cohort = cohort_cfg.get("training_cohort", cohort_name)
 
         # ── IPI baseline (one per cohort × outcome, not per variant) ──
         for outcome_name, outcome_cfg in outcomes.items():
-            registry_start_date = resolve_registry_start_date(
-                cohort_cfg,
-                outcome_cfg,
+            results = _run_ipi_baseline_cell(
+                cohort_name=cohort_name,
+                outcome_name=outcome_name,
+                outcome_cfg=outcome_cfg,
+                ipi_col=ipi_col,
+                pop_file=pop_file,
+                data_dir=data_dir,
+                output_dir=output_dir,
+                seeds=seeds,
+                tracker=tracker,
+                cfg=cfg,
+                dry_run=dry_run,
+                fail_fast=fail_fast,
+                rarity_mode=rarity_mode,
+                baseline_model=baseline_model,
+                subgroup_path=subgroup_path,
+                subgroup_columns=subgroup_columns,
             )
-            outcome_parquet = outcome_file_path(data_dir, outcome_name, outcome_cfg)
-            if dry_run:
-                print(
-                    f"  [DRY RUN] Would evaluate IPI for {cohort_name}/{outcome_name}"
-                )
-                append_cell_status(
-                    cell_status,
-                    cohort=cohort_name,
-                    outcome=outcome_name,
-                    variant="ipi",
-                    seed=None,
-                    stage="ipi",
-                    status="dry_run",
-                    output_dir=str(output_dir / cohort_name / outcome_name / "ipi"),
-                )
-                continue
-            if ipi_col and Path(outcome_parquet).exists():
-                competing_parquet = competing_outcome_path(data_dir, outcome_cfg)
-                subset_path, ipi_coverage, _ = prepare_ipi_subset_predictions(
-                    pop_file,
-                    outcome_parquet,
-                    ipi_col,
-                    output_dir / cohort_name / outcome_name / "ipi",
-                    registry_start_date=registry_start_date,
-                    cohort=cohort_name,
-                    outcome_name=outcome_name,
-                )
-                if subset_path is not None:
-                    for seed in seeds:
-                        metrics = run_prediction_evaluate(
-                            predictions_path=str(subset_path),
-                            cohort=cohort_name,
-                            outcome_name=outcome_name,
-                            outcome_path=outcome_parquet,
-                            model_family="ipi",
-                            output_dir=output_dir
-                            / cohort_name
-                            / outcome_name
-                            / "ipi"
-                            / f"seed_{seed}",
-                            n_hours_start_include=outcome_cfg.get(
-                                "n_hours_start_include", 1
-                            ),
-                            n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
-                            competing_outcome_path=competing_parquet,
-                            registry_start_date=registry_start_date,
-                            rarity_mode=rarity_mode,
-                            baseline_model=baseline_model,
-                            ipi_coverage=ipi_coverage,
-                            evaluation_subset="ipi_complete",
-                            seed=seed,
-                            subgroup_path=subgroup_path,
-                            subgroup_columns=subgroup_columns,
-                            log_dir=output_dir
-                            / cohort_name
-                            / outcome_name
-                            / "ipi"
-                            / f"seed_{seed}"
-                            / "logs",
-                        )
-                        if metrics:
-                            all_results.append(
-                                {
-                                    "cohort": cohort_name,
-                                    "outcome": outcome_name,
-                                    "variant": "ipi",
-                                    "metrics": metrics,
-                                }
-                            )
-                            append_cell_status(
-                                cell_status,
-                                cohort=cohort_name,
-                                outcome=outcome_name,
-                                variant="ipi",
-                                seed=seed,
-                                stage="evaluate_predictions",
-                                status="success",
-                                evaluation_subset="ipi_complete",
-                                output_dir=str(
-                                    output_dir
-                                    / cohort_name
-                                    / outcome_name
-                                    / "ipi"
-                                    / f"seed_{seed}"
-                                ),
-                            )
-                        else:
-                            append_cell_status(
-                                cell_status,
-                                cohort=cohort_name,
-                                outcome=outcome_name,
-                                variant="ipi",
-                                seed=seed,
-                                stage="evaluate_predictions",
-                                status="failed",
-                                evaluation_subset="ipi_complete",
-                                output_dir=str(
-                                    output_dir
-                                    / cohort_name
-                                    / outcome_name
-                                    / "ipi"
-                                    / f"seed_{seed}"
-                                ),
-                                reason="evaluate_predictions returned no metrics",
-                            )
-                            if fail_fast:
-                                raise RuntimeError("IPI prediction evaluation failed")
-                    print(
-                        f"  IPI [{cohort_name} x {outcome_name}]: "
-                        f"coverage={ipi_coverage:.0%}, evaluated IPI-complete subset"
-                    )
-                    continue
-                append_cell_status(
-                    cell_status,
-                    cohort=cohort_name,
-                    outcome=outcome_name,
-                    variant="ipi",
-                    seed=None,
-                    stage="coverage",
-                    status="skipped",
-                    output_dir=str(output_dir / cohort_name / outcome_name / "ipi"),
-                    reason="IPI coverage below threshold or no complete subset",
-                )
-                ipi_metrics = compute_ipi_auroc(
-                    pop_file,
-                    outcome_parquet,
-                    ipi_col,
-                    n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
-                    n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
-                    competing_outcome_parquet=competing_parquet,
-                    registry_start_date=registry_start_date,
-                    cohort=cohort_name,
-                    outcome_name=outcome_name,
-                )
-                if ipi_metrics:
-                    prepare_ipi_subset_predictions(
-                        pop_file,
-                        outcome_parquet,
-                        ipi_col,
-                        output_dir / cohort_name / outcome_name / "ipi",
-                        registry_start_date=registry_start_date,
-                        cohort=cohort_name,
-                        outcome_name=outcome_name,
-                    )
-                    all_results.append(
-                        {
-                            "cohort": cohort_name,
-                            "outcome": outcome_name,
-                            "variant": "ipi",
-                            "metrics": {
-                                "discrimination": ipi_metrics,
-                                "calibration": {},
-                                "bootstrap_ci": {},
-                                "survival": ipi_metrics.get("survival", {}),
-                            },
-                        }
-                    )
-                    write_sweep_result_artifact(
-                        metrics={
-                            "discrimination": ipi_metrics,
-                            "calibration": {},
-                            "bootstrap_ci": {},
-                            "survival": ipi_metrics.get("survival", {}),
-                        },
-                        output_dir=output_dir / cohort_name / outcome_name / "ipi",
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        outcome_cfg=outcome_cfg,
-                        variant="ipi",
-                        cfg=cfg,
-                        checkpoint_path="precomputed_ipi",
-                    )
-                    auroc = ipi_metrics.get("auroc", float("nan"))
-                    print(
-                        f"  IPI [{cohort_name} × {outcome_name}]: AUROC={auroc:.3f} "
-                        f"(coverage={ipi_metrics['coverage']:.0%})"
-                    )
+            all_results.extend(results)
 
-        # ── Foundation model variants ──────────────────────────────────
+        # ── Foundation model variants ──────────────────
         for variant_name, variant_cfg in model_variants.items():
             result_variant = variant_cfg.get("model_family", variant_name)
             seed = variant_cfg.get("seed", cfg.get("seed", 42))
             for outcome_name, outcome_cfg in outcomes.items():
                 if not variant_applies_to_outcome(variant_cfg, outcome_name):
                     continue
-                n_hours_start = outcome_cfg.get("n_hours_start_include", 1)
-                n_hours_end = outcome_cfg.get("n_hours_end_include")
-                competing_outcome = competing_outcome_path(data_dir, outcome_cfg)
-
                 cell_idx += 1
-                cell_dir = (
-                    output_dir
-                    / cohort_name
-                    / outcome_name
-                    / result_variant
-                    / f"seed_{seed}"
-                )
-                cell_dir.mkdir(parents=True, exist_ok=True)
-
                 window_str = (
-                    f"{n_hours_end}h" if n_hours_end is not None else "open-ended"
+                    f"{outcome_cfg.get('n_hours_end_include')}h"
+                    if outcome_cfg.get("n_hours_end_include") is not None
+                    else "open-ended"
                 )
                 print(
                     f"\n[{cell_idx}/{total_cells}] {cohort_name} × {outcome_name} ({window_str}) × {variant_name}"
                 )
-
-                # ── Pre-computed results (tabular baselines) ───────────
-                if "results_file" in variant_cfg:
-                    results_path = format_variant_path(
-                        variant_cfg["results_file"],
-                        cohort_name,
-                        outcome_name,
-                        seed,
-                    )
-                    print(
-                        "  Warning: results_file bypasses shared prediction "
-                        "evaluation; calibration, DCA, bootstrap CI, and "
-                        "enrichment fields may be missing."
-                    )
-                    if dry_run:
-                        print(
-                            f"  [DRY RUN] Would load pre-computed results: {results_path}"
-                        )
-                        append_cell_status(
-                            cell_status,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            variant=result_variant,
-                            seed=seed,
-                            stage="results_file",
-                            status="dry_run",
-                            output_dir=str(cell_dir),
-                        )
-                        continue
-                    if Path(results_path).exists():
-                        with open(results_path) as f:
-                            metrics = json.load(f)
-                        all_results.append(
-                            {
-                                "cohort": cohort_name,
-                                "outcome": outcome_name,
-                                "variant": result_variant,
-                                "metrics": metrics,
-                            }
-                        )
-                        write_sweep_result_artifact(
-                            metrics=metrics,
-                            output_dir=cell_dir,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            outcome_cfg=outcome_cfg,
-                            variant=result_variant,
-                            cfg={**cfg, "seed": seed},
-                            checkpoint_path=results_path,
-                        )
-                        auroc = metrics.get("discrimination", {}).get(
-                            "auroc", float("nan")
-                        )
-                        print(f"  Loaded pre-computed: AUROC={auroc:.3f}")
-                        append_cell_status(
-                            cell_status,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            variant=result_variant,
-                            seed=seed,
-                            stage="results_file",
-                            status="success",
-                            output_dir=str(cell_dir),
-                            artifact=results_path,
-                        )
-                    else:
-                        print(f"  Pre-computed results not found: {results_path}")
-                        append_cell_status(
-                            cell_status,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            variant=result_variant,
-                            seed=seed,
-                            stage="results_file",
-                            status="failed",
-                            output_dir=str(cell_dir),
-                            artifact=results_path,
-                            reason="results_file not found",
-                        )
-                        if fail_fast:
-                            raise FileNotFoundError(results_path)
-                    continue
-
-                if "predictions_file" in variant_cfg:
-                    predictions_path = format_variant_path(
-                        variant_cfg["predictions_file"],
-                        cohort_name,
-                        outcome_name,
-                        seed,
-                    )
-                    if dry_run:
-                        print(
-                            f"  [DRY RUN] Would evaluate prediction file: {predictions_path}"
-                        )
-                        append_cell_status(
-                            cell_status,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            variant=result_variant,
-                            seed=seed,
-                            stage="evaluate_predictions",
-                            status="dry_run",
-                            output_dir=str(cell_dir),
-                            artifact=predictions_path,
-                        )
-                        continue
-                    if Path(predictions_path).exists():
-                        metrics = run_prediction_evaluate(
-                            predictions_path=predictions_path,
-                            cohort=cohort_name,
-                            outcome_name=outcome_name,
-                            outcome_path=outcome_file_path(
-                                data_dir,
-                                outcome_name,
-                                outcome_cfg,
-                            ),
-                            model_family=result_variant,
-                            output_dir=cell_dir,
-                            n_hours_start_include=n_hours_start,
-                            n_hours_end_include=n_hours_end,
-                            competing_outcome_path=competing_outcome,
-                            registry_start_date=registry_start_date,
-                            rarity_mode=rarity_mode,
-                            baseline_model=baseline_model,
-                            seed=seed,
-                            subgroup_path=subgroup_path,
-                            subgroup_columns=subgroup_columns,
-                            log_dir=cell_dir / "logs",
-                        )
-                        if metrics is not None:
-                            all_results.append(
-                                {
-                                    "cohort": cohort_name,
-                                    "outcome": outcome_name,
-                                    "variant": result_variant,
-                                    "metrics": metrics,
-                                }
-                            )
-                            auroc = metrics.get("discrimination", {}).get(
-                                "auroc", float("nan")
-                            )
-                            print(f"  Evaluated predictions: AUROC={auroc:.3f}")
-                            append_cell_status(
-                                cell_status,
-                                cohort=cohort_name,
-                                outcome=outcome_name,
-                                variant=result_variant,
-                                seed=seed,
-                                stage="evaluate_predictions",
-                                status="success",
-                                evaluation_subset="full",
-                                output_dir=str(cell_dir),
-                                artifact=predictions_path,
-                            )
-                            if ipi_col and result_variant in {"tabular_ehr", "opera"}:
-                                ipi_path, ipi_coverage, ipi_subjects = (
-                                    prepare_ipi_subset_predictions(
-                                        pop_file,
-                                        outcome_file_path(
-                                            data_dir, outcome_name, outcome_cfg
-                                        ),
-                                        ipi_col,
-                                        output_dir / cohort_name / outcome_name / "ipi",
-                                        registry_start_date=registry_start_date,
-                                        cohort=cohort_name,
-                                        outcome_name=outcome_name,
-                                    )
-                                )
-                                if ipi_path is not None:
-                                    subset_pred = write_prediction_subset(
-                                        predictions_path,
-                                        ipi_subjects,
-                                        cell_dir
-                                        / f"{result_variant}_ipi_subset_predictions.csv",
-                                    )
-                                    if subset_pred is not None:
-                                        run_prediction_evaluate(
-                                            predictions_path=str(subset_pred),
-                                            cohort=cohort_name,
-                                            outcome_name=outcome_name,
-                                            outcome_path=outcome_file_path(
-                                                data_dir, outcome_name, outcome_cfg
-                                            ),
-                                            model_family=result_variant,
-                                            output_dir=cell_dir / "ipi_complete",
-                                            n_hours_start_include=n_hours_start,
-                                            n_hours_end_include=n_hours_end,
-                                            competing_outcome_path=competing_outcome,
-                                            registry_start_date=registry_start_date,
-                                            rarity_mode=rarity_mode,
-                                            baseline_model=baseline_model,
-                                            ipi_coverage=ipi_coverage,
-                                            evaluation_subset="ipi_complete",
-                                            seed=seed,
-                                            subgroup_path=subgroup_path,
-                                            subgroup_columns=subgroup_columns,
-                                            log_dir=cell_dir / "ipi_complete" / "logs",
-                                        )
-                        else:
-                            append_cell_status(
-                                cell_status,
-                                cohort=cohort_name,
-                                outcome=outcome_name,
-                                variant=result_variant,
-                                seed=seed,
-                                stage="evaluate_predictions",
-                                status="failed",
-                                evaluation_subset="full",
-                                output_dir=str(cell_dir),
-                                artifact=predictions_path,
-                                reason="evaluate_predictions returned no metrics",
-                            )
-                            if fail_fast:
-                                raise RuntimeError(
-                                    f"Prediction evaluation failed: {predictions_path}"
-                                )
-                    else:
-                        print(f"  Prediction file not found: {predictions_path}")
-                        append_cell_status(
-                            cell_status,
-                            cohort=cohort_name,
-                            outcome=outcome_name,
-                            variant=result_variant,
-                            seed=seed,
-                            stage="evaluate_predictions",
-                            status="failed",
-                            output_dir=str(cell_dir),
-                            artifact=predictions_path,
-                            reason="predictions_file not found",
-                        )
-                        if fail_fast:
-                            raise FileNotFoundError(predictions_path)
-                    continue
-
-                # ── Foundation model: finetune + evaluate ──────────────
-                metrics_path = cell_dir / "metrics.json"
-                if metrics_path.exists() and not overwrite:
-                    print("  Already done (use --overwrite to redo).")
-                    with open(metrics_path) as f:
-                        metrics = json.load(f)
-                    all_results.append(
-                        {
-                            "cohort": cohort_name,
-                            "outcome": outcome_name,
-                            "variant": result_variant,
-                            "metrics": metrics,
-                        }
-                    )
-                    auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
-                    print(f"  Loaded cached: AUROC={auroc:.3f}")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="cached",
-                        status="success",
-                        output_dir=str(cell_dir),
-                        artifact=str(metrics_path),
-                    )
-                    continue
-
-                encoder_source = variant_cfg.get("encoder_source", "contrastive")
-                training_mode = variant_cfg.get("training_mode")
-                if training_mode is not None and training_mode not in {
-                    "cox",
-                    "ipcw_bce",
-                }:
-                    print(f"  Invalid training_mode={training_mode!r}, skipping.")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="configuration",
-                        status="failed",
-                        output_dir=str(cell_dir),
-                        reason=f"invalid training_mode={training_mode!r}",
-                    )
-                    if fail_fast:
-                        raise ValueError(f"Invalid training_mode={training_mode!r}")
-                    continue
-                if training_mode == "ipcw_bce" and n_hours_end is None:
-                    print("  IPCW-BCE requires n_hours_end_include, skipping.")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="configuration",
-                        status="skipped",
-                        output_dir=str(cell_dir),
-                        reason="ipcw_bce requires n_hours_end_include",
-                    )
-                    continue
-                if dry_run:
-                    action = (
-                        "evaluate joint checkpoint"
-                        if encoder_source == "joint"
-                        else (
-                            f"{training_mode} finetune and evaluate"
-                            if training_mode in {"cox", "ipcw_bce"}
-                            else "finetune and evaluate"
-                        )
-                    )
-                    print(
-                        f"  [DRY RUN] Would {action} {result_variant} "
-                        f"on {cohort_name}/{outcome_name}"
-                    )
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="finetune_evaluate",
-                        status="dry_run",
-                        output_dir=str(cell_dir),
-                    )
-                    continue
-
-                encoder_ckpt_template = variant_cfg.get("encoder_ckpt")
-                if encoder_ckpt_template is None and encoder_source not in {
-                    "random_init",
-                    "none",
-                    "scratch",
-                    "no_pretraining",
-                }:
-                    print("  Missing encoder_ckpt for checkpointed variant, skipping.")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="configuration",
-                        status="failed",
-                        output_dir=str(cell_dir),
-                        reason="missing encoder_ckpt",
-                    )
-                    if fail_fast:
-                        raise ValueError(
-                            f"Variant {result_variant!r} is missing encoder_ckpt."
-                        )
-                    continue
-                encoder_ckpt = (
-                    format_variant_path(
-                        encoder_ckpt_template,
-                        cohort_name,
-                        outcome_name,
-                        seed,
-                    )
-                    if encoder_ckpt_template is not None
-                    else "null"
-                )
-                if encoder_source == "joint":
-                    ckpt_path = Path(encoder_ckpt)
-                else:
-                    ckpt_path = cell_dir / "best.ckpt"
-                if encoder_source != "joint" and (not ckpt_path.exists() or overwrite):
-                    ckpt_path = run_finetune(
-                        encoder_ckpt=encoder_ckpt,
-                        encoder_source=encoder_source,
-                        cohort=cohort_name,
-                        cohort_data_dir=data_dir,
-                        outcome_name=outcome_name,
-                        outcome_path=outcome_file_path(
-                            data_dir, outcome_name, outcome_cfg
-                        ),
-                        output_dir=cell_dir,
-                        base_config=base_config,
-                        n_hours_start_include=n_hours_start,
-                        n_hours_end_include=n_hours_end,
-                        competing_outcome_path=competing_outcome,
-                        registry_start_date=registry_start_date,
-                        training_mode=training_mode,
-                        extra_overrides=[
-                            *(variant_cfg.get("extra_overrides") or []),
-                            f"seed={seed}",
-                        ],
-                        log_dir=cell_dir / "logs",
-                    )
-
-                if ckpt_path is None or not Path(ckpt_path).exists():
-                    print(f"  Checkpoint not found: {ckpt_path}, skipping.")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="finetune",
-                        status="failed",
-                        output_dir=str(cell_dir),
-                        artifact=str(ckpt_path),
-                        reason="checkpoint not produced or not found",
-                    )
-                    if fail_fast:
-                        raise FileNotFoundError(str(ckpt_path))
-                    continue
-
-                metrics = run_evaluate(
-                    ckpt_path=Path(ckpt_path),
-                    cohort=cohort_name,
-                    cohort_data_dir=data_dir,
+                result = _run_variant_cell(
+                    cohort_name=cohort_name,
                     outcome_name=outcome_name,
-                    outcome_path=outcome_file_path(data_dir, outcome_name, outcome_cfg),
-                    output_dir=cell_dir,
-                    encoder_source=encoder_source,
-                    n_hours_start_include=n_hours_start,
-                    n_hours_end_include=n_hours_end,
-                    competing_outcome_path=competing_outcome,
-                    registry_start_date=registry_start_date,
-                    model_family=result_variant,
-                    training_stage=(
-                        "survival_finetuning"
-                        if training_mode in {"cox", "ipcw_bce"}
-                        else variant_cfg.get("training_stage", "per_task_finetuning")
-                    ),
-                    encoder_frozen=(
-                        True
-                        if variant_cfg.get("training_stage") == "linear_probe"
-                        else None
-                    ),
-                    head_type=(
-                        "linear_probe"
-                        if variant_cfg.get("training_stage") == "linear_probe"
-                        else None
-                    ),
-                    log_dir=cell_dir / "logs",
+                    outcome_cfg=outcome_cfg,
+                    variant_name=variant_name,
+                    variant_cfg=variant_cfg,
+                    result_variant=result_variant,
+                    seed=seed,
+                    training_cohort=training_cohort,
+                    cohort_fine_col=cohort_fine_col,
+                    cohort_fine_value=cohort_fine_value,
+                    data_dir=data_dir,
+                    output_dir=output_dir,
+                    base_config=base_config,
+                    tracker=tracker,
+                    cfg=cfg,
+                    dry_run=dry_run,
+                    overwrite=overwrite,
+                    fail_fast=fail_fast,
+                    rarity_mode=rarity_mode,
+                    baseline_model=baseline_model,
+                    ipi_col=ipi_col,
+                    pop_file=pop_file,
+                    subgroup_path=subgroup_path,
+                    subgroup_columns=subgroup_columns,
                 )
-
-                if metrics is not None:
-                    all_results.append(
-                        {
-                            "cohort": cohort_name,
-                            "outcome": outcome_name,
-                            "variant": result_variant,
-                            "metrics": metrics,
-                        }
-                    )
-                    auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
-                    print(f"  Done: AUROC={auroc:.3f}")
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="evaluate",
-                        status="success",
-                        evaluation_subset="full",
-                        output_dir=str(cell_dir),
-                        artifact=str(cell_dir / "metrics.json"),
-                    )
-                    if ipi_col and result_variant == "opera":
-                        ipi_path, ipi_coverage, ipi_subjects = (
-                            prepare_ipi_subset_predictions(
-                                pop_file,
-                                outcome_file_path(data_dir, outcome_name, outcome_cfg),
-                                ipi_col,
-                                output_dir / cohort_name / outcome_name / "ipi",
-                                registry_start_date=registry_start_date,
-                                cohort=cohort_name,
-                                outcome_name=outcome_name,
-                            )
-                        )
-                        if ipi_path is not None:
-                            subset_pred = write_npz_prediction_subset(
-                                cell_dir / "predictions.npz",
-                                ipi_subjects,
-                                cell_dir / "opera_ipi_subset_predictions.csv",
-                            )
-                            if subset_pred is not None:
-                                run_prediction_evaluate(
-                                    predictions_path=str(subset_pred),
-                                    cohort=cohort_name,
-                                    outcome_name=outcome_name,
-                                    outcome_path=outcome_file_path(
-                                        data_dir, outcome_name, outcome_cfg
-                                    ),
-                                    model_family=result_variant,
-                                    output_dir=cell_dir / "ipi_complete",
-                                    n_hours_start_include=n_hours_start,
-                                    n_hours_end_include=n_hours_end,
-                                    competing_outcome_path=competing_outcome,
-                                    registry_start_date=registry_start_date,
-                                    rarity_mode=rarity_mode,
-                                    baseline_model=baseline_model,
-                                    ipi_coverage=ipi_coverage,
-                                    evaluation_subset="ipi_complete",
-                                    seed=seed,
-                                    subgroup_path=subgroup_path,
-                                    subgroup_columns=subgroup_columns,
-                                    log_dir=cell_dir / "ipi_complete" / "logs",
-                                )
-                else:
-                    append_cell_status(
-                        cell_status,
-                        cohort=cohort_name,
-                        outcome=outcome_name,
-                        variant=result_variant,
-                        seed=seed,
-                        stage="evaluate",
-                        status="failed",
-                        evaluation_subset="full",
-                        output_dir=str(cell_dir),
-                        reason="evaluate returned no metrics",
-                    )
-                    if fail_fast:
-                        raise RuntimeError(
-                            f"Evaluation failed for {cohort_name}/{outcome_name}/{result_variant}"
-                        )
+                if result is not None:
+                    all_results.append(result)
 
     # ── Save sweep status and raw results ──────────────────────────────
-    if cell_status:
-        status_frame = pd.DataFrame(cell_status)
-        status_frame.to_csv(output_dir / "sweep_cell_status.csv", index=False)
-        with open(output_dir / "sweep_cell_status.jsonl", "w") as f:
-            for row in cell_status:
-                f.write(json.dumps(row, default=str) + "\n")
-        n_failed = int((status_frame["status"] == "failed").sum())
-        n_skipped = int((status_frame["status"] == "skipped").sum())
+    if len(tracker):
+        tracker.write(output_dir)
         print(
             f"\nSweep status saved to {output_dir / 'sweep_cell_status.csv'} "
-            f"({n_failed} failed, {n_skipped} skipped)"
+            f"({tracker.n_failed()} failed, {tracker.n_skipped()} skipped)"
         )
 
     with open(output_dir / "all_results_raw.json", "w") as f:

@@ -1,0 +1,60 @@
+version: "1.0"
+status: synthetic_harnesses_validated_real_results_blocked
+
+audit_gate:
+  sentinel_masking_end_to_end: resolved
+  production_uniform_macro: resolved
+  behavior_preservation_pinned_reference: resolved
+  famo_correctness: resolved_by_fail_closed
+  legacy_kendall_checkpoint_migration: resolved
+  adjacent_scope_review: resolved
+
+validated_on_synthetic_data:
+  gradient_conflict:
+    - batch-level pair cosine and joint-support artifact
+    - bootstrap confidence intervals over batches
+    - conflict, alignment, and indeterminate classification
+    - low-support conflict exclusion from the surgery decision
+    - connected-component conflict structure summary
+    - interval figure and one-sentence verdict
+  rarity_invariance:
+    - standard result-row ingestion
+    - shared-baseline parity validation
+    - class-balance confound rejection
+    - matched task and denominator validation
+    - per-outcome delta through the existing aggregation function
+    - event-rate rarity panel through rarity_plots.py
+    - paired bootstrap slope and Spearman intervals
+    - pairwise slope-difference intervals
+    - explicit pipeline-validation labeling
+
+blocked_on_real_inputs:
+  outcome_configuration:
+    required: true
+    description: Full locked configuration for the approximately 43 grade-2 outcomes.
+  gradient_diagnostic:
+    required:
+      - one or more real contrastive checkpoints
+      - matching training data and Hydra configuration
+      - outcome eligibility and event-time artifacts
+  rarity_invariance:
+    required:
+      - evaluated held-out result rows for matched Kendall, uniform, and valid FAMO runs
+      - one identical shared-baseline result set
+      - per-outcome event rates keyed by cohort, outcome, and optional horizon
+      - explicit evaluation subset, full or ipi_complete
+      - class-balance metadata for every compared run
+    important:
+      - Raw contrastive encoder checkpoints are insufficient because they do not contain outcome prediction heads.
+      - Current configured FAMO training fails closed until same-batch post-step loss recomputation is implemented.
+      - IPI can only be used on the ipi_complete subset. The current primary rarity endpoint uses tabular_ehr on the full subset.
+
+final_decisions_required:
+  primary_rarity_baseline:
+    current_repository_default: tabular_ehr
+    current_repository_subset: full
+    optional_sensitivity_baseline: ipi
+    optional_sensitivity_subset: ipi_complete
+  famo_comparator:
+    status: unavailable_from_current_training_path
+    action: implement_and_validate_published_famo_lifecycle_before_training

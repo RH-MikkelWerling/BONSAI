@@ -4,8 +4,8 @@
 #
 # Add a block per disease cohort under `cohorts`.
 # Add a block per outcome under `outcomes` — missing parquets are
-# silently skipped, so each outcome does not need to exist for every
-# cohort.
+# treated as errors for every configured cohort in production mode. Use a separate
+# reduced config for outcomes that are intentionally unavailable in a cohort.
 #
 # Usage:
 #   python -m opera.run.contrastive_multicohort \
@@ -35,15 +35,15 @@ cohorts:
   cll:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll
     registry_start_date: null
-  # mds:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
-  #   registry_start_date: null
-  # myeloma:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
-  #   registry_start_date: null
-  # fl:
-  #   data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
-  #   registry_start_date: null
+  mds:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mds
+    registry_start_date: null
+  myeloma:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/myeloma
+    registry_start_date: null
+  fl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/fl
+    registry_start_date: null
 
 # ── Outcomes (shared across cohorts where parquet exists) ───────────
 # outcome_file: source event-time parquet inside each cohort's outcomes/ dir.
@@ -51,22 +51,29 @@ cohorts:
 outcomes:
   mortality_1y:
     outcome_file: mortality.parquet
+    eligibility_file: mortality__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: 8760
   mortality_2y:
     outcome_file: mortality.parquet
+    eligibility_file: mortality__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: 17520
   treatment_failure:
     outcome_file: treatment_failure.parquet
+    eligibility_file: treatment_failure__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
   aki_30d:
-    outcome_file: aki.parquet
+    outcome_file: aki_first_documented.parquet
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 720
   severe_infection_90d:
     outcome_file: severe_infection.parquet
+    eligibility_file: severe_infection__audit.parquet
+    competing_outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 2160
   # adverse_events_90d:
@@ -94,7 +101,18 @@ model:
   freeze_encoder: false
   pooling: cls_last
 
+cross_outcome:
+  # Uniform avoids learned task suppression in the primary representation run.
+  # Kendall and FAMO are available as one-field confound-panel alternatives.
+  weighter: uniform
+  aggregation: macro
+  class_balanced: false
+  class_balanced_cap: 50.0
+  class_balanced_beta: 0.9999
+  class_counts: {}
+
 training:
+  require_all_configured_cells: true
   batch_size: 128               # larger = more cross-disease pairs per step
   accumulate_grad_batches: 2
   epochs: 20

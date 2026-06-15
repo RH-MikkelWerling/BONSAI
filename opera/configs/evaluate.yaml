@@ -29,6 +29,13 @@ paths:
   eligibility: null
   subgroups: null
 
+# Fine-cohort subsetting (train-on-grouped / eval-on-fine paradigm).
+# When both fields are set, only test subjects whose `cohort_fine_col`
+# column in the population CSV equals `cohort_fine_value` are evaluated.
+# Leave both null for ordinary (full-cohort) evaluation.
+cohort_fine_col: null
+cohort_fine_value: null
+
 subgroups:
   columns: []
 

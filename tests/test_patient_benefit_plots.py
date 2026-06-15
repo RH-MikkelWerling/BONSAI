@@ -4,10 +4,34 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from opera.evaluation.patient_transfer import compute_atypicality_scores
+from opera.run.patient_benefit_analysis import _read_table
 from opera.visualization.patient_benefit_plots import (
     plot_benefit_contrast_ladder,
     plot_patient_benefit,
 )
+
+
+def test_patient_benefit_loader_reads_canonical_prediction_artifact(tmp_path):
+    path = tmp_path / "predictions.npz"
+    np.savez(
+        path,
+        subject_ids=np.array([1, 2, 3]),
+        labels=np.array([0, 1, 0]),
+        probabilities=np.array([0.1, 0.8, 0.4]),
+        binary_mask=np.array([1, 1, 0], dtype=np.uint8),
+        embeddings=np.arange(12, dtype=float).reshape(3, 4),
+    )
+
+    frame = _read_table(str(path))
+
+    assert frame["subject_id"].tolist() == [1, 2]
+    assert frame["probability"].tolist() == [0.1, 0.8]
+    assert [column for column in frame if column.startswith("embedding_")] == [
+        "embedding_0",
+        "embedding_1",
+        "embedding_2",
+        "embedding_3",
+    ]
 
 
 def _synthetic_embeddings(n=100, d=32, cohorts=("a", "b", "c"), seed=0):

@@ -45,6 +45,7 @@ from bonsai.functional.checkpointing import (
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
 )
 
@@ -116,6 +117,12 @@ def main(cfg: DictConfig) -> None:
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        cfg.paths.get("eligibility"),
+        cohort=cfg.dataset,
+        outcome_name=cfg.outcome,
+    )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(
         outcomes,

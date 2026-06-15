@@ -22,17 +22,36 @@ paths:
 outcomes:
   treatment_failure:
     path: ${paths.dir}/outcomes/treatment_failure.parquet
+    eligibility_file: treatment_failure__audit.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
     registry_start_date: null
-  # mortality:
-  #   path: ${paths.dir}/outcomes/mortality.parquet
-  #   n_hours_start_include: 1
-  #   n_hours_end_include: 8760
-  # relapse:
-  #   path: ${paths.dir}/outcomes/relapse.parquet
-  #   n_hours_start_include: 1
-  #   n_hours_end_include: null
+  mortality_1y:
+    path: ${paths.dir}/outcomes/mortality.parquet
+    eligibility_file: mortality__audit.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 8760
+    registry_start_date: null
+  mortality_2y:
+    path: ${paths.dir}/outcomes/mortality.parquet
+    eligibility_file: mortality__audit.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 17520
+    registry_start_date: null
+  aki_30d:
+    path: ${paths.dir}/outcomes/aki_first_documented.parquet
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_path: ${paths.dir}/outcomes/mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 720
+    registry_start_date: null
+  severe_infection_90d:
+    path: ${paths.dir}/outcomes/severe_infection.parquet
+    eligibility_file: severe_infection__audit.parquet
+    competing_outcome_path: ${paths.dir}/outcomes/mortality.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: 2160
+    registry_start_date: null
 
 model:
   head_hidden_dim: 128          # TUNE: per-outcome head MLP width

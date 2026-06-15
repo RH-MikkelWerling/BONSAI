@@ -31,6 +31,7 @@ from opera.compat.bonsai import (
 )
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
 )
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
@@ -216,6 +217,12 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load test data ───────────────────────────────────────────────
     outcomes = pd.read_parquet(cfg.paths.outcome)
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        cfg.paths.get("eligibility"),
+        cohort=cfg.get("dataset"),
+        outcome_name=cfg.get("outcome"),
+    )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(
         outcomes,
@@ -254,6 +261,27 @@ def main(cfg: DictConfig) -> None:
     # Build dataset / loader over ALL test patients
     test_data = torch.load(cfg.paths.test_split)
     population = pd.read_csv(cfg.paths.population)
+
+    # Optional fine-cohort subsetting for train-on-grouped / eval-on-fine.
+    cohort_fine_col = cfg.get("cohort_fine_col")
+    cohort_fine_value = cfg.get("cohort_fine_value")
+    if cohort_fine_col and cohort_fine_value:
+        if cohort_fine_col not in population.columns:
+            raise ValueError(
+                f"cohort_fine_col={cohort_fine_col!r} not found in population file "
+                f"(columns: {list(population.columns)})."
+            )
+        population = population[population[cohort_fine_col] == cohort_fine_value].copy()
+        if population.empty:
+            raise ValueError(
+                f"No patients remain after filtering to {cohort_fine_col}=="
+                f"{cohort_fine_value!r}.  Check population file and cohort_fine_value."
+            )
+        print(
+            f"cohort_fine filter: {cohort_fine_col}={cohort_fine_value!r} "
+            f"→ {len(population)} subjects"
+        )
+
     test_data = [s for s in test_data if s["subject_id"] in all_test_outcomes]
     test_data = filter_subject_data(test_data, population["subject_id"])
     if not test_data:

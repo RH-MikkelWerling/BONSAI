@@ -1,8 +1,12 @@
 import json
+import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 INDEX_COLUMNS = [
@@ -105,9 +109,9 @@ def validate_compatible_result_rows(
         if duplicates.any():
             warnings.append(
                 {
-                    "severity": "warning",
+                    "severity": "error",
                     "category": "duplicate_result_keys",
-                    "message": "Duplicate model rows share the same aggregate key; pivot tables will use the first value.",
+                    "message": "Duplicate model rows share the same aggregate key; paper aggregation is ambiguous.",
                     "n_rows": int(duplicates.sum()),
                     "key_columns": ",".join(duplicate_cols),
                 }
@@ -236,6 +240,25 @@ def compute_model_delta_table(
         )
         expanded_metrics.extend(matches or [metric])
     expanded_metrics = list(dict.fromkeys(expanded_metrics))
+
+    metric_cols = []
+    for metric in expanded_metrics:
+        base_col = f"{baseline}__{metric}"
+        comp_col = f"{comparator}__{metric}"
+        if base_col in wide.columns and comp_col in wide.columns:
+            metric_cols.extend([base_col, comp_col])
+    if metric_cols:
+        before = len(wide)
+        wide = wide.dropna(subset=metric_cols)
+        dropped = before - len(wide)
+        if dropped:
+            logger.warning(
+                "compute_model_delta_table dropped %d row(s) with NaN baseline "
+                "or comparator metric values (baseline=%r, comparator=%r).",
+                dropped,
+                baseline,
+                comparator,
+            )
 
     for _, row in wide.iterrows():
         out = {col: row[col] for col in id_cols}
@@ -493,6 +516,9 @@ def summarize_rarity_deltas(
     group_cols = [col for col in group_cols if col in delta_table.columns]
     if not group_cols:
         return pd.DataFrame()
+    delta_table = delta_table.dropna(subset=[delta_col])
+    if delta_table.empty:
+        return pd.DataFrame()
     return (
         delta_table.groupby(group_cols, dropna=False)
         .agg(
@@ -521,6 +547,10 @@ def summarize_by_task_size(
     if not available_metrics:
         return pd.DataFrame()
 
+    binned = binned.dropna(subset=available_metrics)
+    if binned.empty:
+        return pd.DataFrame()
+
     agg_spec = {}
     for metric in available_metrics:
         agg_spec[f"{metric}_median"] = (metric, "median")
@@ -545,6 +575,10 @@ def summarize_scale_ablation(
         return pd.DataFrame()
     available_metrics = expand_metric_columns(results, metrics)
     if not available_metrics:
+        return pd.DataFrame()
+
+    results = results.dropna(subset=available_metrics)
+    if results.empty:
         return pd.DataFrame()
 
     group_cols = [scale_col]
@@ -574,9 +608,259 @@ def summarize_by_model(
     if not group_cols or not available_metrics:
         return pd.DataFrame()
 
+    results = results.dropna(subset=available_metrics)
+    if results.empty:
+        return pd.DataFrame()
+
     agg_spec = {}
     for metric in available_metrics:
         agg_spec[f"{metric}_median"] = (metric, "median")
         agg_spec[f"{metric}_mean"] = (metric, "mean")
     agg_spec["n_results"] = (available_metrics[0], "count")
     return results.groupby(group_cols, dropna=False).agg(**agg_spec).reset_index()
+
+
+def compute_paired_denominators(
+    result_rows: pd.DataFrame,
+    *,
+    tolerance: float = 0.05,
+    raise_on_mismatch: bool = False,
+) -> pd.DataFrame:
+    """Check that n_total is consistent across variants for each (cohort, outcome, evaluation_subset) cell.
+
+    For valid paired comparisons, the denominator (number of test patients)
+    must match across all model variants evaluating the same cell with the same
+    evaluation_subset. Mismatches larger than `tolerance` (fractional) are
+    flagged. Designed for the 'full' and 'ipi_complete' subsets separately.
+
+    Returns a DataFrame with columns:
+        cohort, outcome, evaluation_subset, n_variants, n_total_min,
+        n_total_max, n_total_cv, mismatch_flag
+    where mismatch_flag is True when the coefficient of variation of n_total
+    across variants exceeds tolerance.
+    """
+    summary_columns = [
+        "cohort",
+        "outcome",
+        "evaluation_subset",
+        "n_variants",
+        "n_total_min",
+        "n_total_max",
+        "n_total_cv",
+        "mismatch_flag",
+    ]
+    if result_rows.empty or "n_total" not in result_rows.columns:
+        return pd.DataFrame(columns=summary_columns)
+
+    group_cols = ["cohort", "outcome", "evaluation_subset"]
+    available_group_cols = [col for col in group_cols if col in result_rows.columns]
+    if not available_group_cols:
+        return pd.DataFrame(columns=summary_columns)
+
+    rows: list[dict] = []
+    for keys, group in result_rows.groupby(available_group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        key_map = dict(zip(available_group_cols, keys))
+        n_total = pd.to_numeric(group["n_total"], errors="coerce").dropna()
+        if n_total.empty:
+            continue
+        mean = float(n_total.mean())
+        std = float(n_total.std(ddof=0))
+        cv = std / mean if mean > 0 else 0.0
+        record = {
+            "cohort": key_map.get("cohort"),
+            "outcome": key_map.get("outcome"),
+            "evaluation_subset": key_map.get("evaluation_subset"),
+            "n_variants": int(len(n_total)),
+            "n_total_min": float(n_total.min()),
+            "n_total_max": float(n_total.max()),
+            "n_total_cv": cv,
+            "mismatch_flag": bool(cv > tolerance),
+        }
+        rows.append(record)
+
+    summary = pd.DataFrame(rows, columns=summary_columns)
+
+    if raise_on_mismatch and not summary.empty:
+        flagged = summary[summary["mismatch_flag"]]
+        if not flagged.empty:
+            cells = ", ".join(
+                f"(cohort={row.cohort!r}, outcome={row.outcome!r}, "
+                f"evaluation_subset={row.evaluation_subset!r}, "
+                f"n_total_min={row.n_total_min:g}, n_total_max={row.n_total_max:g}, "
+                f"cv={row.n_total_cv:.4f})"
+                for row in flagged.itertuples(index=False)
+            )
+            raise ValueError(
+                "Paired denominator mismatch exceeds tolerance "
+                f"({tolerance}) for cells: {cells}"
+            )
+
+    return summary
+
+
+def collect_label_split_summaries(sweep_result_dir: Path) -> pd.DataFrame:
+    """Collect all label_split_summary.csv files from a sweep result directory tree.
+
+    Walks sweep_result_dir recursively, finds every label_split_summary.csv,
+    reads each, and returns a concatenated DataFrame with an added column
+    `cell_dir` (the parent directory path string) so rows can be traced back.
+
+    Returns an empty DataFrame if no files are found.
+    """
+    sweep_result_dir = Path(sweep_result_dir)
+    frames: list[pd.DataFrame] = []
+    for path in sorted(sweep_result_dir.rglob("label_split_summary.csv")):
+        frame = pd.read_csv(path)
+        frame["cell_dir"] = str(path.parent)
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def build_consort_table(label_summaries: pd.DataFrame) -> pd.DataFrame:
+    """Build a CONSORT-like cohort-flow table from collected split summaries.
+
+    Input is the output of collect_label_split_summaries().
+    Output has one row per (cohort, outcome, split) and columns:
+      cohort, outcome, split,
+      n_subjects,           # total subjects in split
+      n_labelled,           # subjects with a valid label (not excluded by eligibility)
+      n_positive,           # events
+      n_negative,           # non-events with full follow-up
+      n_insufficient_followup,  # subjects censored before window close
+      prevalence,           # n_positive / n_labelled
+      n_model_variants,     # how many model variants have results for this cell
+
+    When multiple model variants contributed rows for the same (cohort, outcome, split),
+    the label columns are taken from the median (or the first, if all identical).
+    n_model_variants counts distinct model_family values.
+
+    Returns empty DataFrame if input is empty.
+    """
+    output_columns = [
+        "cohort",
+        "outcome",
+        "split",
+        "n_subjects",
+        "n_labelled",
+        "n_positive",
+        "n_negative",
+        "n_insufficient_followup",
+        "prevalence",
+        "n_model_variants",
+    ]
+    if label_summaries.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    count_cols = [
+        "n_subjects",
+        "n_labelled",
+        "n_positive",
+        "n_negative",
+        "n_insufficient_followup",
+    ]
+    group_cols = ["cohort", "outcome", "split"]
+    available_group_cols = [col for col in group_cols if col in label_summaries.columns]
+    if not available_group_cols:
+        return pd.DataFrame(columns=output_columns)
+
+    rows: list[dict] = []
+    for keys, group in label_summaries.groupby(available_group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        key_map = dict(zip(available_group_cols, keys))
+        record: dict = {col: key_map.get(col) for col in group_cols}
+
+        for col in count_cols:
+            if col in group.columns:
+                values = pd.to_numeric(group[col], errors="coerce").dropna()
+                record[col] = float(values.median()) if not values.empty else None
+            else:
+                record[col] = None
+
+        n_labelled = record.get("n_labelled")
+        n_positive = record.get("n_positive")
+        if n_labelled is not None and n_positive is not None and float(n_labelled) > 0:
+            record["prevalence"] = float(n_positive) / float(n_labelled)
+        else:
+            record["prevalence"] = None
+
+        if "model_family" in group.columns:
+            record["n_model_variants"] = int(group["model_family"].nunique(dropna=True))
+        else:
+            record["n_model_variants"] = int(len(group))
+
+        rows.append(record)
+
+    return pd.DataFrame(rows, columns=output_columns)
+
+
+def check_competing_event_denominator_consistency(
+    result_rows: pd.DataFrame,
+    *,
+    competing_event_col: str = "n_competing_events_test",
+    tolerance: float = 0.01,
+) -> list[str]:
+    """Check that n_competing_events_test is consistent across variants per cell.
+
+    Returns a list of warning strings. Empty list means consistent.
+    A mismatch here means two variants removed different competing-event subjects
+    from the test set -- pairing them would be incorrect.
+
+    Only checks cells where competing_event_col is non-null for at least one variant.
+    """
+    if result_rows.empty or competing_event_col not in result_rows.columns:
+        return []
+
+    group_cols = ["cohort", "outcome"]
+    available_group_cols = [col for col in group_cols if col in result_rows.columns]
+    if not available_group_cols:
+        return []
+
+    messages: list[str] = []
+    for keys, group in result_rows.groupby(available_group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        key_map = dict(zip(available_group_cols, keys))
+        values = pd.to_numeric(group[competing_event_col], errors="coerce").dropna()
+        if values.empty:
+            continue
+        mean = float(values.mean())
+        std = float(values.std(ddof=0))
+        cv = std / mean if mean > 0 else 0.0
+        if cv > tolerance:
+            messages.append(
+                f"Inconsistent {competing_event_col} for "
+                f"cohort={key_map.get('cohort')!r}, outcome={key_map.get('outcome')!r}: "
+                f"ranges {float(values.min()):g}-{float(values.max()):g} across "
+                f"{int(len(values))} variants (CV={cv:.4f} > {tolerance}). "
+                "Variants removed different competing-event subjects; pairing is incorrect."
+            )
+    return messages
+
+
+def validate_result_rows_denominators(
+    result_rows: pd.DataFrame,
+    *,
+    tolerance: float = 0.05,
+) -> list[str]:
+    """Return a list of human-readable mismatch warnings for paper tables.
+
+    Returns empty list if all denominators are consistent.
+    """
+    summary = compute_paired_denominators(result_rows, tolerance=tolerance)
+    if summary.empty:
+        return []
+    flagged = summary[summary["mismatch_flag"]]
+    messages: list[str] = []
+    for row in flagged.itertuples(index=False):
+        messages.append(
+            f"Inconsistent denominator for cohort={row.cohort!r}, "
+            f"outcome={row.outcome!r}, evaluation_subset={row.evaluation_subset!r}: "
+            f"n_total ranges {row.n_total_min:g}-{row.n_total_max:g} across "
+            f"{row.n_variants} variants (CV={row.n_total_cv:.4f} > {tolerance})."
+        )
+    return messages

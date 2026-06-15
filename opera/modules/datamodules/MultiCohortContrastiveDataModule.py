@@ -44,6 +44,7 @@ from torch.utils.data import DataLoader, ConcatDataset
 from opera.compat.bonsai import filter_subject_data, binarize_outcomes
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
     resolve_registry_start_date,
 )
@@ -55,6 +56,16 @@ from opera.functional.stratified_sampling import (
     build_stratified_sampler,
     log_bucket_stats,
 )
+
+
+def _eligibility_path(data_dir: str, outcome_config: dict):
+    raw = outcome_config.get("eligibility_path") or outcome_config.get(
+        "eligibility_file"
+    )
+    if raw in (None, "", "null"):
+        return None
+    path = os.path.expandvars(str(raw))
+    return path if os.path.isabs(path) else os.path.join(data_dir, "outcomes", path)
 
 
 def compute_pooled_sorted_event_times(
@@ -71,7 +82,7 @@ def compute_pooled_sorted_event_times(
     """
     pooled: Dict[str, list] = {name: [] for name in outcome_configs}
 
-    for cohort_cfg in cohort_configs.values():
+    for cohort_name, cohort_cfg in cohort_configs.items():
         data_dir = cohort_cfg["data_dir"]
         for name, ocfg in outcome_configs.items():
             filename = ocfg.get("outcome_file") or ocfg.get("filename")
@@ -82,6 +93,12 @@ def compute_pooled_sorted_event_times(
                 continue
             try:
                 df = pd.read_parquet(path)
+                df = filter_outcome_eligibility(
+                    df,
+                    _eligibility_path(data_dir, ocfg),
+                    cohort=cohort_name,
+                    outcome_name=name,
+                )
                 split_df = df[df["split"] == split].copy()
                 if {"event", "time_days"}.issubset(split_df.columns):
                     pooled[name].extend(
@@ -129,21 +146,38 @@ def compute_pooled_event_time_probability_grids(
     cohort_configs: Dict[str, dict],
     outcome_configs: Dict[str, dict],
     split: str = "train",
+    require_all_configured_cells: bool = False,
 ) -> tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
     """Aggregate KM-adjusted event-time locations and primary-event masses."""
     pooled: Dict[str, list] = {name: [] for name in outcome_configs}
 
-    for cohort_cfg in cohort_configs.values():
+    for cohort_name, cohort_cfg in cohort_configs.items():
         data_dir = cohort_cfg["data_dir"]
         for name, ocfg in outcome_configs.items():
             filename = ocfg.get("outcome_file") or ocfg.get("filename")
             if filename is None:
+                if require_all_configured_cells:
+                    raise ValueError(
+                        f"Configured outcome {name!r} has no outcome_file for "
+                        f"cohort {cohort_name!r}."
+                    )
                 continue
             path = os.path.join(data_dir, "outcomes", filename)
             if not os.path.exists(path):
+                if require_all_configured_cells:
+                    raise FileNotFoundError(
+                        f"Configured outcome {name!r} is missing for cohort "
+                        f"{cohort_name!r}: {path}"
+                    )
                 continue
             try:
                 df = pd.read_parquet(path)
+                df = filter_outcome_eligibility(
+                    df,
+                    _eligibility_path(data_dir, ocfg),
+                    cohort=cohort_name,
+                    outcome_name=name,
+                )
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
                     df,
@@ -158,6 +192,11 @@ def compute_pooled_event_time_probability_grids(
                     competing_path = os.path.join(data_dir, "outcomes", competing_file)
                     if os.path.exists(competing_path):
                         competing_df = pd.read_parquet(competing_path)
+                    elif require_all_configured_cells:
+                        raise FileNotFoundError(
+                            f"Configured competing outcome for {name!r} is missing "
+                            f"for cohort {cohort_name!r}: {competing_path}"
+                        )
                 outcomes = binarize_outcomes(
                     split_df,
                     n_hours_start_include=ocfg["n_hours_start_include"],
@@ -168,7 +207,7 @@ def compute_pooled_event_time_probability_grids(
             except (KeyError, OSError, ValueError) as exc:
                 raise RuntimeError(
                     f"Failed to construct pooled event-time grid for "
-                    f"outcome {name!r} in {data_dir!r}: {exc}"
+                    f"outcome {name!r} in cohort {cohort_name!r}: {exc}"
                 ) from exc
 
     time_grids: Dict[str, torch.Tensor] = {}
@@ -214,6 +253,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         num_workers: int,
         require_min_followup_train: bool = False,
         require_min_followup_val: bool = False,
+        require_all_configured_cells: bool = False,
+        max_len: int = 8192,
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -223,6 +264,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
+        self.require_all_configured_cells = require_all_configured_cells
+        self.max_len = max_len
         self.outcome_names = sorted(outcome_configs.keys())
 
     # ── Internal helpers ──────────────────────────────────────────────
@@ -245,11 +288,22 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             filename = ocfg.get("outcome_file", ocfg.get("filename", f"{name}.parquet"))
             path = os.path.join(outcomes_dir, filename)
             if not os.path.exists(path):
+                if self.require_all_configured_cells:
+                    raise FileNotFoundError(
+                        f"Configured outcome {name!r} is missing for cohort "
+                        f"{cohort_name!r}: {path}"
+                    )
                 # Outcome not available for this cohort — skip silently
                 outcome_dicts[name] = {}
                 continue
 
             df = pd.read_parquet(path)
+            df = filter_outcome_eligibility(
+                df,
+                _eligibility_path(data_dir, ocfg),
+                cohort=cohort_name,
+                outcome_name=name,
+            )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
                 df,
@@ -260,6 +314,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             split_df = df[df["split"] == split_key].copy()
 
             if len(split_df) == 0:
+                if self.require_all_configured_cells:
+                    raise ValueError(
+                        f"Configured outcome {name!r} has no eligible rows for "
+                        f"cohort {cohort_name!r}, split {split_key!r}."
+                    )
                 outcome_dicts[name] = {}
                 continue
 
@@ -271,6 +330,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 competing_path = os.path.join(outcomes_dir, competing_file)
                 if os.path.exists(competing_path):
                     competing_df = pd.read_parquet(competing_path)
+                elif self.require_all_configured_cells:
+                    raise FileNotFoundError(
+                        f"Configured competing outcome for {name!r} is missing "
+                        f"for cohort {cohort_name!r}: {competing_path}"
+                    )
 
             outcome_dicts[name] = binarize_outcomes(
                 split_df,
@@ -299,6 +363,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             "subject_data_train.pt" if split == "train" else "subject_data_tuning.pt",
         )
         if not os.path.exists(split_file):
+            if self.require_all_configured_cells:
+                raise FileNotFoundError(
+                    f"Configured cohort {cohort_name!r} is missing split data: "
+                    f"{split_file}"
+                )
             print(f"  [{cohort_name}] Missing {split_file}, skipping.")
             return None
 
@@ -345,6 +414,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             outcome_dicts=outcome_dicts,
             predict_token_id=self.predict_token_id,
             background_length=background_length,
+            max_len=self.max_len,
         )
 
     # ── Lightning interface ───────────────────────────────────────────

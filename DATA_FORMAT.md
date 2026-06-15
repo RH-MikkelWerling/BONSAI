@@ -119,8 +119,10 @@ subject_id  split       index_date           outcome_date         censor_date
 1005        held_out    2020-01-10 00:00:00  2020-08-30 00:00:00  2020-08-30 00:00:00
 ```
 
-For patients with an event, `censor_date` should equal `outcome_date`.  
-For censored patients (`outcome_date = NaT`), `censor_date` is the last known alive date.
+`censor_date` is the last date on which follow-up is known. It may be later
+than `outcome_date`; event time is always derived from `outcome_date`. For
+patients without the event (`outcome_date = NaT`), `censor_date` is the last
+known follow-up date.
 
 ---
 
@@ -164,15 +166,19 @@ outcomes:
   mortality_1y:
     outcome_file: mortality.parquet
     registry_start_date: null
-    eligibility_file: mortality_1y_eligibility.parquet
+    eligibility_file: mortality__audit.parquet
   aki_30d:
-    outcome_file: aki.parquet
-    registry_start_date: "2017-01-01"
-    eligibility_file: aki_30d_eligibility.parquet
+    outcome_file: aki_first_documented.parquet
+    registry_start_date: null
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_file: mortality.parquet
 ```
 
 An explicitly configured `registry_start_date: null` disables a cohort-level
-fallback for that outcome. If the key is omitted, the cohort-level date is used.
+fallback for that outcome. If the key is omitted, the cohort-level date is
+used. Configured sidecars are enforced by contrastive, joint, per-task, hybrid,
+survival, and evaluation loaders before labels are constructed; they are not
+audit-only metadata.
 
 Validate configured sidecars during readiness checks and create a tidy
 cohort-flow artifact:
@@ -218,13 +224,22 @@ The population CSV should contain **all patients** across all splits. It is used
 ```yaml
 outcomes:
   {outcome_name}:
-    filename: {outcome_name}.parquet    # filename inside each cohort's outcomes/ dir
+    outcome_file: {outcome_name}.parquet
+    eligibility_file: {outcome_name}__audit.parquet
     n_hours_start_include: 1            # events must occur >= 1h after index_date
     n_hours_end_include: 8760           # events must occur <= 8760h (1 year) after index_date
                                         # null = open-ended (no upper bound)
 ```
 
-The per-outcome time scale for the contrastive loss is **auto-derived** from `n_hours_end_include` as `window_days / 4`. Open-ended outcomes use the global `time_scale` (365 days). You do not need to set this manually.
+Both hour bounds are inclusive. With date-only timestamps normalized to
+midnight, `n_hours_start_include: 1` excludes the entire index calendar date;
+use `0` only when same-time or same-day events belong in the estimand.
+
+Survival-aware pair similarity is not scaled in raw days. Training builds a
+pooled Kaplan-Meier primary-event mass for each outcome, maps each event or
+censoring time onto that cumulative-mass grid with `torch.searchsorted`, and
+applies the fixed `km_time_scale` in CDF space (default `0.25`). The task horizon
+defines label eligibility but does not automatically set this kernel scale.
 
 **Standard outcome definitions:**
 
@@ -238,12 +253,20 @@ The per-outcome time scale for the contrastive loss is **auto-derived** from `n_
 | `pfs_1y` (progression-free survival) | 8760 | 1 year |
 | `crp_response_90d` | 2160 | 90 days |
 
+For fixed-horizon tasks, event-free follow-up is capped at the task horizon.
+Training and binary evaluation exclude administratively censored patients who
+do not reach that horizon. When `competing_outcome_file` is configured, death
+inside the risk window is encoded as `event=2`; death after the horizon does
+not become a competing event for that task. Competing deaths retain binary
+label `0` for the cause-specific endpoint and remain explicit in survival-aware
+contrastive weighting and survival summaries.
+
 ---
 
 ## 8. Sweep config (`sweep_example.yaml`)
 
 ```yaml
-output_dir: /results/opera_sweep
+output_dir: ${BONSAI_RESULTS_ROOT}/opera_sweep
 finetune_base_config: opera/configs/finetune.yaml
 
 cohorts:
@@ -259,19 +282,19 @@ outcomes:
 
 model_variants:
   base_pretrain:
-    encoder_ckpt: /ckpts/pretrain/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
   dapt:
-    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
   opera:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
   opera_joint:
-    encoder_ckpt: /ckpts/joint_finetune/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/joint_finetune/best.ckpt
     encoder_source: joint
   tabular_xgb:
-    results_file: /results/tabular/xgb_{cohort}_{outcome}.json
+    results_file: ${BONSAI_RESULTS_ROOT}/tabular/xgb_{cohort}_{outcome}.json
 ```
 
 **Tabular baseline JSON format** (the file pointed to by `results_file`):
@@ -338,9 +361,15 @@ The `subject_ids` in `predictions.npz` must match across all model variants for 
 6. Add cohort to `joint_finetune.yaml` under `cohorts:`
 7. Add cohort to `sweep_example.yaml` (or your sweep config) under `cohorts:`
 8. Run contrastive training → new cohort's patients participate in cross-disease contrastive pairs automatically
-9. Run sweep → evaluates all cohort × outcome × variant cells, silently skips missing parquets
+9. Run readiness with `--require_existing_paths --fail_on_issue`
+10. Run the sweep; configured missing cells fail readiness and strict training
+    instead of disappearing from the experiment
 
-**No code changes required to add a cohort.** Missing outcome parquets for a cohort are silently skipped in both the contrastive datamodule and the sweep.
+**No code changes are required to add a cohort.** The production configs use
+`require_all_configured_cells: true`: every listed cohort-outcome file and
+sidecar must exist. If an outcome is intentionally unavailable for a cohort,
+use a separate reduced experiment config or omit that cell from the canonical
+contract rather than relying on a silent skip.
 
 ---
 
@@ -348,7 +377,9 @@ The `subject_ids` in `predictions.npz` must match across all model variants for 
 
 1. Define the outcome event logic in a `create_outcome` config YAML
 2. Run `bonsai.run.create_outcome` for each cohort → produces `outcomes/{name}.parquet` in each cohort directory
-3. Add the outcome to `contrastive_multicohort.yaml` under `outcomes:` with `filename`, `n_hours_start_include`, `n_hours_end_include`
+3. Add the outcome to `contrastive_multicohort.yaml` under `outcomes:` with
+   `outcome_file`, `eligibility_file`, `n_hours_start_include`, and
+   `n_hours_end_include`
 4. Add the same block to `joint_finetune.yaml`
 5. Add to your sweep config under `outcomes:`
 6. Run contrastive training (or continue from a checkpoint with `save_last=True`) → new outcome automatically gets a `log_sigma` parameter and appears in all evaluation reports
@@ -357,7 +388,11 @@ The `subject_ids` in `predictions.npz` must match across all model variants for 
 - For acute outcomes (infections, AKI): use the clinical definition window (30d = 720h, 90d = 2160h)
 - For mortality/progression: typically 1y = 8760h or 2y = 17520h
 - For open-ended outcomes (treatment failure, any relapse ever): use `null`
-- The per-outcome contrastive time scale is auto-set to `window_days / 4`, so you never need to tune this separately
+- The contrastive kernel acts on Kaplan-Meier cumulative event mass. Keep the
+  locked default `km_time_scale=0.25` for the primary analysis and treat any
+  alternative as a named sensitivity analysis.
 
 **Choosing `index_date`:**  
-All outcomes for a patient should share the same `index_date` (typically first-line treatment start). If they don't, `ContrastiveDataset` will truncate sequences at the first outcome's censor point and silently produce inconsistent prediction windows for later-indexed outcomes. Assert this during data creation or document the deviation explicitly.
+All outcomes for a patient must share the same `index_date` (typically
+first-line treatment start). `ContrastiveDataset` validates the derived
+prediction positions and fails before training when they disagree.

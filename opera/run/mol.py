@@ -107,6 +107,7 @@ def main(cfg: DictConfig) -> None:
         num_workers=cfg.hardware.num_workers,
         require_min_followup_train=True,
         require_min_followup_val=True,
+        max_len=encoder.config.max_position_embeddings,
     )
 
     # ── Lightning module ─────────────────────────────────────────────

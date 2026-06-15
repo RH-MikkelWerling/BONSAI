@@ -21,6 +21,7 @@ paths:
   population: ${paths.dir}/population_full.csv
   outcome: ${paths.dir}/outcomes/${outcome}.parquet
   competing_outcome: null
+  eligibility: null
 
 labels:
   train_key: train

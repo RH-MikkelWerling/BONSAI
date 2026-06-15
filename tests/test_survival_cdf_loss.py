@@ -19,6 +19,7 @@ from opera.modules.datamodules.ContrastiveDataModule import (
     compute_sorted_event_times,
 )
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
+    compute_pooled_event_time_probability_grids,
     compute_pooled_sorted_event_times,
 )
 
@@ -394,3 +395,18 @@ def test_compute_pooled_sorted_event_times_returns_sorted_float32(tmp_path):
     assert result["mortality"].dtype == torch.float32
     assert result["mortality"].ndim == 1
     assert result["mortality"].tolist() == [5.0, 10.0, 20.0]
+
+
+def test_pooled_event_grid_strict_mode_rejects_missing_configured_cell(tmp_path):
+    with pytest.raises(FileNotFoundError, match="aki_30d"):
+        compute_pooled_event_time_probability_grids(
+            {"dlbcl": {"data_dir": str(tmp_path / "dlbcl")}},
+            {
+                "aki_30d": {
+                    "outcome_file": "aki_first_documented.parquet",
+                    "n_hours_start_include": 1,
+                    "n_hours_end_include": 720,
+                }
+            },
+            require_all_configured_cells=True,
+        )

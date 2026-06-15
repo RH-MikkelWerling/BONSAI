@@ -16,6 +16,7 @@ from transformers import get_linear_schedule_with_warmup
 from typing import Dict, List
 import numpy as np
 from bonsai.functional.checkpointing import (
+    MODEL_INIT_CONFIG_KEY,
     attach_checkpoint_metadata,
     attach_model_config,
 )
@@ -48,6 +49,8 @@ class OperaContrastiveModule(L.LightningModule):
             )
         self.save_hyperparameters(ignore=["model"])
         attach_model_config(self, model)
+        if hasattr(model, "model_init_config"):
+            self.hparams[MODEL_INIT_CONFIG_KEY] = dict(model.model_init_config)
         attach_checkpoint_metadata(self, checkpoint_metadata)
         self.outcome_names = outcome_names
         self.learning_rate = learning_rate

@@ -59,6 +59,16 @@ model:
   # heavily censored outcomes do not look noisy merely because they have fewer pairs.
   effective_pair_normalization: true
 
+cross_outcome:
+  # Uniform is the explicit production choice. Set kendall with pooled
+  # aggregation to reproduce the historical objective.
+  weighter: uniform
+  aggregation: macro
+  class_balanced: false
+  class_balanced_cap: 50.0
+  class_balanced_beta: 0.9999
+  class_counts: {}
+
 training:
   batch_size: 64                # larger batches → better contrastive learning
   accumulate_grad_batches: 2

@@ -79,6 +79,16 @@ Homepage = "https://github.com/FGA-DIKU/BONSAI"
 Source = "https://github.com/FGA-DIKU/BONSAI"
 Tracker = "https://github.com/FGA-DIKU/BONSAI/issues"
 
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+markers = [
+    "smoke: fast deterministic unit tests (< 1s each)",
+    "integration: tests that require heavy fixtures or run subprocesses",
+    "slow: tests that take more than 5 seconds",
+]
+
 [tool.ruff]
 target-version = "py312"
 
@@ -86,6 +96,6 @@ target-version = "py312"
 source = ["bonsai", "opera"]
 
 [tool.coverage.report]
-fail_under = 34
+fail_under = 44
 show_missing = true
 skip_covered = true

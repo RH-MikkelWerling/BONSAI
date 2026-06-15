@@ -139,6 +139,10 @@ def main(cfg: DictConfig) -> None:
         num_workers=cfg.hardware.num_workers,
         require_min_followup_train=True,
         require_min_followup_val=True,
+        require_all_configured_cells=cfg.training.get(
+            "require_all_configured_cells", True
+        ),
+        max_len=encoder.config.max_position_embeddings,
     )
 
     # ── Callbacks ──────────────────────────────────────────────────────

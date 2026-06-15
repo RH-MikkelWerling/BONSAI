@@ -94,6 +94,27 @@ def validate_eligibility_frame(frame: pd.DataFrame) -> list[str]:
         invalid = frame[column].notna() & values.isna()
         if invalid.any():
             issues.append(f"{column} must contain only boolean-like values or null")
+
+    gate_columns = (
+        "source_covered",
+        "baseline_adequate",
+        "post_index_adequate",
+        "followup_adequate",
+    )
+    for column in gate_columns:
+        if column not in frame.columns:
+            continue
+        values = _coerce_nullable_boolean(frame[column])
+        if ((eligible == True) & (values == False)).any():  # noqa: E712
+            issues.append(f"eligible rows must not have {column}=false")
+
+    if {"post_index_adequate", "last_measurement_date"}.issubset(frame.columns):
+        post_index = _coerce_nullable_boolean(frame["post_index_adequate"])
+        missing_last = frame["last_measurement_date"].isna()
+        if ((post_index == True) & missing_last).any():  # noqa: E712
+            issues.append(
+                "post_index_adequate=true requires a non-null last_measurement_date"
+            )
     return issues
 
 

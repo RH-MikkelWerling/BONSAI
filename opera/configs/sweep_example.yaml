@@ -7,7 +7,7 @@
 #   python -m opera.run.sweep --config opera/configs/sweep_example.yaml --overwrite
 # ══════════════════════════════════════════════════════════════════════
 
-output_dir: /results/opera_sweep
+output_dir: ${BONSAI_RESULTS_ROOT}/opera_sweep
 finetune_base_config: opera/configs/finetune.yaml
 seeds: [42, 43, 44]
 
@@ -56,31 +56,33 @@ outcomes:
     n_hours_start_include: 1
     n_hours_end_include: 8760       # 365 days
     registry_start_date: null
-    eligibility_file: mortality_1y_eligibility.parquet
+    eligibility_file: mortality__audit.parquet
   mortality_2y:
     outcome_file: mortality.parquet
     n_hours_start_include: 1
     n_hours_end_include: 17520      # 730 days
     registry_start_date: null
-    eligibility_file: mortality_2y_eligibility.parquet
+    eligibility_file: mortality__audit.parquet
   treatment_failure:
     outcome_file: treatment_failure.parquet
     n_hours_start_include: 1
     n_hours_end_include: null       # open-ended
     registry_start_date: null
-    eligibility_file: treatment_failure_eligibility.parquet
+    eligibility_file: treatment_failure__audit.parquet
   aki_30d:
-    outcome_file: aki.parquet
+    outcome_file: aki_first_documented.parquet
     n_hours_start_include: 1
     n_hours_end_include: 720        # 30 days
-    registry_start_date: null       # replace after the laboratory-source audit
-    eligibility_file: aki_30d_eligibility.parquet
+    registry_start_date: null       # eligibility sidecar defines ascertainability
+    eligibility_file: aki_first_documented__audit.parquet
+    competing_outcome_file: mortality.parquet
   severe_infection_90d:
     outcome_file: severe_infection.parquet
     n_hours_start_include: 1
     n_hours_end_include: 2160       # 90 days
     registry_start_date: null
-    eligibility_file: severe_infection_90d_eligibility.parquet
+    eligibility_file: severe_infection__audit.parquet
+    competing_outcome_file: mortality.parquet
 
 # ── Model variants ────────────────────────────────────────────────────
 # Foundation model variants: need encoder_ckpt + encoder_source.
@@ -92,9 +94,9 @@ model_variants:
 
   # ── Tier 2: Tabular baselines ──────────────────────────────────────
   tabular_rkkp:
-    predictions_file: /results/tabular/tabular_rkkp_{cohort}_{outcome}_predictions.csv
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_rkkp_{cohort}_{outcome}_predictions.csv
   tabular_ehr:
-    predictions_file: /results/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
 
   # ── Tier 3: Foundation model variants ─────────────────────────────
   no_pretraining:
@@ -102,16 +104,16 @@ model_variants:
     training_stage: no_pretraining_finetune
 
   base_pretrain:
-    encoder_ckpt: /ckpts/pretrain/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
 
   hematology_only_pretrain:
-    encoder_ckpt: /ckpts/hematology_pretrain/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
     encoder_source: pretrain
     pretraining_scope: hematology_only
 
   pretrain_linear_probe:
-    encoder_ckpt: /ckpts/pretrain/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
     training_stage: linear_probe
     extra_overrides:
@@ -120,7 +122,7 @@ model_variants:
       - training_stage=linear_probe
 
   hematology_only_linear_probe:
-    encoder_ckpt: /ckpts/hematology_pretrain/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
     encoder_source: pretrain
     pretraining_scope: hematology_only
     training_stage: linear_probe
@@ -130,11 +132,11 @@ model_variants:
       - training_stage=linear_probe
 
   dapt:
-    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
 
   dapt_linear_probe:
-    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
     training_stage: linear_probe
     extra_overrides:
@@ -143,21 +145,21 @@ model_variants:
       - training_stage=linear_probe
 
   opera:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
 
   opera_per_cohort:
-    encoder_ckpt: /ckpts/contrastive_per_cohort/{cohort}/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive_per_cohort/{cohort}/best.ckpt
     encoder_source: contrastive
     opera_scope: per_cohort
 
   opera_joint_contrastive:
-    encoder_ckpt: /ckpts/contrastive_joint/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive_joint/best.ckpt
     encoder_source: contrastive
     opera_scope: joint
 
   opera_linear_probe:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
     training_stage: linear_probe
     extra_overrides:
@@ -168,24 +170,24 @@ model_variants:
   # Survival head: Cox partial likelihood; works for open-ended and fixed-window
   # outcome definitions and is monitored with validation C-index.
   opera_cox:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
     training_mode: cox
 
   # Horizon-specific IPCW-weighted BCE; only enable for outcomes with
   # n_hours_end_include set.
   opera_ipcw_bce:
-    encoder_ckpt: /ckpts/contrastive/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
     encoder_source: contrastive
     training_mode: ipcw_bce
     exclude_outcomes: [treatment_failure]
 
   mol:
-    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/mol_per_cohort/{cohort}/best.ckpt
     encoder_source: mol
 
   mol_linear_probe:
-    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/mol_per_cohort/{cohort}/best.ckpt
     encoder_source: mol
     training_stage: linear_probe
     extra_overrides:
@@ -194,18 +196,18 @@ model_variants:
       - training_stage=linear_probe
 
   dapt_cox:
-    encoder_ckpt: /ckpts/dapt/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
     training_mode: cox
 
   mol_cox:
-    encoder_ckpt: /ckpts/mol/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/mol_per_cohort/{cohort}/best.ckpt
     encoder_source: mol
     training_mode: cox
 
   # ── Tier 4: Bonus hybrid ──────────────────────────────────────────
   # opera_hybrid:
-  #   encoder_ckpt: /ckpts/contrastive/best.ckpt
+  #   encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/contrastive/best.ckpt
   #   encoder_source: contrastive
   #   extra_overrides:
   #     - model.use_rkkp_features=true
@@ -215,5 +217,5 @@ model_variants:
   # Trained with opera/run/joint_finetune.py, then evaluated per-cell
   # by the sweep just like any other foundation model variant.
   opera_joint:
-    encoder_ckpt: /ckpts/joint_finetune/best.ckpt
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/joint_finetune/best.ckpt
     encoder_source: joint

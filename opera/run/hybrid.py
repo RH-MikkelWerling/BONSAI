@@ -39,6 +39,7 @@ from bonsai.functional.checkpointing import (
 )
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
 )
 
@@ -81,6 +82,12 @@ def main(cfg: DictConfig) -> None:
 
     # ── Outcomes ─────────────────────────────────────────────────────
     outcomes = pd.read_parquet(cfg.paths.outcome)
+    outcomes = filter_outcome_eligibility(
+        outcomes,
+        cfg.paths.get("eligibility"),
+        cohort=cfg.dataset,
+        outcome_name=cfg.outcome,
+    )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(
         outcomes,

@@ -7,6 +7,7 @@ the survival fields (``time_<n>``, ``event_<n>``) as well as the
 binary ``outcome_<n>`` keys.
 """
 
+from pathlib import Path
 from typing import Literal, Dict, List
 import pandas as pd
 import lightning as L
@@ -15,6 +16,7 @@ from torch.utils.data import DataLoader
 from opera.compat.bonsai import dynamic_padding, filter_subject_data, binarize_outcomes
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
 )
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
@@ -39,6 +41,16 @@ def contrastive_collate(batch):
     return base
 
 
+def _eligibility_path(outcome_config: dict, outcome_path: str):
+    raw = outcome_config.get("eligibility_path") or outcome_config.get(
+        "eligibility_file"
+    )
+    if raw in (None, "", "null"):
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else Path(outcome_path).parent / path
+
+
 def compute_sorted_event_times(
     outcome_configs: Dict[str, dict],
     split: str = "train",
@@ -58,6 +70,12 @@ def compute_sorted_event_times(
             continue
         try:
             df = pd.read_parquet(path)
+            eligibility_path = _eligibility_path(ocfg, path)
+            df = filter_outcome_eligibility(
+                df,
+                eligibility_path,
+                outcome_name=name,
+            )
             split_df = df[df["split"] == split].copy()
             if {"event", "time_days"}.issubset(split_df.columns):
                 event_times = split_df.loc[split_df["event"] == 1, "time_days"].dropna()
@@ -148,6 +166,12 @@ def compute_event_time_probability_grids(
             continue
         try:
             df = pd.read_parquet(path)
+            eligibility_path = _eligibility_path(ocfg, path)
+            df = filter_outcome_eligibility(
+                df,
+                eligibility_path,
+                outcome_name=name,
+            )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
                 df,
@@ -207,6 +231,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         num_workers: int,
         require_min_followup_train: bool = False,
         require_min_followup_val: bool = False,
+        max_len: int = 8192,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -218,6 +243,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
+        self.max_len = max_len
         self.outcome_names = sorted(outcome_configs.keys())
 
     def _load_outcomes(self, split_key: str) -> Dict[str, Dict[int, dict]]:
@@ -225,6 +251,11 @@ class ContrastiveDataModule(L.LightningDataModule):
         outcome_dicts = {}
         for name, ocfg in self.outcome_configs.items():
             df = pd.read_parquet(ocfg["path"])
+            df = filter_outcome_eligibility(
+                df,
+                _eligibility_path(ocfg, ocfg["path"]),
+                outcome_name=name,
+            )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
                 df,
@@ -288,12 +319,14 @@ class ContrastiveDataModule(L.LightningDataModule):
             outcome_dicts=train_outcomes,
             predict_token_id=self.predict_token_id,
             background_length=background_length,
+            max_len=self.max_len,
         )
         self.val_dataset = ContrastiveDataset(
             val_data,
             outcome_dicts=val_outcomes,
             predict_token_id=self.predict_token_id,
             background_length=background_length,
+            max_len=self.max_len,
         )
 
         print(log_bucket_stats(self.train_dataset, self.outcome_names))

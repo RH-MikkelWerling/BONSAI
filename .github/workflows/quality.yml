@@ -14,6 +14,8 @@ env:
   BONSAI_MODELS: ${{ github.workspace }}/.ci/models
   BONSAI_PROCESSED_DATA: ${{ github.workspace }}/.ci/processed
   BONSAI_PREDICTIONS: ${{ github.workspace }}/.ci/predictions
+  BONSAI_CHECKPOINT_ROOT: ${{ github.workspace }}/.ci/checkpoints
+  BONSAI_RESULTS_ROOT: ${{ github.workspace }}/.ci/results
   HYDRA_FULL_ERROR: "1"
   MPLBACKEND: Agg
 
