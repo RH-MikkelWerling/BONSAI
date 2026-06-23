@@ -14,11 +14,67 @@ of outcome count, so stratification still works when K is large.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, Iterator, List, Optional, Sequence
 
 import numpy as np
 import torch
-from torch.utils.data import WeightedRandomSampler, ConcatDataset
+from torch.utils.data import ConcatDataset, Sampler, WeightedRandomSampler
+
+
+def _as_float(value, default: float = float("nan")) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_event(value, default: int = -1) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _sub_datasets(dataset) -> list:
+    return list(dataset.datasets) if isinstance(dataset, ConcatDataset) else [dataset]
+
+
+def _extract_patient_records(
+    dataset,
+    outcome_names: Sequence[str],
+) -> List[Dict[str, Optional[dict]]]:
+    """
+    Return per-index outcome records for ContrastiveDataset-like objects.
+
+    The helper also accepts SurvivalFinetuneDataset-like objects exposing a
+    single ``.outcomes`` mapping; in that case the first outcome name is used.
+    """
+    records: List[Dict[str, Optional[dict]]] = []
+    for ds in _sub_datasets(dataset):
+        for subject in ds.subjects:
+            sid = subject["subject_id"]
+            patient_records: Dict[str, Optional[dict]] = {}
+            if hasattr(ds, "outcome_dicts"):
+                for name in outcome_names:
+                    patient_records[name] = ds.outcome_dicts.get(name, {}).get(sid)
+            elif hasattr(ds, "outcomes"):
+                if len(outcome_names) != 1:
+                    raise ValueError(
+                        "Single-outcome datasets must be sampled with exactly "
+                        "one outcome name."
+                    )
+                patient_records[outcome_names[0]] = ds.outcomes.get(sid)
+            else:
+                raise TypeError(
+                    "Event-aware sampling requires a dataset exposing either "
+                    "outcome_dicts or outcomes."
+                )
+            records.append(patient_records)
+    return records
 
 
 def _extract_patient_times(
@@ -29,21 +85,15 @@ def _extract_patient_times(
     Walk a dataset (or ConcatDataset of ContrastiveDatasets) and return,
     for each patient in order, a dict {outcome_name: time_days or nan}.
     """
-    sub_datasets = dataset.datasets if isinstance(dataset, ConcatDataset) else [dataset]
-
     all_times: List[Dict[str, float]] = []
-    for ds in sub_datasets:
-        for subject in ds.subjects:
-            sid = subject["subject_id"]
-            patient_times: Dict[str, float] = {}
-            for name in outcome_names:
-                rec = ds.outcome_dicts.get(name, {}).get(sid)
-                if rec is not None:
-                    t = rec.get("time_days", float("nan"))
-                    patient_times[name] = float(t) if t is not None else float("nan")
-                else:
-                    patient_times[name] = float("nan")
-            all_times.append(patient_times)
+    for patient_records in _extract_patient_records(dataset, outcome_names):
+        patient_times: Dict[str, float] = {}
+        for name in outcome_names:
+            rec = patient_records.get(name)
+            patient_times[name] = (
+                _as_float(rec.get("time_days")) if rec is not None else float("nan")
+            )
+        all_times.append(patient_times)
 
     return all_times
 
@@ -177,6 +227,8 @@ def build_stratified_sampler(
     del missing_bucket
     all_times = _extract_patient_times(dataset, outcome_names)
     n = len(all_times)
+    if n == 0:
+        raise ValueError("Cannot build a stratified sampler for an empty dataset.")
     buckets = _projected_buckets(all_times, outcome_names, n_quantiles)
 
     bucket_counts = Counter(buckets)
@@ -190,10 +242,365 @@ def build_stratified_sampler(
     )
 
 
+def _normalise_probabilities(weights: np.ndarray) -> np.ndarray:
+    weights = np.asarray(weights, dtype=np.float64).copy()
+    weights[~np.isfinite(weights)] = 0.0
+    weights = np.clip(weights, 0.0, None)
+    total = float(weights.sum())
+    if total <= 0.0:
+        return np.full(weights.shape, 1.0 / len(weights), dtype=np.float64)
+    return weights / total
+
+
+def _distributed_context() -> tuple[int, int]:
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank(), torch.distributed.get_world_size()
+    return 0, 1
+
+
+def _draw_from_pool(
+    rng: np.random.Generator,
+    pool: np.ndarray,
+    n: int,
+    selected: set[int],
+    probabilities: Optional[np.ndarray] = None,
+) -> list[int]:
+    """Draw indices, avoiding already-selected rows whenever possible."""
+    if n <= 0 or pool.size == 0:
+        return []
+
+    unique_pool = np.unique(pool.astype(np.int64, copy=False))
+    available = np.array(
+        [idx for idx in unique_pool.tolist() if idx not in selected],
+        dtype=np.int64,
+    )
+
+    drawn: list[int] = []
+    if available.size:
+        n_unique = min(n, available.size)
+        p = None
+        if probabilities is not None:
+            p = _normalise_probabilities(probabilities[available])
+        drawn.extend(rng.choice(available, size=n_unique, replace=False, p=p).tolist())
+
+    remaining = n - len(drawn)
+    if remaining > 0:
+        p = None
+        if probabilities is not None:
+            p = _normalise_probabilities(probabilities[unique_pool])
+        drawn.extend(
+            rng.choice(unique_pool, size=remaining, replace=True, p=p).tolist()
+        )
+    return drawn
+
+
+class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
+    """
+    Compose batches with outcome-specific survival signal.
+
+    Each batch focuses on one outcome in a rotating schedule. For that outcome,
+    the sampler tries to include a minimum number of primary events, later
+    at-risk comparators for those events, and a minimum number of eligible
+    patients before filling the rest of the batch from the survival-time bucket
+    distribution used by the legacy weighted sampler.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        outcome_names: Sequence[str],
+        batch_size: int,
+        n_quantiles: int = 4,
+        min_events_per_batch: int = 4,
+        min_valid_per_batch: Optional[int] = None,
+        batches_per_epoch: Optional[int] = None,
+        seed: int = 0,
+    ):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive.")
+        self.dataset = dataset
+        self.outcome_names = list(outcome_names)
+        self.batch_size = int(batch_size)
+        self.n_quantiles = int(n_quantiles)
+        self.min_events_per_batch = max(0, int(min_events_per_batch))
+        if min_valid_per_batch is None:
+            min_valid_per_batch = max(2 * self.min_events_per_batch, batch_size // 4)
+            min_valid_per_batch = max(2, min_valid_per_batch)
+        self.min_valid_per_batch = min(int(min_valid_per_batch), self.batch_size)
+        self.seed = int(seed)
+        self.epoch = 0
+
+        self.records = _extract_patient_records(dataset, self.outcome_names)
+        self.n = len(self.records)
+        if self.n == 0:
+            raise ValueError("Cannot build a batch sampler for an empty dataset.")
+
+        all_times = _extract_patient_times(dataset, self.outcome_names)
+        buckets = _projected_buckets(all_times, self.outcome_names, self.n_quantiles)
+        bucket_counts = Counter(buckets)
+        base_weights = np.array(
+            [1.0 / bucket_counts[bucket] for bucket in buckets],
+            dtype=np.float64,
+        )
+        self.base_probabilities = _normalise_probabilities(base_weights)
+
+        self.times_by_outcome: dict[str, np.ndarray] = {}
+        self.events_by_outcome: dict[str, np.ndarray] = {}
+        self.valid_indices: dict[str, np.ndarray] = {}
+        self.event_indices: dict[str, np.ndarray] = {}
+        for name in self.outcome_names:
+            times = np.full(self.n, np.nan, dtype=np.float64)
+            events = np.full(self.n, -1, dtype=np.int64)
+            for index, patient_records in enumerate(self.records):
+                rec = patient_records.get(name)
+                if rec is None:
+                    continue
+                times[index] = _as_float(rec.get("time_days"))
+                events[index] = _as_event(rec.get("event", rec.get("label", -1)))
+
+            valid = np.isfinite(times) & (events >= 0)
+            event = valid & (events == 1)
+            self.times_by_outcome[name] = times
+            self.events_by_outcome[name] = events
+            self.valid_indices[name] = np.where(valid)[0].astype(np.int64)
+            self.event_indices[name] = np.where(event)[0].astype(np.int64)
+
+        self.focus_outcomes = sorted(
+            [
+                name
+                for name in self.outcome_names
+                if self.valid_indices[name].size >= 2
+                and self.event_indices[name].size >= 1
+            ],
+            key=lambda name: (
+                self.event_indices[name].size,
+                self.valid_indices[name].size,
+                name,
+            ),
+        )
+        self.num_batches = (
+            int(batches_per_epoch)
+            if batches_per_epoch is not None
+            else max(1, self.n // self.batch_size)
+        )
+        if self.num_batches <= 0:
+            raise ValueError("batches_per_epoch must be positive.")
+
+    def __len__(self) -> int:
+        rank, world_size = _distributed_context()
+        return max(0, (self.num_batches + world_size - 1 - rank) // world_size)
+
+    def _add(self, batch: list[int], selected: set[int], indices: Sequence[int]) -> None:
+        for index in indices:
+            if len(batch) >= self.batch_size:
+                return
+            batch.append(int(index))
+            selected.add(int(index))
+
+    def _draw_events(
+        self,
+        name: str,
+        rng: np.random.Generator,
+        n: int,
+        selected: set[int],
+    ) -> list[int]:
+        pool = self.event_indices[name]
+        if n <= 0 or pool.size == 0:
+            return []
+        if n == 1 or pool.size <= 1:
+            return _draw_from_pool(rng, pool, n, selected, self.base_probabilities)
+
+        times = self.times_by_outcome[name][pool]
+        finite = np.isfinite(times)
+        if finite.sum() < 2:
+            return _draw_from_pool(rng, pool, n, selected, self.base_probabilities)
+
+        bins = _quartile_bins(times)
+        drawn: list[int] = []
+        bin_ids = rng.permutation(np.unique(bins))
+        while len(drawn) < n and len(bin_ids) > 0:
+            made_progress = False
+            for bin_id in bin_ids:
+                candidates = pool[bins == bin_id]
+                chosen = _draw_from_pool(
+                    rng,
+                    candidates,
+                    1,
+                    selected | set(drawn),
+                    self.base_probabilities,
+                )
+                if chosen:
+                    drawn.extend(chosen)
+                    made_progress = True
+                    if len(drawn) >= n:
+                        break
+            if not made_progress:
+                break
+        if len(drawn) < n:
+            drawn.extend(
+                _draw_from_pool(
+                    rng,
+                    pool,
+                    n - len(drawn),
+                    selected | set(drawn),
+                    self.base_probabilities,
+                )
+            )
+        return drawn[:n]
+
+    def _draw_later_comparators(
+        self,
+        name: str,
+        event_indices: Sequence[int],
+        rng: np.random.Generator,
+        selected: set[int],
+    ) -> list[int]:
+        valid_pool = self.valid_indices[name]
+        if valid_pool.size == 0:
+            return []
+        times = self.times_by_outcome[name]
+        drawn: list[int] = []
+        for event_index in event_indices:
+            if len(drawn) >= self.batch_size:
+                break
+            event_time = times[int(event_index)]
+            later_pool = valid_pool[times[valid_pool] > event_time]
+            if later_pool.size == 0:
+                later_pool = valid_pool[times[valid_pool] >= event_time]
+            chosen = _draw_from_pool(
+                rng,
+                later_pool,
+                1,
+                selected | set(drawn),
+                self.base_probabilities,
+            )
+            drawn.extend(chosen)
+        return drawn
+
+    def _fill_batch(
+        self,
+        batch: list[int],
+        selected: set[int],
+        rng: np.random.Generator,
+    ) -> None:
+        all_indices = np.arange(self.n, dtype=np.int64)
+        needed = self.batch_size - len(batch)
+        self._add(
+            batch,
+            selected,
+            _draw_from_pool(
+                rng,
+                all_indices,
+                needed,
+                selected,
+                self.base_probabilities,
+            ),
+        )
+
+    def _build_batch_for_outcome(
+        self,
+        name: str,
+        rng: np.random.Generator,
+    ) -> list[int]:
+        batch: list[int] = []
+        selected: set[int] = set()
+
+        event_quota = min(self.min_events_per_batch, self.batch_size)
+        events = self._draw_events(name, rng, event_quota, selected)
+        self._add(batch, selected, events)
+
+        comparators = self._draw_later_comparators(name, events, rng, selected)
+        self._add(batch, selected, comparators)
+
+        valid_set = set(self.valid_indices[name].tolist())
+        valid_now = sum(index in valid_set for index in batch)
+        valid_needed = max(0, self.min_valid_per_batch - valid_now)
+        self._add(
+            batch,
+            selected,
+            _draw_from_pool(
+                rng,
+                self.valid_indices[name],
+                valid_needed,
+                selected,
+                self.base_probabilities,
+            ),
+        )
+
+        self._fill_batch(batch, selected, rng)
+        return batch[: self.batch_size]
+
+    def __iter__(self) -> Iterator[list[int]]:
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+        rank, world_size = _distributed_context()
+        if self.focus_outcomes:
+            focus_order = list(self.focus_outcomes)
+            rng.shuffle(focus_order)
+        else:
+            focus_order = []
+
+        for batch_index in range(self.num_batches):
+            should_yield = batch_index % world_size == rank
+            if focus_order:
+                focus = focus_order[batch_index % len(focus_order)]
+                batch = self._build_batch_for_outcome(focus, rng)
+                if should_yield:
+                    yield batch
+            else:
+                batch: list[int] = []
+                selected: set[int] = set()
+                self._fill_batch(batch, selected, rng)
+                if should_yield:
+                    yield batch[: self.batch_size]
+
+    def summary(self) -> str:
+        lines = [
+            "Event-aware survival batch sampler",
+            f"  patients={self.n}, batch_size={self.batch_size}, "
+            f"batches_per_epoch={self.num_batches}",
+            f"  min_events_per_batch={self.min_events_per_batch}, "
+            f"min_valid_per_batch={self.min_valid_per_batch}",
+        ]
+        if not self.focus_outcomes:
+            lines.append("  no outcomes have primary events; falling back to bucket fill")
+            return "\n".join(lines)
+        lines.append(f"  focus outcomes: {self.focus_outcomes}")
+        for name in self.outcome_names:
+            lines.append(
+                f"  {name}: valid={self.valid_indices[name].size}, "
+                f"primary_events={self.event_indices[name].size}"
+            )
+        return "\n".join(lines)
+
+
+def build_event_aware_batch_sampler(
+    dataset,
+    outcome_names: Sequence[str],
+    batch_size: int,
+    n_quantiles: int = 4,
+    min_events_per_batch: int = 4,
+    min_valid_per_batch: Optional[int] = None,
+    batches_per_epoch: Optional[int] = None,
+    seed: int = 0,
+) -> EventAwareSurvivalBatchSampler:
+    return EventAwareSurvivalBatchSampler(
+        dataset=dataset,
+        outcome_names=outcome_names,
+        batch_size=batch_size,
+        n_quantiles=n_quantiles,
+        min_events_per_batch=min_events_per_batch,
+        min_valid_per_batch=min_valid_per_batch,
+        batches_per_epoch=batches_per_epoch,
+        seed=seed,
+    )
+
+
 def log_bucket_stats(
     dataset,
     outcome_names: List[str],
     n_quantiles: int = 4,
+    batch_size: Optional[int] = None,
 ) -> str:
     """
     Return a human-readable summary of the projected PC bucket distribution.
@@ -214,13 +621,33 @@ def log_bucket_stats(
         ]
         lines.append("  " + " | ".join(cells))
 
+    records = _extract_patient_records(dataset, outcome_names)
+
     lines.append(f"Outcomes: {outcome_names}")
     for name in outcome_names:
         times = np.array([pt[name] for pt in all_times])
         valid = np.isfinite(times)
+        events = np.array(
+            [
+                _as_event(rec[name].get("event", rec[name].get("label", -1)))
+                if rec.get(name) is not None
+                else -1
+                for rec in records
+            ]
+        )
+        primary_events = valid & (events == 1)
         if valid.sum() > 0:
+            expected = ""
+            if batch_size is not None and n > 0:
+                expected = (
+                    f", expected random batch: "
+                    f"{batch_size * valid.sum() / n:.1f} valid / "
+                    f"{batch_size * primary_events.sum() / n:.1f} events"
+                )
             lines.append(
                 f"  {name}: {valid.sum()}/{n} patients have data  "
+                f"({primary_events.sum()} primary events"
+                f"{expected})  "
                 f"(median {np.nanmedian(times):.1f}d, "
                 f"p25={np.nanquantile(times[valid], 0.25):.1f}d, "
                 f"p75={np.nanquantile(times[valid], 0.75):.1f}d)"

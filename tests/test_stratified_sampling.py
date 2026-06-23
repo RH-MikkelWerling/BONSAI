@@ -13,12 +13,14 @@ import pytest
 from torch.utils.data import ConcatDataset, WeightedRandomSampler
 
 from opera.functional.stratified_sampling import (
+    EventAwareSurvivalBatchSampler,
     _extract_patient_times,
     _project_rank_matrix,
     _projected_buckets,
     _quantile_rank_matrix,
     _quartile_bins,
     _standardize_rank_matrix,
+    build_event_aware_batch_sampler,
     build_stratified_sampler,
     log_bucket_stats,
 )
@@ -60,6 +62,26 @@ def _make_dataset(n_subjects=40, outcomes=("os", "pfs"), seed=0, missing_every=0
                 continue
             records[subject["subject_id"]] = {"time_days": float(times[i])}
         outcome_dicts[name] = records
+    return _FakeDataset(subjects, outcome_dicts)
+
+
+def _make_event_dataset(n_subjects=96):
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(n_subjects)]
+    outcome_dicts = {"common": {}, "rare": {}}
+    for i, subject in enumerate(subjects):
+        sid = subject["subject_id"]
+        outcome_dicts["common"][sid] = {
+            "time_days": float(20 + i),
+            "event": 1 if i % 4 == 0 else 0,
+            "label": 1 if i % 4 == 0 else 0,
+        }
+        if i < 36:
+            is_rare_event = i in {0, 5, 10, 15}
+            outcome_dicts["rare"][sid] = {
+                "time_days": float(10 + i if is_rare_event else 120 + i),
+                "event": 1 if is_rare_event else 0,
+                "label": 1 if is_rare_event else 0,
+            }
     return _FakeDataset(subjects, outcome_dicts)
 
 
@@ -265,6 +287,92 @@ def test_build_stratified_sampler_empty_dataset_raises():
         build_stratified_sampler(ds, ["os"], n_quantiles=4)
 
 
+def test_build_event_aware_batch_sampler_returns_batch_sampler():
+    ds = _make_event_dataset()
+
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=16,
+        min_events_per_batch=2,
+        min_valid_per_batch=8,
+        seed=7,
+    )
+
+    assert isinstance(sampler, EventAwareSurvivalBatchSampler)
+    assert len(sampler) == 6
+    batches = list(sampler)
+    assert len(batches) == 6
+    assert all(len(batch) == 16 for batch in batches)
+    assert all(min(batch) >= 0 and max(batch) < len(ds) for batch in batches)
+
+
+def test_event_aware_batch_sampler_enriches_rare_outcome_batches():
+    ds = _make_event_dataset()
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=16,
+        min_events_per_batch=2,
+        min_valid_per_batch=8,
+        seed=3,
+    )
+
+    rare_records = ds.outcome_dicts["rare"]
+    rare_eventful_batches = 0
+    rare_valid_batches = 0
+    for batch in sampler:
+        rare_events = 0
+        rare_valid = 0
+        for index in batch:
+            sid = ds.subjects[index]["subject_id"]
+            rec = rare_records.get(sid)
+            if rec is None:
+                continue
+            rare_valid += 1
+            rare_events += int(rec["event"] == 1)
+        if rare_events >= 2:
+            rare_eventful_batches += 1
+        if rare_valid >= 8:
+            rare_valid_batches += 1
+
+    # The focus schedule alternates common and rare outcomes across six batches.
+    assert rare_eventful_batches >= 3
+    assert rare_valid_batches >= 3
+
+
+def test_event_aware_batch_sampler_avoids_duplicates_when_pool_is_large_enough():
+    ds = _make_event_dataset(n_subjects=128)
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=16,
+        min_events_per_batch=2,
+        min_valid_per_batch=8,
+        seed=11,
+    )
+
+    for batch in sampler:
+        assert len(batch) == len(set(batch))
+
+
+def test_event_aware_batch_sampler_falls_back_without_events():
+    ds = _make_dataset(n_subjects=32, outcomes=["os"], seed=16)
+
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["os"],
+        batch_size=8,
+        min_events_per_batch=2,
+        min_valid_per_batch=4,
+        seed=13,
+    )
+
+    batches = list(sampler)
+    assert len(batches) == 4
+    assert all(len(batch) == 8 for batch in batches)
+
+
 def test_log_bucket_stats_does_not_crash():
     outcomes = ["os", "pfs"]
     ds = _make_dataset(n_subjects=40, outcomes=outcomes, seed=14, missing_every=5)
@@ -287,3 +395,12 @@ def test_log_bucket_stats_handles_outcome_with_no_data():
     summary = log_bucket_stats(ds, outcomes, n_quantiles=4)
 
     assert "empty: no data" in summary
+
+
+def test_log_bucket_stats_reports_event_signal_for_batch_size():
+    ds = _make_event_dataset()
+
+    summary = log_bucket_stats(ds, ["common", "rare"], batch_size=16)
+
+    assert "primary events" in summary
+    assert "expected random batch" in summary

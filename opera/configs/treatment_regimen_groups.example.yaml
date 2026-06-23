@@ -1,0 +1,23 @@
+# Example only: replace raw strings with the exact values emitted by the
+# hematology cohort builder. Groups must be mutually exclusive within disease.
+diseases:
+  DLBCL:
+    R-CHOP-like:
+      - R-CHOP
+      - R-CHOEP
+      - R-MAXI-CHOP
+    other_CHOP-like:
+      - CHOP
+      - CHOEP
+      - MAXI-CHOP
+    non_CHOP-like:
+      - OTHER_DLBCL_FIRST_LINE
+
+  MM:
+    VRd-like:
+      - VRd
+    daratumumab-based:
+      - Dara-VRd
+      - Dara-Rd
+    other_MM_first_line:
+      - OTHER_MM_FIRST_LINE

@@ -143,6 +143,7 @@ def main(cfg: DictConfig) -> None:
             "require_all_configured_cells", True
         ),
         max_len=encoder.config.max_position_embeddings,
+        batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 
     # ── Callbacks ──────────────────────────────────────────────────────

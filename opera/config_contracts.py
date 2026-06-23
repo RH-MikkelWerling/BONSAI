@@ -338,6 +338,9 @@ class VariantSpec:
                 "pos_weight",
                 "include_outcomes",
                 "exclude_outcomes",
+                "evaluation_regime",
+                "probability_col",
+                "risk_col",
             },
             path,
             issues,
@@ -361,6 +364,11 @@ class VariantSpec:
         if training_mode not in (None, "cox", "ipcw_bce"):
             issues.append(
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
+            )
+        evaluation_regime = value.get("evaluation_regime")
+        if evaluation_regime not in (None, "fixed_horizon", "survival", "both"):
+            issues.append(
+                f"{path}.evaluation_regime must be fixed_horizon, survival, or both."
             )
 
         sources = [

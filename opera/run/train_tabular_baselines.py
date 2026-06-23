@@ -21,11 +21,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from opera.compat.bonsai import binarize_outcomes
-from opera.functional.outcomes import (
-    attach_prediction_censor_abspos,
-    filter_registry_eligible_outcomes,
+from opera.evaluation.cohorts import (
+    FIXED_HORIZON_REGIME,
+    SURVIVAL_REGIME,
+    build_evaluation_cohorts,
+    population_subject_ids,
 )
+from opera.evaluation.comparison import fit_cox_survival, fit_xgboost_aft
 from opera.functional.ipcw import compute_ipcw_train_weights
 
 
@@ -38,6 +40,7 @@ RESERVED_COLUMNS = {
     "time_days",
     "event",
 }
+SURVIVAL_MODELS = frozenset({"cox", "xgboost_aft"})
 
 
 def validate_feature_matrix(
@@ -181,6 +184,8 @@ def outcome_labels(
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
+    allowed_subject_ids: Optional[Iterable] = None,
 ) -> pd.DataFrame:
     """Derive labels and optional IPCW fields using the shared outcome pipeline.
 
@@ -190,26 +195,20 @@ def outcome_labels(
     tabular baselines use the same horizon labels and censoring weights as
     OPERA survival finetuning.
     """
-    outcomes = pd.read_parquet(outcome_path)
-    outcomes = attach_prediction_censor_abspos(outcomes)
-    outcomes = filter_registry_eligible_outcomes(
-        outcomes,
-        registry_start_date,
-        cohort=cohort,
-        outcome_name=outcome_name,
-    )
-    split_df = outcomes[outcomes["split"] == split].copy()
-    competing_df = (
-        pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
-    )
-    labels = binarize_outcomes(
-        split_df,
+    cohorts = build_evaluation_cohorts(
+        outcome_path,
+        split=split,
         n_hours_start_include=n_hours_start_include,
         n_hours_end_include=n_hours_end_include,
-        require_min_followup=require_min_followup,
-        split_name=split,
-        competing_event_df=competing_df,
+        competing_outcomes=competing_outcome_path,
+        eligibility=eligibility_path,
+        registry_start_date=registry_start_date,
+        cohort=cohort,
+        outcome_name=outcome_name,
+        allowed_subject_ids=allowed_subject_ids,
     )
+    regime = FIXED_HORIZON_REGIME if require_min_followup else SURVIVAL_REGIME
+    labels = {key: dict(value) for key, value in cohorts.for_regime(regime).records.items()}
     if ipcw_horizon_hours is not None:
         weights = compute_ipcw_train_weights(labels, horizon_hours=ipcw_horizon_hours)
         for subject_id, weight in weights.items():
@@ -474,6 +473,35 @@ def train_one_model(
     return predictions, pipeline
 
 
+def train_one_survival_model(
+    model_name: str,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_columns: list[str],
+    seed: int,
+    tau_days: float,
+):
+    """Train one censoring-aware survival model and return held-out predictions."""
+    fit = fit_cox_survival if model_name == "cox" else fit_xgboost_aft
+    predictor, backend, notes = fit(
+        features=train_df[feature_columns],
+        times=train_df["time_days"].to_numpy(dtype=float),
+        events=train_df["event"].to_numpy(dtype=int),
+        tau_days=tau_days,
+        seed=seed,
+    )
+    probabilities = predictor.predict_proba(test_df[feature_columns])
+    risk_scores = predictor.predict_risk(test_df[feature_columns])
+    predictions = pd.DataFrame(
+        {
+            "subject_id": test_df["subject_id"].to_numpy(),
+            "probability": np.asarray(probabilities, dtype=float),
+            "risk_score": np.asarray(risk_scores, dtype=float),
+        }
+    )
+    return predictions, predictor, backend, notes
+
+
 def write_feature_importance(
     pipeline: Pipeline,
     output_path: Path,
@@ -506,6 +534,11 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     features = read_table(args.features)
+    allowed_subject_ids = population_subject_ids(
+        args.population,
+        cohort_fine_col=args.cohort_fine_col,
+        cohort_fine_value=args.cohort_fine_value,
+    )
     feature_columns = infer_feature_columns(
         features, parse_columns(args.exclude_columns)
     )
@@ -534,12 +567,27 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         )
 
     requested_models = (
-        ["logistic", "xgboost"] if args.models == "all" else parse_columns(args.models)
+        ["logistic", "xgboost", "cox", "xgboost_aft"]
+        if args.models == "all"
+        else parse_columns(args.models)
     )
+    supported_models = {
+        "logistic",
+        "xgboost",
+        "tabpfn",
+        "logistic_ipcw_bce",
+        "xgboost_ipcw_bce",
+        *SURVIVAL_MODELS,
+    }
+    unknown_models = sorted(set(requested_models) - supported_models)
+    if unknown_models:
+        raise ValueError(f"Unknown tabular baseline models: {unknown_models}.")
     uses_ipcw_training = any(model.endswith("_ipcw_bce") for model in requested_models)
     uses_binary_training = any(
-        not model.endswith("_ipcw_bce") for model in requested_models
+        model not in SURVIVAL_MODELS and not model.endswith("_ipcw_bce")
+        for model in requested_models
     )
+    uses_survival_training = any(model in SURVIVAL_MODELS for model in requested_models)
     if uses_ipcw_training and args.n_hours_end_include is None:
         raise ValueError("IPCW-BCE tabular training requires --n_hours_end_include.")
 
@@ -548,11 +596,13 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         split=args.train_split,
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
-        require_min_followup=args.require_min_followup_train,
+        require_min_followup=True,
         competing_outcome_path=args.competing_outcome,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
         outcome_name=args.outcome_name,
+        eligibility_path=args.eligibility,
+        allowed_subject_ids=allowed_subject_ids,
     )
     ipcw_train_labels = (
         outcome_labels(
@@ -567,6 +617,8 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             registry_start_date=args.registry_start_date,
             cohort=args.cohort,
             outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
         )
         if uses_ipcw_training
         else None
@@ -576,11 +628,49 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         split=args.test_split,
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
-        require_min_followup=args.n_hours_end_include is not None,
+        require_min_followup=True,
         competing_outcome_path=args.competing_outcome,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
         outcome_name=args.outcome_name,
+        eligibility_path=args.eligibility,
+        allowed_subject_ids=allowed_subject_ids,
+    )
+    survival_train_labels = (
+        outcome_labels(
+            args.outcome,
+            split=args.train_split,
+            n_hours_start_include=args.n_hours_start_include,
+            n_hours_end_include=args.n_hours_end_include,
+            require_min_followup=False,
+            competing_outcome_path=args.competing_outcome,
+            include_survival_fields=True,
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
+        )
+        if uses_survival_training
+        else None
+    )
+    survival_test_labels = (
+        outcome_labels(
+            args.outcome,
+            split=args.test_split,
+            n_hours_start_include=args.n_hours_start_include,
+            n_hours_end_include=args.n_hours_end_include,
+            require_min_followup=False,
+            competing_outcome_path=args.competing_outcome,
+            include_survival_fields=True,
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
+        )
+        if uses_survival_training
+        else None
     )
     train_df = merge_features_and_labels(features, train_labels)
     ipcw_train_df = (
@@ -589,6 +679,16 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         else None
     )
     test_df = merge_features_and_labels(features, test_labels)
+    survival_train_df = (
+        merge_features_and_labels(features, survival_train_labels)
+        if survival_train_labels is not None
+        else None
+    )
+    survival_test_df = (
+        merge_features_and_labels(features, survival_test_labels)
+        if survival_test_labels is not None
+        else None
+    )
     contract.update(
         {
             "n_train_labelled": int(len(train_df)),
@@ -596,6 +696,12 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             if ipcw_train_df is not None
             else None,
             "n_test_labelled": int(len(test_df)),
+            "n_survival_train": int(len(survival_train_df))
+            if survival_train_df is not None
+            else None,
+            "n_survival_test": int(len(survival_test_df))
+            if survival_test_df is not None
+            else None,
             "train_split": args.train_split,
             "test_split": args.test_split,
         }
@@ -610,7 +716,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "IPCW training labels contain fewer than two classes."
         )
         contract["ok"] = False
-    if test_df.empty:
+    if (uses_binary_training or uses_ipcw_training) and test_df.empty:
         contract["errors"].append("No test labels overlap the feature matrix.")
         contract["ok"] = False
     if uses_binary_training and train_df.empty:
@@ -619,6 +725,22 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     if uses_ipcw_training and (ipcw_train_df is None or ipcw_train_df.empty):
         contract["errors"].append("No IPCW train labels overlap the feature matrix.")
         contract["ok"] = False
+    if uses_survival_training and (
+        survival_train_df is None
+        or survival_test_df is None
+        or survival_train_df.empty
+        or survival_test_df.empty
+    ):
+        contract["errors"].append(
+            "No survival train/test labels overlap the feature matrix."
+        )
+        contract["ok"] = False
+    if uses_survival_training and survival_train_df is not None:
+        if int((survival_train_df["event"] == 1).sum()) < 2:
+            contract["errors"].append(
+                "Survival training cohort contains fewer than two observed events."
+            )
+            contract["ok"] = False
 
     miss = missingness_report(
         features,
@@ -631,7 +753,14 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             if ipcw_train_df is not None
             else train_df["subject_id"]
         ),
-        test_subject_ids=test_df["subject_id"],
+        test_subject_ids=(
+            pd.concat(
+                [test_df["subject_id"], survival_test_df["subject_id"]],
+                ignore_index=True,
+            )
+            if survival_test_df is not None
+            else test_df["subject_id"]
+        ),
     )
     missingness_path = (
         output_dir / f"{args.cohort}_{args.outcome_name}_feature_missingness.csv"
@@ -654,9 +783,17 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
 
     for model_name in requested_models:
         model_feature_columns = feature_columns
-        model_train_df = ipcw_train_df if model_name.endswith("_ipcw_bce") else train_df
+        is_survival_model = model_name in SURVIVAL_MODELS
+        model_train_df = (
+            survival_train_df
+            if is_survival_model
+            else (ipcw_train_df if model_name.endswith("_ipcw_bce") else train_df)
+        )
+        model_test_df = survival_test_df if is_survival_model else test_df
         sample_weight = None
         if model_name.endswith("_ipcw_bce"):
+            # IPCW preserves early-censored training patients; it does not change
+            # the fixed-horizon evaluation cohort used for model comparisons.
             if "ipcw_weight" not in model_train_df.columns:
                 raise ValueError("IPCW training requested but ipcw_weight is missing.")
             model_train_df = model_train_df[model_train_df["ipcw_weight"] > 0].copy()
@@ -682,16 +819,34 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                     frac=min(1.0, args.tabpfn_max_train_rows / len(model_train_df)),
                     random_state=args.seed,
                 )
-        predictions, pipeline = train_one_model(
-            model_name=model_name,
-            train_df=model_train_df,
-            test_df=test_df,
-            feature_columns=model_feature_columns,
-            categorical_columns=categorical_columns,
-            seed=args.seed,
-            tabpfn_device=args.tabpfn_device,
-            sample_weight=sample_weight,
-        )
+        backend = model_name
+        notes = []
+        pipeline = None
+        if is_survival_model:
+            tau_days = (
+                float(args.n_hours_end_include) / 24.0
+                if args.n_hours_end_include is not None
+                else 730.0
+            )
+            predictions, _predictor, backend, notes = train_one_survival_model(
+                model_name=model_name,
+                train_df=model_train_df,
+                test_df=model_test_df,
+                feature_columns=model_feature_columns,
+                seed=args.seed,
+                tau_days=tau_days,
+            )
+        else:
+            predictions, pipeline = train_one_model(
+                model_name=model_name,
+                train_df=model_train_df,
+                test_df=model_test_df,
+                feature_columns=model_feature_columns,
+                categorical_columns=categorical_columns,
+                seed=args.seed,
+                tabpfn_device=args.tabpfn_device,
+                sample_weight=sample_weight,
+            )
         family = (
             f"{args.model_prefix}_{model_name}"
             if args.model_prefix and len(requested_models) > 1
@@ -705,16 +860,26 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         )
         pred_path = output_dir / f"{stem}_predictions.csv"
         predictions.to_csv(pred_path, index=False)
-        write_feature_importance(
-            pipeline,
-            output_dir / f"{stem}_feature_importance.csv",
-        )
+        if pipeline is not None:
+            write_feature_importance(
+                pipeline,
+                output_dir / f"{stem}_feature_importance.csv",
+            )
         metadata = {
             "model_family": family,
             "model_name": model_name,
-            "training_mode": "ipcw_bce"
-            if model_name.endswith("_ipcw_bce")
-            else "binary",
+            "training_mode": (
+                "survival"
+                if is_survival_model
+                else (
+                    "ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary"
+                )
+            ),
+            "evaluation_regime": (
+                SURVIVAL_REGIME if is_survival_model else FIXED_HORIZON_REGIME
+            ),
+            "backend": backend,
+            "fit_notes": notes,
             "cohort": args.cohort,
             "outcome_name": args.outcome_name,
             "features": args.features,
@@ -724,17 +889,26 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "feature_columns": model_feature_columns,
             "categorical_columns": categorical_columns or [],
             "n_train": int(len(model_train_df)),
-            "n_train_events": int(model_train_df["label"].sum()),
+            "n_train_events": int(
+                (model_train_df["event"] == 1).sum()
+                if is_survival_model
+                else model_train_df["label"].sum()
+            ),
             "n_train_weighted": float(sample_weight.sum())
             if sample_weight is not None
             else None,
-            "n_test": int(len(test_df)),
-            "n_test_events": int(test_df["label"].sum()),
+            "n_test": int(len(model_test_df)),
+            "n_test_events": int(
+                (model_test_df["event"] == 1).sum()
+                if is_survival_model
+                else model_test_df["label"].sum()
+            ),
             "seed": args.seed,
             "feature_contract": str(contract_path),
             "missingness_report": str(missingness_path),
             "prediction_file": str(pred_path),
             "registry_start_date": args.registry_start_date,
+            "eligibility": args.eligibility,
         }
         with open(output_dir / f"{stem}_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -751,7 +925,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--models",
         default="xgboost",
-        help="xgboost, logistic, tabpfn, comma list, or all",
+        help="xgboost, logistic, tabpfn, cox, xgboost_aft, comma list, or all",
     )
     parser.add_argument("--model_prefix", default="tabular_ehr")
     parser.add_argument(
@@ -763,8 +937,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n_hours_end_include", type=int, default=None)
     parser.add_argument("--train_split", default="train")
     parser.add_argument("--test_split", default="held_out")
-    parser.add_argument("--require_min_followup_train", action="store_true")
     parser.add_argument("--competing_outcome", default=None)
+    parser.add_argument(
+        "--eligibility",
+        default=None,
+        help="Optional patient-level outcome eligibility CSV/parquet.",
+    )
+    parser.add_argument(
+        "--population",
+        default=None,
+        help="Optional population CSV/parquet defining the study cohort.",
+    )
+    parser.add_argument("--cohort_fine_col", default=None)
+    parser.add_argument("--cohort_fine_value", default=None)
     parser.add_argument(
         "--registry_start_date",
         default=None,

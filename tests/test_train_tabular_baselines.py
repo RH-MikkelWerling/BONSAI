@@ -3,6 +3,7 @@ import pandas as pd
 from opera.run.train_tabular_baselines import (
     infer_feature_columns,
     missingness_report,
+    outcome_labels,
     parse_columns,
     select_tabpfn_feature_columns,
     train_one_model,
@@ -134,3 +135,37 @@ def test_logistic_ipcw_bce_accepts_sample_weights_and_writes_probabilities():
 
     assert predictions.columns.tolist() == ["subject_id", "probability"]
     assert predictions["probability"].between(0, 1).all()
+
+
+def test_plain_fixed_labels_drop_early_censoring_while_survival_keeps_it(tmp_path):
+    outcome_path = tmp_path / "outcome.parquet"
+    pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "split": ["train"] * 3,
+            "index_date": pd.to_datetime(["2020-01-01"] * 3),
+            "outcome_date": pd.to_datetime(["2020-01-10", None, None]),
+            "censor_date": pd.to_datetime(
+                ["2020-03-01", "2020-03-01", "2020-01-15"]
+            ),
+        }
+    ).to_parquet(outcome_path)
+
+    fixed = outcome_labels(
+        str(outcome_path),
+        split="train",
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        require_min_followup=True,
+    )
+    survival = outcome_labels(
+        str(outcome_path),
+        split="train",
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        require_min_followup=False,
+        include_survival_fields=True,
+    )
+
+    assert set(fixed["subject_id"]) == {1, 2}
+    assert set(survival["subject_id"]) == {1, 2, 3}

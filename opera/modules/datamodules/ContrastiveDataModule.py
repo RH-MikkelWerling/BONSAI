@@ -8,7 +8,7 @@ binary ``outcome_<n>`` keys.
 """
 
 from pathlib import Path
-from typing import Literal, Dict, List
+from typing import Literal, Dict, List, Optional
 import pandas as pd
 import lightning as L
 import torch
@@ -21,6 +21,7 @@ from opera.functional.outcomes import (
 )
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 from opera.functional.stratified_sampling import (
+    build_event_aware_batch_sampler,
     build_stratified_sampler,
     log_bucket_stats,
 )
@@ -232,6 +233,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         require_min_followup_train: bool = False,
         require_min_followup_val: bool = False,
         max_len: int = 8192,
+        batch_sampling: Optional[Dict[str, object]] = None,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -244,7 +246,9 @@ class ContrastiveDataModule(L.LightningDataModule):
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
         self.max_len = max_len
+        self.batch_sampling = dict(batch_sampling or {})
         self.outcome_names = sorted(outcome_configs.keys())
+        self.train_batch_sampler = None
 
     def _load_outcomes(self, split_key: str) -> Dict[str, Dict[int, dict]]:
         """Load and binarize all outcomes for a given split."""
@@ -329,12 +333,61 @@ class ContrastiveDataModule(L.LightningDataModule):
             max_len=self.max_len,
         )
 
-        print(log_bucket_stats(self.train_dataset, self.outcome_names))
-        self.train_sampler = build_stratified_sampler(
-            self.train_dataset, self.outcome_names
+        print(
+            log_bucket_stats(
+                self.train_dataset,
+                self.outcome_names,
+                batch_size=self.batch_size,
+            )
         )
+        self._setup_train_sampling()
+
+    def _setup_train_sampling(self) -> None:
+        sampler_type = str(self.batch_sampling.get("type", "event_aware")).lower()
+        if sampler_type in {"weighted", "stratified", "legacy"}:
+            self.train_batch_sampler = None
+            self.train_sampler = build_stratified_sampler(
+                self.train_dataset,
+                self.outcome_names,
+                n_quantiles=int(self.batch_sampling.get("n_quantiles", 4)),
+            )
+            return
+        if sampler_type in {"none", "random"}:
+            self.train_batch_sampler = None
+            self.train_sampler = None
+            return
+        if sampler_type not in {"event_aware", "survival_event_aware"}:
+            raise ValueError(f"Unknown contrastive batch sampler: {sampler_type!r}")
+
+        self.train_sampler = None
+        min_valid = self.batch_sampling.get("min_valid_per_batch")
+        batches_per_epoch = self.batch_sampling.get("batches_per_epoch")
+        self.train_batch_sampler = build_event_aware_batch_sampler(
+            self.train_dataset,
+            self.outcome_names,
+            batch_size=self.batch_size,
+            n_quantiles=int(self.batch_sampling.get("n_quantiles", 4)),
+            min_events_per_batch=int(
+                self.batch_sampling.get("min_events_per_batch", 4)
+            ),
+            min_valid_per_batch=None if min_valid is None else int(min_valid),
+            batches_per_epoch=(
+                None if batches_per_epoch is None else int(batches_per_epoch)
+            ),
+            seed=int(self.batch_sampling.get("seed", 0)),
+        )
+        print(self.train_batch_sampler.summary())
 
     def train_dataloader(self):
+        if self.train_batch_sampler is not None:
+            return DataLoader(
+                self.train_dataset,
+                num_workers=self.num_workers,
+                pin_memory=True,
+                persistent_workers=self.num_workers > 0,
+                batch_sampler=self.train_batch_sampler,
+                collate_fn=contrastive_collate,
+            )
         return DataLoader(
             self.train_dataset,
             num_workers=self.num_workers,

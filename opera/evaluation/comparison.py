@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -127,22 +126,37 @@ class CoxSurvivalPredictor:
     """Thin wrapper around a fitted lifelines CoxPHFitter."""
 
     def __init__(
-        self, cox_model: Any, feature_columns: Sequence[str], tau_days: float
+        self,
+        cox_model: Any,
+        feature_pipeline: ColumnTransformer,
+        feature_columns: Sequence[str],
+        tau_days: float,
     ) -> None:
         self.cox_model = cox_model
+        self.feature_pipeline = feature_pipeline
         self.feature_columns = list(feature_columns)
         self.tau_days = float(tau_days)
 
+    def _transform(self, features: pd.DataFrame) -> pd.DataFrame:
+        transformed = self.feature_pipeline.transform(features)
+        if hasattr(transformed, "toarray"):
+            transformed = transformed.toarray()
+        return pd.DataFrame(
+            np.asarray(transformed, dtype=float),
+            columns=self.feature_columns,
+            index=features.index,
+        )
+
     def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
         surv = self.cox_model.predict_survival_function(
-            features[self.feature_columns],
+            self._transform(features),
             times=[self.tau_days],
         )
         values = np.asarray(surv.iloc[0], dtype=float)
         return np.clip(1.0 - values, 0.0, 1.0)
 
     def predict_risk(self, features: pd.DataFrame) -> np.ndarray:
-        risk = self.cox_model.predict_partial_hazard(features[self.feature_columns])
+        risk = self.cox_model.predict_partial_hazard(self._transform(features))
         return np.asarray(risk, dtype=float).reshape(-1)
 
 
@@ -693,22 +707,17 @@ class ComparisonRunner:
             "LinearProbe_dapt",
             "OPERA",
         }:
-            return fit_linear_survival_or_logistic(
+            return fit_logistic_probe(
                 features=feature_frame,
-                times=train_frame["time_to_event"].to_numpy(dtype=float),
-                events=train_frame["event_indicator"].to_numpy(dtype=int),
                 labels=train_frame["binary_label"].to_numpy(dtype=float),
                 eligible=train_frame["binary_eligible"].to_numpy(dtype=bool),
-                tau_days=prepared.tau_days,
                 seed=seed,
             )
         if model_name in {"XGBoost_specific", "XGBoost_all"}:
-            return fit_xgboost_or_fallback(
+            return fit_xgboost_aft(
                 features=feature_frame,
                 times=train_frame["time_to_event"].to_numpy(dtype=float),
                 events=train_frame["event_indicator"].to_numpy(dtype=int),
-                labels=train_frame["binary_label"].to_numpy(dtype=float),
-                eligible=train_frame["binary_eligible"].to_numpy(dtype=bool),
                 tau_days=prepared.tau_days,
                 seed=seed,
             )
@@ -851,61 +860,21 @@ def _fit_constant_from_labels(
     return ConstantPredictor(probability)
 
 
-def fit_linear_survival_or_logistic(
+def fit_logistic_probe(
     *,
     features: pd.DataFrame,
-    times: np.ndarray,
-    events: np.ndarray,
     labels: np.ndarray,
     eligible: np.ndarray,
-    tau_days: float,
     seed: int,
 ) -> Tuple[Any, str, List[str]]:
-    """Fit a Cox model when available, otherwise a regularized logistic probe."""
+    """Fit an explicitly binary regularized logistic probe."""
     notes: List[str] = []
-    try:
-        from lifelines import CoxPHFitter
-
-        design = pd.get_dummies(features.copy(), dummy_na=True)
-        design = design.replace([np.inf, -np.inf], np.nan)
-        design = design.fillna(design.median(numeric_only=True)).fillna(0.0)
-        design["time_to_event"] = times
-        design["event_indicator"] = (events == 1).astype(int)
-        if design["event_indicator"].sum() < 2:
-            return (
-                _fit_constant_from_labels(labels, eligible),
-                "constant",
-                ["Too few observed events for Cox fit."],
-            )
-        cox = CoxPHFitter(penalizer=0.1)
-        cox.fit(
-            design,
-            duration_col="time_to_event",
-            event_col="event_indicator",
-            show_progress=False,
-        )
-        predictor = CoxSurvivalPredictor(
-            cox,
-            [
-                c
-                for c in design.columns
-                if c not in {"time_to_event", "event_indicator"}
-            ],
-            tau_days,
-        )
-        return predictor, "lifelines_cox", notes
-    except Exception as exc:
-        notes.append(
-            "Fell back to logistic probe because Cox fit was unavailable: "
-            f"{type(exc).__name__}."
-        )
-
     train_mask = eligible & np.isfinite(labels)
     if train_mask.sum() < 10 or len(np.unique(labels[train_mask])) < 2:
         return (
             _fit_constant_from_labels(labels, eligible),
             "constant",
-            notes + ["Too few eligible labeled patients for logistic fit."],
+            ["Too few eligible labeled patients for logistic fit."],
         )
 
     pipeline = Pipeline(
@@ -932,7 +901,57 @@ def fit_linear_survival_or_logistic(
         return _fit_constant_from_labels(labels, eligible), "constant", notes
 
 
-def fit_xgboost_or_fallback(
+def fit_cox_survival(
+    *,
+    features: pd.DataFrame,
+    times: np.ndarray,
+    events: np.ndarray,
+    tau_days: float,
+    seed: int,
+) -> Tuple[Any, str, List[str]]:
+    """Fit a censoring-aware Cox PH model or raise a visible failure."""
+    del seed
+    if int((np.asarray(events) == 1).sum()) < 2:
+        raise RuntimeError("Cox PH survival baseline requires at least two events.")
+    preprocessor = build_preprocessor(features)
+    try:
+        from lifelines import CoxPHFitter
+
+        transformed = preprocessor.fit_transform(features)
+        if hasattr(transformed, "toarray"):
+            transformed = transformed.toarray()
+        feature_columns = list(preprocessor.get_feature_names_out())
+        design = pd.DataFrame(
+            np.asarray(transformed, dtype=float),
+            columns=feature_columns,
+            index=features.index,
+        )
+        design["time_to_event"] = np.asarray(times, dtype=float)
+        design["event_indicator"] = (np.asarray(events) == 1).astype(int)
+        cox = CoxPHFitter(penalizer=0.1)
+        cox.fit(
+            design,
+            duration_col="time_to_event",
+            event_col="event_indicator",
+            show_progress=False,
+        )
+        return (
+            CoxSurvivalPredictor(
+                cox,
+                feature_pipeline=preprocessor,
+                feature_columns=feature_columns,
+                tau_days=tau_days,
+            ),
+            "lifelines_cox",
+            [],
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Cox PH survival baseline failed; no binary classifier fallback was used."
+        ) from exc
+
+
+def fit_linear_survival_or_logistic(
     *,
     features: pd.DataFrame,
     times: np.ndarray,
@@ -942,8 +961,26 @@ def fit_xgboost_or_fallback(
     tau_days: float,
     seed: int,
 ) -> Tuple[Any, str, List[str]]:
-    """Fit an XGBoost AFT model, with an sklearn fallback when unavailable."""
-    notes: List[str] = []
+    """Compatibility wrapper for the now-strict Cox survival fit."""
+    del labels, eligible
+    return fit_cox_survival(
+        features=features,
+        times=times,
+        events=events,
+        tau_days=tau_days,
+        seed=seed,
+    )
+
+
+def fit_xgboost_aft(
+    *,
+    features: pd.DataFrame,
+    times: np.ndarray,
+    events: np.ndarray,
+    tau_days: float,
+    seed: int,
+) -> Tuple[Any, str, List[str]]:
+    """Fit a censoring-aware XGBoost AFT model or raise a visible failure."""
     preprocessor = build_preprocessor(features)
     try:
         import xgboost as xgb
@@ -985,36 +1022,32 @@ def fit_xgboost_or_fallback(
             distribution="normal",
             scale=1.0,
         )
-        return predictor, "xgboost_aft", notes
+        return predictor, "xgboost_aft", []
     except Exception as exc:
-        notes.append(
-            "Fell back to sklearn gradient boosting because XGBoost AFT was "
-            f"unavailable: {type(exc).__name__}."
-        )
+        raise RuntimeError(
+            "XGBoost AFT survival baseline failed; no binary classifier fallback was used."
+        ) from exc
 
-    train_mask = eligible & np.isfinite(labels)
-    if train_mask.sum() < 10 or len(np.unique(labels[train_mask])) < 2:
-        return (
-            _fit_constant_from_labels(labels, eligible),
-            "constant",
-            notes + ["Too few eligible labeled patients for fallback XGBoost model."],
-        )
 
-    pipeline = Pipeline(
-        [
-            ("prep", preprocessor),
-            (
-                "model",
-                HistGradientBoostingClassifier(
-                    max_depth=4,
-                    learning_rate=0.05,
-                    random_state=seed,
-                ),
-            ),
-        ]
+def fit_xgboost_or_fallback(
+    *,
+    features: pd.DataFrame,
+    times: np.ndarray,
+    events: np.ndarray,
+    labels: np.ndarray,
+    eligible: np.ndarray,
+    tau_days: float,
+    seed: int,
+) -> Tuple[Any, str, List[str]]:
+    """Compatibility wrapper for the now-strict XGBoost AFT fit."""
+    del labels, eligible
+    return fit_xgboost_aft(
+        features=features,
+        times=times,
+        events=events,
+        tau_days=tau_days,
+        seed=seed,
     )
-    pipeline.fit(features.loc[train_mask], labels[train_mask].astype(int))
-    return SklearnBinaryPredictor(pipeline), "sklearn_hist_gradient_boosting", notes
 
 
 def fit_mlp_outcome_head(

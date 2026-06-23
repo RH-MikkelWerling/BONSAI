@@ -770,12 +770,13 @@ def compute_ipcw_metrics_at_horizon(
 
     # Cases: primary event observed before horizon
     case_mask = (times <= horizon) & (events == 1)
-    # Controls: still at risk past horizon (any event status after horizon)
-    ctrl_mask = times > horizon
+    # Controls: known event-free at the horizon. Administrative censoring exactly
+    # at the configured horizon is informative and must remain a control.
+    ctrl_mask = (times > horizon) | ((times >= horizon) & (events == 0))
     # Excluded: did not have primary event and time <= horizon
     # (admin censored OR competing death — both uninformative for the binary
     #  primary-event endpoint at this horizon)
-    excl_mask = (times <= horizon) & (events != 1)
+    excl_mask = ~(case_mask | ctrl_mask)
 
     n_cases = int(case_mask.sum())
     n_controls = int(ctrl_mask.sum())

@@ -482,6 +482,60 @@ ranked JSON summaries in one directory per checkpoint. It runs the encoder
 once per batch and computes gradients only with respect to a detached
 representation leaf.
 
+## Disease-Treatment Embedding Atlas
+
+The treatment atlas measures whether first-line regimen selection is accessible
+from frozen embeddings without allowing the probe to score points merely by
+recognizing the disease. It fits one regimen classifier per disease, then draws
+all diseases and disease-specific regimens on one shared patient projection.
+
+Provide one embedding artifact per representation stage. Tabular artifacts must
+contain `subject_id` and numeric `embedding_*` columns. Canonical
+`predictions.npz` files are also accepted when they contain non-empty
+`subject_ids` and `embeddings` arrays. The metadata table must contain one row
+per patient with disease, raw first-line regimen, and preferably the prospective
+split. Use embeddings extracted at the shared first-line prediction origin;
+post-index dose changes, completion, response, and toxicity must not enter.
+
+```bash
+python -m opera.run.treatment_embedding_atlas \
+  --embeddings pretrain=/results/embeddings/pretrain.parquet \
+  --embeddings dapt=/results/embeddings/dapt.parquet \
+  --embeddings opera=/results/embeddings/opera.parquet \
+  --metadata /data/hematology_first_line_metadata.parquet \
+  --regimen_map opera/configs/treatment_regimen_groups.example.yaml \
+  --disease_col disease \
+  --treatment_col first_line_regimen \
+  --atlas_model opera \
+  --evaluation_mode held_out \
+  --output_dir /results/treatment_embedding_atlas
+```
+
+Regimen normalization is disease-specific: the YAML maps raw DLBCL treatment
+values independently from raw myeloma treatment values. Replace the example
+strings with the locked source values before analysis. Unmapped values are
+excluded unless `--keep_unmapped` is supplied.
+
+Outputs include:
+
+- `treatment_probe_results.csv`: held-out accessibility metrics per disease and
+  embedding stage;
+- `treatment_probe_predictions.csv`: patient-level probe predictions;
+- `disease_treatment_atlas_coordinates.csv`: the reusable shared projection;
+- `disease_treatment_atlas_centroids.csv`: disease, regimen, and joint centroids;
+- `disease_treatment_geometry.csv`: ranked joint-cell cosine similarities in
+  the original high-dimensional embedding space;
+- `disease_treatment_atlas.png/.pdf`: disease geography, regimen geography, and
+  the joint disease-regimen map;
+- `treatment_probe_performance.png/.pdf`: pretrain/DAPT/OPERA probe comparison.
+
+`evaluation_mode=auto` falls back to stratified cross-validation when an
+explicit train/held-out split is unavailable, and labels those rows
+`stratified_cv_exploratory`. Paper-facing treatment-accessibility claims should
+use `evaluation_mode=held_out`. Probe performance describes historical
+treatment-selection information in the embeddings; it is not a treatment
+recommendation or a causal effect estimate.
+
 ## Manifests
 
 Experiment manifests live under `opera/configs/manifests/`:

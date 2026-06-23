@@ -43,6 +43,7 @@ REQUIRED_RESULT_FIELDS = [
     "brier_score",
     "ipi_coverage",
     "evaluation_subset",
+    "evaluation_regime",
     "n_competing_events_train",
     "n_competing_events_val",
     "n_competing_events_test",
@@ -233,6 +234,7 @@ def build_result_row(
         "head_type": cfg.get("head_type"),
         "ipi_coverage": cfg.get("ipi_coverage"),
         "evaluation_subset": cfg.get("evaluation_subset", "full"),
+        "evaluation_regime": cfg.get("evaluation_regime", "both"),
     }
     row.update(flatten_report_metrics(report))
     row.update(_rarity_metadata(cfg, report))

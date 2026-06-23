@@ -315,6 +315,8 @@ def prepare_ipi_subset_predictions(
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[float], set]:
     """
     Write rank-normalized IPI predictions for IPI-complete test patients.
@@ -324,6 +326,16 @@ def prepare_ipi_subset_predictions(
     score comparison restricted to identical patients.
     """
     population = pd.read_csv(population_csv)
+    if bool(cohort_fine_col) != bool(cohort_fine_value):
+        raise ValueError("cohort_fine_col and cohort_fine_value must be set together.")
+    if cohort_fine_col:
+        if cohort_fine_col not in population.columns:
+            raise ValueError(
+                f"cohort_fine_col={cohort_fine_col!r} not found in {population_csv}."
+            )
+        population = population[
+            population[cohort_fine_col].astype(str) == str(cohort_fine_value)
+        ].copy()
     outcomes = pd.read_parquet(outcome_parquet)
     outcomes = filter_outcome_eligibility(
         outcomes,
@@ -356,6 +368,10 @@ def prepare_ipi_subset_predictions(
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "ipi_subset_predictions.csv"
     complete[["subject_id", "probability"]].to_csv(path, index=False)
+    complete[["subject_id"]].to_csv(
+        output_dir / "ipi_subset_subjects.csv",
+        index=False,
+    )
     return path, coverage, set(complete["subject_id"])
 
 
@@ -548,6 +564,13 @@ def run_prediction_evaluate(
     subgroup_path: Optional[str] = None,
     subgroup_columns: Optional[List[str]] = None,
     log_dir: Optional[Path] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
+    evaluation_subjects_path: Optional[str] = None,
+    evaluation_regime: str = "both",
+    probability_col: str = "probability",
+    risk_col: Optional[str] = None,
 ) -> Optional[Dict]:
     cmd = build_prediction_evaluate_cmd(
         predictions_path=predictions_path,
@@ -568,6 +591,13 @@ def run_prediction_evaluate(
         seed=seed,
         subgroup_path=subgroup_path,
         subgroup_columns=subgroup_columns,
+        population_path=population_path,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
+        evaluation_subjects_path=evaluation_subjects_path,
+        evaluation_regime=evaluation_regime,
+        probability_col=probability_col,
+        risk_col=risk_col,
     )
     result = run_logged_subprocess(
         cmd,
@@ -823,6 +853,8 @@ def _run_ipi_baseline_cell(
     baseline_model: Optional[str],
     subgroup_path: Optional[str],
     subgroup_columns: Optional[List[str]],
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
 ) -> List[Dict]:
     """Evaluate the IPI clinical-score baseline for one cohort × outcome cell.
 
@@ -863,6 +895,8 @@ def _run_ipi_baseline_cell(
             registry_start_date=registry_start_date,
             cohort=cohort_name,
             outcome_name=outcome_name,
+            cohort_fine_col=cohort_fine_col,
+            cohort_fine_value=cohort_fine_value,
         )
         if subset_path is not None:
             for seed in seeds:
@@ -895,6 +929,12 @@ def _run_ipi_baseline_cell(
                     / "ipi"
                     / f"seed_{seed}"
                     / "logs",
+                    population_path=pop_file,
+                    cohort_fine_col=cohort_fine_col,
+                    cohort_fine_value=cohort_fine_value,
+                    evaluation_subjects_path=str(
+                        subset_path.parent / "ipi_subset_subjects.csv"
+                    ),
                 )
                 if metrics:
                     results.append(
@@ -956,62 +996,7 @@ def _run_ipi_baseline_cell(
             output_dir=str(output_dir / cohort_name / outcome_name / "ipi"),
             reason="IPI coverage below threshold or no complete subset",
         )
-        ipi_metrics = compute_ipi_auroc(
-            pop_file,
-            outcome_parquet,
-            ipi_col,
-            n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
-            n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
-            competing_outcome_parquet=competing_parquet,
-            eligibility_path=eligibility,
-            registry_start_date=registry_start_date,
-            cohort=cohort_name,
-            outcome_name=outcome_name,
-        )
-        if ipi_metrics:
-            prepare_ipi_subset_predictions(
-                pop_file,
-                outcome_parquet,
-                ipi_col,
-                output_dir / cohort_name / outcome_name / "ipi",
-                eligibility_path=eligibility,
-                registry_start_date=registry_start_date,
-                cohort=cohort_name,
-                outcome_name=outcome_name,
-            )
-            results.append(
-                {
-                    "cohort": cohort_name,
-                    "outcome": outcome_name,
-                    "variant": "ipi",
-                    "metrics": {
-                        "discrimination": ipi_metrics,
-                        "calibration": {},
-                        "bootstrap_ci": {},
-                        "survival": ipi_metrics.get("survival", {}),
-                    },
-                }
-            )
-            write_sweep_result_artifact(
-                metrics={
-                    "discrimination": ipi_metrics,
-                    "calibration": {},
-                    "bootstrap_ci": {},
-                    "survival": ipi_metrics.get("survival", {}),
-                },
-                output_dir=output_dir / cohort_name / outcome_name / "ipi",
-                cohort=cohort_name,
-                outcome=outcome_name,
-                outcome_cfg=outcome_cfg,
-                variant="ipi",
-                cfg=cfg,
-                checkpoint_path="precomputed_ipi",
-            )
-            auroc = ipi_metrics.get("auroc", float("nan"))
-            print(
-                f"  IPI [{cohort_name} × {outcome_name}]: AUROC={auroc:.3f} "
-                f"(coverage={ipi_metrics['coverage']:.0%})"
-            )
+        return results
     return results
 
 
@@ -1179,10 +1164,22 @@ def _run_variant_cell(
                 subgroup_path=subgroup_path,
                 subgroup_columns=subgroup_columns,
                 log_dir=cell_dir / "logs",
+                population_path=pop_file,
+                cohort_fine_col=cohort_fine_col,
+                cohort_fine_value=cohort_fine_value,
+                evaluation_regime=variant_cfg.get("evaluation_regime", "both"),
+                probability_col=variant_cfg.get("probability_col", "probability"),
+                risk_col=variant_cfg.get("risk_col"),
             )
             if metrics is not None:
-                auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
-                print(f"  Evaluated predictions: AUROC={auroc:.3f}")
+                if "discrimination" in metrics:
+                    auroc = metrics["discrimination"].get("auroc", float("nan"))
+                    print(f"  Evaluated predictions: AUROC={auroc:.3f}")
+                else:
+                    c_index = metrics.get("survival", {}).get(
+                        "concordance_index", float("nan")
+                    )
+                    print(f"  Evaluated predictions: C-index={c_index:.3f}")
                 tracker.append(
                     cohort=cohort_name,
                     outcome=outcome_name,
@@ -1205,6 +1202,8 @@ def _run_variant_cell(
                             registry_start_date=registry_start_date,
                             cohort=cohort_name,
                             outcome_name=outcome_name,
+                            cohort_fine_col=cohort_fine_col,
+                            cohort_fine_value=cohort_fine_value,
                         )
                     )
                     if ipi_path is not None:
@@ -1236,6 +1235,12 @@ def _run_variant_cell(
                                 subgroup_path=subgroup_path,
                                 subgroup_columns=subgroup_columns,
                                 log_dir=cell_dir / "ipi_complete" / "logs",
+                                population_path=pop_file,
+                                cohort_fine_col=cohort_fine_col,
+                                cohort_fine_value=cohort_fine_value,
+                                evaluation_subjects_path=str(
+                                    ipi_path.parent / "ipi_subset_subjects.csv"
+                                ),
                             )
                 return {
                     "cohort": cohort_name,
@@ -1489,6 +1494,8 @@ def _run_variant_cell(
                 registry_start_date=registry_start_date,
                 cohort=cohort_name,
                 outcome_name=outcome_name,
+                cohort_fine_col=cohort_fine_col,
+                cohort_fine_value=cohort_fine_value,
             )
             if ipi_path is not None:
                 subset_pred = write_npz_prediction_subset(
@@ -1519,6 +1526,12 @@ def _run_variant_cell(
                         subgroup_path=subgroup_path,
                         subgroup_columns=subgroup_columns,
                         log_dir=cell_dir / "ipi_complete" / "logs",
+                        population_path=pop_file,
+                        cohort_fine_col=cohort_fine_col,
+                        cohort_fine_value=cohort_fine_value,
+                        evaluation_subjects_path=str(
+                            ipi_path.parent / "ipi_subset_subjects.csv"
+                        ),
                     )
         return {
             "cohort": cohort_name,
@@ -1634,6 +1647,8 @@ def run_sweep(
                 baseline_model=baseline_model,
                 subgroup_path=subgroup_path,
                 subgroup_columns=subgroup_columns,
+                cohort_fine_col=cohort_fine_col,
+                cohort_fine_value=cohort_fine_value,
             )
             all_results.extend(results)
 

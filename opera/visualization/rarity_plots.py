@@ -44,6 +44,122 @@ def _real_yerr(group: pd.DataFrame):
     return None
 
 
+def _rarity_x_column(frame: pd.DataFrame) -> Optional[str]:
+    """Prefer event-count rarity, with cohort-size fallback for old outputs."""
+    for column in ("n_events_train", "n_train"):
+        if column in frame.columns:
+            values = pd.to_numeric(frame[column], errors="coerce")
+            if values.gt(0).any():
+                return column
+    return None
+
+
+def _rarity_x_label(column: Optional[str]) -> str:
+    if column == "n_events_train":
+        return "Training events"
+    if column == "n_train":
+        return "Training cohort size"
+    return "Training rarity"
+
+
+def _smoothed_trend(
+    group: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    *,
+    stable_only: bool,
+    log_x: bool,
+    min_points: int = 3,
+    smooth_fraction: float = 0.6,
+) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """Return a local weighted trend without assuming a linear effect shape."""
+    fit_data = group.copy()
+    if stable_only and "supplement_only" in fit_data.columns:
+        fit_data = fit_data[~fit_data["supplement_only"].fillna(False)]
+    if fit_data.empty:
+        return None
+    fit_data[x_col] = pd.to_numeric(fit_data[x_col], errors="coerce")
+    fit_data[y_col] = pd.to_numeric(fit_data[y_col], errors="coerce")
+    fit_data = fit_data.dropna(subset=[x_col, y_col])
+    fit_data = fit_data[fit_data[x_col] > 0]
+    if fit_data.empty:
+        return None
+
+    fit_data = (
+        fit_data.groupby(x_col, as_index=False, dropna=False)[y_col]
+        .median()
+        .sort_values(x_col)
+    )
+    if len(fit_data) < min_points or fit_data[x_col].nunique() < min_points:
+        return None
+
+    x = fit_data[x_col].to_numpy(dtype=float)
+    y = fit_data[y_col].to_numpy(dtype=float)
+    grid = (
+        np.geomspace(x.min(), x.max(), 120)
+        if log_x
+        else np.linspace(x.min(), x.max(), 120)
+    )
+    x_fit = np.log10(x) if log_x else x
+    grid_fit = np.log10(grid) if log_x else grid
+    n_points = len(x_fit)
+    k_neighbors = min(n_points, max(2, int(np.ceil(smooth_fraction * n_points))))
+    values: list[float] = []
+    for grid_value in grid_fit:
+        distances = np.abs(x_fit - grid_value)
+        radius = np.partition(distances, k_neighbors - 1)[k_neighbors - 1]
+        if radius <= 0:
+            positive = distances[distances > 0]
+            radius = positive.min() if positive.size else 1.0
+        scaled = distances / radius
+        weights = np.where(scaled < 1, (1 - scaled**3) ** 3, 0.0)
+        if weights.sum() <= 0:
+            weights[np.argmin(distances)] = 1.0
+        values.append(float(np.average(y, weights=weights)))
+    return grid, np.asarray(values)
+
+
+def _plot_smoothed_trend(
+    ax: plt.Axes,
+    group: pd.DataFrame,
+    *,
+    x_col: str,
+    y_col: str,
+    color: str,
+    label: str,
+    stable_only: bool,
+    log_x: bool,
+) -> None:
+    trend = _smoothed_trend(
+        group,
+        x_col=x_col,
+        y_col=y_col,
+        stable_only=stable_only,
+        log_x=log_x,
+    )
+    if trend is None:
+        return
+    grid, values = trend
+    ax.plot(
+        grid,
+        values,
+        color=color,
+        linestyle="-",
+        linewidth=1.8,
+        alpha=0.72,
+        label=label,
+        zorder=2,
+    )
+
+
+def _synthetic_trend_frame(group: pd.DataFrame) -> pd.DataFrame:
+    trend_data = group.copy()
+    trend_data["training_percent"] = pd.to_numeric(
+        trend_data["training_fraction"], errors="coerce"
+    ) * 100.0
+    return trend_data
+
+
 def plot_synthetic_rarity_delta(
     pooled: pd.DataFrame,
     save_path: Optional[str] = None,
@@ -82,6 +198,16 @@ def plot_synthetic_rarity_delta(
                 alpha=0.18,
                 linewidth=0,
             )
+        _plot_smoothed_trend(
+            ax,
+            _synthetic_trend_frame(group),
+            x_col="training_percent",
+            y_col="median_delta_auroc",
+            color=color,
+            label=f"{model_label(model)} smoothed trend",
+            stable_only=False,
+            log_x=False,
+        )
 
     _finish_delta_axis(ax)
     ax.set_xlabel("Training labels used (%)")
@@ -101,16 +227,21 @@ def plot_real_rarity_delta(
     """
     Real rarity: genuinely small cohorts or cohort-outcome cells.
 
-    Uses actual n_train on a log-scaled x-axis and keeps bootstrap uncertainty
-    columns when result rows provide them.
+    Uses actual training-event count on a log-scaled x-axis when available,
+    falling back to n_train for older result rows. Bootstrap uncertainty columns
+    are kept when rows provide them.
     """
     fig, ax = plt.subplots(figsize=(5.8, 3.7))
-    if task_level.empty or "n_train" not in task_level.columns:
+    x_col = _rarity_x_column(task_level)
+    if task_level.empty or x_col is None:
         save_fig(fig, save_path)
         return fig
 
     for model, group in task_level.groupby("model_family"):
-        group = group.dropna(subset=["n_train", "delta_auroc_vs_baseline"])
+        group = group.copy()
+        group[x_col] = pd.to_numeric(group[x_col], errors="coerce")
+        group = group.dropna(subset=[x_col, "delta_auroc_vs_baseline"])
+        group = group[group[x_col] > 0]
         if group.empty:
             continue
         color = model_color(model)
@@ -122,7 +253,7 @@ def plot_real_rarity_delta(
             if subset.empty:
                 continue
             ax.errorbar(
-                subset["n_train"].astype(float),
+                subset[x_col].astype(float),
                 subset["delta_auroc_vs_baseline"].astype(float),
                 yerr=_real_yerr(subset),
                 fmt=marker,
@@ -138,12 +269,22 @@ def plot_real_rarity_delta(
                 alpha=alpha,
                 zorder=3,
             )
+        _plot_smoothed_trend(
+            ax,
+            group,
+            x_col=x_col,
+            y_col="delta_auroc_vs_baseline",
+            color=color,
+            label=f"{model_label(model)} smoothed trend (stable cells)",
+            stable_only=True,
+            log_x=True,
+        )
 
     _finish_delta_axis(ax)
     ax.set_xscale("log")
-    ax.set_xlabel("Training cohort size")
+    ax.set_xlabel(_rarity_x_label(x_col))
     ax.set_ylabel("Delta ROC-AUC vs baseline")
-    ax.set_title("Real rare cohorts")
+    ax.set_title("Real rare cohort-outcome cells")
     ax.legend(frameon=False, fontsize=7.5, loc="best")
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -181,21 +322,35 @@ def plot_combined_rarity_delta(
                     alpha=0.16,
                     linewidth=0,
                 )
+            _plot_smoothed_trend(
+                ax_syn,
+                _synthetic_trend_frame(group),
+                x_col="training_percent",
+                y_col="median_delta_auroc",
+                color=color,
+                label=f"{model_label(model)} smoothed trend",
+                stable_only=False,
+                log_x=False,
+            )
     _finish_delta_axis(ax_syn)
     ax_syn.set_title("Synthetic label scarcity")
     ax_syn.set_xlabel("Training labels used (%)")
     ax_syn.set_ylabel("Delta ROC-AUC vs baseline")
 
-    if not real_task_level.empty and "n_train" in real_task_level.columns:
+    real_x_col = _rarity_x_column(real_task_level)
+    if not real_task_level.empty and real_x_col is not None:
         for model, group in real_task_level.groupby("model_family"):
-            group = group.dropna(subset=["n_train", "delta_auroc_vs_baseline"])
+            group = group.copy()
+            group[real_x_col] = pd.to_numeric(group[real_x_col], errors="coerce")
+            group = group.dropna(subset=[real_x_col, "delta_auroc_vs_baseline"])
+            group = group[group[real_x_col] > 0]
             if group.empty:
                 continue
             color = model_color(model)
             main, supplement = _split_main_supplement(group)
             if not main.empty:
                 ax_real.scatter(
-                    main["n_train"].astype(float),
+                    main[real_x_col].astype(float),
                     main["delta_auroc_vs_baseline"].astype(float),
                     color=color,
                     s=34,
@@ -204,7 +359,7 @@ def plot_combined_rarity_delta(
                 )
             if not supplement.empty:
                 ax_real.scatter(
-                    supplement["n_train"].astype(float),
+                    supplement[real_x_col].astype(float),
                     supplement["delta_auroc_vs_baseline"].astype(float),
                     facecolors="white",
                     edgecolors=color,
@@ -213,10 +368,20 @@ def plot_combined_rarity_delta(
                     alpha=0.95,
                     label=model_label(model) + " (supplement)",
                 )
+            _plot_smoothed_trend(
+                ax_real,
+                group,
+                x_col=real_x_col,
+                y_col="delta_auroc_vs_baseline",
+                color=color,
+                label=f"{model_label(model)} smoothed trend",
+                stable_only=True,
+                log_x=True,
+            )
     _finish_delta_axis(ax_real)
     ax_real.set_xscale("log")
-    ax_real.set_title("Real rare cohorts")
-    ax_real.set_xlabel("Training cohort size")
+    ax_real.set_title("Real rare cohort-outcome cells")
+    ax_real.set_xlabel(_rarity_x_label(real_x_col))
     ax_real.set_ylabel("Delta ROC-AUC vs baseline")
 
     handles, labels = ax_syn.get_legend_handles_labels()
@@ -299,7 +464,9 @@ def plot_rarity_delta(
     wide = df.pivot_table(
         index=key_cols, columns="model_family", values="auroc", aggfunc="first"
     )
-    meta_cols = [c for c in ["n_train", "rarity_tier"] if c in df.columns]
+    meta_cols = [
+        c for c in ["n_events_train", "n_train", "rarity_tier"] if c in df.columns
+    ]
     meta = (
         df.groupby(key_cols, dropna=False)[meta_cols].first()
         if meta_cols
@@ -312,9 +479,9 @@ def plot_rarity_delta(
         + "-"
         + plot_df["outcome"].astype(str).str.replace("_", "")
     )
-    plot_df = plot_df.dropna(subset=["delta"]).sort_values(
-        "n_train" if "n_train" in plot_df.columns else "delta"
-    )
+    rarity_col = _rarity_x_column(plot_df)
+    sort_col = rarity_col if rarity_col is not None else "delta"
+    plot_df = plot_df.dropna(subset=["delta"]).sort_values(sort_col)
 
     fig, ax = plt.subplots(figsize=FIG_FULL)
     ax.axhspan(
@@ -329,7 +496,9 @@ def plot_rarity_delta(
         ax.scatter(i, row["delta"], color=color, s=38, zorder=3)
         ax.text(i, row["delta"], row["label"], fontsize=6.5, ha="center", va="bottom")
     ax.axhline(0, color="#333333", linewidth=0.9)
-    ax.set_xlabel("Cohort-outcome cells sorted by training set size")
+    ax.set_xlabel(
+        f"Cohort-outcome cells sorted by {_rarity_x_label(rarity_col).lower()}"
+    )
     ax.set_ylabel(f"AUROC(OPERA) - AUROC({baseline_model})")
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -379,21 +548,16 @@ def plot_rarity_invariance_panel(
             label=weighter.title(),
             zorder=3,
         )
-        x = np.log10(group["event_rate"].to_numpy(dtype=float))
-        y = group["delta"].to_numpy(dtype=float)
-        if len(group) >= 3 and np.unique(x).size >= 2:
-            slope, intercept = np.polyfit(x, y, deg=1)
-            grid = np.geomspace(
-                group["event_rate"].min(),
-                group["event_rate"].max(),
-                100,
-            )
-            ax.plot(
-                grid,
-                slope * np.log10(grid) + intercept,
-                color=color,
-                linewidth=1.7,
-            )
+        _plot_smoothed_trend(
+            ax,
+            group,
+            x_col="event_rate",
+            y_col="delta",
+            color=color,
+            label=f"{weighter.title()} smoothed trend",
+            stable_only=False,
+            log_x=True,
+        )
     ax.axhline(0.0, color="#333333", linewidth=0.9)
     ax.set_xscale("log")
     ax.set_xlabel("Held-out event rate")

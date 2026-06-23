@@ -1,13 +1,17 @@
 import json
+import sys
+import types
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from opera.evaluation.comparison import (
     ComparisonRunner,
     comparison_results_to_frame,
     derive_horizon_labels,
     infer_tau_days,
+    fit_cox_survival,
 )
 from opera.evaluation.run_all import flatten_grid_results
 
@@ -107,6 +111,29 @@ def test_infer_tau_days_and_horizon_labels():
     assert labels["label"].tolist()[0] == 1.0
     assert np.isnan(labels["label"].tolist()[1])
     assert labels["label"].tolist()[2] == 0.0
+
+
+def test_cox_fit_failure_is_raised_without_classifier_fallback(monkeypatch):
+    class FailingCoxPHFitter:
+        def __init__(self, penalizer):
+            self.penalizer = penalizer
+
+        def fit(self, *args, **kwargs):
+            raise RuntimeError("forced fit failure")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "lifelines",
+        types.SimpleNamespace(CoxPHFitter=FailingCoxPHFitter),
+    )
+    with pytest.raises(RuntimeError, match="no binary classifier fallback"):
+        fit_cox_survival(
+            features=pd.DataFrame({"age": [50, 60, 70, 80]}),
+            times=np.array([10.0, 20.0, 30.0, 40.0]),
+            events=np.array([1, 1, 0, 0]),
+            tau_days=30.0,
+            seed=42,
+        )
 
 
 def test_comparison_runner_returns_json_serializable_results():

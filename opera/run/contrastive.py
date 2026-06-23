@@ -135,6 +135,7 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
         max_len=encoder.config.max_position_embeddings,
+        batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 
     # ── Lightning ────────────────────────────────────────────────────

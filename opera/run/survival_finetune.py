@@ -145,6 +145,7 @@ def main(cfg: DictConfig) -> None:
         test_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
         train_sampler=None,
+        batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)

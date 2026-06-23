@@ -301,6 +301,12 @@ def test_build_prediction_evaluate_cmd_optional_flags():
         seed=7,
         subgroup_path="/data/dlbcl/subgroups.parquet",
         subgroup_columns=["sex", "age_band"],
+        population_path="/data/dlbcl/population_full.csv",
+        cohort_fine_col="diagnosis",
+        cohort_fine_value="AML",
+        evaluation_subjects_path="/results/subject_ids.csv",
+        evaluation_regime="survival",
+        risk_col="risk_score",
     )
     assert "--competing_outcome" in cmd
     assert "--eligibility" in cmd
@@ -312,6 +318,12 @@ def test_build_prediction_evaluate_cmd_optional_flags():
     assert cmd[cmd.index("--evaluation_subset") + 1] == "ipi_complete"
     assert "--subgroups" in cmd
     assert cmd[cmd.index("--subgroup_columns") + 1] == "sex,age_band"
+    assert cmd[cmd.index("--population") + 1].endswith("population_full.csv")
+    assert cmd[cmd.index("--cohort_fine_col") + 1] == "diagnosis"
+    assert cmd[cmd.index("--cohort_fine_value") + 1] == "AML"
+    assert cmd[cmd.index("--evaluation_subjects") + 1].endswith("subject_ids.csv")
+    assert cmd[cmd.index("--evaluation_regime") + 1] == "survival"
+    assert cmd[cmd.index("--risk_col") + 1] == "risk_score"
 
 
 def test_build_prediction_evaluate_cmd_optional_flags_absent_when_unset():

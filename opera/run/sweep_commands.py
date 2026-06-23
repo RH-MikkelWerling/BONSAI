@@ -146,6 +146,13 @@ def build_prediction_evaluate_cmd(
     seed: int = 42,
     subgroup_path: Optional[str] = None,
     subgroup_columns: Optional[list[str]] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
+    evaluation_subjects_path: Optional[str] = None,
+    evaluation_regime: str = "both",
+    probability_col: str = "probability",
+    risk_col: Optional[str] = None,
 ) -> list[str]:
     """Return the argv list for an evaluate_predictions subprocess call."""
     end_value = "null" if n_hours_end_include is None else str(n_hours_end_include)
@@ -165,6 +172,10 @@ def build_prediction_evaluate_cmd(
         outcome_name,
         "--model_family",
         model_family,
+        "--evaluation_regime",
+        evaluation_regime,
+        "--probability_col",
+        probability_col,
         "--n_hours_start_include",
         str(n_hours_start_include),
         "--rarity_mode",
@@ -185,6 +196,15 @@ def build_prediction_evaluate_cmd(
         cmd.extend(["--eligibility", eligibility_path])
     if registry_start_date is not None:
         cmd.extend(["--registry_start_date", registry_start_date])
+    if population_path:
+        cmd.extend(["--population", population_path])
+    if cohort_fine_col and cohort_fine_value:
+        cmd.extend(["--cohort_fine_col", cohort_fine_col])
+        cmd.extend(["--cohort_fine_value", cohort_fine_value])
+    if evaluation_subjects_path:
+        cmd.extend(["--evaluation_subjects", evaluation_subjects_path])
+    if risk_col:
+        cmd.extend(["--risk_col", risk_col])
     if subgroup_path and subgroup_columns:
         cmd.extend(["--subgroups", subgroup_path])
         cmd.extend(["--subgroup_columns", ",".join(subgroup_columns)])

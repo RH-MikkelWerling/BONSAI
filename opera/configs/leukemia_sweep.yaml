@@ -260,8 +260,38 @@ model_variants:
   # ── Tier 2: Tabular baselines ──────────────────────────────────────
   tabular_rkkp:
     predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_rkkp_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
   tabular_ehr:
     predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_logistic:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_logistic_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_xgboost:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_xgboost_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_tabpfn:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_tabpfn_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_logistic_ipcw_bce:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_logistic_ipcw_bce_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_xgboost_ipcw_bce:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_xgboost_ipcw_bce_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: fixed_horizon
+    exclude_outcomes: [treatment_failure]
+  tabular_ehr_cox:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_cox_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: survival
+  tabular_ehr_xgboost_aft:
+    predictions_file: ${BONSAI_RESULTS_ROOT}/tabular/tabular_ehr_xgboost_aft_{cohort}_{outcome}_predictions.csv
+    evaluation_regime: survival
 
   # ── Tier 3: Foundation model variants ─────────────────────────────
   no_pretraining:

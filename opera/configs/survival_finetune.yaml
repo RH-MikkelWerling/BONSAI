@@ -38,7 +38,13 @@ model:
   is_causal: false
 
 training:
-  batch_size: 32
+  batch_size: 128
+  batch_sampling:
+    type: event_aware
+    min_events_per_batch: 8
+    min_valid_per_batch: 32
+    n_quantiles: 4
+    seed: 0
   accumulate_grad_batches: 1
   epochs: 20
   learning_rate: 5e-4

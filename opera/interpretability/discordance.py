@@ -12,7 +12,7 @@ import pandas as pd
 from opera.evaluation.comparison import (
     compute_comparison_metrics,
     derive_horizon_labels,
-    fit_linear_survival_or_logistic,
+    fit_logistic_probe,
     format_table_row,
     infer_tau_days,
 )
@@ -253,22 +253,16 @@ def validate_discordant_features(
     augmented_columns = ["ipi_score", *[f for f in top_features if f in merged.columns]]
     augmented_features = merged.loc[:, augmented_columns].copy()
 
-    baseline_model, _, baseline_notes = fit_linear_survival_or_logistic(
+    baseline_model, _, baseline_notes = fit_logistic_probe(
         features=clinical_features.loc[train_mask],
-        times=merged.loc[train_mask, "time_to_event"].to_numpy(dtype=float),
-        events=merged.loc[train_mask, "event_indicator"].to_numpy(dtype=int),
         labels=merged.loc[train_mask, "binary_label"].to_numpy(dtype=float),
         eligible=merged.loc[train_mask, "binary_eligible"].to_numpy(dtype=bool),
-        tau_days=tau_days,
         seed=42,
     )
-    augmented_model, _, augmented_notes = fit_linear_survival_or_logistic(
+    augmented_model, _, augmented_notes = fit_logistic_probe(
         features=augmented_features.loc[train_mask],
-        times=merged.loc[train_mask, "time_to_event"].to_numpy(dtype=float),
-        events=merged.loc[train_mask, "event_indicator"].to_numpy(dtype=int),
         labels=merged.loc[train_mask, "binary_label"].to_numpy(dtype=float),
         eligible=merged.loc[train_mask, "binary_eligible"].to_numpy(dtype=bool),
-        tau_days=tau_days,
         seed=42,
     )
 

@@ -52,3 +52,17 @@ experiments:
     outputs:
       - pretraining_scale_cells.csv
       - pretraining_scale_summary.csv
+
+  - name: disease_treatment_embedding_atlas
+    script: opera.run.treatment_embedding_atlas
+    interpretation: treatment_selection_accessibility_not_causal_effect
+    preferred_evaluation_mode: held_out
+    outputs:
+      - analysis_metadata.json
+      - treatment_probe_results.csv
+      - treatment_probe_predictions.csv
+      - disease_treatment_atlas_coordinates.csv
+      - disease_treatment_atlas_centroids.csv
+      - disease_treatment_geometry.csv
+      - disease_treatment_atlas.png
+      - treatment_probe_performance.png

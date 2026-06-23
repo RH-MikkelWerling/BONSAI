@@ -25,21 +25,20 @@ from torch.utils.data import DataLoader
 from opera.compat.bonsai import (
     BonsaiEncoder,
     FinetuneDataset,
-    binarize_outcomes,
     dynamic_padding,
     filter_subject_data,
 )
-from opera.functional.outcomes import (
-    attach_prediction_censor_abspos,
-    filter_outcome_eligibility,
-    filter_registry_eligible_outcomes,
+from opera.evaluation.cohorts import (
+    assert_cohort_parity,
+    build_evaluation_cohorts,
+    cohort_summary,
+    population_subject_ids,
 )
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
 
 from opera.evaluation.metrics import (
     full_evaluation,
     format_evaluation_summary,
-    _derive_time_horizons,
 )
 from opera.evaluation.results_schema import (
     bootstrap_ci_rows,
@@ -216,74 +215,45 @@ def main(cfg: DictConfig) -> None:
     model.eval()
 
     # ── Load test data ───────────────────────────────────────────────
-    outcomes = pd.read_parquet(cfg.paths.outcome)
-    outcomes = filter_outcome_eligibility(
-        outcomes,
-        cfg.paths.get("eligibility"),
-        cohort=cfg.get("dataset"),
-        outcome_name=cfg.get("outcome"),
-    )
-    outcomes = attach_prediction_censor_abspos(outcomes)
-    outcomes = filter_registry_eligible_outcomes(
-        outcomes,
-        cfg.labels.get("registry_start_date"),
-        cohort=cfg.get("dataset"),
-        outcome_name=cfg.get("outcome"),
-    )
-
     test_key = cfg.labels.get("test_key", "held_out")
-    test_df = outcomes[outcomes["split"] == test_key].copy()
-
-    competing_df = None
     competing_path = cfg.paths.get("competing_outcome")
-    if competing_path:
-        competing_df = pd.read_parquet(competing_path)
 
     # ALL test patients — used for survival metrics (censoring handled by IPCW)
-    all_test_outcomes = binarize_outcomes(
-        test_df,
+    cohort_fine_col = cfg.get("cohort_fine_col")
+    cohort_fine_value = cfg.get("cohort_fine_value")
+    population_ids = population_subject_ids(
+        cfg.paths.population,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
+    )
+    evaluation_cohorts = build_evaluation_cohorts(
+        cfg.paths.outcome,
+        split=test_key,
         n_hours_start_include=cfg.labels.n_hours_start_include,
         n_hours_end_include=cfg.labels.get("n_hours_end_include"),
-        require_min_followup=False,
-        competing_event_df=competing_df,
+        competing_outcomes=competing_path,
+        eligibility=cfg.paths.get("eligibility"),
+        registry_start_date=cfg.labels.get("registry_start_date"),
+        cohort=cfg.get("dataset"),
+        outcome_name=cfg.get("outcome"),
+        allowed_subject_ids=population_ids,
     )
+    all_test_outcomes = evaluation_cohorts.survival.records
 
     # Full-follow-up patients only — used for binary classification metrics
-    full_fu_outcomes = binarize_outcomes(
-        test_df,
-        n_hours_start_include=cfg.labels.n_hours_start_include,
-        n_hours_end_include=cfg.labels.get("n_hours_end_include"),
-        require_min_followup=True,
-        competing_event_df=competing_df,
-    )
-    full_fu_sids = set(full_fu_outcomes.keys())
+    full_fu_sids = evaluation_cohorts.fixed_horizon.subject_ids
 
     # Build dataset / loader over ALL test patients
     test_data = torch.load(cfg.paths.test_split)
-    population = pd.read_csv(cfg.paths.population)
-
     # Optional fine-cohort subsetting for train-on-grouped / eval-on-fine.
-    cohort_fine_col = cfg.get("cohort_fine_col")
-    cohort_fine_value = cfg.get("cohort_fine_value")
     if cohort_fine_col and cohort_fine_value:
-        if cohort_fine_col not in population.columns:
-            raise ValueError(
-                f"cohort_fine_col={cohort_fine_col!r} not found in population file "
-                f"(columns: {list(population.columns)})."
-            )
-        population = population[population[cohort_fine_col] == cohort_fine_value].copy()
-        if population.empty:
-            raise ValueError(
-                f"No patients remain after filtering to {cohort_fine_col}=="
-                f"{cohort_fine_value!r}.  Check population file and cohort_fine_value."
-            )
         print(
             f"cohort_fine filter: {cohort_fine_col}={cohort_fine_value!r} "
-            f"→ {len(population)} subjects"
+            f"-> {len(population_ids)} subjects"
         )
 
     test_data = [s for s in test_data if s["subject_id"] in all_test_outcomes]
-    test_data = filter_subject_data(test_data, population["subject_id"])
+    test_data = filter_subject_data(test_data, population_ids)
     if not test_data:
         raise ValueError(
             "No test subjects remain after filtering to outcome labels and "
@@ -348,10 +318,7 @@ def main(cfg: DictConfig) -> None:
     # Determine time horizons from config (n_hours_end_include → days)
     n_hours_end = cfg.labels.get("n_hours_end_include")
     if n_hours_end is not None:
-        if training_mode == "ipcw_bce":
-            time_horizons = [float(n_hours_end) / 24.0]
-        else:
-            time_horizons = _derive_time_horizons(n_hours_end / 24.0)
+        time_horizons = [float(n_hours_end) / 24.0]
     else:
         # Open-ended outcome: use calendar-year checkpoints up to observed data
         time_horizons = [365.0, 730.0]
@@ -368,6 +335,20 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Evaluation ───────────────────────────────────────────────────
+    assert_cohort_parity(
+        evaluation_cohorts.survival,
+        sids_all,
+        model_name="OPERA",
+        outcome_name=cfg.get("outcome", "unknown"),
+    )
+    assert_cohort_parity(
+        evaluation_cohorts.fixed_horizon,
+        sids_all[binary_mask],
+        model_name="OPERA",
+        outcome_name=cfg.get("outcome", "unknown"),
+    )
+    print(cohort_summary(evaluation_cohorts.fixed_horizon, cfg.get("outcome", "unknown")))
+    print(cohort_summary(evaluation_cohorts.survival, cfg.get("outcome", "unknown")))
     report = full_evaluation(
         labels_bin,
         probs_bin,
