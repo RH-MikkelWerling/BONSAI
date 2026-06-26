@@ -3,6 +3,7 @@ from opera.evaluation.results_schema import (
     bootstrap_ci_rows,
     build_result_row,
     canonical_training_stage,
+    write_per_cohort_concordance_artifact,
 )
 
 
@@ -74,6 +75,7 @@ def test_build_result_row_contains_required_fields():
     assert row["n_test"] == 100
     assert row["n_events_test"] == 20
     assert row["auroc_lower"] == 0.70
+    assert "c_index_within_fine" not in row
 
 
 def test_joint_training_stage_is_canonicalized():
@@ -120,3 +122,64 @@ def test_bootstrap_ci_rows_returns_structured_intervals():
 
     assert set(rows["metric_family"]) == {"binary", "survival"}
     assert set(rows["metric"]) == {"auroc", "concordance_index"}
+
+
+def test_stratified_concordance_fields_are_flattened_additively(tmp_path):
+    cfg = TinyCfg(
+        {
+            "dataset": "hematology",
+            "outcome": "mortality_1y",
+            "labels": {},
+        }
+    )
+    report = {
+        "discrimination": {},
+        "stratified_concordance": {
+            "strata_col": "cohort_fine",
+            "micro": {
+                "c_index": 0.68,
+                "lower": 0.61,
+                "upper": 0.74,
+                "n_comparable": 1234,
+                "n_strata": 2,
+            },
+            "macro": {
+                "c_index": 0.65,
+                "lower": 0.58,
+                "upper": 0.71,
+                "n_strata_estimable": 2,
+                "per_stratum": [
+                    {
+                        "stratum": "DLBCL",
+                        "c_index": 0.70,
+                        "n_comparable": 900,
+                        "n_events": 40,
+                        "n_total": 100,
+                        "reliable": True,
+                    },
+                    {
+                        "stratum": "PMBCL",
+                        "c_index": 0.60,
+                        "n_comparable": 334,
+                        "n_events": 5,
+                        "n_total": 20,
+                        "reliable": False,
+                    },
+                ],
+            },
+        },
+    }
+
+    row = build_result_row(cfg, report, "/tmp/best.ckpt", "held_out")
+    path = write_per_cohort_concordance_artifact(report, row, tmp_path)
+
+    assert row["c_index_within_fine"] == 0.68
+    assert row["c_index_within_fine_lower"] == 0.61
+    assert row["c_index_macro_within_fine"] == 0.65
+    assert row["n_strata_fine"] == 2
+    assert path == tmp_path / "per_cohort_concordance.jsonl"
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+    assert '"stratum": "PMBCL"' in lines[1]
+    assert '"cohort_fine": "PMBCL"' in lines[1]
+    assert '"reliable": false' in lines[1]

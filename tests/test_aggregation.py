@@ -45,6 +45,7 @@ def test_collect_wide_and_delta_tables(tmp_path):
             "n_train": 60,
             "n_events_train": 2,
             "n_events_test": 4,
+            "c_index_within_fine": 0.64,
         },
         {
             "cohort": "dlbcl",
@@ -123,6 +124,8 @@ def test_collect_wide_and_delta_tables(tmp_path):
     )
 
     assert len(collected) == 4
+    assert "c_index_within_fine" in collected.columns
+    assert collected["c_index_within_fine"].dropna().tolist() == [0.64]
     full_fraction = wide[wide["training_fraction"] == 1.0].iloc[0]
     assert full_fraction["joint__auroc"] == 0.75
     full_delta = delta[delta["training_fraction"] == 1.0].iloc[0]

@@ -740,6 +740,286 @@ def compute_concordance_index(
     return float((concordant.sum() + 0.5 * tied_risk.sum()) / n_comp)
 
 
+def _concordance_pair_counts(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+) -> Dict[str, int]:
+    """Count Harrell-comparable pairs using the pooled metric's convention."""
+    t_i = times[:, None]
+    t_j = times[None, :]
+    e_i = events[:, None].astype(float)
+    r_i = predicted_risk[:, None]
+    r_j = predicted_risk[None, :]
+
+    comparable = (e_i == 1) & (t_i < t_j)
+    concordant = comparable & (r_i > r_j)
+    tied_risk = comparable & (r_i == r_j)
+
+    n_comparable = int(comparable.sum())
+    n_concordant = int(concordant.sum())
+    n_tied = int(tied_risk.sum())
+    return {
+        "concordant": n_concordant,
+        "discordant": n_comparable - n_concordant - n_tied,
+        "tied": n_tied,
+        "comparable": n_comparable,
+    }
+
+
+def _c_index_from_pair_counts(counts: Dict[str, int]) -> float:
+    """Convert concordance pair counts to Harrell's C."""
+    n_comparable = counts["comparable"]
+    if n_comparable == 0:
+        return float("nan")
+    return float((counts["concordant"] + 0.5 * counts["tied"]) / n_comparable)
+
+
+def _validate_stratified_concordance_inputs(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+    strata,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """Return one-dimensional arrays after validating aligned input lengths."""
+    times = np.asarray(times)
+    events = np.asarray(events)
+    predicted_risk = np.asarray(predicted_risk)
+    arrays = {
+        "times": times,
+        "events": events,
+        "predicted_risk": predicted_risk,
+    }
+    for name, values in arrays.items():
+        if values.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional; got shape={values.shape}.")
+    lengths = {len(values) for values in arrays.values()}
+    if len(lengths) != 1:
+        raise ValueError(
+            "times, events, and predicted_risk must have the same length; got "
+            f"times={len(times)}, events={len(events)}, "
+            f"predicted_risk={len(predicted_risk)}."
+        )
+    if strata is None:
+        return times, events, predicted_risk, None
+
+    strata = np.asarray(strata, dtype=object)
+    if strata.ndim != 1:
+        raise ValueError(f"strata must be one-dimensional; got shape={strata.shape}.")
+    if len(strata) != len(times):
+        raise ValueError(
+            "strata must have the same length as the survival arrays; got "
+            f"strata={len(strata)}, times={len(times)}."
+        )
+    if pd.isna(strata).any():
+        raise ValueError("strata contains missing labels.")
+    return times, events, predicted_risk, strata
+
+
+def _within_stratum_pair_counts(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+    strata: np.ndarray,
+) -> Tuple[Dict[str, int], Dict[str, int]]:
+    """Pool pair counts while excluding every between-stratum pair."""
+    total = {"concordant": 0, "discordant": 0, "tied": 0, "comparable": 0}
+    per_stratum: Dict[str, int] = {}
+    for label in pd.unique(strata):
+        mask = strata == label
+        counts = _concordance_pair_counts(
+            times[mask],
+            events[mask],
+            predicted_risk[mask],
+        )
+        for key in total:
+            total[key] += counts[key]
+        per_stratum[str(label)] = counts["comparable"]
+    return total, per_stratum
+
+
+def _within_stratum_bootstrap_indices(
+    events: np.ndarray,
+    strata: np.ndarray,
+    rng: np.random.RandomState,
+) -> np.ndarray:
+    """Resample events/non-events separately inside every stratum."""
+    sampled = []
+    for label in pd.unique(strata):
+        stratum_idx = np.flatnonzero(strata == label)
+        local_idx = _stratified_bootstrap_indices(
+            len(stratum_idx),
+            events[stratum_idx],
+            rng,
+        )
+        sampled.append(stratum_idx[local_idx])
+    if not sampled:
+        return np.array([], dtype=int)
+    return np.concatenate(sampled)
+
+
+def _percentile_interval(values: List[float]) -> Tuple[float, float]:
+    """Return a finite-value 95% percentile interval."""
+    finite = np.asarray([value for value in values if np.isfinite(value)], dtype=float)
+    if len(finite) == 0:
+        return float("nan"), float("nan")
+    return float(np.quantile(finite, 0.025)), float(np.quantile(finite, 0.975))
+
+
+def compute_stratified_concordance(
+    times: np.ndarray,
+    events: np.ndarray,
+    risk_scores: np.ndarray,
+    strata,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+) -> Dict:
+    """Compute a micro-averaged C-index from within-stratum pairs only.
+
+    The point estimate sums concordant, discordant, tied, and comparable pair
+    counts across strata before dividing once. It therefore weights strata by
+    their number of comparable pairs. When ``strata`` is ``None``, the point
+    estimate delegates to :func:`compute_concordance_index`.
+    """
+    times, events, risk_scores, strata = _validate_stratified_concordance_inputs(
+        times,
+        events,
+        risk_scores,
+        strata,
+    )
+    if n_bootstrap < 0:
+        raise ValueError("n_bootstrap must be non-negative.")
+
+    if strata is None:
+        counts = _concordance_pair_counts(times, events, risk_scores)
+        c_index = compute_concordance_index(times, events, risk_scores)
+        n_strata = 1 if len(times) else 0
+        per_stratum = {"pooled": counts["comparable"]} if len(times) else {}
+    else:
+        counts, per_stratum = _within_stratum_pair_counts(
+            times,
+            events,
+            risk_scores,
+            strata,
+        )
+        c_index = _c_index_from_pair_counts(counts)
+        n_strata = len(pd.unique(strata))
+
+    rng = np.random.RandomState(seed)
+    bootstrap_values = []
+    for _ in range(n_bootstrap):
+        if strata is None:
+            idx = _stratified_bootstrap_indices(len(events), events, rng)
+            value = compute_concordance_index(
+                times[idx],
+                events[idx],
+                risk_scores[idx],
+            )
+        else:
+            idx = _within_stratum_bootstrap_indices(events, strata, rng)
+            bootstrap_counts, _ = _within_stratum_pair_counts(
+                times[idx],
+                events[idx],
+                risk_scores[idx],
+                strata[idx],
+            )
+            value = _c_index_from_pair_counts(bootstrap_counts)
+        bootstrap_values.append(value)
+    lower, upper = _percentile_interval(bootstrap_values)
+
+    return {
+        "c_index": c_index,
+        "lower": lower,
+        "upper": upper,
+        "n_comparable": counts["comparable"],
+        "n_strata": int(n_strata),
+        "n_comparable_per_stratum": per_stratum,
+    }
+
+
+def compute_macro_stratified_concordance(
+    times: np.ndarray,
+    events: np.ndarray,
+    risk_scores: np.ndarray,
+    strata,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+    min_events: int = 10,
+) -> Dict:
+    """Compute an equal-stratum mean of per-stratum Harrell C-indices."""
+    times, events, risk_scores, strata = _validate_stratified_concordance_inputs(
+        times,
+        events,
+        risk_scores,
+        strata,
+    )
+    if strata is None:
+        strata = np.full(len(times), "pooled", dtype=object)
+    if n_bootstrap < 0:
+        raise ValueError("n_bootstrap must be non-negative.")
+    if min_events < 0:
+        raise ValueError("min_events must be non-negative.")
+
+    per_stratum = []
+    for label in pd.unique(strata):
+        mask = strata == label
+        counts = _concordance_pair_counts(
+            times[mask],
+            events[mask],
+            risk_scores[mask],
+        )
+        n_events = int((events[mask] == 1).sum())
+        per_stratum.append(
+            {
+                "stratum": str(label),
+                "c_index": _c_index_from_pair_counts(counts),
+                "n_comparable": counts["comparable"],
+                "n_events": n_events,
+                "n_total": int(mask.sum()),
+                "reliable": bool(
+                    n_events >= min_events and counts["comparable"] > 0
+                ),
+            }
+        )
+
+    finite_points = [
+        item["c_index"] for item in per_stratum if np.isfinite(item["c_index"])
+    ]
+    macro_c_index = (
+        float(np.mean(finite_points)) if finite_points else float("nan")
+    )
+
+    rng = np.random.RandomState(seed)
+    bootstrap_values = []
+    for _ in range(n_bootstrap):
+        idx = _within_stratum_bootstrap_indices(events, strata, rng)
+        replicate = []
+        for label in pd.unique(strata):
+            mask = strata[idx] == label
+            counts = _concordance_pair_counts(
+                times[idx][mask],
+                events[idx][mask],
+                risk_scores[idx][mask],
+            )
+            value = _c_index_from_pair_counts(counts)
+            if np.isfinite(value):
+                replicate.append(value)
+        bootstrap_values.append(
+            float(np.mean(replicate)) if replicate else float("nan")
+        )
+    lower, upper = _percentile_interval(bootstrap_values)
+
+    return {
+        "c_index": macro_c_index,
+        "lower": lower,
+        "upper": upper,
+        "n_strata": int(len(per_stratum)),
+        "n_strata_estimable": int(len(finite_points)),
+        "min_events": int(min_events),
+        "per_stratum": per_stratum,
+    }
+
+
 def compute_ipcw_metrics_at_horizon(
     times: np.ndarray,
     events: np.ndarray,

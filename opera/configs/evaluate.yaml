@@ -19,6 +19,14 @@ threshold: 0.5
 n_bootstrap: 1000
 strict_checkpoint_load: true
 
+# Optional within-cohort survival discrimination. Disabled by default so
+# existing evaluation rows and artifacts remain unchanged.
+stratified_concordance:
+  enabled: false
+  strata_col: cohort_fine
+  n_bootstrap: null  # null reuses the top-level n_bootstrap value
+  min_events: 10
+
 paths:
   dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
   test_split: ${paths.dir}/subject_data_held_out.pt

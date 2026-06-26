@@ -6,6 +6,7 @@ from opera.evaluation.cohorts import (
     SURVIVAL_REGIME,
     assert_cohort_parity,
     build_evaluation_cohorts,
+    population_subject_strata,
 )
 
 
@@ -72,3 +73,18 @@ def test_cohort_parity_passes_and_reports_symmetric_difference():
             model_name="logistic",
             outcome_name="lab_outcome",
         )
+
+
+def test_population_subject_strata_preserves_evaluation_order(tmp_path):
+    population = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "cohort_fine": ["DLBCL", "FL", "AML"],
+        }
+    )
+    path = tmp_path / "population.csv"
+    population.to_csv(path, index=False)
+
+    strata = population_subject_strata(path, [3, 1], "cohort_fine")
+
+    assert strata.tolist() == ["AML", "DLBCL"]

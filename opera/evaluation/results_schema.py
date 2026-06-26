@@ -97,6 +97,23 @@ def flatten_report_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
         for horizon, metrics in survival.get("per_horizon", {}).items():
             for key, value in metrics.items():
                 row[f"{key}_{horizon}"] = value
+
+    stratified = report.get("stratified_concordance", {})
+    micro = stratified.get("micro", {})
+    macro = stratified.get("macro", {})
+    if micro:
+        row["c_index_within_fine"] = micro.get("c_index")
+        row["c_index_within_fine_lower"] = micro.get("lower")
+        row["c_index_within_fine_upper"] = micro.get("upper")
+        row["n_comparable_within_fine"] = micro.get("n_comparable")
+        row["n_strata_fine"] = micro.get("n_strata")
+        row["stratified_concordance_col"] = stratified.get("strata_col")
+    if macro:
+        row["c_index_macro_within_fine"] = macro.get("c_index")
+        row["c_index_macro_within_fine_lower"] = macro.get("lower")
+        row["c_index_macro_within_fine_upper"] = macro.get("upper")
+        row["n_strata_fine_estimable"] = macro.get("n_strata_estimable")
+
     bootstrap_ci = report.get("bootstrap_ci", {})
     for metric, values in bootstrap_ci.items():
         if isinstance(values, dict):
@@ -248,3 +265,43 @@ def write_result_artifacts(row: Dict[str, Any], output_dir: Path) -> None:
     with open(output_dir / "result.jsonl", "w", encoding="utf-8") as f:
         f.write(json.dumps(row, default=str) + "\n")
     pd.DataFrame([row]).to_csv(output_dir / "result.csv", index=False)
+
+
+def write_per_cohort_concordance_artifact(
+    report: Dict[str, Any],
+    result_row: Dict[str, Any],
+    output_dir: Path,
+) -> Optional[Path]:
+    """Write optional per-stratum concordance rows for rarity analyses."""
+    macro = report.get("stratified_concordance", {}).get("macro", {})
+    per_stratum = macro.get("per_stratum", [])
+    if not per_stratum:
+        return None
+
+    metadata_keys = (
+        "run_id",
+        "config_hash",
+        "model_family",
+        "training_stage",
+        "cohort",
+        "outcome",
+        "outcome_window_hours",
+        "split",
+        "seed",
+        "training_fraction",
+        "rarity_mode",
+        "rarity_tier",
+    )
+    common = {key: result_row.get(key) for key in metadata_keys}
+    strata_col = report["stratified_concordance"].get("strata_col")
+    common["strata_col"] = strata_col
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "per_cohort_concordance.jsonl"
+    with open(path, "w", encoding="utf-8") as handle:
+        for item in per_stratum:
+            row = {**common, **item}
+            if strata_col:
+                row[strata_col] = item.get("stratum")
+            handle.write(json.dumps(row, default=str) + "\n")
+    return path

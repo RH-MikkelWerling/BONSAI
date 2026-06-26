@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
+import numpy as np
 import pandas as pd
 
 from opera.compat.bonsai import binarize_outcomes
@@ -112,6 +113,44 @@ def population_subject_ids(
                 f"{cohort_fine_value!r} in {source}."
             )
     return set(population["subject_id"])
+
+
+def population_subject_strata(
+    population_path: str | Path,
+    subject_ids: Iterable[Any],
+    strata_col: str,
+) -> np.ndarray:
+    """Return population strata aligned to an ordered subject-id sequence."""
+    source = Path(population_path)
+    population = (
+        pd.read_parquet(source)
+        if source.suffix.lower() in {".parquet", ".pq"}
+        else pd.read_csv(source)
+    )
+    required = {"subject_id", strata_col}
+    missing_columns = required - set(population.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Population file {source} is missing stratification columns "
+            f"{sorted(missing_columns)}."
+        )
+    if population["subject_id"].duplicated().any():
+        raise ValueError(
+            f"Population file {source} contains duplicate subject_id rows."
+        )
+
+    ordered_ids = list(subject_ids)
+    strata = population.set_index("subject_id")[strata_col].reindex(ordered_ids)
+    missing_subjects = [
+        ordered_ids[idx] for idx, missing in enumerate(strata.isna()) if missing
+    ]
+    if missing_subjects:
+        raise ValueError(
+            f"Cannot compute stratified concordance from {strata_col!r}: "
+            f"{len(missing_subjects)} evaluated subjects have no stratum label; "
+            f"examples={missing_subjects[:10]}."
+        )
+    return strata.to_numpy(dtype=object)
 
 
 def build_evaluation_cohorts(

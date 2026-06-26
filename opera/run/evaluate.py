@@ -33,16 +33,20 @@ from opera.evaluation.cohorts import (
     build_evaluation_cohorts,
     cohort_summary,
     population_subject_ids,
+    population_subject_strata,
 )
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
 
 from opera.evaluation.metrics import (
+    compute_macro_stratified_concordance,
+    compute_stratified_concordance,
     full_evaluation,
     format_evaluation_summary,
 )
 from opera.evaluation.results_schema import (
     bootstrap_ci_rows,
     build_result_row,
+    write_per_cohort_concordance_artifact,
     write_result_artifacts,
 )
 from opera.evaluation.subgroups import compute_subgroup_metrics, load_subgroup_table
@@ -359,6 +363,42 @@ def main(cfg: DictConfig) -> None:
         survival_probabilities=probs_all,
         time_horizons=time_horizons,
     )
+    stratified_cfg = cfg.get("stratified_concordance", {}) or {}
+    if stratified_cfg.get("enabled", False):
+        strata_col = stratified_cfg.get("strata_col", "cohort_fine")
+        strata_all = population_subject_strata(
+            cfg.paths.population,
+            sids_all,
+            strata_col,
+        )
+        survival_valid = (
+            np.isfinite(times_all)
+            & np.isfinite(probs_all)
+            & (events_all >= 0)
+        )
+        stratified_n_bootstrap = stratified_cfg.get("n_bootstrap")
+        if stratified_n_bootstrap is None:
+            stratified_n_bootstrap = cfg.get("n_bootstrap", 1000)
+        report["stratified_concordance"] = {
+            "strata_col": strata_col,
+            "micro": compute_stratified_concordance(
+                times_all[survival_valid],
+                events_all[survival_valid],
+                probs_all[survival_valid],
+                strata_all[survival_valid],
+                n_bootstrap=int(stratified_n_bootstrap),
+                seed=int(cfg.get("seed", 42)),
+            ),
+            "macro": compute_macro_stratified_concordance(
+                times_all[survival_valid],
+                events_all[survival_valid],
+                probs_all[survival_valid],
+                strata_all[survival_valid],
+                n_bootstrap=int(stratified_n_bootstrap),
+                seed=int(cfg.get("seed", 42)),
+                min_events=int(stratified_cfg.get("min_events", 10)),
+            ),
+        }
     if training_mode == "cox":
         mark_probability_metrics_not_applicable(report)
     report["evaluation_notes"] = {
@@ -442,6 +482,7 @@ def main(cfg: DictConfig) -> None:
         subgroup_metrics.to_csv(output_dir / "subgroup_metrics.csv", index=False)
 
     write_result_artifacts(result_row, output_dir)
+    write_per_cohort_concordance_artifact(report, result_row, output_dir)
 
     # ── Generate plots ───────────────────────────────────────────────
     print("Generating plots...")
