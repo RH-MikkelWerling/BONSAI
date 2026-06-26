@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -840,6 +841,136 @@ def check_competing_event_denominator_consistency(
                 "Variants removed different competing-event subjects; pairing is incorrect."
             )
     return messages
+
+
+def _dersimonlain_re(thetas: np.ndarray, variances: np.ndarray) -> dict:
+    """DerSimonian-Laird random-effects meta-analysis for one stratum.
+
+    Returns a dict with pooled_effect, ci_lower, ci_upper, tau2, i2, Q, df,
+    k_cells.  With a single cell the function returns the cell value with
+    tau2=0 and I2=0.
+    """
+    k = len(thetas)
+    if k == 0:
+        return {}
+    if k == 1:
+        se = float(np.sqrt(variances[0]))
+        return {
+            "pooled_effect": float(thetas[0]),
+            "ci_lower": float(thetas[0] - 1.96 * se),
+            "ci_upper": float(thetas[0] + 1.96 * se),
+            "tau2": 0.0,
+            "i2": 0.0,
+            "Q": 0.0,
+            "df": 0,
+            "k_cells": 1,
+        }
+    w = 1.0 / variances
+    theta_fe = float(np.sum(w * thetas) / np.sum(w))
+    Q = float(np.sum(w * (thetas - theta_fe) ** 2))
+    df = k - 1
+    c = float(np.sum(w) - np.sum(w**2) / np.sum(w))
+    tau2 = max(0.0, (Q - df) / c) if c > 0 else 0.0
+    w_re = 1.0 / (variances + tau2)
+    theta_dl = float(np.sum(w_re * thetas) / np.sum(w_re))
+    se_dl = float(np.sqrt(1.0 / np.sum(w_re)))
+    i2 = max(0.0, (Q - df) / Q * 100.0) if Q > 0 else 0.0
+    return {
+        "pooled_effect": theta_dl,
+        "ci_lower": theta_dl - 1.96 * se_dl,
+        "ci_upper": theta_dl + 1.96 * se_dl,
+        "tau2": tau2,
+        "i2": i2,
+        "Q": Q,
+        "df": df,
+        "k_cells": k,
+    }
+
+
+def pooled_transfer_effect(
+    delta_table: pd.DataFrame,
+    delta_col: str = "delta_auroc_vs_baseline",
+    se_col: Optional[str] = None,
+    stratify_col: Optional[str] = "cohort",
+) -> pd.DataFrame:
+    """DerSimonian-Laird random-effects pooled transfer-effect estimate.
+
+    Produces a pooled estimate with tau^2 (between-cell heterogeneity), I^2,
+    and a 95% CI.  Each row of *delta_table* is one study (cohort/outcome cell).
+
+    Parameters
+    ----------
+    delta_table:
+        Per-cell delta table such as that produced by
+        ``build_delta_vs_baseline_table``.  Must contain ``delta_col``.
+    delta_col:
+        Column holding the per-cell OPERA-minus-baseline delta.
+    se_col:
+        Column holding the per-cell standard error.  When ``None`` all cells
+        are assumed to have equal within-cell variance, estimated from the
+        empirical cross-cell standard deviation.  Supplying a calibrated SE
+        (e.g. from the paired bootstrap CI) is strongly recommended for formal
+        inference.
+    stratify_col:
+        Column used to stratify the pooling (``"cohort"`` by default).  One
+        pooled row is produced per stratum, plus an overall row with
+        ``stratum="_all_"``.  Pass ``None`` to skip per-stratum rows.
+
+    Returns
+    -------
+    DataFrame with columns:
+        stratum, pooled_effect, ci_lower, ci_upper, tau2, i2, Q, df, k_cells,
+        model_family (when present in *delta_table*).
+    """
+    if delta_table.empty or delta_col not in delta_table.columns:
+        return pd.DataFrame()
+
+    tbl = delta_table.dropna(subset=[delta_col]).copy()
+    if tbl.empty:
+        return pd.DataFrame()
+
+    if se_col is not None and se_col in tbl.columns:
+        tbl = tbl.dropna(subset=[se_col])
+        tbl = tbl[tbl[se_col] > 0]
+        if tbl.empty:
+            return pd.DataFrame()
+
+    def _pool_group(group: pd.DataFrame) -> dict:
+        thetas = group[delta_col].to_numpy(dtype=float)
+        if se_col is not None and se_col in group.columns:
+            variances = group[se_col].to_numpy(dtype=float) ** 2
+        else:
+            # Equal-weight fallback: empirical SD as common within-cell SE.
+            empirical_sd = float(np.std(thetas, ddof=1)) if len(thetas) > 1 else 1e-4
+            empirical_sd = max(empirical_sd, 1e-6)
+            variances = np.full(len(thetas), empirical_sd**2)
+        return _dersimonlain_re(thetas, variances)
+
+    rows = []
+
+    # Per-stratum rows.
+    if stratify_col is not None and stratify_col in tbl.columns:
+        for stratum, grp in tbl.groupby(stratify_col, dropna=False):
+            result = _pool_group(grp)
+            if result:
+                row = {"stratum": str(stratum)}
+                if "model_family" in grp.columns:
+                    families = grp["model_family"].dropna().unique()
+                    row["model_family"] = families[0] if len(families) == 1 else "mixed"
+                row.update(result)
+                rows.append(row)
+
+    # Overall pooled row.
+    overall = _pool_group(tbl)
+    if overall:
+        row = {"stratum": "_all_"}
+        if "model_family" in tbl.columns:
+            families = tbl["model_family"].dropna().unique()
+            row["model_family"] = families[0] if len(families) == 1 else "mixed"
+        row.update(overall)
+        rows.append(row)
+
+    return pd.DataFrame(rows)
 
 
 def validate_result_rows_denominators(

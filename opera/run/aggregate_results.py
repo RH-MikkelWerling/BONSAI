@@ -16,6 +16,7 @@ from opera.evaluation.aggregation import (
     collect_result_rows,
     compute_model_delta_table,
     filter_results_for_paper_aggregates,
+    pooled_transfer_effect,
     split_rarity_delta_tables,
     summarize_by_task_size,
     summarize_by_model,
@@ -69,6 +70,23 @@ def main():
     )
     parser.add_argument("--baseline", help="Baseline model_family for delta table")
     parser.add_argument("--comparator", help="Comparator model_family for delta table")
+    parser.add_argument(
+        "--predictions_dir",
+        default=None,
+        help=(
+            "Root of predictions.npz directory tree "
+            "(cohort/outcome/model_variant/predictions.npz). "
+            "When provided alongside --baseline and --comparator, also writes "
+            "a patient-paired delta CSV with bootstrap/DeLong CIs and "
+            "BH-corrected p-values per cell, requiring subject-ID alignment."
+        ),
+    )
+    parser.add_argument(
+        "--paired_n_bootstrap",
+        type=int,
+        default=2000,
+        help="Bootstrap replicates for non-AUROC metrics in the paired delta table.",
+    )
     parser.add_argument(
         "--subgroup_baseline",
         default="tabular_ehr",
@@ -210,6 +228,36 @@ def main():
         delta.to_csv(output_dir / name, index=False)
         print(f"Delta table: {output_dir / name}")
 
+        # Patient-paired delta: requires predictions.npz with subject-ID alignment.
+        if args.predictions_dir:
+            from opera.evaluation.significance import run_pairwise_comparisons
+
+            paired = run_pairwise_comparisons(
+                args.predictions_dir,
+                contrasts=[
+                    (
+                        args.comparator,
+                        args.baseline,
+                        f"{args.comparator}_minus_{args.baseline}",
+                    )
+                ],
+                metrics=["auroc"],
+                alpha=0.05,
+                n_bootstrap=args.paired_n_bootstrap,
+                use_delong_for_auroc=True,
+            )
+            if not paired.empty:
+                paired_name = (
+                    f"paired_delta_{args.comparator}_minus_{args.baseline}.csv"
+                )
+                paired.to_csv(output_dir / paired_name, index=False)
+                print(f"Paired delta table: {output_dir / paired_name}")
+            else:
+                print(
+                    f"No paired predictions found for {args.comparator} vs "
+                    f"{args.baseline} under {args.predictions_dir}"
+                )
+
     if args.baseline:
         rarity_tables = split_rarity_delta_tables(
             aggregate_results,
@@ -238,6 +286,22 @@ def main():
                 )
             except Exception as exc:
                 print(f"Rarity plotting failed: {exc}")
+
+        # Pooled transfer effect: DerSimonian-Laird random-effects meta-analysis
+        # over viable cells, stratified by cohort. Requires a rarity delta table.
+        real_task = rarity_tables.get("real_rarity_task_level", None)
+        synth_task_rows = rarity_tables.get("synthetic_rarity_task_level", None)
+        for label, delta_tbl in [
+            ("real", real_task),
+            ("synthetic", synth_task_rows),
+        ]:
+            if delta_tbl is not None and not delta_tbl.empty:
+                pool = pooled_transfer_effect(delta_tbl)
+                if not pool.empty:
+                    pool.to_csv(
+                        output_dir / f"pooled_transfer_effect_{label}.csv",
+                        index=False,
+                    )
 
     print(
         f"Aggregated {len(aggregate_results)} compatible rows "
