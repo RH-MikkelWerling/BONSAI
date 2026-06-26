@@ -34,6 +34,12 @@ hydra:
 dapt_ckpt: ???
 dapt_embedding_store: null    # path to pre-computed DAPT .pt store, or null
 
+cohort_scope:
+  name: null
+  general_pretraining: frozen
+  adaptation_cohorts: []
+  finetune_cohort: null
+
 # ── Disease cohorts (grouped level for training) ─────────────────────
 # Each cohort needs subject_data_train.pt / subject_data_tuning.pt
 # and an outcomes/ subdirectory.

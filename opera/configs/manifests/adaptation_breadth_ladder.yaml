@@ -1,0 +1,38 @@
+# OPERA adaptation breadth ladder.
+# General pretraining remains frozen. Each rung changes only the DAPT and
+# contrastive adaptation cohorts; the supervised finetune cohort stays fixed.
+
+target_cohort: dlbcl_like
+general_pretraining: frozen
+
+cohorts:
+  dlbcl_like:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl_like
+  indolent_b_nhl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/indolent_b_nhl
+  t_nhl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/t_nhl
+  cll_sll:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll_sll
+  bl_lbl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/bl_lbl
+  mm:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mm
+  hl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/hl
+  hcl:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/hcl
+  amyloidosis:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/amyloidosis
+  soim:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/soim
+
+neighbours:
+  dlbcl_like:
+    - indolent_b_nhl
+    - cll_sll
+
+scope_order:
+  - target_only
+  - target_plus_neighbours
+  - full_spectrum

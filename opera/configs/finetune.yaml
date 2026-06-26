@@ -13,6 +13,12 @@ dataset: ???
 outcome: ???
 training_stage: per_task_finetuning
 
+cohort_scope:
+  name: null
+  general_pretraining: frozen
+  adaptation_cohorts: []
+  finetune_cohort: null
+
 paths:
   dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
   train_split: ${paths.dir}/subject_data_train.pt
