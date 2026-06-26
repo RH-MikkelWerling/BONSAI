@@ -154,15 +154,27 @@ python -m opera.run.evaluate_joint \
 ## Prospective Splits And Follow-Up
 
 Outcome creation supports prospective split definitions through
-`prospective_split` config blocks. Generated outcome files can be checked with:
+`prospective_split` config blocks. The OPERA paper split lives in
+`opera/configs/manifests/temporal_split.yaml` and can be referenced from outcome
+configs with `prospective_split.contract`. Generated outcome files can be
+checked with:
 
 ```bash
 python -m bonsai.run.validate_splits \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --train_end 2023-12-31 \
-  --val_start 2023-07-01 \
-  --val_end 2023-12-31 \
-  --test_start 2024-01-01 \
+  --contract opera/configs/manifests/temporal_split.yaml \
+  --fail_on_error
+```
+
+Before launching a stage, validate split labels, subject-data files, DAPT
+inputs, and optional embedding stores together:
+
+```bash
+python -m opera.run.validate_split_contract \
+  --outcome /data/dlbcl/outcomes/mortality.parquet \
+  --subject_data train=/data/dlbcl/subject_data_train.pt \
+  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
   --fail_on_error
 ```
 

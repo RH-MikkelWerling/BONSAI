@@ -2,16 +2,7 @@ name: paper_core
 description: Core OPERA paper experiments.
 
 split:
-  type: prospective
-  date_col: index_date
-  train_end: "2023-12-31"
-  val_start: "2023-07-01"
-  val_end: "2023-12-31"
-  test_start: "2024-01-01"
-  test_end: null
-  train_key: train
-  val_key: tuning
-  test_key: held_out
+  contract: opera/configs/manifests/temporal_split.yaml
 
 registry_coverage_policy:
   mlm_pretraining: include_all_patients_with_pre_index_ehr

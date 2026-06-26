@@ -9,6 +9,7 @@ from hydra.core.plugins import Plugins
 from bonsai.paths import get_config_path
 from bonsai.functional.outcomes import (
     apply_prospective_split,
+    resolve_split_contract,
     get_subject_first_row_for_conditions,
     get_date_from_absolute_date,
     get_date_from_relative_date,
@@ -132,8 +133,8 @@ def main(cfg: DictConfig) -> None:
 
     prospective_split = cfg.get("prospective_split")
     if prospective_split:
-        split_cfg = dict(prospective_split)
-        outcome_name = split_cfg.pop("outcome_name", save_path.stem)
+        outcome_name = prospective_split.get("outcome_name", save_path.stem)
+        split_cfg = resolve_split_contract(prospective_split)
         pandas_outcomes = all_outcomes.to_pandas()
         pandas_outcomes = apply_prospective_split(
             pandas_outcomes,

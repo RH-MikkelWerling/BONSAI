@@ -5,20 +5,12 @@ This note documents the reproducibility hooks added for the OPERA paper setup.
 ## Prospective Splits
 
 Outcome creation can optionally assign splits from `index_date` instead of
-trusting input directory names. Add a `prospective_split` block to an outcome
-creation config:
+trusting input directory names. The OPERA paper split is defined once in
+`opera/configs/manifests/temporal_split.yaml`:
 
 ```yaml
 prospective_split:
-  date_col: index_date
-  train_end: "2023-12-31"
-  val_start: "2023-07-01"
-  val_end: "2023-12-31"
-  test_start: "2024-01-01"
-  test_end: null
-  train_key: train
-  val_key: tuning
-  test_key: held_out
+  contract: opera/configs/manifests/temporal_split.yaml
 ```
 
 `bonsai.run.create_outcome` writes a split summary CSV next to each outcome
@@ -30,15 +22,27 @@ Validate a generated outcome file before training:
 ```bash
 python -m bonsai.run.validate_splits \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --train_end 2023-12-31 \
-  --val_start 2023-07-01 \
-  --val_end 2023-12-31 \
-  --test_start 2024-01-01 \
+  --contract opera/configs/manifests/temporal_split.yaml \
   --fail_on_error
 ```
 
 The validator reports subject overlap across splits and date-boundary
 violations for prospective setups.
+
+Before launching any OPERA stage, validate labels, split subject-data files,
+DAPT inputs, and optional DAPT embedding stores against the same contract:
+
+```bash
+python -m opera.run.validate_split_contract \
+  --outcome /data/dlbcl/outcomes/mortality.parquet \
+  --subject_data train=/data/dlbcl/subject_data_train.pt \
+  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
+  --dapt_subject_data train=/data/dlbcl/subject_data_train.pt \
+  --dapt_subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --embedding_store /results/dapt_embeddings.pt \
+  --fail_on_error
+```
 
 Finetuning entry points write `label_split_summary.csv` to the run directory.
 This file records raw subjects, retained labelled subjects, label prevalence,

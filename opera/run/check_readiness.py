@@ -21,6 +21,7 @@ from opera.evaluation.cohort_flow import (
     validate_eligibility_frame,
 )
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
+from opera.evaluation.split_contract import validate_cross_stage_split_contract
 from opera.functional.outcomes import filter_outcome_eligibility
 
 
@@ -36,7 +37,9 @@ def _has_unresolved_environment(value: str) -> bool:
 
 
 def check_sweep_config(
-    config_path: str, require_existing_paths: bool = False
+    config_path: str,
+    require_existing_paths: bool = False,
+    split_contract_path: str | None = None,
 ) -> list[str]:
     try:
         cfg = load_sweep_config(config_path).to_mapping()
@@ -131,6 +134,7 @@ def check_sweep_config(
 
     for cohort, cohort_cfg in cfg.get("cohorts", {}).items():
         data_dir = cohort_cfg.get("data_dir")
+        cohort_outcome_paths: list[Path] = []
         if not data_dir:
             issues.append(f"Cohort {cohort!r} is missing data_dir.")
         elif _has_unresolved_environment(str(data_dir)):
@@ -156,6 +160,7 @@ def check_sweep_config(
                         f"does not exist: {outcome_path}"
                     )
                 else:
+                    cohort_outcome_paths.append(outcome_path)
                     outcome_df = None
                     try:
                         import pandas as pd
@@ -318,6 +323,26 @@ def check_sweep_config(
                                 f"{variant_name!r}: {exc}"
                             )
 
+            if split_contract_path and cohort_outcome_paths:
+                try:
+                    split_report = validate_cross_stage_split_contract(
+                        outcome_paths=cohort_outcome_paths,
+                        subject_data_paths={
+                            "train": str(Path(data_dir) / "subject_data_train.pt"),
+                            "tuning": str(Path(data_dir) / "subject_data_tuning.pt"),
+                            "held_out": str(Path(data_dir) / "subject_data_held_out.pt"),
+                        },
+                        contract_path=split_contract_path,
+                    )
+                    issues.extend(
+                        f"Cohort {cohort!r} split contract: {issue}"
+                        for issue in split_report["issues"]
+                    )
+                except Exception as exc:
+                    issues.append(
+                        f"Cohort {cohort!r} split contract could not be validated: {exc}"
+                    )
+
     try:
         import bonsai
         from bonsai.functional import checkpointing, outcomes
@@ -425,12 +450,14 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--manifest", default=None)
     parser.add_argument("--require_existing_paths", action="store_true")
+    parser.add_argument("--split_contract", default=None)
     parser.add_argument("--fail_on_issue", action="store_true")
     args = parser.parse_args()
 
     issues = check_sweep_config(
         args.config,
         require_existing_paths=args.require_existing_paths,
+        split_contract_path=args.split_contract,
     )
     if issues:
         print("Readiness issues:")

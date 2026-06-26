@@ -1,0 +1,16 @@
+name: opera_2020_2021_2022
+description: Canonical OPERA paper split contract.
+type: prospective
+date_col: index_date
+train_key: train
+val_key: tuning
+test_key: held_out
+train_end: "2020-12-31"
+val_start: "2021-01-01"
+val_end: "2021-12-31"
+test_start: "2022-01-01"
+test_end: null
+patient_level: true
+truncation_policy:
+  supervised_sequences: per_patient_index_time
+  pretraining_and_dapt: prebuilt_split_files_or_explicit_calendar_cutoff

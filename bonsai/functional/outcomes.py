@@ -4,10 +4,53 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
 import pandas as pd
 import polars as pl
+
+SPLIT_CONTRACT_FIELDS = {
+    "date_col",
+    "train_end",
+    "val_start",
+    "val_end",
+    "test_start",
+    "test_end",
+    "train_key",
+    "val_key",
+    "test_key",
+}
+
+
+def load_split_contract(contract: str | Path | Mapping[str, Any]) -> Dict[str, Any]:
+    """Load a prospective split contract from YAML or an in-memory mapping."""
+    if isinstance(contract, Mapping):
+        payload = dict(contract)
+    else:
+        import yaml
+
+        path = Path(contract)
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if "split" in payload and not (SPLIT_CONTRACT_FIELDS & set(payload)):
+        payload = dict(payload["split"])
+    return {
+        key: value
+        for key, value in payload.items()
+        if key in SPLIT_CONTRACT_FIELDS and value is not None
+    }
+
+
+def resolve_split_contract(spec: Mapping[str, Any]) -> Dict[str, Any]:
+    """Resolve a split spec that may reference a canonical contract file."""
+    spec = dict(spec)
+    contract_ref = spec.pop("contract", None)
+    contract = load_split_contract(contract_ref) if contract_ref else {}
+    overrides = {
+        key: value
+        for key, value in spec.items()
+        if key in SPLIT_CONTRACT_FIELDS and value is not None
+    }
+    return {**contract, **overrides}
 
 
 def get_subject_first_row_for_conditions(

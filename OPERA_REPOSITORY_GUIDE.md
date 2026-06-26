@@ -72,29 +72,40 @@ end. For survival metrics, the same event-time file is used directly, so there
 is no need to create separate outcome parquet files for every look-forward
 window.
 
-Prospective paper splits are configured with a `prospective_split` block. The
-intended paper shape is:
+Prospective paper splits are configured with a `prospective_split` block that
+references the canonical OPERA contract:
 
-- train: pre-2024 data
-- validation: explicit pre-2024 validation period
-- test: post-2023 prospective held-out period
+```yaml
+prospective_split:
+  contract: opera/configs/manifests/temporal_split.yaml
+```
 
-Validation is the tuning/model-selection split. It should sit before the
-prospective test period, often as a late pre-2024 calendar slice. A config can
-therefore have `train_end: 2023-12-31` and `val_end: 2023-12-31` when the
-training construction excludes the validation period via `val_start`/`val_end`;
-the split validator is the source of truth for checking that no subject/index
-date is assigned to more than one split.
+The contract defines train as index year <= 2020, tuning as 2021, and held-out
+test as index year >= 2022. Validation is the tuning/model-selection split; the
+split validator is the source of truth for checking that no subject/index date
+is assigned to more than one split.
 
 Validate generated splits:
 
 ```bash
 python -m bonsai.run.validate_splits \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --train_end 2023-12-31 \
-  --val_start 2023-07-01 \
-  --val_end 2023-12-31 \
-  --test_start 2024-01-01 \
+  --contract opera/configs/manifests/temporal_split.yaml \
+  --fail_on_error
+```
+
+Validate cross-stage inputs before running pretraining/DAPT/contrastive or
+finetuning:
+
+```bash
+python -m opera.run.validate_split_contract \
+  --outcome /data/dlbcl/outcomes/mortality.parquet \
+  --subject_data train=/data/dlbcl/subject_data_train.pt \
+  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
+  --dapt_subject_data train=/data/dlbcl/subject_data_train.pt \
+  --dapt_subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --embedding_store /results/dapt_embeddings.pt \
   --fail_on_error
 ```
 
