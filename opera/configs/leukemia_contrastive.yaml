@@ -4,7 +4,8 @@
 #
 # Training uses `cohort_grouped` (11 broad disease groups) to maximise
 # cross-disease contrastive signal.  Evaluation then breaks out by
-# `cohort_fine` (26 diagnoses) via the leukemia_sweep config.
+# `cohort_fine` (25 analyzed diagnoses; EXCLUDE_SECONDARY is an explicit
+# non-analyzed label) via the leukemia_sweep config.
 #
 # Disease groups and their fine sub-diagnoses:
 #   DLBCL_like      : DLBCL, BCL, RT, RT_DERIVED

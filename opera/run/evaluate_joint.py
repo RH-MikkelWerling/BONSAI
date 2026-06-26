@@ -29,19 +29,18 @@ from torch.utils.data import DataLoader
 
 from opera.compat.bonsai import (
     FinetuneDataset,
-    binarize_outcomes,
     dynamic_padding,
     filter_subject_data,
 )
-from opera.functional.outcomes import (
-    attach_prediction_censor_abspos,
-    filter_outcome_eligibility,
-    filter_registry_eligible_outcomes,
-)
 from bonsai.functional.checkpointing import load_joint_model_from_checkpoint
 
-from opera.modules.networks.joint_finetune_net import JointFinetuneModel
-from opera.evaluation.cohorts import population_subject_strata
+from opera.evaluation.cohorts import (
+    assert_cohort_parity,
+    build_evaluation_cohorts,
+    cohort_summary,
+    population_subject_ids,
+    population_subject_strata,
+)
 from opera.evaluation.metrics import (
     compute_macro_stratified_concordance,
     compute_stratified_concordance,
@@ -65,11 +64,6 @@ def resolve_device(device_cfg: str) -> str:
     if device_cfg in (None, "auto"):
         return "cuda" if torch.cuda.is_available() else "cpu"
     return str(device_cfg)
-
-
-def load_joint_model(ckpt_path: str) -> JointFinetuneModel:
-    """Reconstruct JointFinetuneModel from checkpoint."""
-    return load_joint_model_from_checkpoint(ckpt_path, strict=True)
 
 
 @hydra.main(
@@ -96,54 +90,40 @@ def main(cfg: DictConfig) -> None:
     model = model.to(device)
     model.eval()
 
-    # ── Load test data ─────────────────────────────────────────────────
-    outcomes = pd.read_parquet(cfg.paths.outcome)
-    outcomes = filter_outcome_eligibility(
-        outcomes,
-        cfg.paths.get("eligibility"),
-        cohort=cfg.get("dataset"),
-        outcome_name=outcome_name or cfg.get("outcome"),
-    )
-    outcomes = attach_prediction_censor_abspos(outcomes)
-    outcomes = filter_registry_eligible_outcomes(
-        outcomes,
-        cfg.labels.get("registry_start_date"),
-        cohort=cfg.get("dataset"),
-        outcome_name=outcome_name or cfg.get("outcome"),
-    )
-
+    # ── Load canonical evaluation cohorts ──────────────────────────────
     test_key = cfg.labels.get("test_key", "held_out")
-    test_df = outcomes[outcomes["split"] == test_key].copy()
-
-    competing_df = None
     competing_path = cfg.paths.get("competing_outcome")
-    if competing_path:
-        competing_df = pd.read_parquet(competing_path)
-
-    # ALL test patients — used for survival metrics (censoring handled by IPCW)
-    all_test_outcomes = binarize_outcomes(
-        test_df,
+    cohort_fine_col = cfg.get("cohort_fine_col")
+    cohort_fine_value = cfg.get("cohort_fine_value")
+    population_ids = population_subject_ids(
+        cfg.paths.population,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
+    )
+    evaluation_cohorts = build_evaluation_cohorts(
+        cfg.paths.outcome,
+        split=test_key,
         n_hours_start_include=cfg.labels.n_hours_start_include,
         n_hours_end_include=cfg.labels.get("n_hours_end_include"),
-        require_min_followup=False,
-        competing_event_df=competing_df,
+        competing_outcomes=competing_path,
+        eligibility=cfg.paths.get("eligibility"),
+        registry_start_date=cfg.labels.get("registry_start_date"),
+        cohort=cfg.get("dataset"),
+        outcome_name=outcome_name or cfg.get("outcome"),
+        allowed_subject_ids=population_ids,
     )
-
-    # Full-follow-up patients only — used for binary classification metrics
-    full_fu_outcomes = binarize_outcomes(
-        test_df,
-        n_hours_start_include=cfg.labels.n_hours_start_include,
-        n_hours_end_include=cfg.labels.get("n_hours_end_include"),
-        require_min_followup=True,
-        competing_event_df=competing_df,
-    )
-    full_fu_sids = set(full_fu_outcomes.keys())
+    all_test_outcomes = evaluation_cohorts.survival.records
+    full_fu_sids = evaluation_cohorts.fixed_horizon.subject_ids
 
     # Build dataset / loader over ALL test patients
     test_data = torch.load(cfg.paths.test_split)
-    population = pd.read_csv(cfg.paths.population)
+    if cohort_fine_col and cohort_fine_value:
+        print(
+            f"cohort_fine filter: {cohort_fine_col}={cohort_fine_value!r} "
+            f"-> {len(population_ids)} subjects"
+        )
     test_data = [s for s in test_data if s["subject_id"] in all_test_outcomes]
-    test_data = filter_subject_data(test_data, population["subject_id"])
+    test_data = filter_subject_data(test_data, population_ids)
     if not test_data:
         raise ValueError(
             "No test subjects remain after filtering to outcome labels and "
@@ -223,6 +203,21 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Evaluate ───────────────────────────────────────────────────────
+    reported_outcome = outcome_name or cfg.get("outcome", "unknown")
+    assert_cohort_parity(
+        evaluation_cohorts.survival,
+        sids_all,
+        model_name="OPERA-joint",
+        outcome_name=reported_outcome,
+    )
+    assert_cohort_parity(
+        evaluation_cohorts.fixed_horizon,
+        sids_all[binary_mask],
+        model_name="OPERA-joint",
+        outcome_name=reported_outcome,
+    )
+    print(cohort_summary(evaluation_cohorts.fixed_horizon, reported_outcome))
+    print(cohort_summary(evaluation_cohorts.survival, reported_outcome))
     report = full_evaluation(
         labels_bin,
         probs_bin,

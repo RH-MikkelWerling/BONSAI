@@ -536,6 +536,82 @@ use `evaluation_mode=held_out`. Probe performance describes historical
 treatment-selection information in the embeddings; it is not a treatment
 recommendation or a causal effect estimate.
 
+## Patient and Vocabulary Embedding Visualizations
+
+Use patient embeddings and vocabulary embeddings for different claims.
+
+Patient embedding plots show the geometry of people at the prediction origin.
+For outcome-facing claims, draw the projection on the held-out/test patients
+used for evaluation, or make the caption explicit if the plot is descriptive
+and includes train/tuning patients. For the treatment atlas, probe performance
+should be held-out whenever possible, while the atlas itself may use all
+eligible first-line patients as a descriptive map of disease and regimen
+structure.
+
+Vocabulary embedding plots show the geometry of model code tokens, not
+patients. They are useful for asking whether the model has learned coherent
+clinical code neighborhoods and which token families move during DAPT/OPERA.
+They should be shown as a separate figure from patient maps unless the visual
+explicitly links a patient cluster to exemplar nearest tokens.
+
+```bash
+python -m opera.run.vocabulary_embedding_atlas \
+  --checkpoint pretrain=/results/checkpoints/pretrain.ckpt \
+  --checkpoint dapt=/results/checkpoints/dapt.ckpt \
+  --checkpoint opera=/results/checkpoints/opera.ckpt \
+  --vocabulary /data/hematology/vocabulary.pt \
+  --atlas_stage opera \
+  --reference_stage pretrain \
+  --projection umap \
+  --highlight_tokens LPR3//DC833,RKKP//ann_arbor_III \
+  --neighbor_tokens LPR3//DC833,RKKP//ann_arbor_III \
+  --output_dir /results/vocabulary_embedding_atlas
+```
+
+Outputs include:
+
+- `vocabulary_embeddings_<stage>.csv`: token-level embedding table per stage;
+- `vocabulary_atlas_coordinates.csv`: reusable token projection coordinates;
+- `vocabulary_atlas.png/.pdf`: code-token atlas colored by token family/source;
+- `token_movement.csv`: token-level pretrain-to-DAPT/OPERA movement metrics;
+- `token_movement.png/.pdf`: the most shifted tokens per comparator stage;
+- `vocabulary_neighbors.csv`: optional nearest-neighbor table for highlighted
+  query tokens.
+
+## Many-Outcome Training Guardrails
+
+OPERA can train with sparse outcome availability: patients do not need labels
+for every configured endpoint, and missing labels are represented by sentinel
+values. For large endpoint panels, use the same task-balancing philosophy in
+contrastive and joint fine-tuning:
+
+- primary contrastive and joint runs should use uniform macro aggregation, so
+  common endpoints do not dominate by sheer support;
+- joint fine-tuning uses the shared cross-outcome weighter and can auto-fill
+  train-set class counts from the configured cohort/outcome files;
+- capped positive-class weighting is enabled for joint BCE by default, so rare
+  positives are not washed out by many negative rows;
+- one-class minibatches are skipped for joint BCE by default, preventing rare
+  endpoints from contributing endless all-negative updates;
+- real-rare cells should still be flagged by train/test event support before
+  paper aggregation.
+
+The production joint config mirrors the contrastive setting:
+
+```yaml
+cross_outcome:
+  weighter: uniform
+  aggregation: macro
+  class_balanced: false
+  positive_class_weighted: true
+  positive_class_weight_cap: 50.0
+  require_both_classes_per_batch: true
+```
+
+Use `class_balanced: true` only as a sensitivity run unless the analysis plan
+explicitly wants an additional outcome-level rare-task boost on top of BCE
+positive weighting.
+
 ## Manifests
 
 Experiment manifests live under `opera/configs/manifests/`:

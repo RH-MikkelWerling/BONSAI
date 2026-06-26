@@ -109,7 +109,7 @@ Evaluation is rigorous and multi-dimensional:
 
 **Training**: The model is trained on a *grouped* cohort architecture — 11 disease groups (e.g., "aggressive B-cell lymphoma") that aggregate multiple fine diagnoses.
 
-**Evaluation**: Evaluation uses *fine-grained* diagnoses — 26 individual disease labels (e.g., DLBCL, primary mediastinal B-cell lymphoma, etc.).
+**Evaluation**: Evaluation uses *fine-grained* diagnoses — 25 analyzed disease labels, with a separate explicit `EXCLUDE_SECONDARY` label kept out of the main evaluation.
 
 This train-coarse/eval-fine structure tests whether representations learned on grouped data transfer to individual diseases with limited data — directly testing the generalization claim.
 
@@ -126,7 +126,7 @@ This train-coarse/eval-fine structure tests whether representations learned on g
 Based on the current branch state and recent commit history:
 
 1. **Complete the cohorts.py integration** — `evaluate_joint.py` and the sweep orchestrator still use the old inline pattern and need to be updated.
-2. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 26 fine diagnoses × all outcomes × all model variants.
+2. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 25 evaluated fine diagnoses × all outcomes × all model variants.
 3. **Rarity analysis** — collect real and synthetic rarity results across all cohorts for the central paper claim.
 4. **Paper figures** — aggregate results, generate rarity delta plots, embedding projections, and comparison tables.
 5. **Final audit** — the recent "massive audit" commit fixed known issues; a final pass through eligibility and registry filtering is planned.
@@ -141,7 +141,7 @@ Based on the current branch state and recent commit history:
 | **Pre-training data** | Danish national EHR registries (all-cause) |
 | **Adaptation** | DAPT → contrastive → fine-tune (4-stage) |
 | **Key innovation** | Survival-informed contrastive learning |
-| **Diseases** | ~26 hematological diagnoses |
+| **Diseases** | 25 evaluated hematological diagnoses plus explicit secondary-cancer exclusion label |
 | **Outcomes** | 1y mortality, treatment failure, remission, progression |
 | **Evaluation** | AUROC, AUPRC, C-index, calibration, rarity analysis |
 | **Test suite** | 228 passing tests, 47 modules |
@@ -156,7 +156,8 @@ Suggest including these in slides (all generatable from the codebase):
 - **Pipeline diagram**: MEDS → tokenization → 4-stage training → evaluation
 - **Architecture diagram**: BonsaiEncoder with EhrEmbeddings → contrastive projections → task heads
 - **Rarity curve**: Performance vs. training set size (the central paper claim)
-- **UMAP embeddings**: Before/after contrastive adaptation, colored by disease and outcome
+- **Patient embedding atlas**: Before/after contrastive adaptation, colored by disease, outcome, and first-line regimen
+- **Vocabulary embedding atlas**: learned code-token geography and token movement from pre-training → DAPT → OPERA
 - **Results table**: AUROC by cohort × model variant (BONSAI vs. DAPT vs. OPERA vs. tabular baseline)
 
 ---

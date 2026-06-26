@@ -6,6 +6,7 @@ from opera.evaluation.cohorts import (
     SURVIVAL_REGIME,
     assert_cohort_parity,
     build_evaluation_cohorts,
+    population_subject_ids,
     population_subject_strata,
 )
 
@@ -52,6 +53,19 @@ def test_canonical_cohorts_separate_early_censoring_and_eligibility():
     assert cohorts.survival.n_events == 1
 
 
+def test_canonical_cohorts_respect_allowed_subject_ids():
+    cohorts = build_evaluation_cohorts(
+        _outcomes(),
+        split="held_out",
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        allowed_subject_ids={1, 3},
+    )
+
+    assert cohorts.survival.subject_ids == {1, 3}
+    assert cohorts.fixed_horizon.subject_ids == {1}
+
+
 def test_cohort_parity_passes_and_reports_symmetric_difference():
     cohorts = build_evaluation_cohorts(
         _outcomes().iloc[:3],
@@ -88,3 +102,22 @@ def test_population_subject_strata_preserves_evaluation_order(tmp_path):
     strata = population_subject_strata(path, [3, 1], "cohort_fine")
 
     assert strata.tolist() == ["AML", "DLBCL"]
+
+
+def test_population_subject_ids_filters_fine_cohort(tmp_path):
+    population = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "cohort_fine": ["DLBCL", "FL", "DLBCL"],
+        }
+    )
+    path = tmp_path / "population.csv"
+    population.to_csv(path, index=False)
+
+    subject_ids = population_subject_ids(
+        path,
+        cohort_fine_col="cohort_fine",
+        cohort_fine_value="DLBCL",
+    )
+
+    assert subject_ids == {1, 3}

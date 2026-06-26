@@ -38,10 +38,21 @@ ask: "Is the outcome structure the contrastive stage learned consistent
 with how hard the joint model finds each outcome?"
 """
 
-from typing import Dict, List
+from collections.abc import Mapping
+from typing import Dict, List, Optional
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.modules.networks.cross_outcome_weighters import (
+    KendallWeighter,
+    build_cross_outcome_weighter,
+)
+
+# NOTE: The historical docstring above describes the original Kendall-only
+# joint BCE loss. The implementation now shares the contrastive stage's
+# pluggable cross-outcome weighter; production configs use uniform macro
+# aggregation plus capped positive-class weighting for rare endpoints.
 
 
 class JointFinetuneModel(nn.Module):
@@ -65,12 +76,14 @@ class JointFinetuneModel(nn.Module):
         pooling: str = "bigru",
         freeze_encoder: bool = False,
         dropout: float = 0.1,
+        cross_outcome_config: Optional[Mapping[str, object]] = None,
     ):
         super().__init__()
         self.encoder = encoder
         self.outcome_names = outcome_names
         self.pooling = pooling
         self.freeze_encoder = freeze_encoder
+        self.cross_outcome_config = dict(cross_outcome_config or {})
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -87,8 +100,105 @@ class JointFinetuneModel(nn.Module):
             {name: nn.Linear(hidden_size, 1) for name in outcome_names}
         )
 
-        # Learnable log-variance per outcome (Kendall et al. 2018)
-        self.log_sigma = nn.Parameter(torch.zeros(len(outcome_names)))
+        # Share the contrastive stage's cross-outcome weighting semantics.
+        settings = self._legacy_default_cross_outcome_config()
+        settings.update(self.cross_outcome_config)
+        (
+            self.weighter,
+            self.aggregation,
+            class_balance_factors,
+        ) = build_cross_outcome_weighter(outcome_names, settings)
+        self.register_buffer(
+            "class_balance_factors",
+            class_balance_factors,
+            persistent=False,
+        )
+        self.require_both_classes_per_batch = bool(
+            settings.get("require_both_classes_per_batch", True)
+        )
+        self.positive_class_weighted = bool(
+            settings.get("positive_class_weighted", False)
+        )
+        self.positive_class_weight_cap = float(
+            settings.get(
+                "positive_class_weight_cap",
+                settings.get("class_balanced_cap", 50.0),
+            )
+        )
+        positive_weights = self._positive_class_weights(settings)
+        self.register_buffer(
+            "positive_class_weights",
+            positive_weights,
+            persistent=False,
+        )
+
+    @staticmethod
+    def _legacy_default_cross_outcome_config() -> dict:
+        """Preserve historical construction unless configs opt into uniform macro."""
+        return {
+            "weighter": "kendall",
+            "aggregation": "pooled",
+            "class_balanced": False,
+        }
+
+    def _positive_class_weights(self, settings: Mapping[str, object]) -> torch.Tensor:
+        """Return capped per-outcome BCE positive weights from train counts."""
+        weights = torch.ones(len(self.outcome_names), dtype=torch.float32)
+        if not self.positive_class_weighted:
+            return weights
+        counts = settings.get("class_counts", {})
+        if not isinstance(counts, Mapping):
+            raise ValueError(
+                "cross_outcome.class_counts must be a mapping when "
+                "positive_class_weighted is true."
+            )
+        for index, name in enumerate(self.outcome_names):
+            outcome_counts = counts.get(name, {})
+            if not isinstance(outcome_counts, Mapping):
+                continue
+            positive = float(outcome_counts.get("positive", 0.0) or 0.0)
+            negative = float(outcome_counts.get("negative", 0.0) or 0.0)
+            if positive <= 0 or negative <= 0:
+                continue
+            weights[index] = min(negative / positive, self.positive_class_weight_cap)
+        return weights
+
+    @property
+    def log_sigma(self) -> torch.Tensor:
+        """Expose Kendall log-sigma for older analysis utilities."""
+        if not isinstance(self.weighter, KendallWeighter):
+            raise AttributeError("log_sigma is only available with Kendall weighting.")
+        return self.weighter.log_sigma
+
+    @log_sigma.deleter
+    def log_sigma(self) -> None:
+        self._parameters.pop("log_sigma", None)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        old_key = f"{prefix}log_sigma"
+        new_key = f"{prefix}weighter.log_sigma"
+        if old_key in state_dict:
+            if isinstance(self.weighter, KendallWeighter) and new_key not in state_dict:
+                state_dict[new_key] = state_dict[old_key]
+            state_dict.pop(old_key)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def get_embedding(
         self,
@@ -143,9 +253,13 @@ class JointFinetuneModel(nn.Module):
         pooled = self.get_embedding(batch)
         device = pooled.device
 
-        total_loss = torch.tensor(0.0, device=device, requires_grad=True)
         log_dict: Dict[str, torch.Tensor] = {}
-        bce = nn.BCEWithLogitsLoss(reduction="mean")
+        per_outcome_losses = torch.full(
+            (len(self.outcome_names),),
+            float("nan"),
+            device=device,
+            dtype=pooled.dtype,
+        )
 
         for k, name in enumerate(self.outcome_names):
             labels_k = outcome_labels.get(name)
@@ -153,19 +267,61 @@ class JointFinetuneModel(nn.Module):
                 continue
 
             valid = labels_k >= 0
-            if valid.sum() < 2:
+            log_dict[f"n_valid/{name}"] = valid.sum().float().detach()
+            if int(valid.sum().item()) < 2:
+                continue
+
+            labels_v = labels_k[valid].float()
+            if self.require_both_classes_per_batch and torch.unique(labels_v).numel() < 2:
                 continue
 
             logits_k = self.heads[name](pooled[valid]).squeeze(-1)  # (V,)
-            loss_k = bce(logits_k, labels_k[valid].float())
+            pos_weight = self.positive_class_weights[k].to(
+                device=device,
+                dtype=pooled.dtype,
+            )
+            loss_k = F.binary_cross_entropy_with_logits(
+                logits_k,
+                labels_v,
+                reduction="mean",
+                pos_weight=pos_weight if self.positive_class_weighted else None,
+            )
 
-            # Kendall weighting
-            precision = 0.5 * torch.exp(-2.0 * self.log_sigma[k])
-            total_loss = total_loss + precision * loss_k + self.log_sigma[k]
+            factor = self.class_balance_factors[k].to(
+                device=device,
+                dtype=pooled.dtype,
+            )
+            per_outcome_losses[k] = loss_k * factor
 
             log_dict[f"loss/{name}"] = loss_k.detach()
-            log_dict[f"sigma/{name}"] = torch.exp(self.log_sigma[k]).detach()
+            log_dict[f"class_balance_factor/{name}"] = factor.detach()
+            log_dict[f"positive_class_weight/{name}"] = pos_weight.detach()
             log_dict[f"logits/{name}"] = logits_k.detach()
+
+        active_mask = torch.isfinite(per_outcome_losses)
+        outcome_weights = self.weighter.weights(per_outcome_losses)
+        finite_losses = torch.where(
+            active_mask,
+            per_outcome_losses,
+            torch.zeros_like(per_outcome_losses),
+        )
+        if active_mask.any():
+            total_loss = torch.sum(outcome_weights * finite_losses)
+            total_loss = total_loss + self.weighter.regularizer(active_mask)
+            if self.aggregation == "macro":
+                total_loss = total_loss / active_mask.sum().to(total_loss.dtype)
+        else:
+            total_loss = pooled.sum() * 0.0
+
+        for index, name in enumerate(self.outcome_names):
+            log_dict[f"cross_outcome_weight/{name}"] = (
+                outcome_weights[index].detach()
+            )
+            if isinstance(self.weighter, KendallWeighter):
+                log_dict[f"sigma/{name}"] = torch.exp(
+                    self.weighter.log_sigma[index]
+                ).detach()
+                log_dict[f"precision/{name}"] = outcome_weights[index].detach()
 
         log_dict["loss"] = total_loss
         return log_dict

@@ -13,6 +13,7 @@ import pandas as pd
 from opera.run.sweep import (
     _run_ipi_baseline_cell,
     _run_variant_cell,
+    prepare_ipi_subset_predictions,
 )
 from opera.run.sweep_commands import (
     build_evaluate_cmd,
@@ -360,6 +361,44 @@ def test_build_prediction_evaluate_cmd_optional_flags_absent_when_unset():
         subgroup_path="/data/dlbcl/subgroups.parquet",
     )
     assert "--subgroups" not in only_path
+
+
+def test_prepare_ipi_subset_predictions_respects_fine_cohort(tmp_path):
+    population = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "cohort_fine": ["DLBCL", "FL", "DLBCL"],
+            "nccn_ipi": [3, 5, 1],
+        }
+    )
+    outcomes = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "split": ["held_out", "held_out", "held_out"],
+            "index_date": pd.to_datetime(["2020-01-01"] * 3),
+            "outcome_date": pd.to_datetime([None, None, None]),
+            "censor_date": pd.to_datetime(["2021-01-01"] * 3),
+        }
+    )
+    population_path = tmp_path / "population_full.csv"
+    outcome_path = tmp_path / "outcome.parquet"
+    population.to_csv(population_path, index=False)
+    outcomes.to_parquet(outcome_path)
+
+    prediction_path, coverage, subject_ids = prepare_ipi_subset_predictions(
+        population_csv=str(population_path),
+        outcome_parquet=str(outcome_path),
+        ipi_score_col="nccn_ipi",
+        output_dir=tmp_path / "ipi",
+        cohort_fine_col="cohort_fine",
+        cohort_fine_value="DLBCL",
+    )
+
+    assert prediction_path is not None
+    assert coverage == 1.0
+    assert subject_ids == {1, 3}
+    written = pd.read_csv(prediction_path)
+    assert set(written["subject_id"]) == {1, 3}
 
 
 # ── SweepCellRecord ─────────────────────────────────────────────────────────

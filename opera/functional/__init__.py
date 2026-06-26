@@ -1,8 +1,10 @@
 """OPERA functional helper exports."""
 
 from opera.functional.cohort_groups import (
+    ALL_EVALUATED_FINE,
     ALL_FINE,
     ALL_GROUPED,
+    EXCLUDED_FINE,
     FINE_TO_GROUPED,
     GROUPED_TO_FINE,
     fine_to_grouped,
@@ -19,8 +21,10 @@ from opera.functional.outcomes import (
 )
 
 __all__ = [
+    "ALL_EVALUATED_FINE",
     "ALL_FINE",
     "ALL_GROUPED",
+    "EXCLUDED_FINE",
     "FINE_TO_GROUPED",
     "GROUPED_TO_FINE",
     "attach_ipcw_weights",

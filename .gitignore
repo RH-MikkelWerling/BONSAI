@@ -7,6 +7,7 @@ corebehrt.egg-info/
 coverage.xml
 .pytest_cache/
 .ruff_cache/
+*_pytest_out.txt
 .azure
 azure_job_config.yaml
 .azure_job_configs

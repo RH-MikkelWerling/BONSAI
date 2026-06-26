@@ -207,6 +207,7 @@ def load_joint_model_from_checkpoint(
         pooling=model_init_config.get("pooling", "bigru"),
         freeze_encoder=model_init_config.get("freeze_encoder", False),
         dropout=model_init_config.get("dropout", 0.1),
+        cross_outcome_config=model_init_config.get("cross_outcome_config"),
     )
     clean_state = clean_lightning_state_dict(ckpt["state_dict"])
     load_state_dict_checked(model, clean_state, strict=strict)

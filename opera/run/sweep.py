@@ -69,6 +69,7 @@ import numpy as np
 import pandas as pd
 
 from opera.config_contracts import load_sweep_config, variant_applies_to_outcome
+from opera.evaluation.cohorts import population_subject_ids
 from opera.evaluation.cohort_flow import eligibility_file_path
 from opera.evaluation.results_schema import build_result_row, write_result_artifacts
 from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
@@ -326,16 +327,13 @@ def prepare_ipi_subset_predictions(
     score comparison restricted to identical patients.
     """
     population = pd.read_csv(population_csv)
-    if bool(cohort_fine_col) != bool(cohort_fine_value):
-        raise ValueError("cohort_fine_col and cohort_fine_value must be set together.")
-    if cohort_fine_col:
-        if cohort_fine_col not in population.columns:
-            raise ValueError(
-                f"cohort_fine_col={cohort_fine_col!r} not found in {population_csv}."
-            )
-        population = population[
-            population[cohort_fine_col].astype(str) == str(cohort_fine_value)
-        ].copy()
+    allowed_subject_ids = population_subject_ids(
+        population_csv,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
+    )
+    if allowed_subject_ids is not None:
+        population = population[population["subject_id"].isin(allowed_subject_ids)].copy()
     outcomes = pd.read_parquet(outcome_parquet)
     outcomes = filter_outcome_eligibility(
         outcomes,
@@ -350,6 +348,8 @@ def prepare_ipi_subset_predictions(
         outcome_name=outcome_name,
     )
     test_df = outcomes[outcomes["split"] == split][["subject_id"]].copy()
+    if allowed_subject_ids is not None:
+        test_df = test_df[test_df["subject_id"].isin(allowed_subject_ids)].copy()
     if test_df.empty or ipi_score_col not in population.columns:
         return None, None, set()
     merged = test_df.merge(

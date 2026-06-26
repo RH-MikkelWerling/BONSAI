@@ -37,7 +37,7 @@ import torch
 import hydra
 import lightning as L
 from dotenv import load_dotenv
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -51,12 +51,42 @@ from opera.compat.bonsai import BonsaiEncoder
 
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
     MultiCohortContrastiveDataModule,
+    compute_pooled_class_counts,
 )
 from opera.modules.networks.joint_finetune_net import JointFinetuneModel
 from opera.modules.lightningmodules.JointFinetuneModule import JointFinetuneModule
 from opera.run.finetune import load_encoder_state_dict
 
 load_dotenv()
+
+
+def _cross_outcome_config(cfg: DictConfig) -> dict:
+    """Resolve joint loss weighting config and auto-fill train class counts."""
+    settings = OmegaConf.to_container(
+        cfg.get("cross_outcome", {}) or {},
+        resolve=True,
+    )
+    settings = dict(settings or {})
+    needs_counts = bool(settings.get("class_balanced", False)) or bool(
+        settings.get("positive_class_weighted", False)
+    )
+    if needs_counts and not settings.get("class_counts"):
+        settings["class_counts"] = compute_pooled_class_counts(
+            cohort_configs={
+                name: {
+                    "data_dir": c["data_dir"],
+                    "registry_start_date": c.get("registry_start_date"),
+                }
+                for name, c in cfg.cohorts.items()
+            },
+            outcome_configs=OmegaConf.to_container(cfg.outcomes, resolve=True),
+            split="train",
+            require_min_followup=True,
+            require_all_configured_cells=cfg.training.get(
+                "require_all_configured_cells", True
+            ),
+        )
+    return settings
 
 
 @hydra.main(
@@ -95,6 +125,7 @@ def main(cfg: DictConfig) -> None:
         )
 
     outcome_names = sorted(cfg.outcomes.keys())
+    cross_outcome_config = _cross_outcome_config(cfg)
 
     joint_model = JointFinetuneModel(
         encoder=encoder,
@@ -103,6 +134,7 @@ def main(cfg: DictConfig) -> None:
         pooling=cfg.model.get("pooling", "bigru"),
         freeze_encoder=cfg.model.get("freeze_encoder", False),
         dropout=cfg.model.get("dropout", 0.1),
+        cross_outcome_config=cross_outcome_config,
     )
 
     lightning_module = JointFinetuneModule(
@@ -118,6 +150,7 @@ def main(cfg: DictConfig) -> None:
             "encoder_source": cfg.encoder_source,
             "cohort_set": sorted(cfg.cohorts.keys()),
             "outcome_set": outcome_names,
+            "cross_outcome": cross_outcome_config,
         },
     )
 

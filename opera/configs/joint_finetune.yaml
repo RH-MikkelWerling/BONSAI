@@ -80,6 +80,24 @@ model:
   freeze_encoder: false   # true → ablation: only train heads
   dropout: 0.1
 
+cross_outcome:
+  # Match the primary contrastive run: no learned task suppression in the
+  # production representation model, and no pooling advantage for common tasks.
+  weighter: uniform
+  aggregation: macro
+  # Optional outcome-level effective-number factor. Keep false by default to
+  # avoid double-boosting rare tasks; turn on only as a sensitivity run.
+  class_balanced: false
+  class_balanced_cap: 50.0
+  class_balanced_beta: 0.9999
+  # BCE-specific prevalence guardrail. Counts are auto-filled from train labels
+  # by opera.run.joint_finetune when this is true and class_counts is empty.
+  positive_class_weighted: true
+  positive_class_weight_cap: 50.0
+  # Prevent rare endpoints from contributing endless all-negative minibatches.
+  require_both_classes_per_batch: true
+  class_counts: {}
+
 training:
   require_all_configured_cells: true
   batch_size: 64

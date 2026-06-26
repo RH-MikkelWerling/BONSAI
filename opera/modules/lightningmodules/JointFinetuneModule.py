@@ -49,6 +49,7 @@ class JointFinetuneModule(L.LightningModule):
             "pooling": model.pooling,
             "freeze_encoder": model.freeze_encoder,
             "dropout": model.dropout.p,
+            "cross_outcome_config": dict(getattr(model, "cross_outcome_config", {})),
         }
         attach_checkpoint_metadata(self, checkpoint_metadata)
         self.model = model

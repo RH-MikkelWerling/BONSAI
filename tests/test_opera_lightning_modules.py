@@ -146,7 +146,7 @@ def test_opera_contrastive_requires_dapt_ckpt_or_none():
 # ── JointFinetuneModule ─────────────────────────────────────────────────────
 
 
-def _make_joint_model():
+def _make_joint_model(cross_outcome_config=None):
     return JointFinetuneModel(
         encoder=_StubEncoder(),
         outcome_names=OUTCOMES,
@@ -154,6 +154,7 @@ def _make_joint_model():
         pooling="cls_last",
         freeze_encoder=False,
         dropout=0.1,
+        cross_outcome_config=cross_outcome_config,
     )
 
 
@@ -209,6 +210,63 @@ def test_joint_finetune_multi_outcome_masking():
     assert torch.isfinite(full_loss)
     assert torch.isfinite(masked_loss)
     assert not torch.isclose(full_loss, masked_loss)
+
+
+def test_joint_finetune_uses_uniform_macro_and_class_weights_for_rare_outcomes():
+    model = _make_joint_model(
+        {
+            "weighter": "uniform",
+            "aggregation": "macro",
+            "class_balanced": True,
+            "class_balanced_cap": 5.0,
+            "positive_class_weighted": True,
+            "positive_class_weight_cap": 10.0,
+            "require_both_classes_per_batch": True,
+            "class_counts": {
+                "mortality": {"positive": 1, "negative": 99},
+                "relapse": {"positive": 50, "negative": 50},
+            },
+        }
+    )
+    batch = _joint_batch()
+    labels = {
+        "mortality": batch["outcome_mortality"],
+        "relapse": batch["outcome_relapse"],
+    }
+
+    out = model(batch, labels)
+
+    assert torch.isfinite(out["loss"])
+    assert out["cross_outcome_weight/mortality"].item() == 1.0
+    assert out["cross_outcome_weight/relapse"].item() == 1.0
+    assert out["class_balance_factor/mortality"].item() > out[
+        "class_balance_factor/relapse"
+    ].item()
+    assert out["positive_class_weight/mortality"].item() == 10.0
+    assert out["positive_class_weight/relapse"].item() == 1.0
+
+
+def test_joint_finetune_skips_one_class_minibatch_by_default():
+    model = _make_joint_model(
+        {
+            "weighter": "uniform",
+            "aggregation": "macro",
+            "class_balanced": False,
+            "require_both_classes_per_batch": True,
+        }
+    )
+    batch = _joint_batch()
+    labels = {
+        "mortality": torch.tensor([0, 0, 0, 0]),
+        "relapse": batch["outcome_relapse"],
+    }
+
+    out = model(batch, labels)
+
+    assert "loss/mortality" not in out
+    assert "loss/relapse" in out
+    assert out["cross_outcome_weight/mortality"].item() == 0.0
+    assert out["cross_outcome_weight/relapse"].item() == 1.0
 
 
 # ── MOLModule ───────────────────────────────────────────────────────────────

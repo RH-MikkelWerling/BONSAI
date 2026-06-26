@@ -220,6 +220,101 @@ def compute_pooled_event_time_probability_grids(
     return time_grids, prob_grids
 
 
+def compute_pooled_class_counts(
+    cohort_configs: Dict[str, dict],
+    outcome_configs: Dict[str, dict],
+    split: str = "train",
+    require_min_followup: bool = True,
+    require_all_configured_cells: bool = False,
+) -> Dict[str, Dict[str, int]]:
+    """Count pooled positive/negative labels per outcome after eligibility.
+
+    These counts feed prevalence-aware joint fine-tuning. They intentionally
+    use the same outcome loading, eligibility, registry, competing-event, and
+    binarization path as contrastive training so task weighting is based on
+    the exact labels the model sees.
+    """
+    counts: Dict[str, Dict[str, int]] = {
+        name: {"positive": 0, "negative": 0} for name in outcome_configs
+    }
+
+    for cohort_name, cohort_cfg in cohort_configs.items():
+        data_dir = cohort_cfg["data_dir"]
+        outcomes_dir = os.path.join(data_dir, "outcomes")
+        for name, ocfg in outcome_configs.items():
+            filename = ocfg.get("outcome_file") or ocfg.get("filename")
+            if filename is None:
+                if require_all_configured_cells:
+                    raise ValueError(
+                        f"Configured outcome {name!r} has no outcome_file for "
+                        f"cohort {cohort_name!r}."
+                    )
+                continue
+            path = os.path.join(outcomes_dir, filename)
+            if not os.path.exists(path):
+                if require_all_configured_cells:
+                    raise FileNotFoundError(
+                        f"Configured outcome {name!r} is missing for cohort "
+                        f"{cohort_name!r}: {path}"
+                    )
+                continue
+            try:
+                df = pd.read_parquet(path)
+                df = filter_outcome_eligibility(
+                    df,
+                    _eligibility_path(data_dir, ocfg),
+                    cohort=cohort_name,
+                    outcome_name=name,
+                )
+                df = attach_prediction_censor_abspos(df)
+                df = filter_registry_eligible_outcomes(
+                    df,
+                    resolve_registry_start_date(cohort_cfg, ocfg),
+                    cohort=cohort_name,
+                    outcome_name=name,
+                )
+                split_df = df[df["split"] == split].copy()
+                if split_df.empty:
+                    if require_all_configured_cells:
+                        raise ValueError(
+                            f"Configured outcome {name!r} has no eligible rows for "
+                            f"cohort {cohort_name!r}, split {split!r}."
+                        )
+                    continue
+                competing_df = None
+                competing_file = ocfg.get("competing_outcome_file")
+                if competing_file:
+                    competing_path = os.path.join(outcomes_dir, competing_file)
+                    if os.path.exists(competing_path):
+                        competing_df = pd.read_parquet(competing_path)
+                    elif require_all_configured_cells:
+                        raise FileNotFoundError(
+                            f"Configured competing outcome for {name!r} is missing "
+                            f"for cohort {cohort_name!r}: {competing_path}"
+                        )
+                records = binarize_outcomes(
+                    split_df,
+                    n_hours_start_include=ocfg["n_hours_start_include"],
+                    n_hours_end_include=ocfg.get("n_hours_end_include"),
+                    require_min_followup=require_min_followup,
+                    competing_event_df=competing_df,
+                )
+            except (KeyError, OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Failed to count labels for outcome {name!r} in cohort "
+                    f"{cohort_name!r}: {exc}"
+                ) from exc
+
+            for record in records.values():
+                label = int(record["label"])
+                if label == 1:
+                    counts[name]["positive"] += 1
+                elif label == 0:
+                    counts[name]["negative"] += 1
+
+    return counts
+
+
 class MultiCohortContrastiveDataModule(L.LightningDataModule):
     """
     Parameters

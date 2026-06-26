@@ -5,8 +5,10 @@ from __future__ import annotations
 import pytest
 
 from opera.functional.cohort_groups import (
+    ALL_EVALUATED_FINE,
     ALL_FINE,
     ALL_GROUPED,
+    EXCLUDED_FINE,
     FINE_TO_GROUPED,
     GROUPED_TO_FINE,
     fine_to_grouped,
@@ -36,6 +38,13 @@ def test_grouped_to_fine_covers_all_fine():
     """The union of all GROUPED_TO_FINE values must equal ALL_FINE."""
     all_fine_via_grouped = set().union(*GROUPED_TO_FINE.values())
     assert all_fine_via_grouped == set(ALL_FINE)
+
+
+def test_evaluated_fine_excludes_secondary_label():
+    assert EXCLUDED_FINE == frozenset({"EXCLUDE_SECONDARY"})
+    assert set(ALL_EVALUATED_FINE) == set(ALL_FINE) - EXCLUDED_FINE
+    assert len(ALL_FINE) == 26
+    assert len(ALL_EVALUATED_FINE) == 25
 
 
 def test_fine_to_grouped_round_trip():
@@ -244,34 +253,9 @@ def test_leukemia_sweep_config_structure():
     assert "model_variants" in raw
 
     cohorts = raw["cohorts"]
-    # Verify all 26 fine cohorts are present (EXCLUDE_SECONDARY is not in leukemia sweep)
-    expected = {
-        "DLBCL",
-        "BCL",
-        "RT",
-        "RT_DERIVED",
-        "FL",
-        "MCL",
-        "LPL",
-        "EMZL",
-        "NMZL",
-        "SMZL",
-        "TRANSFORMED_FL",
-        "AITL",
-        "ALCL",
-        "PTCL",
-        "TCL",
-        "CLL",
-        "SLL",
-        "BL",
-        "LBL",
-        "MM",
-        "PCL",
-        "HL",
-        "HCL",
-        "AMYLOIDOSIS",
-        "SoIM",
-    }
+    # The sweep evaluates the 25 analyzed fine cohorts. EXCLUDE_SECONDARY is
+    # retained in the mapping as an explicit non-analyzed label.
+    expected = set(ALL_EVALUATED_FINE)
     assert set(cohorts.keys()) == expected, (
         f"Cohort mismatch: extra={set(cohorts.keys()) - expected}, "
         f"missing={expected - set(cohorts.keys())}"

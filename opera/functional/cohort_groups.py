@@ -2,8 +2,8 @@
 
 Training uses ``cohort_grouped`` (11 broad disease groups) to maximise
 cross-disease learning signal in contrastive, MOL, and joint finetune runs.
-Evaluation breaks results out by ``cohort_fine`` (26 granular diagnoses) to
-report per-entity performance in paper tables.
+Evaluation breaks results out by ``cohort_fine`` for 25 analyzed granular
+diagnoses; ``EXCLUDE_SECONDARY`` is retained as an explicit non-analyzed label.
 
 The mapping is derived from the RKKP/hematology registry classification and
 the patient counts confirmed by the study team.  See OPERA_EXPERIMENTS.md for
@@ -102,6 +102,11 @@ ALL_FINE: tuple[str, ...] = (
     "SoIM",
     "TCL",
     "TRANSFORMED_FL",
+)
+
+EXCLUDED_FINE: FrozenSet[str] = frozenset({"EXCLUDE_SECONDARY"})
+ALL_EVALUATED_FINE: tuple[str, ...] = tuple(
+    fine for fine in ALL_FINE if fine not in EXCLUDED_FINE
 )
 
 

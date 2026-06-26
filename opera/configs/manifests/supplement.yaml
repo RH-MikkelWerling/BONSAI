@@ -66,3 +66,16 @@ experiments:
       - disease_treatment_geometry.csv
       - disease_treatment_atlas.png
       - treatment_probe_performance.png
+
+  - name: vocabulary_embedding_atlas
+    script: opera.run.vocabulary_embedding_atlas
+    interpretation: token_code_geometry_not_patient_predictions
+    preferred_projection: umap
+    outputs:
+      - analysis_metadata.json
+      - vocabulary_embeddings_<stage>.csv
+      - vocabulary_atlas_coordinates.csv
+      - vocabulary_atlas.png
+      - token_movement.csv
+      - token_movement.png
+      - vocabulary_neighbors.csv

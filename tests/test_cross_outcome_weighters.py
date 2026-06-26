@@ -253,6 +253,15 @@ def test_production_contrastive_configs_use_uniform_macro():
         assert config.cross_outcome.aggregation == "macro"
 
 
+def test_production_joint_config_matches_contrastive_task_balancing():
+    config = OmegaConf.load("opera/configs/joint_finetune.yaml")
+
+    assert config.cross_outcome.weighter == "uniform"
+    assert config.cross_outcome.aggregation == "macro"
+    assert config.cross_outcome.positive_class_weighted is True
+    assert config.cross_outcome.require_both_classes_per_batch is True
+
+
 def test_zero_informative_pairs_do_not_apply_kendall_regularizer():
     loss_fn = MultiOutcomeSurvivalLoss(
         ["a"],
