@@ -123,6 +123,9 @@ def main(cfg: DictConfig) -> None:
         dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
         competing_event_weight=cfg.model.get("competing_event_weight", 0.0),
+        competing_event_handling=cfg.model.get(
+            "competing_event_handling", "hard_negative"
+        ),
         effective_pair_normalization=cfg.model.get(
             "effective_pair_normalization", True
         ),

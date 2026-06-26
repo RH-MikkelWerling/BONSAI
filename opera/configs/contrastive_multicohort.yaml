@@ -99,8 +99,9 @@ model:
   # Optional cosine anchor on pre-projection pooled encoder states.
   # Default 0.0 preserves historical contrastive behaviour.
   dapt_anchor_weight: 0.0
-  # Conservative competing-event default. Run gamma sensitivity with 0.5 and
-  # 1.0 for the competing-risk appendix rather than learning this parameter.
+  # Competing deaths default to hard negatives: event-free up to death time.
+  # Set handling=censor with weight=0.0 to reproduce the older behavior.
+  competing_event_handling: hard_negative
   competing_event_weight: 0.0
   # Normalize sigma/loss by effective informative pairs across each outcome.
   effective_pair_normalization: true

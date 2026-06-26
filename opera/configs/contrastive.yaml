@@ -58,8 +58,9 @@ model:
   # Optional cosine anchor on pre-projection pooled encoder states.
   # Default 0.0 preserves historical contrastive behaviour.
   dapt_anchor_weight: 0.0
-  # Competing deaths are conservative by default. Use sensitivity runs such as
-  # 0.5 and 1.0 when asking whether primary-vs-competing similarity matters.
+  # Competing deaths default to hard negatives: event-free up to death time.
+  # Set handling=censor with weight=0.0 to reproduce the older behavior.
+  competing_event_handling: hard_negative
   competing_event_weight: 0.0
   # Scale the sigma input by the effective informative-pair fraction so rare or
   # heavily censored outcomes do not look noisy merely because they have fewer pairs.

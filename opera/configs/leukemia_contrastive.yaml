@@ -120,6 +120,7 @@ model:
   temperature: 0.07
   dapt_lambda_floor: 0.3
   dapt_anchor_weight: 0.0
+  competing_event_handling: hard_negative
   competing_event_weight: 0.0
   effective_pair_normalization: true
   freeze_encoder: false

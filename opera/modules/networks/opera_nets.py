@@ -240,9 +240,10 @@ class SurvivalSoftContrastiveLoss(nn.Module):
 
     Admin-censored patients are encoded as a conditional distribution over
     plausible future primary-event locations under the Kaplan-Meier event-time
-    mass. Competing deaths are explicit event types; by default they structure
-    death-death pairs but do not create primary-event similarity unless
-    ``competing_event_weight`` is raised in a sensitivity run.
+    mass. Competing deaths are handled by ``competing_event_handling``:
+    ``hard_negative`` treats them like informative event-free observations at
+    death time, while ``censor`` preserves the historical exact-death behavior
+    with optional primary-vs-competing downweighting.
     """
 
     def __init__(
@@ -252,8 +253,20 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         cdf_scale: Optional[float] = None,
         min_weight_threshold: float = 1e-4,
         competing_event_weight: float = 0.0,
+        competing_event_handling: str = "hard_negative",
     ):
         super().__init__()
+        allowed = {"censor", "hard_negative", "reliability"}
+        if competing_event_handling not in allowed:
+            raise ValueError(
+                "competing_event_handling must be one of "
+                f"{sorted(allowed)}; got {competing_event_handling!r}."
+            )
+        if competing_event_handling == "reliability":
+            raise NotImplementedError(
+                "competing_event_handling='reliability' is reserved for a "
+                "future reliability-weighted competing-risk sensitivity run."
+            )
         self.temperature = temperature
         if cdf_scale is not None:
             km_time_scale = cdf_scale
@@ -261,6 +274,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         self.cdf_scale = km_time_scale
         self.min_weight_threshold = min_weight_threshold
         self.competing_event_weight = competing_event_weight
+        self.competing_event_handling = competing_event_handling
 
     def _event_grid(
         self,
@@ -316,11 +330,21 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         )
         exact_idx = positions.clamp(0, G - 1)
 
-        exact_mask = (events == 1) | (events == 2)
+        distribution_events = events
+        if self.competing_event_handling == "hard_negative":
+            distribution_events = torch.where(
+                events == 2,
+                torch.zeros_like(events),
+                events,
+            )
+
+        exact_mask = distribution_events == 1
+        if self.competing_event_handling == "censor":
+            exact_mask = exact_mask | (events == 2)
         if exact_mask.any():
             dist[exact_mask, exact_idx[exact_mask]] = 1.0
 
-        cens_mask = events == 0
+        cens_mask = distribution_events == 0
         if cens_mask.any():
             for row in torch.where(cens_mask)[0]:
                 event_tail = event_time_grid > times[row]
@@ -369,7 +393,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         pair_weights = km_dist @ km_kernel @ km_dist.t()
 
         comp = events == 2
-        if comp.any():
+        if self.competing_event_handling == "censor" and comp.any():
             one_comp = comp.unsqueeze(1) ^ comp.unsqueeze(0)
             pair_weights = torch.where(
                 one_comp,
@@ -473,6 +497,7 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
         dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor weight
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         competing_event_weight: float = 0.0,
+        competing_event_handling: str = "hard_negative",
         effective_pair_normalization: bool = True,
     ):
         super().__init__()
@@ -486,6 +511,7 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
         self.survival_con = SurvivalSoftContrastiveLoss(
             temperature=temperature,
             competing_event_weight=competing_event_weight,
+            competing_event_handling=competing_event_handling,
         )
 
         # Learnable log-variance per outcome  (initialised to 0 → σ = 1)
@@ -662,6 +688,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
         dapt_lambda_floor: float = 0.3,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         competing_event_weight: float = 0.0,
+        competing_event_handling: str = "hard_negative",
         effective_pair_normalization: bool = True,
         cross_outcome_config: Optional[Mapping[str, object]] = None,
     ):
@@ -672,6 +699,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             dapt_lambda_floor=dapt_lambda_floor,
             outcome_event_time_probs=outcome_event_time_probs,
             competing_event_weight=competing_event_weight,
+            competing_event_handling=competing_event_handling,
             effective_pair_normalization=effective_pair_normalization,
         )
         del self.log_sigma
@@ -974,6 +1002,7 @@ class OperaContrastiveModel(nn.Module):
         dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor
         dapt_anchor_weight: float = 0.0,
         competing_event_weight: float = 0.0,
+        competing_event_handling: str = "hard_negative",
         effective_pair_normalization: bool = True,
         cross_outcome_config: Optional[Mapping[str, object]] = None,
         freeze_encoder: bool = False,
@@ -993,6 +1022,7 @@ class OperaContrastiveModel(nn.Module):
             "dapt_lambda_floor": dapt_lambda_floor,
             "dapt_anchor_weight": dapt_anchor_weight,
             "competing_event_weight": competing_event_weight,
+            "competing_event_handling": competing_event_handling,
             "effective_pair_normalization": effective_pair_normalization,
             "cross_outcome_config": dict(cross_outcome_config or {}),
             "freeze_encoder": freeze_encoder,
@@ -1020,6 +1050,7 @@ class OperaContrastiveModel(nn.Module):
             outcome_event_time_probs=outcome_event_time_probs,
             dapt_lambda_floor=dapt_lambda_floor,
             competing_event_weight=competing_event_weight,
+            competing_event_handling=competing_event_handling,
             effective_pair_normalization=effective_pair_normalization,
             cross_outcome_config=cross_outcome_config,
         )

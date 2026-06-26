@@ -175,7 +175,10 @@ def test_admin_censoring_uses_km_tail_probabilities_when_available():
 
 def test_competing_death_before_first_event_maps_to_zero_quantile():
     sorted_et = torch.tensor([30.0, 90.0])
-    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    loss_fn = SurvivalSoftContrastiveLoss(
+        km_time_scale=0.25,
+        competing_event_handling="censor",
+    )
     event_grid, km_grid, probs = loss_fn._event_grid(
         sorted_et, None, torch.device("cpu")
     )
@@ -326,12 +329,34 @@ def test_compute_sorted_event_times_excludes_competing_deaths(tmp_path):
     assert result["tx_failure"].tolist() == [30.0, 90.0]
 
 
-def test_competing_death_primary_pair_is_conservative_by_default():
+def test_competing_death_is_hard_negative_by_default():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
     times = torch.tensor([90.0, 60.0])
     events = torch.tensor([1, 2])
 
     loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+    weights, n_eff = loss_fn._compute_pair_weights(times, events, sorted_et)
+
+    event_free_weights, _ = loss_fn._compute_pair_weights(
+        times,
+        torch.tensor([1, 0]),
+        sorted_et,
+    )
+    assert weights[0, 1].item() == pytest.approx(event_free_weights[0, 1].item())
+    assert weights[1, 0].item() == pytest.approx(event_free_weights[1, 0].item())
+    assert n_eff.item() > 0.0
+
+
+def test_competing_death_censor_mode_reproduces_conservative_zero_weight():
+    sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
+    times = torch.tensor([90.0, 60.0])
+    events = torch.tensor([1, 2])
+
+    loss_fn = SurvivalSoftContrastiveLoss(
+        km_time_scale=0.25,
+        competing_event_handling="censor",
+        competing_event_weight=0.0,
+    )
     weights, n_eff = loss_fn._compute_pair_weights(times, events, sorted_et)
 
     assert weights[0, 1].item() == pytest.approx(0.0)
@@ -344,10 +369,14 @@ def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
     times = torch.tensor([90.0, 60.0])
     events = torch.tensor([1, 2])
     conservative = SurvivalSoftContrastiveLoss(
-        km_time_scale=0.25, competing_event_weight=0.0
+        km_time_scale=0.25,
+        competing_event_handling="censor",
+        competing_event_weight=0.0,
     )
     sensitivity = SurvivalSoftContrastiveLoss(
-        km_time_scale=0.25, competing_event_weight=0.5
+        km_time_scale=0.25,
+        competing_event_handling="censor",
+        competing_event_weight=0.5,
     )
 
     w0, _ = conservative._compute_pair_weights(times, events, sorted_et)
@@ -355,6 +384,11 @@ def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
 
     assert w0[0, 1].item() == pytest.approx(0.0)
     assert w1[0, 1].item() > w0[0, 1].item()
+
+
+def test_competing_event_reliability_mode_is_explicitly_reserved():
+    with pytest.raises(NotImplementedError, match="reliability"):
+        SurvivalSoftContrastiveLoss(competing_event_handling="reliability")
 
 
 def test_loss_with_all_three_event_types_is_finite():

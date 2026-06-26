@@ -143,6 +143,7 @@ def test_no_eligible_outcome_produces_zero_without_nan(weighter):
     loss_fn = MultiOutcomeSurvivalLoss(
         ["a"],
         outcome_sorted_event_times={"a": torch.tensor([1.0, 2.0])},
+        competing_event_handling="censor",
         cross_outcome_config={
             "weighter": weighter,
             "aggregation": "pooled",
@@ -266,6 +267,7 @@ def test_zero_informative_pairs_do_not_apply_kendall_regularizer():
     loss_fn = MultiOutcomeSurvivalLoss(
         ["a"],
         outcome_sorted_event_times={"a": torch.tensor([1.0, 2.0])},
+        competing_event_handling="censor",
         cross_outcome_config={
             "weighter": "kendall",
             "aggregation": "pooled",
