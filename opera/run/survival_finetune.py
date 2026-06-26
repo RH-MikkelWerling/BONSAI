@@ -199,6 +199,9 @@ def main(cfg: DictConfig) -> None:
         len(unexpected),
     )
 
+    monitor = (
+        "val/AUROC" if cfg.training_mode == "ipcw_bce" else "val/concordance_index"
+    )
     lightning_module = SurvivalFinetuneModule(
         model=model,
         training_mode=cfg.training_mode,
@@ -216,13 +219,13 @@ def main(cfg: DictConfig) -> None:
             "split_identifier": (
                 f"{cfg.labels.train_key}:{cfg.labels.val_key}:{cfg.labels.test_key}"
             ),
+            "selection_split": cfg.labels.val_key,
+            "selection_metric": monitor,
+            "selection_mode": "max",
         },
         pos_weight=None,
     )
 
-    monitor = (
-        "val/AUROC" if cfg.training_mode == "ipcw_bce" else "val/concordance_index"
-    )
     callbacks = [
         ModelCheckpoint(
             dirpath=model_save_dir,

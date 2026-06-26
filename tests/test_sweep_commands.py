@@ -159,6 +159,8 @@ def test_build_evaluate_cmd_minimal_shape():
     assert cmd[0] == sys.executable
     assert cmd[1] == "-m"
     assert cmd[2] == "opera.run.evaluate"
+    assert "run_dir=/results/cell" in cmd
+    assert not any(part.startswith("ckpt_path=") for part in cmd)
 
 
 def test_build_evaluate_cmd_joint_module_prepends_outcome_name():
@@ -174,6 +176,7 @@ def test_build_evaluate_cmd_joint_module_prepends_outcome_name():
     assert cmd[2] == "opera.run.evaluate_joint"
     # outcome_name override is prepended ahead of the standard overrides.
     assert cmd[3] == "outcome_name=mortality_1y"
+    assert "ckpt_path=/ckpt/joint.ckpt" in cmd
 
 
 def test_build_evaluate_cmd_none_values_serialize_as_null():

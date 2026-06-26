@@ -230,7 +230,7 @@ def run_finetune_and_evaluate(
         return {}
 
     ev_overrides = [
-        f"ckpt_path={output_dir}/best.ckpt",
+        f"run_dir={output_dir}",
         f"dataset={cohort}",
         f"outcome={outcome_name}",
         f"paths.dir={cohort_data_dir}",

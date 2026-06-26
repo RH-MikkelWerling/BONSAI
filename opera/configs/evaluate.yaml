@@ -1,7 +1,8 @@
 defaults:
   - _self_
 
-ckpt_path: ???
+run_dir: ???
+ckpt_path: null  # explicit override; default is ${run_dir}/best.ckpt
 dataset: ???
 outcome: ???
 outcome_name: null

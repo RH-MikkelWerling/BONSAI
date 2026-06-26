@@ -90,8 +90,9 @@ def build_evaluate_cmd(
     cohort_fine_value: Optional[str] = None,
 ) -> list[str]:
     """Return the argv list for an evaluate subprocess call."""
+    checkpoint_override = ckpt_path.name != "best.ckpt"
     overrides = [
-        f"ckpt_path={ckpt_path}",
+        f"run_dir={ckpt_path.parent.as_posix()}",
         f"dataset={cohort}",
         f"outcome={outcome_name}",
         f"paths.dir={cohort_data_dir}",
@@ -102,6 +103,8 @@ def build_evaluate_cmd(
         f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"training_stage={training_stage}",
     ]
+    if checkpoint_override:
+        overrides.append(f"ckpt_path={ckpt_path.as_posix()}")
     if model_family:
         overrides.append(f"model_family={model_family}")
     if encoder_frozen is not None:

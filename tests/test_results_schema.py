@@ -103,6 +103,32 @@ def test_build_result_row_keeps_linear_probe_metadata():
     assert row["head_type"] == "linear_probe"
 
 
+def test_build_result_row_records_checkpoint_provenance():
+    cfg = TinyCfg(
+        {
+            "dataset": "dlbcl",
+            "outcome": "mortality_1y",
+            "labels": {},
+        }
+    )
+    report = {
+        "discrimination": {},
+        "checkpoint_provenance": {
+            "checkpoint_source": "run_dir_best",
+            "selection_split": "tuning",
+            "selection_metric": "val/AUROC",
+            "selection_mode": "max",
+        },
+    }
+
+    row = build_result_row(cfg, report, "/tmp/run/best.ckpt", "held_out")
+
+    assert row["checkpoint_source"] == "run_dir_best"
+    assert row["checkpoint_selection_split"] == "tuning"
+    assert row["checkpoint_selection_metric"] == "val/AUROC"
+    assert row["checkpoint_selection_mode"] == "max"
+
+
 def test_bootstrap_ci_rows_returns_structured_intervals():
     report = {
         "bootstrap_ci": {

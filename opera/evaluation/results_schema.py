@@ -253,6 +253,22 @@ def build_result_row(
         "evaluation_subset": cfg.get("evaluation_subset", "full"),
         "evaluation_regime": cfg.get("evaluation_regime", "both"),
     }
+    checkpoint_provenance = report.get("checkpoint_provenance", {})
+    if checkpoint_provenance:
+        row.update(
+            {
+                "checkpoint_source": checkpoint_provenance.get("checkpoint_source"),
+                "checkpoint_selection_split": checkpoint_provenance.get(
+                    "selection_split"
+                ),
+                "checkpoint_selection_metric": checkpoint_provenance.get(
+                    "selection_metric"
+                ),
+                "checkpoint_selection_mode": checkpoint_provenance.get(
+                    "selection_mode"
+                ),
+            }
+        )
     row.update(flatten_report_metrics(report))
     row.update(_rarity_metadata(cfg, report))
     for field in REQUIRED_RESULT_FIELDS:

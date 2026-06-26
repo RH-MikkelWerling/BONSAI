@@ -6,13 +6,14 @@ computes comprehensive metrics, and generates all evaluation plots.
 
 Usage:
     python -m opera.run.evaluate \
-        ckpt_path=/path/to/finetune/best.ckpt \
+        run_dir=/path/to/finetune/run \
         dataset=hematology_cohort \
         outcome=treatment_failure \
         output_dir=./evaluation_output
 """
 
 import json
+import warnings
 import hydra
 import torch
 import pandas as pd
@@ -70,6 +71,57 @@ def checkpoint_training_mode(ckpt_path: str) -> str:
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     metadata = ckpt.get("hyper_parameters", {}).get("checkpoint_metadata", {})
     return metadata.get("training_mode", "bce")
+
+
+def _read_checkpoint_sidecar(run_dir: Path) -> dict:
+    sidecar = run_dir / "checkpoint_metadata.json"
+    if not sidecar.exists():
+        return {}
+    return json.loads(sidecar.read_text(encoding="utf-8"))
+
+
+def resolve_evaluation_checkpoint(cfg: DictConfig) -> tuple[Path, dict]:
+    """Resolve the tuning-selected checkpoint unless an explicit path is set."""
+    explicit_path = cfg.get("ckpt_path")
+    if explicit_path not in (None, "", "???"):
+        ckpt_path = Path(explicit_path)
+        warning = (
+            "Explicit ckpt_path override used; provenance cannot guarantee this "
+            "was the tuning-selected best checkpoint."
+        )
+        warnings.warn(warning, RuntimeWarning, stacklevel=2)
+        sidecar = _read_checkpoint_sidecar(ckpt_path.parent)
+        metadata = sidecar.get("checkpoint_metadata", {})
+        return ckpt_path, {
+            "checkpoint_source": "explicit_override",
+            "checkpoint_path": str(ckpt_path),
+            "run_dir": str(ckpt_path.parent),
+            "selection_split": metadata.get("selection_split"),
+            "selection_metric": metadata.get("selection_metric"),
+            "selection_mode": metadata.get("selection_mode"),
+            "sidecar_path": str(ckpt_path.parent / "checkpoint_metadata.json"),
+            "warning": warning,
+        }
+
+    run_dir = cfg.get("run_dir")
+    if run_dir in (None, "", "???"):
+        raise ValueError("Evaluation requires run_dir or explicit ckpt_path.")
+    run_dir = Path(run_dir)
+    ckpt_path = run_dir / "best.ckpt"
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"Tuning-selected checkpoint not found: {ckpt_path}")
+    sidecar = _read_checkpoint_sidecar(run_dir)
+    metadata = sidecar.get("checkpoint_metadata", {})
+    return ckpt_path, {
+        "checkpoint_source": "run_dir_best",
+        "checkpoint_path": str(ckpt_path),
+        "run_dir": str(run_dir),
+        "selection_split": metadata.get("selection_split", "tuning"),
+        "selection_metric": metadata.get("selection_metric"),
+        "selection_mode": metadata.get("selection_mode"),
+        "sidecar_path": str(run_dir / "checkpoint_metadata.json"),
+        "warning": None,
+    }
 
 
 def extract_patient_embeddings(model, batch: dict) -> torch.Tensor:
@@ -202,14 +254,15 @@ def main(cfg: DictConfig) -> None:
     output_dir = Path(cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     device = resolve_device(cfg.get("device", "auto"))
+    resolved_ckpt_path, checkpoint_provenance = resolve_evaluation_checkpoint(cfg)
 
     # ── Load model ───────────────────────────────────────────────────
     vocab = torch.load(cfg.paths.vocabulary)
     model = load_opera_finetune_model_from_checkpoint(
-        cfg.ckpt_path,
+        str(resolved_ckpt_path),
         strict=cfg.get("strict_checkpoint_load", True),
     )
-    training_mode = checkpoint_training_mode(cfg.ckpt_path)
+    training_mode = checkpoint_training_mode(str(resolved_ckpt_path))
     if model.config.vocab_size != len(vocab):
         raise ValueError(
             f"Checkpoint vocab_size={model.config.vocab_size} does not match "
@@ -412,6 +465,7 @@ def main(cfg: DictConfig) -> None:
             else None
         ),
     }
+    report["checkpoint_provenance"] = checkpoint_provenance
 
     # Print summary
     summary = (
@@ -441,7 +495,7 @@ def main(cfg: DictConfig) -> None:
     result_row = build_result_row(
         cfg,
         report,
-        checkpoint_path=cfg.ckpt_path,
+        checkpoint_path=str(resolved_ckpt_path),
         split=test_key,
     )
 

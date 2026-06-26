@@ -296,6 +296,11 @@ def main(cfg: DictConfig) -> None:
             "split_identifier": (
                 f"{cfg.labels.train_key}:{cfg.labels.val_key}:{cfg.labels.test_key}"
             ),
+            "selection_split": cfg.labels.val_key,
+            "selection_metric": cfg.training.eval_monitor_metric,
+            "selection_mode": (
+                "max" if "AUROC" in cfg.training.eval_monitor_metric else "min"
+            ),
             **linear_probe_metadata,
         },
         pos_weight=get_loss_weight(
