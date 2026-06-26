@@ -54,6 +54,38 @@ def _validate_encoder_load(missing, unexpected) -> None:
         )
 
 
+def resolve_survival_finetune_max_len(cfg: DictConfig) -> int:
+    """Resolve the sequence length used by the survival finetune datamodule."""
+    value = cfg.training.get("max_len")
+    if value is None:
+        value = cfg.model.get("max_position_embeddings", 8192)
+    return int(value)
+
+
+def build_survival_finetune_data_module(
+    cfg: DictConfig,
+    vocab: dict,
+    train_outcomes: dict,
+    val_outcomes: dict,
+    test_outcomes: dict,
+) -> SurvivalFinetuneDataModule:
+    """Construct the datamodule exactly as the survival runner uses it."""
+    return SurvivalFinetuneDataModule(
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.hardware.num_workers,
+        path_train_data=cfg.paths.train_split,
+        path_val_data=cfg.paths.val_split,
+        path_population=cfg.paths.population,
+        train_outcomes=train_outcomes,
+        val_outcomes=val_outcomes,
+        test_outcomes=test_outcomes,
+        predict_token_id=vocab["[CLS]"],
+        max_len=resolve_survival_finetune_max_len(cfg),
+        train_sampler=None,
+        batch_sampling=cfg.training.get("batch_sampling", {}),
+    )
+
+
 @hydra.main(
     config_path="../configs",
     config_name="survival_finetune",
@@ -134,18 +166,12 @@ def main(cfg: DictConfig) -> None:
         outcome_name=cfg.outcome,
     )
 
-    data_module = SurvivalFinetuneDataModule(
-        batch_size=cfg.training.batch_size,
-        num_workers=cfg.hardware.num_workers,
-        path_train_data=cfg.paths.train_split,
-        path_val_data=cfg.paths.val_split,
-        path_population=cfg.paths.population,
-        train_outcomes=train_outcomes,
-        val_outcomes=val_outcomes,
-        test_outcomes=test_outcomes,
-        predict_token_id=vocab["[CLS]"],
-        train_sampler=None,
-        batch_sampling=cfg.training.get("batch_sampling", {}),
+    data_module = build_survival_finetune_data_module(
+        cfg,
+        vocab,
+        train_outcomes,
+        val_outcomes,
+        test_outcomes,
     )
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)

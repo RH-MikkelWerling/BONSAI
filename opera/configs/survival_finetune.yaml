@@ -36,8 +36,10 @@ labels:
 
 model:
   is_causal: false
+  max_position_embeddings: 8192
 
 training:
+  max_len: ${model.max_position_embeddings}
   batch_size: 128
   batch_sampling:
     type: event_aware

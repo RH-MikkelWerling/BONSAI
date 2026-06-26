@@ -99,6 +99,41 @@ def load_encoder_state_dict(
     return encoder_state, hparams
 
 
+def resolve_finetune_max_len(cfg: DictConfig) -> int:
+    """Resolve the sequence length used by the OPERA finetune datamodule."""
+    value = cfg.training.get("max_len")
+    if value is None:
+        value = cfg.model.get("max_position_embeddings", 8192)
+    return int(value)
+
+
+def build_finetune_data_module(
+    cfg: DictConfig,
+    vocab: dict,
+    train_outcomes: dict,
+    val_outcomes: dict,
+    test_outcomes: dict,
+    train_labels: list[int],
+) -> FinetuneDataModule:
+    """Construct the datamodule exactly as the finetune runner uses it."""
+    return FinetuneDataModule(
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.hardware.num_workers,
+        path_train_data=cfg.paths.train_split,
+        path_val_data=cfg.paths.val_split,
+        path_population=cfg.paths.population,
+        train_outcomes=train_outcomes,
+        val_outcomes=val_outcomes,
+        test_outcomes=test_outcomes,
+        predict_token_id=vocab["[CLS]"],
+        max_len=resolve_finetune_max_len(cfg),
+        train_sampler=get_sampler(
+            weight_fn=cfg.training.sampling_weight_fn,
+            labels=train_labels,
+        ),
+    )
+
+
 @hydra.main(
     config_path="../configs",
     config_name="finetune",
@@ -168,19 +203,13 @@ def main(cfg: DictConfig) -> None:
 
     train_labels = [v["label"] for v in train_outcomes.values()]
 
-    data_module = FinetuneDataModule(
-        batch_size=cfg.training.batch_size,
-        num_workers=cfg.hardware.num_workers,
-        path_train_data=cfg.paths.train_split,
-        path_val_data=cfg.paths.val_split,
-        path_population=cfg.paths.population,
-        train_outcomes=train_outcomes,
-        val_outcomes=val_outcomes,
-        test_outcomes=test_outcomes,
-        predict_token_id=vocab["[CLS]"],
-        train_sampler=get_sampler(
-            weight_fn=cfg.training.sampling_weight_fn, labels=train_labels
-        ),
+    data_module = build_finetune_data_module(
+        cfg,
+        vocab,
+        train_outcomes,
+        val_outcomes,
+        test_outcomes,
+        train_labels,
     )
 
     # ── Build finetune model and load encoder weights ────────────────
