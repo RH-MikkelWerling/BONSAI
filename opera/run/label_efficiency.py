@@ -355,6 +355,66 @@ def compute_baseline_delta_tables(
     return merged, pooled
 
 
+def build_tabular_fraction_cmd(
+    features_path: str,
+    outcome_parquet: str,
+    output_dir: Path,
+    cohort: str,
+    outcome_name: str,
+    seed: int,
+    models: str = "xgboost",
+    tune: bool = False,
+    tune_split: str = "tuning",
+    n_hours_start_include: int = 1,
+    n_hours_end_include: Optional[int] = None,
+) -> List[str]:
+    """Build the subprocess command for training tabular baselines at one fraction.
+
+    Returns the ``sys.argv``-style command list (first element is the Python
+    interpreter path) without executing it.  Callers may inspect or run it.
+
+    Parameters
+    ----------
+    features_path:
+        Path to the tabular feature CSV/parquet.
+    outcome_parquet:
+        Path to the (already-subsampled) outcome parquet for this fraction/seed.
+    output_dir:
+        Directory where predictions and metadata will be written.
+    cohort, outcome_name:
+        Labels forwarded to ``train_tabular_baselines``.
+    seed:
+        Seed used for this fraction/seed cell — ensures reproducibility matches
+        the corresponding encoder finetuning run.
+    models:
+        Comma-separated model names (default ``"xgboost"``).
+    tune:
+        If ``True``, pass ``--tune`` to enable validation-based HP selection.
+    tune_split:
+        Forwarded to ``--tune_split`` when *tune* is ``True``.
+    n_hours_start_include, n_hours_end_include:
+        Horizon window forwarded verbatim (same as the encoder finetune).
+    """
+    cmd = [
+        sys.executable,
+        "-m",
+        "opera.run.train_tabular_baselines",
+        "--features", str(features_path),
+        "--outcome", str(outcome_parquet),
+        "--output_dir", str(output_dir),
+        "--cohort", cohort,
+        "--outcome_name", outcome_name,
+        "--models", models,
+        "--seed", str(seed),
+        "--n_hours_start_include", str(n_hours_start_include),
+    ]
+    if n_hours_end_include is not None:
+        cmd += ["--n_hours_end_include", str(n_hours_end_include)]
+    if tune:
+        cmd += ["--tune", "--tune_split", tune_split]
+    return cmd
+
+
 def _plot_summary_curves(summary: Dict[str, Dict[str, Dict]], save_path: Path) -> None:
     from opera.visualization.comparison_plots import plot_label_efficiency
 
@@ -392,6 +452,25 @@ def main():
         help="Optional comma-separated task keys to plot as secondary panels.",
     )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--tabular_features",
+        default=None,
+        help=(
+            "Path to the tabular feature CSV/parquet. When provided, tabular "
+            "baselines are retrained at each encoder fraction/seed cell so "
+            "learning curves are directly comparable."
+        ),
+    )
+    parser.add_argument(
+        "--tabular_models",
+        default="xgboost",
+        help="Comma-separated tabular model names to train at matched fractions.",
+    )
+    parser.add_argument(
+        "--tabular_tune",
+        action="store_true",
+        help="Enable validation-based HP tuning for tabular baselines.",
+    )
     args = parser.parse_args()
 
     with open(args.sweep_config) as f:
@@ -430,9 +509,11 @@ def main():
                     cell_dir = task_output_dir / variant_name / frac_dir / f"seed{seed}"
                     metrics_path = cell_dir / "eval" / "metrics.json"
 
-                    if metrics_path.exists() and not args.overwrite:
+                    cached = metrics_path.exists() and not args.overwrite
+                    if cached:
                         with open(metrics_path) as f:
                             metrics = json.load(f)
+                        subsampled_path = str(cell_dir / "outcomes_subsampled.parquet")
                     else:
                         subsampled_path = str(cell_dir / "outcomes_subsampled.parquet")
                         subsample_outcome_parquet(
@@ -477,6 +558,36 @@ def main():
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
                     seed_aurocs.append(auroc)
                     print(f"    seed={seed}: AUROC={auroc:.3f}")
+
+                    # Matched-fraction tabular baseline retraining.
+                    # Uses the same subsampled outcome parquet and seed so the
+                    # tabular learning curve is directly comparable to the encoder.
+                    # Skipped for cached encoder runs (tabular output already exists).
+                    if args.tabular_features and not cached:
+                        tab_out = cell_dir / "tabular_baselines"
+                        tab_cmd = build_tabular_fraction_cmd(
+                            features_path=args.tabular_features,
+                            outcome_parquet=subsampled_path,
+                            output_dir=tab_out,
+                            cohort=cohort,
+                            outcome_name=outcome,
+                            seed=seed,
+                            models=args.tabular_models,
+                            tune=args.tabular_tune,
+                            n_hours_start_include=outcome_cfg.get(
+                                "n_hours_start_include", 1
+                            ),
+                            n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
+                        )
+                        tab_result = subprocess.run(
+                            tab_cmd, capture_output=True, text=True
+                        )
+                        if tab_result.returncode != 0:
+                            print(
+                                f"    Tabular baseline failed:\n"
+                                f"{tab_result.stderr[-300:]}"
+                            )
+
                 task_results[variant_name][frac] = seed_aurocs
 
         all_task_results[task_key] = task_results

@@ -42,6 +42,17 @@ RESERVED_COLUMNS = {
 }
 SURVIVAL_MODELS = frozenset({"cox", "xgboost_aft"})
 
+# Validation-set tuning grids for binary classifiers.
+# Each entry is a list of parameter dicts to evaluate on the validation split.
+# Kept deliberately small so tuning adds little wall-clock overhead.
+TUNING_GRIDS: dict[str, list[dict]] = {
+    "logistic": [{"C": c} for c in (0.01, 0.1, 1.0, 10.0)],
+    "xgboost": [
+        {"max_depth": d, "learning_rate": lr}
+        for d, lr in ((3, 0.03), (4, 0.05), (5, 0.10))
+    ],
+}
+
 
 def validate_feature_matrix(
     features: pd.DataFrame,
@@ -363,6 +374,83 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
     raise ValueError(f"Unknown model {model_name!r}.")
 
 
+def tune_estimator_params(
+    model_name: str,
+    train_df: "pd.DataFrame",
+    val_df: "pd.DataFrame",
+    feature_columns: list[str],
+    seed: int = 42,
+) -> dict:
+    """Select hyperparameters for *model_name* using a held-out validation split.
+
+    Iterates over ``TUNING_GRIDS[base_model_name]``, fits each candidate on
+    *train_df*, evaluates AUROC on *val_df*, and returns the parameter dict that
+    achieved the highest validation AUROC.  Falls back to an empty dict (default
+    parameters) when:
+
+    * fewer than two classes are present in either split,
+    * the model is not in ``TUNING_GRIDS``, or
+    * validation AUROC cannot be computed (e.g. all-positive labels).
+
+    The function does NOT modify ``make_estimator``; callers must apply the
+    returned params with ``estimator.set_params(**best_params)``.
+
+    Parameters
+    ----------
+    model_name:
+        Base model name, e.g. ``"logistic"`` or ``"xgboost"``.
+        The ``_ipcw_bce`` suffix is stripped before grid lookup.
+    train_df, val_df:
+        DataFrames with columns for *feature_columns* plus a ``"label"``
+        integer column.
+    feature_columns:
+        Ordered list of numeric feature column names (same convention as the
+        main training path; categorical preprocessing is not applied here).
+    seed:
+        Random seed forwarded to estimators.
+
+    Returns
+    -------
+    dict
+        Best hyperparameter dict from ``TUNING_GRIDS``, or ``{}`` on fallback.
+    """
+    from sklearn.metrics import roc_auc_score
+
+    base_model = model_name.removesuffix("_ipcw_bce")
+    grid = TUNING_GRIDS.get(base_model)
+    if not grid:
+        return {}
+
+    if (
+        train_df["label"].nunique() < 2
+        or val_df["label"].nunique() < 2
+        or len(val_df) < 10
+    ):
+        return {}
+
+    X_train = train_df[feature_columns].to_numpy(dtype=float)
+    y_train = train_df["label"].to_numpy(dtype=int)
+    X_val = val_df[feature_columns].to_numpy(dtype=float)
+    y_val = val_df["label"].to_numpy(dtype=int)
+
+    best_auroc = -1.0
+    best_params: dict = {}
+    for params in grid:
+        estimator = make_estimator(base_model, seed)
+        try:
+            estimator.set_params(**params)
+            estimator.fit(X_train, y_train)
+            probs = estimator.predict_proba(X_val)[:, 1]
+            auroc = float(roc_auc_score(y_val, probs))
+        except Exception:
+            continue
+        if auroc > best_auroc:
+            best_auroc = auroc
+            best_params = dict(params)
+
+    return best_params
+
+
 def missingness_report(
     features: pd.DataFrame,
     feature_columns: list[str],
@@ -439,12 +527,17 @@ def train_one_model(
     seed: int,
     tabpfn_device: str = "auto",
     sample_weight: Optional[np.ndarray] = None,
+    tune_params: Optional[dict] = None,
 ) -> tuple[pd.DataFrame, Pipeline]:
     """Train one tabular model and return held-out prediction rows.
 
     `sample_weight` is used for IPCW-weighted binary training, making tabular
     logistic/XGBoost variants comparable to OPERA's horizon-specific IPCW-BCE
     objective while still emitting calibrated horizon probabilities.
+
+    `tune_params` is an optional parameter dict returned by
+    ``tune_estimator_params``; when provided the estimator's defaults are
+    overridden before fitting.
     """
     dense_output = model_name == "tabpfn"
     preprocessor = build_preprocessor(
@@ -453,10 +546,13 @@ def train_one_model(
         categorical_columns,
         dense_output=dense_output,
     )
+    estimator = make_estimator(model_name, seed, tabpfn_device=tabpfn_device)
+    if tune_params:
+        estimator.set_params(**tune_params)
     pipeline = Pipeline(
         [
             ("preprocess", preprocessor),
-            ("model", make_estimator(model_name, seed, tabpfn_device=tabpfn_device)),
+            ("model", estimator),
         ]
     )
     fit_kwargs = {}
@@ -689,6 +785,31 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         if survival_test_labels is not None
         else None
     )
+    # Load the validation split for --tune when requested.
+    tune_df: Optional[pd.DataFrame] = None
+    if getattr(args, "tune", False) and uses_binary_training:
+        try:
+            tune_labels = outcome_labels(
+                args.outcome,
+                split=args.tune_split,
+                n_hours_start_include=args.n_hours_start_include,
+                n_hours_end_include=args.n_hours_end_include,
+                require_min_followup=True,
+                competing_outcome_path=args.competing_outcome,
+                registry_start_date=args.registry_start_date,
+                cohort=args.cohort,
+                outcome_name=args.outcome_name,
+                eligibility_path=args.eligibility,
+                allowed_subject_ids=allowed_subject_ids,
+            )
+            tune_df = merge_features_and_labels(features, tune_labels)
+        except Exception as exc:
+            import warnings
+
+            warnings.warn(
+                f"Tuning split {args.tune_split!r} could not be loaded "
+                f"({exc}); falling back to default hyperparameters."
+            )
     contract.update(
         {
             "n_train_labelled": int(len(train_df)),
@@ -822,6 +943,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         backend = model_name
         notes = []
         pipeline = None
+        tune_params: Optional[dict] = None
         if is_survival_model:
             tau_days = (
                 float(args.n_hours_end_include) / 24.0
@@ -837,6 +959,14 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                 tau_days=tau_days,
             )
         else:
+            if tune_df is not None and not tune_df.empty:
+                tune_params = tune_estimator_params(
+                    model_name,
+                    train_df=model_train_df,
+                    val_df=tune_df,
+                    feature_columns=model_feature_columns,
+                    seed=args.seed,
+                )
             predictions, pipeline = train_one_model(
                 model_name=model_name,
                 train_df=model_train_df,
@@ -846,6 +976,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                 seed=args.seed,
                 tabpfn_device=args.tabpfn_device,
                 sample_weight=sample_weight,
+                tune_params=tune_params,
             )
         family = (
             f"{args.model_prefix}_{model_name}"
@@ -880,6 +1011,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             ),
             "backend": backend,
             "fit_notes": notes,
+            "tune_params": tune_params,
             "cohort": args.cohort,
             "outcome_name": args.outcome_name,
             "features": args.features,
@@ -977,6 +1109,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Write feature contract and missingness reports without fitting models.",
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help=(
+            "Enable validation-based hyperparameter selection for logistic and "
+            "xgboost. Uses --tune_split as the validation set. Only the "
+            "parameters in TUNING_GRIDS are searched; other hyperparameters "
+            "stay at their defaults. Ignored for survival models and tabpfn."
+        ),
+    )
+    parser.add_argument(
+        "--tune_split",
+        default="tuning",
+        help="Split name used as validation set when --tune is active.",
+    )
     return parser
 
 
