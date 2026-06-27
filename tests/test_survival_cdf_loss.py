@@ -173,7 +173,9 @@ def test_admin_censoring_uses_km_tail_probabilities_when_available():
     assert dist[0, 3].item() == pytest.approx(1.0 / 3.0)
 
 
-def test_competing_death_before_first_event_maps_to_zero_quantile():
+def test_competing_death_before_first_event_maps_to_first_event_slot():
+    # A competing-death patient at time 5 < first event at 30 should land on
+    # slot 1 (first real event slot), not slot 0 (km_grid sentinel = 0.0).
     sorted_et = torch.tensor([30.0, 90.0])
     loss_fn = SurvivalSoftContrastiveLoss(
         km_time_scale=0.25,
@@ -190,7 +192,10 @@ def test_competing_death_before_first_event_maps_to_zero_quantile():
         probs,
     )
 
-    assert dist[0, 0].item() == pytest.approx(1.0)
+    # Slot 0 is the sentinel (km_grid[0] = 0.0) and must never hold mass.
+    assert dist[0, 0].item() == pytest.approx(0.0)
+    # Mass falls on slot 1 (first real event time grid slot).
+    assert dist[0, 1].item() == pytest.approx(1.0)
 
 
 def test_km_event_time_probabilities_normalize_primary_event_mass():

@@ -328,7 +328,9 @@ class SurvivalSoftContrastiveLoss(nn.Module):
             times.float().contiguous(),
             right=True,
         )
-        exact_idx = positions.clamp(0, G - 1)
+        # clamp to [1, G-1]: slot 0 is the km_grid 0.0 sentinel (before any
+        # events) and must never hold patient mass.
+        exact_idx = positions.clamp(1, G - 1)
 
         distribution_events = events
         if self.competing_event_handling == "hard_negative":
@@ -346,19 +348,29 @@ class SurvivalSoftContrastiveLoss(nn.Module):
 
         cens_mask = distribution_events == 0
         if cens_mask.any():
-            for row in torch.where(cens_mask)[0]:
-                event_tail = event_time_grid > times[row]
-                if event_tail.any():
-                    tail = torch.cat(
-                        [
-                            torch.tensor([False], device=times.device),
-                            event_tail,
-                        ]
-                    )
-                    tail_probs = event_time_probs[tail]
-                    dist[row, tail] = tail_probs / tail_probs.sum().clamp_min(1e-12)
-                else:
-                    dist[row, -1] = 1.0
+            cens_idx = torch.where(cens_mask)[0]
+            # (C, E): True when the event-time grid point is strictly after the
+            # patient's censoring time, i.e. the patient could still have the event
+            future = event_time_grid.unsqueeze(0) > times[cens_idx].unsqueeze(1)
+            # Prepend False for prob_grid[0] (the "before any events" sentinel)
+            tail_full = torch.cat(
+                [
+                    torch.zeros(
+                        len(cens_idx), 1, dtype=torch.bool, device=times.device
+                    ),
+                    future,
+                ],
+                dim=1,
+            )  # (C, G)
+            masked = event_time_probs.unsqueeze(0) * tail_full.float()  # (C, G)
+            row_sums = masked.sum(dim=1, keepdim=True).clamp_min(1e-12)  # (C, 1)
+            normalized = masked / row_sums  # (C, G)
+            # Patients censored past the last observed event time get all mass at G-1
+            no_future = ~tail_full.any(dim=1)  # (C,)
+            if no_future.any():
+                normalized[no_future] = 0.0
+                normalized[no_future, -1] = 1.0
+            dist[cens_idx] = normalized
         return dist
 
     def _compute_pair_weights(
@@ -394,9 +406,11 @@ class SurvivalSoftContrastiveLoss(nn.Module):
 
         comp = events == 2
         if self.competing_event_handling == "censor" and comp.any():
-            one_comp = comp.unsqueeze(1) ^ comp.unsqueeze(0)
+            # OR: downweight any pair involving at least one competing-event patient
+            # (XOR would miss competing+competing pairs, leaving them unreliably weighted)
+            any_comp = comp.unsqueeze(1) | comp.unsqueeze(0)
             pair_weights = torch.where(
-                one_comp,
+                any_comp,
                 pair_weights * float(self.competing_event_weight),
                 pair_weights,
             )
@@ -887,7 +901,10 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             if self.aggregation == "macro":
                 total_loss = total_loss / active_mask.sum().to(total_loss.dtype)
         else:
-            total_loss = embeddings.sum() * 0.0
+            # No valid pairs in any outcome. Apply regularizer so learnable
+            # sigma/precision parameters still receive a gradient, and add
+            # an embeddings anchor so embeddings.grad is not None.
+            total_loss = self.weighter.regularizer(active_mask) + embeddings.sum() * 0.0
 
         for index, name in enumerate(self.outcome_names):
             log_dict[f"cross_outcome_weight/{name}"] = outcome_weights[index].detach()
