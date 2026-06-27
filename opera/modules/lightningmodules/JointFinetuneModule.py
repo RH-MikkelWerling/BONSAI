@@ -97,11 +97,14 @@ class JointFinetuneModule(L.LightningModule):
                 continue
             logits_k = log_dict.get(f"logits/{name}")
             if logits_k is None:
-                # recompute if not cached (shouldn't happen in normal flow)
-                logits_k = self.model.predict(batch, name)[valid]
-                labels_v = labels_k[valid]
-            else:
-                labels_v = labels_k[valid]
+                # Outcome was skipped by require_both_classes_per_batch —
+                # do not attempt a metric update with a single-class batch.
+                continue
+            labels_v = labels_k[valid]
+
+            # Guard against single-class batches reaching the AUROC metric
+            if torch.unique(labels_v).numel() < 2:
+                continue
 
             probs_k = torch.sigmoid(logits_k)
             self.val_auroc[name].update(probs_k, labels_v)
@@ -132,11 +135,17 @@ class JointFinetuneModule(L.LightningModule):
 
         # Macro-average AUROC — used as the primary monitor metric
         if not aurocs:
-            raise RuntimeError(
-                "No validation outcome produced a finite AUROC. Ensure at least "
-                "one configured outcome has both classes after eligibility and "
-                "minimum-follow-up filtering."
+            import warnings
+
+            warnings.warn(
+                "No validation outcome produced a finite AUROC this epoch. "
+                "Check that at least one outcome has both classes after "
+                "eligibility and minimum-follow-up filtering.",
+                stacklevel=2,
             )
+            # Log 0.0 so EarlyStopping / ModelCheckpoint can handle gracefully.
+            self.log("val/auroc_macro", 0.0, prog_bar=True)
+            return
         self.log("val/auroc_macro", torch.stack(aurocs).mean(), prog_bar=True)
 
     def configure_optimizers(self):

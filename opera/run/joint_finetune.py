@@ -102,7 +102,7 @@ def main(cfg: DictConfig) -> None:
     encoder_state, pretrain_hparams = load_encoder_state_dict(
         cfg.encoder_ckpt, cfg.encoder_source
     )
-    vocab = torch.load(cfg.paths.vocabulary)
+    vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
     for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
@@ -117,12 +117,7 @@ def main(cfg: DictConfig) -> None:
             sep_token_id=2,
         )
     )
-    missing, unexpected = encoder.load_state_dict(encoder_state, strict=False)
-    if missing or unexpected:
-        raise RuntimeError(
-            "Encoder checkpoint is incompatible with joint finetuning. "
-            f"Missing keys: {missing[:10]}; unexpected keys: {unexpected[:10]}"
-        )
+    missing, unexpected = encoder.load_state_dict(encoder_state, strict=True)
 
     outcome_names = sorted(cfg.outcomes.keys())
     cross_outcome_config = _cross_outcome_config(cfg)
@@ -166,7 +161,7 @@ def main(cfg: DictConfig) -> None:
             }
             for name, c in cfg.cohorts.items()
         },
-        outcome_configs=cfg.outcomes,
+        outcome_configs=OmegaConf.to_container(cfg.outcomes, resolve=True),
         predict_token_id=vocab["[CLS]"],
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
@@ -210,7 +205,8 @@ def main(cfg: DictConfig) -> None:
         limit_train_batches=cfg.training.limit_train_batches,
     )
 
-    trainer.fit(model=lightning_module, datamodule=data_module)
+    resume_ckpt = cfg.paths.get("resume_ckpt") or None
+    trainer.fit(model=lightning_module, datamodule=data_module, ckpt_path=resume_ckpt)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
     print(f"\nJoint finetune complete. Checkpoint: {model_save_dir}/best.ckpt")
 
