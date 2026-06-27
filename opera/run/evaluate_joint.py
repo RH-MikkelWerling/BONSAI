@@ -76,6 +76,11 @@ def main(cfg: DictConfig) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     device = resolve_device(cfg.get("device", "auto"))
     outcome_name = cfg.get("outcome_name")  # which head to evaluate
+    if outcome_name is None:
+        raise ValueError(
+            "outcome_name must be set for joint model evaluation; "
+            "pass outcome_name=<name> on the CLI."
+        )
 
     # ── Load model ─────────────────────────────────────────────────────
     model = load_joint_model_from_checkpoint(
@@ -116,7 +121,7 @@ def main(cfg: DictConfig) -> None:
     full_fu_sids = evaluation_cohorts.fixed_horizon.subject_ids
 
     # Build dataset / loader over ALL test patients
-    test_data = torch.load(cfg.paths.test_split)
+    test_data = torch.load(cfg.paths.test_split, weights_only=False)
     if cohort_fine_col and cohort_fine_value:
         print(
             f"cohort_fine filter: {cohort_fine_col}={cohort_fine_value!r} "
@@ -131,7 +136,7 @@ def main(cfg: DictConfig) -> None:
             f"paths.outcome={cfg.paths.outcome}, and test_key={test_key!r}."
         )
 
-    vocab = torch.load(cfg.paths.vocabulary)
+    vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
     if model.encoder.config.vocab_size != len(vocab):
         raise ValueError(
             f"Checkpoint vocab_size={model.encoder.config.vocab_size} does not "

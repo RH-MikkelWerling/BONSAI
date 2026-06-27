@@ -125,7 +125,13 @@ def build_evaluate_cmd(
         else "opera.run.evaluate"
     )
     if encoder_source == "joint":
-        overrides = [f"outcome_name={outcome_name}"] + overrides
+        # Joint checkpoints are always named best.ckpt so the generic
+        # checkpoint_override guard (name != 'best.ckpt') never fires —
+        # always emit ckpt_path explicitly for joint evaluation.
+        overrides = [
+            f"outcome_name={outcome_name}",
+            f"ckpt_path={ckpt_path.as_posix()}",
+        ] + overrides
     cmd = [sys.executable, "-m", module] + overrides
     return cmd
 
