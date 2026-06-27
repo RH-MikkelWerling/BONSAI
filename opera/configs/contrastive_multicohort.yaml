@@ -22,8 +22,15 @@ hydra:
   searchpath:
     - file://${oc.env:BONSAI_CONFIG_PATH}
 
+dataset: multicohort   # used by base_train.yaml hydra.run.dir interpolation
+
 dapt_ckpt: ???
 dapt_embedding_store: null    # path to pre-computed DAPT .pt store, or null
+
+paths:
+  # Override vocab_cohort on the CLI if the default cohort is not present.
+  vocab_cohort: dlbcl
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/${paths.vocab_cohort}/vocabulary.pt
 
 cohort_scope:
   name: null

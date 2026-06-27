@@ -51,12 +51,7 @@ def main(cfg: DictConfig) -> None:
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
 
-    # Vocabulary: use any cohort's vocab (shared token space)
-    first_cohort = next(iter(cfg.cohorts.values()))
-    import os
-
-    vocab_path = os.path.join(first_cohort["data_dir"], "vocabulary.pt")
-    vocab = torch.load(vocab_path)
+    vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
     for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):

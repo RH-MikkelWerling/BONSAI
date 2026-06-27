@@ -21,9 +21,16 @@ hydra:
 encoder_ckpt: ???          # path to contrastive (or dapt/pretrain) checkpoint
 encoder_source: contrastive  # "pretrain" | "dapt" | "contrastive"
 
+dataset: joint   # used by base_train.yaml hydra.run.dir interpolation
+
 paths:
-  # vocabulary can come from any cohort — they share a token space
-  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl/vocabulary.pt
+  # vocabulary can come from any cohort — they share a token space.
+  # Override vocab_cohort on the CLI if /dlbcl/ is not present.
+  vocab_cohort: dlbcl
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/${paths.vocab_cohort}/vocabulary.pt
+  # Set to last.ckpt to resume an interrupted run:
+  #   paths.resume_ckpt=/path/to/last.ckpt
+  resume_ckpt: null
 
 # ── Cohorts: all disease cohorts trained jointly ───────────────────
 cohorts:
