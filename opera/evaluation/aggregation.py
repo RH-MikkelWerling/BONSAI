@@ -891,12 +891,45 @@ def pooled_transfer_effect(
     delta_table: pd.DataFrame,
     delta_col: str = "delta_auroc_vs_baseline",
     se_col: Optional[str] = None,
+    ci_lower_col: Optional[str] = None,
+    ci_upper_col: Optional[str] = None,
     stratify_col: Optional[str] = "cohort",
 ) -> pd.DataFrame:
     """DerSimonian-Laird random-effects pooled transfer-effect estimate.
 
     Produces a pooled estimate with tau^2 (between-cell heterogeneity), I^2,
     and a 95% CI.  Each row of *delta_table* is one study (cohort/outcome cell).
+
+    **Scientific validity of tau^2 and I^2**
+
+    The DL estimator decomposes total variance into within-cell sampling
+    variance (how noisy each AUROC estimate is given the cell's n) and
+    between-cell heterogeneity (how much true transfer effects vary across
+    tasks).  This decomposition is only meaningful when within-cell SE is
+    correctly calibrated.
+
+    *Recommended path (``se_col`` or ``ci_lower_col``/``ci_upper_col``):*
+    Supply the paired-bootstrap SE from ``run_pairwise_comparisons``.  Join
+    the paired delta CSV on (cohort, outcome) and pass the derived SE column.
+    The convenience params ``ci_lower_col`` / ``ci_upper_col`` let you pass
+    the CI bounds directly; SE is derived as ``(upper - lower) / (2 × 1.96)``.
+    With calibrated SE, tau^2 and I^2 reflect genuine heterogeneity.
+
+    *Equal-weight fallback (no SE supplied):*
+    When ``se_col``, ``ci_lower_col``, and ``ci_upper_col`` are all ``None``,
+    all cells are given the same within-cell variance, set to the empirical
+    cross-cell SD.  This forces Q = df, so ``tau2 = 0`` and ``I2 = 0`` by
+    construction — a numerical artifact, not a scientific finding.  The pooled
+    estimate reduces to the simple mean.  ``se_source="equal_weight_fallback"``
+    is set in the output, and a ``UserWarning`` is emitted.  **Do not interpret
+    tau^2 or I^2 from fallback rows as evidence of homogeneity.**
+
+    *Within-cohort dependence:*
+    Multiple outcomes within the same cohort share a patient pool and are
+    therefore positively correlated.  DL treats cells as independent and will
+    underestimate uncertainty when within-cohort correlation is high.  The
+    ``stratum``-level rows pool within each cohort first, which partially
+    mitigates this; the ``_all_`` row should be read with the caveat in mind.
 
     Parameters
     ----------
@@ -906,11 +939,13 @@ def pooled_transfer_effect(
     delta_col:
         Column holding the per-cell OPERA-minus-baseline delta.
     se_col:
-        Column holding the per-cell standard error.  When ``None`` all cells
-        are assumed to have equal within-cell variance, estimated from the
-        empirical cross-cell standard deviation.  Supplying a calibrated SE
-        (e.g. from the paired bootstrap CI) is strongly recommended for formal
-        inference.
+        Column holding the per-cell standard error (e.g. derived from
+        bootstrap CIs).  Takes precedence over ``ci_lower_col``/``ci_upper_col``.
+    ci_lower_col, ci_upper_col:
+        Columns holding 95% CI bounds (e.g. ``delta_lower`` / ``delta_upper``
+        from the paired delta CSV).  SE is derived as
+        ``(ci_upper - ci_lower) / (2 × 1.96)``.  Used only when ``se_col``
+        is ``None``.
     stratify_col:
         Column used to stratify the pooling (``"cohort"`` by default).  One
         pooled row is produced per stratum, plus an overall row with
@@ -920,8 +955,10 @@ def pooled_transfer_effect(
     -------
     DataFrame with columns:
         stratum, pooled_effect, ci_lower, ci_upper, tau2, i2, Q, df, k_cells,
-        model_family (when present in *delta_table*).
+        se_source, model_family (when present in *delta_table*).
     """
+    import warnings
+
     if delta_table.empty or delta_col not in delta_table.columns:
         return pd.DataFrame()
 
@@ -929,18 +966,51 @@ def pooled_transfer_effect(
     if tbl.empty:
         return pd.DataFrame()
 
+    # Resolve SE source priority: se_col > CI-derived > equal-weight fallback.
+    _active_se_col: Optional[str] = None
+    _se_source: str = "equal_weight_fallback"
+
     if se_col is not None and se_col in tbl.columns:
         tbl = tbl.dropna(subset=[se_col])
         tbl = tbl[tbl[se_col] > 0]
         if tbl.empty:
             return pd.DataFrame()
+        _active_se_col = se_col
+        _se_source = "provided_se_col"
+    elif (
+        ci_lower_col is not None
+        and ci_upper_col is not None
+        and ci_lower_col in tbl.columns
+        and ci_upper_col in tbl.columns
+    ):
+        tbl = tbl.dropna(subset=[ci_lower_col, ci_upper_col])
+        ci_se = (tbl[ci_upper_col] - tbl[ci_lower_col]) / (2.0 * 1.96)
+        tbl = tbl[ci_se > 0].copy()
+        if tbl.empty:
+            return pd.DataFrame()
+        tbl["_ci_derived_se"] = (
+            (tbl[ci_upper_col] - tbl[ci_lower_col]) / (2.0 * 1.96)
+        )
+        _active_se_col = "_ci_derived_se"
+        _se_source = "paired_bootstrap_ci"
+    else:
+        warnings.warn(
+            "pooled_transfer_effect: no se_col or CI columns provided. "
+            "Falling back to equal-weight pooling (empirical cross-cell SD as "
+            "within-cell SE). tau2 and i2 will be 0 by construction and must "
+            "NOT be interpreted as evidence of homogeneity. "
+            "Pass ci_lower_col/ci_upper_col from the paired bootstrap delta "
+            "CSV to obtain meaningful heterogeneity statistics.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     def _pool_group(group: pd.DataFrame) -> dict:
         thetas = group[delta_col].to_numpy(dtype=float)
-        if se_col is not None and se_col in group.columns:
-            variances = group[se_col].to_numpy(dtype=float) ** 2
+        if _active_se_col is not None and _active_se_col in group.columns:
+            variances = group[_active_se_col].to_numpy(dtype=float) ** 2
         else:
-            # Equal-weight fallback: empirical SD as common within-cell SE.
+            # Equal-weight: empirical SD as common within-cell SE forces Q = df.
             empirical_sd = float(np.std(thetas, ddof=1)) if len(thetas) > 1 else 1e-4
             empirical_sd = max(empirical_sd, 1e-6)
             variances = np.full(len(thetas), empirical_sd**2)
@@ -953,7 +1023,7 @@ def pooled_transfer_effect(
         for stratum, grp in tbl.groupby(stratify_col, dropna=False):
             result = _pool_group(grp)
             if result:
-                row = {"stratum": str(stratum)}
+                row = {"stratum": str(stratum), "se_source": _se_source}
                 if "model_family" in grp.columns:
                     families = grp["model_family"].dropna().unique()
                     row["model_family"] = families[0] if len(families) == 1 else "mixed"
@@ -963,7 +1033,7 @@ def pooled_transfer_effect(
     # Overall pooled row.
     overall = _pool_group(tbl)
     if overall:
-        row = {"stratum": "_all_"}
+        row = {"stratum": "_all_", "se_source": _se_source}
         if "model_family" in tbl.columns:
             families = tbl["model_family"].dropna().unique()
             row["model_family"] = families[0] if len(families) == 1 else "mixed"

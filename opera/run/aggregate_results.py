@@ -10,6 +10,7 @@ Reads result.jsonl files emitted by evaluate.py/evaluate_joint.py and writes:
 
 import argparse
 from pathlib import Path
+from typing import Optional
 
 from opera.evaluation.aggregation import (
     build_wide_metric_table,
@@ -289,6 +290,26 @@ def main():
 
         # Pooled transfer effect: DerSimonian-Laird random-effects meta-analysis
         # over viable cells, stratified by cohort. Requires a rarity delta table.
+        #
+        # When a paired delta CSV was just written (--predictions_dir was set),
+        # join the per-cell bootstrap CI onto the rarity delta table so that
+        # tau^2 and I^2 are based on calibrated within-cell SE rather than the
+        # equal-weight fallback (which makes tau^2 = 0 by construction).
+        _paired_ci: Optional["pd.DataFrame"] = None
+        if (
+            args.baseline
+            and args.comparator
+            and args.predictions_dir
+        ):
+            import pandas as _pd
+
+            _paired_name = (
+                f"paired_delta_{args.comparator}_minus_{args.baseline}.csv"
+            )
+            _paired_path = output_dir / _paired_name
+            if _paired_path.exists():
+                _paired_ci = _pd.read_csv(_paired_path)
+
         real_task = rarity_tables.get("real_rarity_task_level", None)
         synth_task_rows = rarity_tables.get("synthetic_rarity_task_level", None)
         for label, delta_tbl in [
@@ -296,7 +317,37 @@ def main():
             ("synthetic", synth_task_rows),
         ]:
             if delta_tbl is not None and not delta_tbl.empty:
-                pool = pooled_transfer_effect(delta_tbl)
+                # Attempt to join paired bootstrap CIs for proper SE estimation.
+                ci_lower_col: Optional[str] = None
+                ci_upper_col: Optional[str] = None
+                if _paired_ci is not None and not _paired_ci.empty:
+                    join_cols = [
+                        c for c in ("cohort", "outcome")
+                        if c in delta_tbl.columns and c in _paired_ci.columns
+                    ]
+                    if join_cols:
+                        ci_merge = _paired_ci[
+                            join_cols + ["delta_lower", "delta_upper"]
+                        ].drop_duplicates(subset=join_cols)
+                        delta_tbl = delta_tbl.merge(
+                            ci_merge.rename(
+                                columns={
+                                    "delta_lower": "_paired_ci_lower",
+                                    "delta_upper": "_paired_ci_upper",
+                                }
+                            ),
+                            on=join_cols,
+                            how="left",
+                        )
+                        if delta_tbl["_paired_ci_lower"].notna().any():
+                            ci_lower_col = "_paired_ci_lower"
+                            ci_upper_col = "_paired_ci_upper"
+
+                pool = pooled_transfer_effect(
+                    delta_tbl,
+                    ci_lower_col=ci_lower_col,
+                    ci_upper_col=ci_upper_col,
+                )
                 if not pool.empty:
                     pool.to_csv(
                         output_dir / f"pooled_transfer_effect_{label}.csv",
