@@ -456,6 +456,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         split: Literal["train", "tuning"],
     ) -> Optional[ContrastiveDataset]:
         """Load subjects + outcomes for one cohort, return dataset or None."""
+        if split not in ("train", "tuning"):
+            raise ValueError(
+                f"_build_dataset_for_cohort only accepts split='train' or "
+                f"'tuning'; got {split!r}. Use the evaluation pipeline for "
+                f"'held_out' splits."
+            )
         data_dir = cohort_cfg["data_dir"]
         split_file = os.path.join(
             data_dir,
@@ -476,7 +482,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         )
         population = pd.read_csv(pop_file)
 
-        subjects = torch.load(split_file)
+        subjects = torch.load(split_file, weights_only=False)
         subjects = filter_subject_data(subjects, population["subject_id"])
 
         split_key = "train" if split == "train" else "tuning"
