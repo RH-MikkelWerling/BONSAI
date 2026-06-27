@@ -1010,7 +1010,8 @@ def pooled_transfer_effect(
         if _active_se_col is not None and _active_se_col in group.columns:
             variances = group[_active_se_col].to_numpy(dtype=float) ** 2
         else:
-            # Equal-weight: empirical SD as common within-cell SE forces Q = df.
+            # Equal-weight: ddof=1 makes Q = N-1 = df exactly, so tau2 = 0 by
+            # construction. (Q = (N-1)/S * S = N-1 = df with equal weights.)
             empirical_sd = float(np.std(thetas, ddof=1)) if len(thetas) > 1 else 1e-4
             empirical_sd = max(empirical_sd, 1e-6)
             variances = np.full(len(thetas), empirical_sd**2)

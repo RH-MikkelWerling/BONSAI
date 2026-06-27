@@ -326,7 +326,12 @@ def main():
                         if c in delta_tbl.columns and c in _paired_ci.columns
                     ]
                     if join_cols:
-                        ci_merge = _paired_ci[
+                        # Filter to auroc metric before deduplicating so a
+                        # multi-metric paired CSV doesn't supply the wrong SE.
+                        _ci_filtered = _paired_ci
+                        if "metric" in _paired_ci.columns:
+                            _ci_filtered = _paired_ci[_paired_ci["metric"] == "auroc"]
+                        ci_merge = _ci_filtered[
                             join_cols + ["delta_lower", "delta_upper"]
                         ].drop_duplicates(subset=join_cols)
                         delta_tbl = delta_tbl.merge(

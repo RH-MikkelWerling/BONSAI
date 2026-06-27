@@ -134,9 +134,11 @@ def paired_bootstrap_test(
         "delta_lower": float(ci_lower),
         "delta_upper": float(ci_upper),
         "p_value": p_value,
-        "significant_95": ci_lower > 0 or ci_upper < 0,  # CI excludes zero
-        "significant_99": float(np.percentile(boot_deltas, 0.5)) > 0
-        or float(np.percentile(boot_deltas, 99.5)) < 0,
+        # Use the same shift-corrected distribution as p_value for consistency
+        "significant_95": float(np.percentile(shifted, 2.5)) > 0
+        or float(np.percentile(shifted, 97.5)) < 0,
+        "significant_99": float(np.percentile(shifted, 0.5)) > 0
+        or float(np.percentile(shifted, 99.5)) < 0,
         "method": "paired_bootstrap",
         "n_bootstrap": len(boot_deltas),
         "n_patients": n,
@@ -521,20 +523,27 @@ def run_pairwise_comparisons(
                 pa = variant_preds[model_a]
                 pb = variant_preds[model_b]
 
-                # Align on shared subject IDs (test sets must overlap)
+                # Align on shared subject IDs (test sets must overlap).
+                # Compute effective IDs AFTER each model's binary_mask so the
+                # paired comparison is over the same set of patients in both.
                 ids_a = set(pa["subject_ids"])
                 ids_b = set(pb["subject_ids"])
-                shared = np.array(sorted(ids_a & ids_b))
+                raw_shared = ids_a & ids_b
+
+                def _effective_ids(p, candidate_ids):
+                    mask = np.isin(p["subject_ids"], list(candidate_ids))
+                    if "binary_mask" in p:
+                        mask = mask & p["binary_mask"].astype(bool)
+                    return set(p["subject_ids"][mask])
+
+                eff_ids_a = _effective_ids(pa, raw_shared)
+                eff_ids_b = _effective_ids(pb, raw_shared)
+                shared = np.array(sorted(eff_ids_a & eff_ids_b))
                 if len(shared) < 20:
                     continue
 
                 def _filter(p, ids):
                     id_mask = np.isin(p["subject_ids"], ids)
-                    # Apply binary_mask (full-follow-up only) when available,
-                    # so binary metrics (AUROC, AUPRC, Brier) exclude
-                    # censored patients who lack full follow-up.
-                    if "binary_mask" in p:
-                        id_mask = id_mask & p["binary_mask"].astype(bool)
                     order = np.argsort(p["subject_ids"][id_mask])
                     return (
                         p["labels"][id_mask][order],
