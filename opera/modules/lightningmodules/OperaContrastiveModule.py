@@ -137,6 +137,7 @@ class OperaContrastiveModule(L.LightningModule):
         try:
             from sklearn.linear_model import LogisticRegression
             from sklearn.metrics import roc_auc_score
+            from sklearn.model_selection import train_test_split
             from sklearn.preprocessing import StandardScaler
 
             all_embs = torch.cat(self._val_probe_emb_store, dim=0).numpy()
@@ -150,19 +151,25 @@ class OperaContrastiveModule(L.LightningModule):
                     continue
                 labels = torch.cat(labels_list, dim=0).numpy()
                 valid = labels >= 0
-                if valid.sum() < 20 or len(np.unique(labels[valid])) < 2:
+                if valid.sum() < 40 or len(np.unique(labels[valid])) < 2:
                     continue
 
-                # Fit probe on valid-label subset
-                X = all_embs_s[valid]
-                y = labels[valid]
+                X_all = all_embs_s[valid]
+                y_all = labels[valid]
                 try:
+                    # Split 80/20 so the probe is scored on held-out data.
+                    # stratify ensures both splits have both classes.
+                    X_tr, X_ev, y_tr, y_ev = train_test_split(
+                        X_all, y_all, test_size=0.2, random_state=0, stratify=y_all
+                    )
+                    if len(np.unique(y_tr)) < 2 or len(np.unique(y_ev)) < 2:
+                        continue
                     clf = LogisticRegression(
                         C=1.0, max_iter=200, solver="lbfgs", warm_start=False
                     )
-                    clf.fit(X, y)
-                    probs = clf.predict_proba(X)[:, 1]
-                    auroc = float(roc_auc_score(y, probs))
+                    clf.fit(X_tr, y_tr)
+                    probs = clf.predict_proba(X_ev)[:, 1]
+                    auroc = float(roc_auc_score(y_ev, probs))
                     self.log(f"val/probe_auroc_{name}", auroc, prog_bar=False)
                     probe_aurocs.append(auroc)
                 except Exception:

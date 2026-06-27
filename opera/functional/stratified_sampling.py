@@ -530,6 +530,10 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         self._fill_batch(batch, selected, rng)
         return batch[: self.batch_size]
 
+    def set_epoch(self, epoch: int) -> None:
+        """Set the epoch counter externally (called by Lightning on resume)."""
+        self.epoch = epoch
+
     def __iter__(self) -> Iterator[list[int]]:
         rng = np.random.default_rng(self.seed + self.epoch)
         self.epoch += 1
