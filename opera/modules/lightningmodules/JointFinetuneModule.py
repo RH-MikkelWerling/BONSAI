@@ -133,7 +133,16 @@ class JointFinetuneModule(L.LightningModule):
                 self.val_auprc[name].reset()
                 continue
 
-        # Macro-average AUROC — used as the primary monitor metric
+        # Macro-average AUROC normalised over ALL configured outcomes.
+        # Outcomes that produced no finite AUROC this epoch (single-class val
+        # batches, rare events) contribute 0.5 (random baseline) rather than
+        # being excluded from the denominator.  This keeps the metric
+        # epoch-consistent: a model improving purely because more outcomes
+        # happened to produce finite AUROCs in epoch N vs. N-1 will no longer
+        # appear to improve.  It also prevents EarlyStopping from firing
+        # prematurely during cold-start epochs when no rare outcome has both
+        # classes in the tuning split yet.
+        n_configured = len(self.outcome_names)
         if not aurocs:
             import warnings
 
@@ -143,10 +152,12 @@ class JointFinetuneModule(L.LightningModule):
                 "eligibility and minimum-follow-up filtering.",
                 stacklevel=2,
             )
-            # Log 0.0 so EarlyStopping / ModelCheckpoint can handle gracefully.
-            self.log("val/auroc_macro", 0.0, prog_bar=True)
+            self.log("val/auroc_macro", 0.5, prog_bar=True)
             return
-        self.log("val/auroc_macro", torch.stack(aurocs).mean(), prog_bar=True)
+        macro = (
+            torch.stack(aurocs).sum() + 0.5 * (n_configured - len(aurocs))
+        ) / n_configured
+        self.log("val/auroc_macro", macro, prog_bar=True)
 
     def configure_optimizers(self):
         lr = self.hparams.learning_rate
@@ -166,8 +177,8 @@ class JointFinetuneModule(L.LightningModule):
             param_groups.append({"params": encoder_params, "lr": lr * enc_mult})
 
         optimizer = AdamW(param_groups, eps=self.hparams.optimizer_epsilon)
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        steps_per_epoch = max(
+            1, self.trainer.estimated_stepping_batches // self.trainer.max_epochs
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,

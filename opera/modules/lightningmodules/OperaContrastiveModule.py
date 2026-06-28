@@ -210,8 +210,8 @@ class OperaContrastiveModule(L.LightningModule):
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
 
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        steps_per_epoch = max(
+            1, self.trainer.estimated_stepping_batches // self.trainer.max_epochs
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer=optimizer,
