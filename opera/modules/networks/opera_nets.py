@@ -282,7 +282,19 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         event_time_probs: Optional[torch.Tensor],
         device: torch.device,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return event times, KM cumulative event-mass grid, and event masses."""
+        """Return event times, cumulative event-mass grid, and event masses.
+
+        NOTE: when event_time_probs is None this builds an empirical event CDF
+        (equal mass 1/N per observed event), NOT a true Kaplan-Meier estimator.
+        A true KM would apply a risk-set correction: d_i / n_i at each event
+        time where n_i counts all patients still under observation (including
+        censored).  The empirical CDF ignores censored patients in the
+        denominator, so it overestimates early event rates and compresses
+        quantile spacing in censoring-heavy outcomes (e.g. aki_30d).
+        The bias is acceptable for representation learning but should not be
+        compared to a published KM curve.  Proper KM grids can be injected via
+        the outcome_event_time_probs argument to MultiOutcomeSurvivalLoss.
+        """
         times = sorted_event_times.to(device).float().contiguous()
         if times.numel() == 0:
             probs = torch.tensor([1.0], device=device)
@@ -334,6 +346,15 @@ class SurvivalSoftContrastiveLoss(nn.Module):
 
         distribution_events = events
         if self.competing_event_handling == "hard_negative":
+            # Recode competing deaths (event=2) as administratively censored at
+            # death time.  This is equivalent to cause-specific hazard censoring
+            # and requires NON-INFORMATIVE censoring: the hazard of competing
+            # death must be independent of the primary-event hazard conditional
+            # on covariates.  In leukemia registries this assumption may be
+            # violated (treatment-related death is correlated with disease
+            # aggressiveness which also drives AKI, infections, etc.).
+            # Run a sensitivity with competing_event_handling: censor,
+            # competing_event_weight: 0.0 to assess the impact.
             distribution_events = torch.where(
                 events == 2,
                 torch.zeros_like(events),

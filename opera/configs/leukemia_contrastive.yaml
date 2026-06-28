@@ -145,6 +145,13 @@ cross_outcome:
 
 training:
   require_all_configured_cells: true
+  # Intentionally False: including short-follow-up censored patients retains
+  # sample size for rare outcomes (aki_30d, severe_infection_90d).  These
+  # patients contribute broad tail distributions in the contrastive loss
+  # rather than point mass, which dilutes but does not bias gradient direction.
+  # Set true to restrict training to patients with outcome-specific min follow-up
+  # if signal quality is more important than sample size.
+  require_min_followup_train: false
   batch_size: 128
   batch_sampling:
     type: event_aware

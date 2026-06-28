@@ -142,6 +142,7 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
         require_all_configured_cells=require_all_configured_cells,
+        require_min_followup_train=cfg.training.get("require_min_followup_train", False),
         max_len=encoder.config.max_position_embeddings,
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )
