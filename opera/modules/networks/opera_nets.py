@@ -507,6 +507,7 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
         self,
         outcome_names: List[str],
         temperature: float = 0.07,
+        km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
         dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor weight
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
@@ -524,6 +525,7 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
 
         self.survival_con = SurvivalSoftContrastiveLoss(
             temperature=temperature,
+            km_time_scale=km_time_scale,
             competing_event_weight=competing_event_weight,
             competing_event_handling=competing_event_handling,
         )
@@ -698,6 +700,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
         self,
         outcome_names: List[str],
         temperature: float = 0.07,
+        km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
         dapt_lambda_floor: float = 0.3,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
@@ -709,6 +712,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
         super().__init__(
             outcome_names=outcome_names,
             temperature=temperature,
+            km_time_scale=km_time_scale,
             outcome_sorted_event_times=outcome_sorted_event_times,
             dapt_lambda_floor=dapt_lambda_floor,
             outcome_event_time_probs=outcome_event_time_probs,
@@ -878,7 +882,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             term = terms.get(name)
             if term is None:
                 continue
-            if float(term["n_effective_pairs"].detach().item()) <= 0.0:
+            if float(term["n_effective_pairs"].detach().item()) < 1.0:
                 continue
             factor = self.class_balance_factors[index].to(
                 device=device,
@@ -1014,6 +1018,7 @@ class OperaContrastiveModel(nn.Module):
         projection_hidden_dim: int = 256,
         projection_dim: int = 128,
         temperature: float = 0.07,
+        km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor
@@ -1036,6 +1041,7 @@ class OperaContrastiveModel(nn.Module):
             "projection_hidden_dim": projection_hidden_dim,
             "projection_dim": projection_dim,
             "temperature": temperature,
+            "km_time_scale": km_time_scale,
             "dapt_lambda_floor": dapt_lambda_floor,
             "dapt_anchor_weight": dapt_anchor_weight,
             "competing_event_weight": competing_event_weight,
@@ -1063,6 +1069,7 @@ class OperaContrastiveModel(nn.Module):
         self.contrastive_loss = MultiOutcomeSurvivalLoss(
             outcome_names=outcome_names,
             temperature=temperature,
+            km_time_scale=km_time_scale,
             outcome_sorted_event_times=outcome_sorted_event_times,
             outcome_event_time_probs=outcome_event_time_probs,
             dapt_lambda_floor=dapt_lambda_floor,

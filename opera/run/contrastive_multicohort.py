@@ -113,6 +113,7 @@ def main(cfg: DictConfig) -> None:
         projection_hidden_dim=cfg.model.projection_hidden_dim,
         projection_dim=cfg.model.projection_dim,
         temperature=cfg.model.temperature,
+        km_time_scale=cfg.model.get("km_time_scale", 0.25),
         outcome_sorted_event_times=outcome_sorted_event_times,
         outcome_event_time_probs=outcome_event_time_probs,
         dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),

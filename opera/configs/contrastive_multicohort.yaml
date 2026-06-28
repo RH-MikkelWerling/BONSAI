@@ -98,6 +98,7 @@ model:
   projection_hidden_dim: 256
   projection_dim: 128
   temperature: 0.07
+  km_time_scale: 0.25      # quantile-space kernel bandwidth: exp(-|q_i-q_j|/scale)
   # Time similarity is computed on pooled Kaplan-Meier cumulative event-mass
   # positions, not raw time or unweighted empirical CDF ranks.
   # DAPT cosine similarity modulates outcome/time/censoring pair weights.
