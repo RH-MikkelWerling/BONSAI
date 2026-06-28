@@ -483,14 +483,22 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         selected: set[int],
         rng: np.random.Generator,
     ) -> None:
-        all_indices = np.arange(self.n, dtype=np.int64)
+        # Fill from the union of valid patients so batch slots aren't wasted
+        # on patients who have all-missing outcome labels (time=-1, event=-1)
+        # and would contribute zero pairs to every outcome in the loss.
+        valid_arrays = [v for v in self.valid_indices.values() if v.size > 0]
+        fill_pool = (
+            np.unique(np.concatenate(valid_arrays))
+            if valid_arrays
+            else np.arange(self.n, dtype=np.int64)
+        )
         needed = self.batch_size - len(batch)
         self._add(
             batch,
             selected,
             _draw_from_pool(
                 rng,
-                all_indices,
+                fill_pool,
                 needed,
                 selected,
                 self.base_probabilities,
@@ -570,10 +578,17 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             lines.append("  no outcomes have primary events; falling back to bucket fill")
             return "\n".join(lines)
         lines.append(f"  focus outcomes: {self.focus_outcomes}")
+        batches_per_focus = max(1, self.num_batches // len(self.focus_outcomes))
+        draws_per_epoch = batches_per_focus * self.min_events_per_batch
         for name in self.outcome_names:
+            n_events = self.event_indices[name].size
+            coverage = draws_per_epoch / max(1, n_events) if name in self.focus_outcomes else 0.0
+            coverage_str = f", epoch_coverage≈{coverage:.2f}"
+            if name in self.focus_outcomes and coverage < 1.0:
+                coverage_str += " [WARNING: <1× per epoch, consider batches_per_epoch]"
             lines.append(
                 f"  {name}: valid={self.valid_indices[name].size}, "
-                f"primary_events={self.event_indices[name].size}"
+                f"primary_events={n_events}{coverage_str}"
             )
         return "\n".join(lines)
 
