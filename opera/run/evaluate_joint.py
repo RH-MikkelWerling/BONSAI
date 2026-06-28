@@ -81,10 +81,16 @@ def main(cfg: DictConfig) -> None:
             "outcome_name must be set for joint model evaluation; "
             "pass outcome_name=<name> on the CLI."
         )
+    ckpt_path = cfg.get("ckpt_path")
+    if ckpt_path is None:
+        raise ValueError(
+            "ckpt_path must be set for joint model evaluation; "
+            "pass ckpt_path=/path/to/best.ckpt on the CLI."
+        )
 
     # ── Load model ─────────────────────────────────────────────────────
     model = load_joint_model_from_checkpoint(
-        cfg.ckpt_path,
+        ckpt_path,
         strict=cfg.get("strict_checkpoint_load", True),
     )
     if outcome_name not in model.outcome_names:
@@ -290,7 +296,7 @@ def main(cfg: DictConfig) -> None:
     result_row = build_result_row(
         cfg,
         report,
-        checkpoint_path=cfg.ckpt_path,
+        checkpoint_path=ckpt_path,
         split=test_key,
         model_family="joint",
         training_stage="joint_finetuning",
