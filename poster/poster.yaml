@@ -1,0 +1,218 @@
+schema_version: 1
+
+poster:
+  project_name: OPERA
+  title: OPERA
+  subtitle: Outcome-informed patient representations across hematologic diseases
+  format: A0_landscape
+  width_mm: 1189
+  height_mm: 841
+  bleed_mm: 3
+  safe_margin_mm: 24
+  status: development
+
+story:
+  hero_claim: >-
+    Shared, outcome-informed representation learning is most useful when
+    labelled clinical data are scarce.
+  supporting_claims:
+    - Longitudinal EHR histories provide richer patient context than manually selected task-specific variables.
+    - Joint learning can preserve or improve performance across fine-grained hematologic diagnoses.
+    - Broader representations may particularly benefit rare diagnoses and atypical patients.
+  acronym_expansion: null
+
+prospective_split:
+  contract: opera/configs/manifests/temporal_split.yaml
+  train_label: Train through 2021
+  tune_label: Tune in 2022
+  test_label: Test in 2023+
+
+outcomes:
+  - key: mortality_1y
+    label: 1-year mortality
+  - key: mortality_2y
+    label: 2-year mortality
+  - key: treatment_failure
+    label: Treatment failure
+
+model_families:
+  joint_opera:
+    label: Joint OPERA
+    colour: '#D53E6C'
+    priority: 1
+  grouped_opera:
+    label: Grouped OPERA
+    colour: '#EF8A2C'
+    priority: 2
+  fine_opera:
+    label: Fine-diagnosis OPERA
+    colour: '#168A96'
+    priority: 3
+  tabular:
+    label: XGBoost
+    colour: '#4D5661'
+    priority: 4
+
+metrics:
+  primary_cross_task:
+    key: delta_auroc_vs_baseline
+    label: Delta AUROC versus XGBoost
+  absolute:
+    key: auroc
+    label: AUROC
+  patient_level_gain:
+    key: brier_gain
+    label: Patient-level predictive gain
+
+figures:
+  rarity:
+    title: Learning under scarcity
+    role: hero
+    source_config: opera/configs/rarity_experiments.yaml
+    input_globs:
+      - '${BONSAI_RESULTS_ROOT}/rarity_experiments/**/*.csv'
+      - '${BONSAI_RESULTS_ROOT}/rarity_experiments/**/*.jsonl'
+    outputs:
+      svg: poster/figures/final/rarity_landscape.svg
+      pdf: poster/figures/final/rarity_landscape.pdf
+      preview: poster/figures/previews/rarity_landscape.png
+      metadata: poster/figures/final/rarity_landscape.metadata.json
+    stable_width_mm: 610
+    stable_height_mm: 280
+    components:
+      - pooled performance curves with uncertainty
+      - task-level trajectories
+      - diagnosis-by-training-size delta-AUROC heatmap
+      - label-saving annotation at target AUROC
+
+  representation_atlas:
+    title: Outcome-informed geometry
+    role: support
+    input_globs:
+      - '${BONSAI_RESULTS_ROOT}/**/predictions.npz'
+      - '${BONSAI_RESULTS_ROOT}/**/*embedding*.pt'
+      - '${BONSAI_RESULTS_ROOT}/**/*embedding*.npz'
+    outputs:
+      svg: poster/figures/final/representation_atlas.svg
+      pdf: poster/figures/final/representation_atlas.pdf
+      preview: poster/figures/previews/representation_atlas.png
+      metadata: poster/figures/final/representation_atlas.metadata.json
+    stable_width_mm: 390
+    stable_height_mm: 250
+    variants:
+      - diagnosis_density
+      - mortality_gradient
+      - treatment_failure_gradient
+
+  transfer_matrix:
+    title: Who benefits from shared learning?
+    role: support
+    input_globs:
+      - '${BONSAI_RESULTS_ROOT}/**/result.jsonl'
+      - '${BONSAI_RESULTS_ROOT}/**/joint_vs_per_cohort.csv'
+    outputs:
+      svg: poster/figures/final/transfer_matrix.svg
+      pdf: poster/figures/final/transfer_matrix.pdf
+      preview: poster/figures/previews/transfer_matrix.png
+      metadata: poster/figures/final/transfer_matrix.metadata.json
+    stable_width_mm: 330
+    stable_height_mm: 205
+    contrast: joint_opera_minus_fine_opera
+
+  atypicality:
+    title: Patient-level benefit from transfer
+    role: support
+    source_config: opera/configs/patient_benefit_contrasts.yaml
+    input_globs:
+      - '${BONSAI_RESULTS_ROOT}/patient_benefit/**/*.csv'
+      - '${BONSAI_RESULTS_ROOT}/patient_benefit/**/*.parquet'
+    outputs:
+      svg: poster/figures/final/atypicality_benefit.svg
+      pdf: poster/figures/final/atypicality_benefit.pdf
+      preview: poster/figures/previews/atypicality_benefit.png
+      metadata: poster/figures/final/atypicality_benefit.metadata.json
+    stable_width_mm: 330
+    stable_height_mm: 205
+
+  method:
+    title: From longitudinal histories to outcome-informed representations
+    role: explanatory
+    outputs:
+      svg: poster/figures/final/method_pipeline.svg
+      pdf: poster/figures/final/method_pipeline.pdf
+      preview: poster/figures/previews/method_pipeline.png
+      metadata: poster/figures/final/method_pipeline.metadata.json
+    stable_width_mm: 390
+    stable_height_mm: 210
+
+layout:
+  grid_columns: 12
+  grid_gutter_mm: 10
+  title_region_height_mm: 105
+  footer_region_height_mm: 58
+  composition:
+    title:
+      columns: [1, 9]
+    split:
+      columns: [10, 12]
+    method:
+      columns: [1, 4]
+    representation_atlas:
+      columns: [5, 12]
+    rarity:
+      columns: [1, 8]
+    transfer_matrix:
+      columns: [9, 12]
+    atypicality:
+      columns: [9, 12]
+
+visual_system:
+  balance:
+    analytical_clarity_fraction: 0.75
+    artistic_intensity_fraction: 0.25
+  colours:
+    paper: '#F3EFE6'
+    ink: '#162133'
+    muted_ink: '#52606C'
+    cyan: '#1596A3'
+    coral: '#E25A52'
+    orange: '#EF8A2C'
+    magenta: '#D53E6C'
+    violet: '#6B55A3'
+    pale_cyan: '#DCEDEF'
+  typography:
+    display_family: Inter Tight
+    body_family: Source Sans 3
+    mono_family: IBM Plex Mono
+  artwork:
+    approved_locations:
+      - outer margins
+      - transitions between method and representation atlas
+      - one focal representation-space composition
+    forbidden_locations:
+      - behind small text
+      - behind axes or tick labels
+      - behind legends
+      - behind uncertainty intervals
+      - behind heatmap annotations
+
+artwork_sources:
+  originals_storage: external
+  repository_references: poster/artwork/references
+  derived_textures: poster/artwork/textures
+  requirements:
+    - Only use artwork supplied or approved by the user.
+    - Preserve a record of the source artwork for every derived texture.
+    - Do not commit full-resolution original artwork without explicit approval.
+
+build:
+  derived_data_dir: poster/data/derived
+  mock_data_dir: poster/data/mock
+  generated_figure_dir: poster/figures/generated
+  final_figure_dir: poster/figures/final
+  preview_dir: poster/figures/previews
+  build_dir: poster/build
+  provisional_watermark: PROVISIONAL MOCK DATA
+  fail_on_mock_for_final: true
+  fail_on_missing_metadata: true
+  fail_on_untraceable_values: true
