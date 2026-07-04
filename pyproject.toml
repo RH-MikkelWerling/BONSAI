@@ -46,7 +46,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["bonsai", "bonsai.*", "opera", "opera.*"]
+include = ["bonsai", "bonsai.*", "opera", "opera.*", "poster", "poster.*"]
 
 [project.optional-dependencies]
 dev = [
