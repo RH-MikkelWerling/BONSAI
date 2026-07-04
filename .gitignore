@@ -31,3 +31,13 @@ paper/*.log
 paper/*.out
 paper/*.pdf
 paper/*.synctex.gz
+
+# OPERA poster: local builds, exports, working Illustrator documents, and raw art
+poster/build/
+poster/exports/
+poster/figures/previews/
+poster/illustrator/work/
+poster/artwork/originals/
+poster/**/*.aid
+poster/**/*Recovery*
+poster/**/*.tmp
