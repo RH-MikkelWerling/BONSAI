@@ -167,34 +167,39 @@ def build_evaluation_cohorts(
     allowed_subject_ids: Optional[Iterable[Any]] = None,
 ) -> EvaluationCohorts:
     """Build fixed-horizon and survival cohorts from one filtered outcome frame."""
-    outcome_frame = (
+    source_frame = (
         outcomes.copy()
         if isinstance(outcomes, pd.DataFrame)
         else pd.read_parquet(outcomes)
     )
-    outcome_frame = filter_outcome_eligibility(
-        outcome_frame,
-        eligibility,
-        cohort=cohort,
-        outcome_name=outcome_name,
-    )
-    outcome_frame = attach_prediction_censor_abspos(outcome_frame)
-    outcome_frame = filter_registry_eligible_outcomes(
-        outcome_frame,
-        registry_start_date,
-        cohort=cohort,
-        outcome_name=outcome_name,
-    )
-    outcome_frame = outcome_frame[outcome_frame["split"] == split].copy()
-    if allowed_subject_ids is not None:
-        outcome_frame = outcome_frame[
-            outcome_frame["subject_id"].isin(set(allowed_subject_ids))
-        ].copy()
-    if outcome_frame["subject_id"].duplicated().any():
-        raise ValueError(
-            f"Outcome cohort {cohort or 'unknown'}/{outcome_name or 'unknown'}/"
-            f"{split} contains duplicate subject_id rows."
+
+    def prepare(scope: str) -> pd.DataFrame:
+        frame = filter_outcome_eligibility(
+            source_frame,
+            eligibility,
+            cohort=cohort,
+            outcome_name=outcome_name,
+            eligibility_scope=scope,
         )
+        frame = attach_prediction_censor_abspos(frame)
+        frame = filter_registry_eligible_outcomes(
+            frame,
+            registry_start_date,
+            cohort=cohort,
+            outcome_name=outcome_name,
+        )
+        frame = frame[frame["split"] == split].copy()
+        if allowed_subject_ids is not None:
+            frame = frame[frame["subject_id"].isin(set(allowed_subject_ids))].copy()
+        if frame["subject_id"].duplicated().any():
+            raise ValueError(
+                f"Outcome cohort {cohort or 'unknown'}/{outcome_name or 'unknown'}/"
+                f"{split} contains duplicate subject_id rows."
+            )
+        return frame
+
+    fixed_frame = prepare("final")
+    survival_frame = prepare("ascertainment")
 
     competing_frame = None
     if competing_outcomes is not None:
@@ -205,7 +210,7 @@ def build_evaluation_cohorts(
         )
 
     survival_records = binarize_outcomes(
-        outcome_frame,
+        survival_frame,
         n_hours_start_include=n_hours_start_include,
         n_hours_end_include=n_hours_end_include,
         require_min_followup=False,
@@ -213,7 +218,7 @@ def build_evaluation_cohorts(
         competing_event_df=competing_frame,
     )
     fixed_records = binarize_outcomes(
-        outcome_frame,
+        fixed_frame,
         n_hours_start_include=n_hours_start_include,
         n_hours_end_include=n_hours_end_include,
         require_min_followup=True,

@@ -17,13 +17,13 @@ def _subject(subject_id: int) -> dict:
     }
 
 
-def test_canonical_temporal_contract_assigns_2020_2021_2022_splits():
+def test_canonical_temporal_contract_assigns_2021_2022_2023_splits():
     contract = load_temporal_split_contract()
     outcomes = pd.DataFrame(
         {
             "subject_id": [1, 2, 3],
             "index_date": pd.to_datetime(
-                ["2020-12-31", "2021-06-01", "2022-01-01"]
+                ["2021-12-31", "2022-06-01", "2023-01-01"]
             ),
         }
     )
@@ -45,7 +45,7 @@ def test_cross_stage_split_contract_flags_held_out_subjects_in_training_inputs(
         {
             "subject_id": [1, 2, 3],
             "index_date": pd.to_datetime(
-                ["2020-01-01", "2021-01-01", "2022-01-01"]
+                ["2021-01-01", "2022-01-01", "2023-01-01"]
             ),
             "split": ["train", "tuning", "held_out"],
         }

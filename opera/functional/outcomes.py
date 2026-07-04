@@ -98,6 +98,7 @@ def filter_outcome_eligibility(
     *,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
+    eligibility_scope: str = "final",
 ) -> pd.DataFrame:
     """Apply a patient-level outcome ascertainment sidecar.
 
@@ -112,6 +113,7 @@ def filter_outcome_eligibility(
         return outcomes.copy()
 
     from opera.evaluation.cohort_flow import (
+        eligibility_mask,
         load_eligibility_frame,
         validate_eligibility_frame,
     )
@@ -128,13 +130,7 @@ def filter_outcome_eligibility(
             f"{outcome_name or 'unknown'}: {'; '.join(issues)}"
         )
     frame = frame.copy()
-    frame["eligible"] = frame["eligible"].map(
-        lambda value: (
-            value
-            if isinstance(value, bool)
-            else str(value).strip().lower() in {"1", "true", "yes"}
-        )
-    )
+    frame["eligible"] = eligibility_mask(frame, scope=eligibility_scope)
 
     required = {"subject_id", "split"}
     missing = required - set(outcomes.columns)
@@ -164,9 +160,11 @@ def filter_outcome_eligibility(
     eligible_mask = merged["eligible"].astype(bool).to_numpy()
     filtered = outcomes.loc[eligible_mask].copy()
     LOGGER.info(
-        "outcome_eligibility_filter cohort=%s outcome=%s excluded=%s/%s retained=%s",
+        "outcome_eligibility_filter cohort=%s outcome=%s scope=%s "
+        "excluded=%s/%s retained=%s",
         cohort or "unknown",
         outcome_name or "unknown",
+        eligibility_scope,
         int((~eligible_mask).sum()),
         len(outcomes),
         len(filtered),

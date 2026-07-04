@@ -22,10 +22,13 @@ from typing import Dict, List, Tuple
 
 import yaml
 from opera.evaluation.tasks import (
+    competing_outcome_file_path,
     normalize_outcome_config,
     outcome_file_path,
     parse_task_ref,
 )
+from opera.evaluation.cohort_flow import eligibility_file_path
+from opera.functional.outcomes import resolve_registry_start_date
 
 
 def parse_tasks(raw: str) -> List[Tuple[str, str]]:
@@ -54,6 +57,9 @@ def run_cell(
     base_config: str,
     n_hours_start_include: int,
     n_hours_end_include,
+    registry_start_date=None,
+    eligibility_path: str | None = None,
+    competing_outcome_path: str | None = None,
     overwrite: bool = False,
 ) -> Dict:
     eval_dir = output_dir / checkpoint_name / cohort / outcome / "eval"
@@ -74,7 +80,12 @@ def run_cell(
         f"paths.outcome={outcome_path}",
         f"labels.n_hours_start_include={n_hours_start_include}",
         f"labels.n_hours_end_include={end_value}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
     ]
+    if eligibility_path:
+        common.append(f"paths.eligibility={eligibility_path}")
+    if competing_outcome_path:
+        common.append(f"paths.competing_outcome={competing_outcome_path}")
 
     finetune_cmd = [
         sys.executable,
@@ -104,9 +115,14 @@ def run_cell(
         f"output_dir={eval_dir}",
         f"labels.n_hours_start_include={n_hours_start_include}",
         f"labels.n_hours_end_include={end_value}",
+        f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"+model_family={checkpoint_name}",
         f"+pretraining_scale={checkpoint_name}",
     ]
+    if eligibility_path:
+        eval_cmd.append(f"paths.eligibility={eligibility_path}")
+    if competing_outcome_path:
+        eval_cmd.append(f"paths.competing_outcome={competing_outcome_path}")
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Evaluate failed for {checkpoint_name}/{cohort}/{outcome}:")
@@ -152,6 +168,21 @@ def main():
                 outcome,
                 outcome_cfg,
             )
+            registry_start_date = resolve_registry_start_date(
+                cohort_cfg,
+                outcome_cfg,
+            )
+            eligibility = eligibility_file_path(
+                cohort_cfg["data_dir"],
+                cohort,
+                outcome,
+                outcome_cfg,
+            )
+            eligibility = str(eligibility) if eligibility is not None else None
+            competing_path = competing_outcome_file_path(
+                cohort_cfg["data_dir"],
+                outcome_cfg,
+            )
             metrics = run_cell(
                 checkpoint_name=checkpoint_name,
                 checkpoint_path=checkpoint_path,
@@ -164,6 +195,9 @@ def main():
                 base_config=base_config,
                 n_hours_start_include=outcome_cfg.get("n_hours_start_include", 1),
                 n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
+                registry_start_date=registry_start_date,
+                eligibility_path=eligibility,
+                competing_outcome_path=competing_path,
                 overwrite=args.overwrite,
             )
             rows.append(

@@ -190,6 +190,29 @@ def test_joint_finetune_validation_step_returns_metrics():
     assert module.val_auroc["mortality"].update_called
 
 
+def test_joint_validation_combines_classes_across_batches():
+    module = JointFinetuneModule(
+        model=_make_joint_model(
+            {
+                "weighter": "uniform",
+                "aggregation": "macro",
+                "require_both_classes_per_batch": True,
+            }
+        ),
+        outcome_names=OUTCOMES,
+    )
+    negative_batch = _joint_batch(mask_relapse=True)
+    positive_batch = _joint_batch(mask_relapse=True)
+    negative_batch["outcome_mortality"] = torch.zeros(4, dtype=torch.long)
+    positive_batch["outcome_mortality"] = torch.ones(4, dtype=torch.long)
+
+    module.validation_step(negative_batch, 0)
+    module.validation_step(positive_batch, 1)
+
+    assert module.val_auroc["mortality"].update_called
+    assert torch.isfinite(module.val_auroc["mortality"].compute())
+
+
 def test_joint_finetune_multi_outcome_masking():
     module = JointFinetuneModule(
         model=_make_joint_model(),
@@ -264,6 +287,7 @@ def test_joint_finetune_skips_one_class_minibatch_by_default():
     out = model(batch, labels)
 
     assert "loss/mortality" not in out
+    assert "logits/mortality" in out
     assert "loss/relapse" in out
     assert out["cross_outcome_weight/mortality"].item() == 0.0
     assert out["cross_outcome_weight/relapse"].item() == 1.0

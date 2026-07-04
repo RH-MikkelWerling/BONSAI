@@ -87,6 +87,17 @@ def validate_eligibility_frame(frame: pd.DataFrame) -> list[str]:
     if ((eligible == False) & reasons.eq("")).any():  # noqa: E712
         issues.append("ineligible rows require a non-empty eligibility_reason")
 
+    if "ascertainment_eligible" in frame.columns:
+        ascertainment = _coerce_nullable_boolean(frame["ascertainment_eligible"])
+        if ascertainment.isna().any():
+            issues.append(
+                "ascertainment_eligible must contain only non-null boolean-like values"
+            )
+        if ((eligible == True) & (ascertainment == False)).any():  # noqa: E712
+            issues.append(
+                "eligible=true requires ascertainment_eligible=true"
+            )
+
     for column in CRITERION_COLUMNS:
         if column not in frame.columns:
             continue
@@ -116,6 +127,53 @@ def validate_eligibility_frame(frame: pd.DataFrame) -> list[str]:
                 "post_index_adequate=true requires a non-null last_measurement_date"
             )
     return issues
+
+
+def eligibility_mask(
+    frame: pd.DataFrame,
+    scope: str = "final",
+) -> pd.Series:
+    """Return the locked eligibility mask for a modeling regime.
+
+    ``final`` uses the sidecar's final fixed-horizon eligibility. The
+    ``ascertainment`` scope restores rows excluded only for incomplete
+    follow-up so censor-aware survival objectives can still use their observed
+    risk time. New sidecars should provide ``ascertainment_eligible``
+    explicitly; the criterion fields provide a backward-compatible fallback.
+    """
+    if scope not in {"final", "ascertainment"}:
+        raise ValueError("eligibility scope must be 'final' or 'ascertainment'.")
+
+    final = _coerce_nullable_boolean(frame["eligible"]).fillna(False).astype(bool)
+    if scope == "final":
+        return final
+
+    if "ascertainment_eligible" in frame.columns:
+        return (
+            _coerce_nullable_boolean(frame["ascertainment_eligible"])
+            .fillna(False)
+            .astype(bool)
+        )
+
+    if "followup_adequate" in frame.columns:
+        followup = _coerce_nullable_boolean(frame["followup_adequate"])
+        structural_failure = pd.Series(False, index=frame.index)
+        for column in ("source_covered", "baseline_adequate", "post_index_adequate"):
+            if column in frame.columns:
+                values = _coerce_nullable_boolean(frame[column])
+                structural_failure |= values == False  # noqa: E712
+        followup_only = (followup == False) & ~structural_failure  # noqa: E712
+        return (final | followup_only.fillna(False)).astype(bool)
+
+    reasons = (
+        frame["eligibility_reason"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    followup_only = reasons.str.contains("followup|early_censor", regex=True)
+    return (final | followup_only).astype(bool)
 
 
 def summarize_eligibility_frame(

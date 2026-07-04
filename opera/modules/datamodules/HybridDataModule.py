@@ -86,10 +86,11 @@ class HybridDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            drop_last=True,
+            persistent_workers=self.num_workers > 0,
+            drop_last=False,
             collate_fn=hybrid_collate,
             sampler=self.train_sampler,
+            shuffle=self.train_sampler is None,
         )
 
     def val_dataloader(self):
@@ -98,7 +99,7 @@ class HybridDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
             drop_last=False,
             shuffle=False,
             collate_fn=hybrid_collate,

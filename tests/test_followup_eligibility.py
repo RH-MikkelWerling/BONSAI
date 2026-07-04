@@ -144,6 +144,61 @@ def test_competing_event_uses_death_date_as_followup_end():
     assert abs(result[1]["time_days"] - 20.0) < 0.1
 
 
+def test_primary_event_after_censor_date_is_not_observed():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(
+                1,
+                "train",
+                "2023-01-01",
+                "2023-02-01",
+                "2023-01-15",
+            ),
+        ]
+    )
+
+    survival = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=0,
+        n_hours_end_include=24 * 60,
+        require_min_followup=False,
+    )
+    fixed = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=0,
+        n_hours_end_include=24 * 60,
+        require_min_followup=True,
+    )
+
+    assert survival[1]["event"] == 0
+    assert survival[1]["label"] == 0
+    assert survival[1]["time_days"] == 14.0
+    assert fixed == {}
+
+
+def test_earlier_competing_event_precedes_later_primary_event():
+    outcomes = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-02-01", "2023-06-01"),
+        ]
+    )
+    death_df = pd.DataFrame(
+        [
+            _make_outcome_row(1, "train", "2023-01-01", "2023-01-20", "2023-06-01"),
+        ]
+    )
+
+    result = binarize_outcomes(
+        outcomes,
+        n_hours_start_include=0,
+        competing_event_df=death_df,
+    )
+
+    assert result[1]["event"] == 2
+    assert result[1]["label"] == 0
+    assert result[1]["time_days"] == 19.0
+
+
 def test_death_after_censor_date_stays_admin_censored():
     # If the death occurs after the admin censor date, the patient is still
     # event=0 (they were administratively censored before they died).

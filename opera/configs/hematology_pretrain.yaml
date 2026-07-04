@@ -60,8 +60,3 @@ training:
   scheduler_warmup_epochs: 2
   limit_val_batches: 1.0
   limit_train_batches: 1.0
-  masking:
-    masking_select_ratio: 0.15
-    masking_mask_ratio: 0.8
-    masking_random_ratio: 0.1
-    masking_ignore_special_tokens: true

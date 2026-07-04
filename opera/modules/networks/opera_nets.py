@@ -401,6 +401,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         sorted_event_times: torch.Tensor,
         event_time_probs: Optional[torch.Tensor] = None,
         dapt_weights: Optional[torch.Tensor] = None,
+        subject_ids: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         device = times.device
         if sorted_event_times.numel() == 0:
@@ -436,8 +437,11 @@ class SurvivalSoftContrastiveLoss(nn.Module):
                 pair_weights,
             )
 
-        mask_self = torch.eye(times.numel(), device=device, dtype=torch.bool)
-        pair_weights = pair_weights.masked_fill(mask_self, 0.0)
+        excluded_pairs = torch.eye(times.numel(), device=device, dtype=torch.bool)
+        if subject_ids is not None:
+            ids = subject_ids.to(device).reshape(-1)
+            excluded_pairs |= ids.unsqueeze(0) == ids.unsqueeze(1)
+        pair_weights = pair_weights.masked_fill(excluded_pairs, 0.0)
         if dapt_weights is not None:
             pair_weights = pair_weights * dapt_weights.to(device)
 
@@ -453,6 +457,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         sorted_event_times: torch.Tensor,
         event_time_probs: Optional[torch.Tensor] = None,
         dapt_weights: Optional[torch.Tensor] = None,
+        subject_ids: Optional[torch.Tensor] = None,
         return_diagnostics: bool = False,
     ) -> torch.Tensor:
         device = embeddings.device
@@ -469,8 +474,12 @@ class SurvivalSoftContrastiveLoss(nn.Module):
             sorted_event_times=sorted_event_times,
             event_time_probs=event_time_probs,
             dapt_weights=dapt_weights,
+            subject_ids=subject_ids,
         )
-        mask_self = torch.eye(B, device=device, dtype=torch.bool)
+        excluded_pairs = torch.eye(B, device=device, dtype=torch.bool)
+        if subject_ids is not None:
+            ids = subject_ids.to(device).reshape(-1)
+            excluded_pairs |= ids.unsqueeze(0) == ids.unsqueeze(1)
         row_sum = pair_weights.sum(dim=1)
         valid = row_sum > self.min_weight_threshold
         if valid.sum() == 0:
@@ -483,7 +492,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         sim = torch.mm(embeddings, embeddings.t()) / self.temperature
         logits_max = sim.detach().max(dim=1, keepdim=True)[0]
         logits = sim - logits_max
-        exp_logits = torch.exp(logits).masked_fill(mask_self, 0.0)
+        exp_logits = torch.exp(logits).masked_fill(excluded_pairs, 0.0)
         log_softmax = logits - torch.log(exp_logits.sum(dim=1, keepdim=True) + 1e-12)
         per_anchor_loss = -(pair_weights[valid] * log_softmax[valid]).sum(dim=1)
         anchor_weights = row_sum[valid] / (row_sum[valid].sum() + 1e-12)
@@ -672,6 +681,9 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
                 sorted_event_times=sorted_et_k,
                 event_time_probs=self.outcome_event_time_probs.get(name),
                 dapt_weights=dapt_w_k,
+                subject_ids=(
+                    subject_ids[valid_mask] if subject_ids is not None else None
+                ),
                 return_diagnostics=True,
             )
 
@@ -850,6 +862,9 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
                 sorted_event_times=sorted_event_times,
                 event_time_probs=self.outcome_event_time_probs.get(name),
                 dapt_weights=outcome_dapt_weights,
+                subject_ids=(
+                    subject_ids[valid_mask] if subject_ids is not None else None
+                ),
                 return_diagnostics=True,
             )
 

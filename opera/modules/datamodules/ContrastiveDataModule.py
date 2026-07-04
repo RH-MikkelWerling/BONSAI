@@ -76,6 +76,7 @@ def compute_sorted_event_times(
                 df,
                 eligibility_path,
                 outcome_name=name,
+                eligibility_scope="ascertainment",
             )
             split_df = df[df["split"] == split].copy()
             if {"event", "time_days"}.issubset(split_df.columns):
@@ -172,6 +173,7 @@ def compute_event_time_probability_grids(
                 df,
                 eligibility_path,
                 outcome_name=name,
+                eligibility_scope="ascertainment",
             )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
@@ -259,6 +261,7 @@ class ContrastiveDataModule(L.LightningDataModule):
                 df,
                 _eligibility_path(ocfg, ocfg["path"]),
                 outcome_name=name,
+                eligibility_scope="ascertainment",
             )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
@@ -371,6 +374,12 @@ class ContrastiveDataModule(L.LightningDataModule):
                 self.batch_sampling.get("min_events_per_batch", 4)
             ),
             min_valid_per_batch=None if min_valid is None else int(min_valid),
+            min_unique_events_for_focus=int(
+                self.batch_sampling.get("min_unique_events_for_focus", 2)
+            ),
+            min_unique_valid_for_focus=int(
+                self.batch_sampling.get("min_unique_valid_for_focus", 4)
+            ),
             batches_per_epoch=(
                 None if batches_per_epoch is None else int(batches_per_epoch)
             ),

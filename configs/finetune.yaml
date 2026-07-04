@@ -24,6 +24,9 @@ labels:
   # we will convert outcomes to binary based on whether at least one outcome is in the follow up window
   n_hours_start_include: 1 # start follow up (considering outcomes) time after index date (negative means before)
   n_hours_end_include: null
+  require_min_followup_train: true
+  require_min_followup_val: true
+  require_min_followup_test: true
 
 training:
   max_len: 8192
@@ -32,10 +35,10 @@ training:
   epochs: 10
   learning_rate: 3e-5
   optimizer_epsilon: 1e-6
-  sampling_weight_fn: 
-    _target_: bonsai.functional.sampling.effective_n_samples
-  loss_weight_function: 
-    _target_: bonsai.functional.loss.effective_n_samples
+  # Preserve the empirical class distribution by default. Resampling and
+  # weighted loss remain available as explicit sensitivity analyses.
+  sampling_weight_fn: null
+  loss_weight_function: null
   scheduler_warmup_epochs: 0.01 # DOUBLE CHECK THAT THIS IS DESIRED
   ckpt_every_n_epoch: 1
   limit_val_batches: 50

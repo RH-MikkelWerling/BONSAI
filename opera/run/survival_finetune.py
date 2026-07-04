@@ -107,6 +107,7 @@ def main(cfg: DictConfig) -> None:
         cfg.paths.get("eligibility"),
         cohort=cfg.dataset,
         outcome_name=cfg.outcome,
+        eligibility_scope="ascertainment",
     )
     outcomes = attach_prediction_censor_abspos(outcomes)
     outcomes = filter_registry_eligible_outcomes(

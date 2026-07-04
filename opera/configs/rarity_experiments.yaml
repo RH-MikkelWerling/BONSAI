@@ -1,0 +1,78 @@
+# Controlled label-scarcity and natural-rarity analyses for OPERA.
+# Synthetic and natural results are always written to separate subdirectories.
+
+sweep_config: opera/configs/leukemia_sweep.yaml
+output_dir: ${oc.env:BONSAI_RESULTS_ROOT}/rarity_experiments
+
+temporal_split:
+  contract: opera/configs/manifests/temporal_split.yaml
+
+# The primary panel is deliberately limited to outcomes already defined in the
+# leukemia sweep. Set use_all_eligible=true for the supplementary panel.
+outcomes:
+  primary: [mortality_1y, mortality_2y, treatment_failure]
+  use_all_eligible: false
+
+exclude_diagnoses: [EXCLUDE_SECONDARY]
+
+eligibility:
+  min_train_patients: 500
+  min_train_positive: 20
+  min_train_negative: 20
+  primary_test_positive: 50
+  primary_test_negative: 50
+  aggregate_test_positive: 10
+  aggregate_test_negative: 10
+  max_test_indeterminate_fraction: 0.50
+
+sampling:
+  absolute_sizes: [100, 250, 500, 1000, 2500]
+  percentage_sizes: []
+  seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+  min_positive: 5
+  min_negative: 5
+  # Sensitivity analysis: set true to reduce target tuning labels at the same
+  # fraction as target training labels. The primary analysis leaves 2022 fixed.
+  downsample_tuning: false
+
+bootstrap_replicates: 2000
+comparators: [tabular]
+
+# Mapping to existing OPERA concepts:
+# joint_opera   = joint multi-cohort contrastive encoder + sampled task head
+# grouped_opera = grouped-diagnosis encoder + the identical sampled task head
+# fine_opera    = fine-diagnosis encoder + the identical sampled task head
+# tabular       = task-specific XGBoost on the identical sampled patients
+models:
+  joint_opera:
+    kind: neural
+    encoder_source: contrastive
+    encoder_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive/best.ckpt
+    natural_predictions: ${oc.env:BONSAI_RESULTS_ROOT}/leukemia_sweep/{cohort}/{outcome}/opera/seed_{seed}/predictions.npz
+
+  grouped_opera:
+    kind: neural
+    encoder_source: contrastive
+    encoder_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive_per_group/{training_cohort}/best.ckpt
+    natural_predictions: ${oc.env:BONSAI_RESULTS_ROOT}/leukemia_sweep/{cohort}/{outcome}/opera_per_grouped/seed_{seed}/predictions.npz
+
+  fine_opera:
+    kind: neural
+    encoder_source: contrastive
+    encoder_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive_per_fine/{cohort}/best.ckpt
+    natural_predictions: ${oc.env:BONSAI_RESULTS_ROOT}/leukemia_sweep/{cohort}/{outcome}/opera_per_fine/seed_{seed}/predictions.npz
+
+  tabular:
+    kind: tabular
+    model: xgboost
+    features: ${oc.env:BONSAI_PROCESSED_DATA}/{training_cohort}/features/tabular_ehr.parquet
+    natural_predictions: ${oc.env:BONSAI_RESULTS_ROOT}/leukemia_sweep/{cohort}/{outcome}/tabular_ehr_xgboost/seed_{seed}/predictions.npz
+
+label_saving:
+  target_auroc: 0.75
+
+dry_run:
+  max_tasks: 2
+  max_seeds: 1
+  max_sample_sizes: 2
+  bootstrap_replicates: 20

@@ -19,13 +19,17 @@ import pandas as pd
 import yaml
 from opera.compat.bonsai import binarize_outcomes
 from opera.evaluation.tasks import (
+    competing_outcome_file_path,
     normalize_outcome_config,
     outcome_file_path,
     parse_task_ref,
 )
+from opera.evaluation.cohort_flow import eligibility_file_path
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
+    filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
+    resolve_registry_start_date,
 )
 
 
@@ -74,6 +78,8 @@ def subsample_outcome_parquet(
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
+    competing_outcome_path: Optional[str] = None,
 ) -> str:
     """
     Subsample the training split of an outcome parquet.
@@ -82,6 +88,13 @@ def subsample_outcome_parquet(
     is already present, sampling is stratified to preserve event rate.
     """
     df = pd.read_parquet(outcome_path)
+    df = filter_outcome_eligibility(
+        df,
+        eligibility_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+        eligibility_scope="final",
+    )
     if "index_date" in df.columns:
         df = attach_prediction_censor_abspos(df)
     elif registry_start_date not in (None, "", "null"):
@@ -98,27 +111,37 @@ def subsample_outcome_parquet(
     train_df = df[train_mask]
     other_df = df[~train_mask]
 
-    n_sample = min(len(train_df), max(1, int(len(train_df) * fraction)))
     sampling_df = train_df
     sampling_label_col = "label"
-    if sampling_label_col not in sampling_df.columns and {
+    if {
         "subject_id",
         "outcome_date",
         "index_date",
         "censor_date",
     }.issubset(sampling_df.columns):
+        competing_df = (
+            pd.read_parquet(competing_outcome_path)
+            if competing_outcome_path
+            else None
+        )
         derived = binarize_outcomes(
             sampling_df,
             n_hours_start_include=n_hours_start_include,
             n_hours_end_include=n_hours_end_include,
-            require_min_followup=False,
+            require_min_followup=True,
             split_name=split,
+            competing_event_df=competing_df,
         )
-        sampling_df = train_df.copy()
+        sampling_df = train_df[train_df["subject_id"].isin(derived)].copy()
         sampling_df["_sampling_label"] = sampling_df["subject_id"].map(
             {sid: record["label"] for sid, record in derived.items()}
         )
         sampling_label_col = "_sampling_label"
+
+    n_sample = min(
+        len(sampling_df),
+        max(1, int(len(sampling_df) * fraction)),
+    )
 
     if (
         sampling_label_col in sampling_df.columns
@@ -143,9 +166,9 @@ def subsample_outcome_parquet(
                 RuntimeWarning,
                 stacklevel=2,
             )
-            sampled = train_df.sample(n_sample, random_state=seed)
+            sampled = sampling_df.sample(n_sample, random_state=seed)[train_df.columns]
     else:
-        sampled = train_df.sample(n_sample, random_state=seed)
+        sampled = sampling_df.sample(n_sample, random_state=seed)[train_df.columns]
 
     result = pd.concat([sampled, other_df])
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -158,8 +181,19 @@ def outcome_split_size_metadata(
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
+    competing_outcome_path: Optional[str] = None,
+    n_hours_start_include: int = 1,
+    n_hours_end_include=None,
 ) -> Dict[str, float]:
     df = pd.read_parquet(outcome_path)
+    df = filter_outcome_eligibility(
+        df,
+        eligibility_path,
+        cohort=cohort,
+        outcome_name=outcome_name,
+        eligibility_scope="final",
+    )
     if "index_date" in df.columns:
         df = attach_prediction_censor_abspos(df)
     elif registry_start_date not in (None, "", "null"):
@@ -173,18 +207,38 @@ def outcome_split_size_metadata(
         outcome_name=outcome_name,
     )
     out: Dict[str, float] = {}
+    competing_df = (
+        pd.read_parquet(competing_outcome_path)
+        if competing_outcome_path
+        else None
+    )
     for split_name, result_key in (
         ("train", "train"),
         ("tuning", "val"),
         ("held_out", "test"),
     ):
         split_df = df[df["split"] == split_name]
-        if "subject_id" in split_df.columns:
+        if {"subject_id", "index_date", "censor_date"}.issubset(split_df.columns):
+            records = binarize_outcomes(
+                split_df,
+                n_hours_start_include=n_hours_start_include,
+                n_hours_end_include=n_hours_end_include,
+                require_min_followup=True,
+                split_name=split_name,
+                competing_event_df=competing_df,
+            )
+            n_subjects = len(records)
+            n_events = int(sum(record["label"] == 1 for record in records.values()))
+            out[f"n_events_{result_key}"] = n_events
+            out[f"prevalence_{result_key}"] = (
+                float(n_events / n_subjects) if n_subjects else float("nan")
+            )
+        elif "subject_id" in split_df.columns:
             n_subjects = int(split_df["subject_id"].nunique())
         else:
             n_subjects = int(len(split_df))
         out[f"n_{result_key}"] = n_subjects
-        if "label" in split_df.columns:
+        if "label" in split_df.columns and f"n_events_{result_key}" not in out:
             n_events = int(split_df["label"].sum())
             out[f"n_events_{result_key}"] = n_events
             out[f"prevalence_{result_key}"] = (
@@ -206,6 +260,8 @@ def run_finetune_and_evaluate(
     baseline_model: Optional[str] = None,
     base_config: str = "opera/configs/finetune.yaml",
     registry_start_date: Optional[str] = None,
+    eligibility_path: Optional[str] = None,
+    competing_outcome_path: Optional[str] = None,
 ) -> Dict:
     """Run finetune then evaluate, returning metrics.json contents."""
     ft_overrides = [
@@ -218,6 +274,10 @@ def run_finetune_and_evaluate(
         f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"hydra.run.dir={output_dir}",
     ]
+    if eligibility_path:
+        ft_overrides.append(f"paths.eligibility={eligibility_path}")
+    if competing_outcome_path:
+        ft_overrides.append(f"paths.competing_outcome={competing_outcome_path}")
     ft_cmd = [
         sys.executable,
         "-m",
@@ -240,6 +300,10 @@ def run_finetune_and_evaluate(
         f"+training_fraction={training_fraction}",
         "rarity.mode=synthetic",
     ]
+    if eligibility_path:
+        ev_overrides.append(f"paths.eligibility={eligibility_path}")
+    if competing_outcome_path:
+        ev_overrides.append(f"paths.competing_outcome={competing_outcome_path}")
     if baseline_model:
         ev_overrides.append(f"rarity.baseline_model={baseline_model}")
     for key, value in (rarity_metadata or {}).items():
@@ -367,6 +431,9 @@ def build_tabular_fraction_cmd(
     tune_split: str = "tuning",
     n_hours_start_include: int = 1,
     n_hours_end_include: Optional[int] = None,
+    eligibility_path: Optional[str] = None,
+    competing_outcome_path: Optional[str] = None,
+    registry_start_date: Optional[str] = None,
 ) -> List[str]:
     """Build the subprocess command for training tabular baselines at one fraction.
 
@@ -410,6 +477,12 @@ def build_tabular_fraction_cmd(
     ]
     if n_hours_end_include is not None:
         cmd += ["--n_hours_end_include", str(n_hours_end_include)]
+    if eligibility_path:
+        cmd += ["--eligibility", str(eligibility_path)]
+    if competing_outcome_path:
+        cmd += ["--competing_outcome", str(competing_outcome_path)]
+    if registry_start_date is not None:
+        cmd += ["--registry_start_date", str(registry_start_date)]
     if tune:
         cmd += ["--tune", "--tune_split", tune_split]
     return cmd
@@ -492,9 +565,17 @@ def main():
         task_key = f"{cohort}:{outcome}"
         cohort_cfg = cfg["cohorts"][cohort]
         data_dir = cohort_cfg["data_dir"]
-        registry_start_date = cohort_cfg.get("registry_start_date")
         outcome_cfg = outcomes_cfg.get(outcome, {"outcome_file": f"{outcome}.parquet"})
+        registry_start_date = resolve_registry_start_date(cohort_cfg, outcome_cfg)
         outcome_path = outcome_file_path(data_dir, outcome, outcome_cfg)
+        eligibility = eligibility_file_path(
+            data_dir,
+            cohort,
+            outcome,
+            outcome_cfg,
+        )
+        eligibility = str(eligibility) if eligibility is not None else None
+        competing_path = competing_outcome_file_path(data_dir, outcome_cfg)
         task_output_dir = Path(args.output_dir) / cohort / outcome
         task_results: Dict[str, Dict[float, list]] = {name: {} for name in variants}
 
@@ -531,6 +612,8 @@ def main():
                             registry_start_date=registry_start_date,
                             cohort=cohort,
                             outcome_name=outcome,
+                            eligibility_path=eligibility,
+                            competing_outcome_path=competing_path,
                         )
                         metrics = run_finetune_and_evaluate(
                             encoder_ckpt=variant_cfg["encoder_ckpt"],
@@ -546,6 +629,14 @@ def main():
                                 registry_start_date=registry_start_date,
                                 cohort=cohort,
                                 outcome_name=outcome,
+                                eligibility_path=eligibility,
+                                competing_outcome_path=competing_path,
+                                n_hours_start_include=outcome_cfg.get(
+                                    "n_hours_start_include", 1
+                                ),
+                                n_hours_end_include=outcome_cfg.get(
+                                    "n_hours_end_include"
+                                ),
                             ),
                             baseline_model=baseline_model,
                             base_config=cfg.get(
@@ -553,6 +644,8 @@ def main():
                                 "opera/configs/finetune.yaml",
                             ),
                             registry_start_date=registry_start_date,
+                            eligibility_path=eligibility,
+                            competing_outcome_path=competing_path,
                         )
 
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
@@ -578,6 +671,9 @@ def main():
                                 "n_hours_start_include", 1
                             ),
                             n_hours_end_include=outcome_cfg.get("n_hours_end_include"),
+                            eligibility_path=eligibility,
+                            competing_outcome_path=competing_path,
+                            registry_start_date=registry_start_date,
                         )
                         tab_result = subprocess.run(
                             tab_cmd, capture_output=True, text=True

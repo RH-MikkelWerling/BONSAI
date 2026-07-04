@@ -93,18 +93,12 @@ class JointFinetuneModule(L.LightningModule):
             if labels_k is None:
                 continue
             valid = labels_k >= 0
-            if valid.sum() < 2:
+            if valid.sum() == 0:
                 continue
             logits_k = log_dict.get(f"logits/{name}")
             if logits_k is None:
-                # Outcome was skipped by require_both_classes_per_batch —
-                # do not attempt a metric update with a single-class batch.
                 continue
             labels_v = labels_k[valid]
-
-            # Guard against single-class batches reaching the AUROC metric
-            if torch.unique(labels_v).numel() < 2:
-                continue
 
             probs_k = torch.sigmoid(logits_k)
             self.val_auroc[name].update(probs_k, labels_v)

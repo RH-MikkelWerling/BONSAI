@@ -270,6 +270,7 @@ def _binarize_outcomes_pandas(
             primary_hours is not None
             and primary_hours >= n_hours_start_include
             and (n_hours_end_include is None or primary_hours <= n_hours_end_include)
+            and pd.Timestamp(outcome_date) <= censor_date
         )
 
         competing_date = competing_dates.get(subject_id)
@@ -282,10 +283,14 @@ def _binarize_outcomes_pandas(
             and competing_date <= censor_date
             and competing_hours >= n_hours_start_include
             and (n_hours_end_include is None or competing_hours <= n_hours_end_include)
-            and not (primary_in_window and pd.Timestamp(outcome_date) <= competing_date)
         )
 
-        if primary_in_window:
+        primary_first = primary_in_window and (
+            not competing_observed
+            or pd.Timestamp(outcome_date) <= pd.Timestamp(competing_date)
+        )
+
+        if primary_first:
             label = 1
             event = 1
             followup_date = pd.Timestamp(outcome_date)
@@ -360,7 +365,7 @@ def split_and_binarize_outcomes(
     test_key: str,
     n_hours_start_include: int,
     n_hours_end_include: Optional[int] = None,
-    require_min_followup_train: bool = False,
+    require_min_followup_train: bool = True,
     require_min_followup_val: bool = True,
     require_min_followup_test: bool = True,
     outcome_name: Optional[str] = None,

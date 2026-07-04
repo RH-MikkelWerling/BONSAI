@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 def normalize_outcome_config(raw_outcomes: Any) -> Dict[str, Dict[str, Any]]:
@@ -38,6 +38,22 @@ def outcome_file_path(
 ) -> str:
     """Resolve the source outcome parquet for a configured task."""
     raw = outcome_cfg.get("outcome_file", f"{outcome_name}.parquet")
+    path = Path(raw)
+    if path.is_absolute():
+        return str(path)
+    return str(Path(data_dir) / "outcomes" / raw)
+
+
+def competing_outcome_file_path(
+    data_dir: str,
+    outcome_cfg: Dict[str, Any],
+) -> Optional[str]:
+    """Resolve an optional competing-event parquet for a configured task."""
+    raw = outcome_cfg.get("competing_outcome_file") or outcome_cfg.get(
+        "competing_outcome_path"
+    )
+    if raw in (None, "", "null"):
+        return None
     path = Path(raw)
     if path.is_absolute():
         return str(path)

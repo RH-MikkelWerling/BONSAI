@@ -69,3 +69,58 @@ def test_filter_outcome_eligibility_rejects_unrepresented_outcome_rows():
 
     with pytest.raises(ValueError, match="missing 1 outcome rows"):
         filter_outcome_eligibility(outcomes, eligibility)
+
+
+def test_ascertainment_scope_restores_followup_only_exclusions():
+    outcomes = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "split": ["train"] * 3,
+        }
+    )
+    eligibility = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3],
+            "split": ["train"] * 3,
+            "eligible": [True, False, False],
+            "eligibility_reason": [
+                "eligible",
+                "insufficient_followup",
+                "registry_not_covered",
+            ],
+            "source_covered": [True, True, False],
+            "followup_adequate": [True, False, False],
+        }
+    )
+
+    final = filter_outcome_eligibility(outcomes, eligibility)
+    ascertainment = filter_outcome_eligibility(
+        outcomes,
+        eligibility,
+        eligibility_scope="ascertainment",
+    )
+
+    assert set(final["subject_id"]) == {1}
+    assert set(ascertainment["subject_id"]) == {1, 2}
+
+
+def test_explicit_ascertainment_eligibility_overrides_fallback():
+    outcomes = pd.DataFrame({"subject_id": [1], "split": ["train"]})
+    eligibility = pd.DataFrame(
+        {
+            "subject_id": [1],
+            "split": ["train"],
+            "eligible": [False],
+            "ascertainment_eligible": [False],
+            "eligibility_reason": ["insufficient_followup_for_ascertainment"],
+            "followup_adequate": [False],
+        }
+    )
+
+    filtered = filter_outcome_eligibility(
+        outcomes,
+        eligibility,
+        eligibility_scope="ascertainment",
+    )
+
+    assert filtered.empty

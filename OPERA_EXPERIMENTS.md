@@ -55,13 +55,31 @@ split:
 
 ```yaml
 labels:
-  require_min_followup_train: false
+  require_min_followup_train: true
   require_min_followup_val: true
   require_min_followup_test: true
 ```
 
-Validation and test default to full follow-up for bounded windows. Training
-defaults to permissive to preserve censor-aware training setups.
+Ordinary BCE defaults to full follow-up in every split. Survival and
+survival-contrastive runners explicitly use ascertainment eligibility and keep
+right-censored observations instead.
+
+## Rare-Outcome Batch Construction
+
+Event-aware batching uses outcome quotas only when an endpoint has enough
+distinct evidence. Production configs require at least two unique events and
+eight unique eligible patients before an outcome receives focused batches.
+Quotas are capped by the unique pool: a patient is never cloned inside a batch.
+Patients already used during the epoch are progressively deprioritized so a
+patient labelled for many outcomes does not become the default choice for every
+task. Outcomes below the threshold can still contribute opportunistically when
+two or more genuinely distinct eligible patients co-occur in a batch.
+
+The contrastive loss also excludes equal-subject pairs from both its target
+weights and softmax denominator. Joint validation accumulates predictions over
+the full epoch, allowing rare cases and controls from different batches to form
+one AUROC. Event enrichment and positive-class weighting are mutually
+exclusive in joint training to avoid amplifying rare events twice.
 
 ## Long-Sequence Pretraining
 
@@ -348,6 +366,47 @@ The rarity tables emphasize `delta_auroc_vs_baseline` rather than raw AUROC:
 The minimum-event flags mark unstable real rare-cohort rows as
 `supplement_only`; they do not drop raw result rows.
 Plot helpers save companion `.pdf` files for paper figures.
+
+## Prespecified Rarity and Label-Efficiency Experiments
+
+The dedicated rarity runner uses the canonical outcome labels and the temporal
+contract in `opera/configs/manifests/temporal_split.yaml`: training through
+2021, tuning/checkpoint selection in 2022, and a fixed 2023+ test set. Task
+eligibility is based only on prespecified patient/event/censoring counts.
+
+Plan a lightweight run and write nested patient manifests without training:
+
+```bash
+python -m opera.run.rarity_experiments \
+  --config opera/configs/rarity_experiments.yaml \
+  --mode synthetic --dry-run
+```
+
+Run the controlled synthetic analysis and the separate natural analysis:
+
+```bash
+python -m opera.run.rarity_experiments \
+  --config opera/configs/rarity_experiments.yaml \
+  --mode synthetic --execute
+
+python -m opera.run.rarity_experiments \
+  --config opera/configs/rarity_experiments.yaml \
+  --mode natural
+```
+
+Regenerate PNG and PDF plots without loading private source data or retraining:
+
+```bash
+python -m opera.run.rarity_experiments \
+  --config opera/configs/rarity_experiments.yaml \
+  --mode plots
+```
+
+Synthetic samples are unique-patient, outcome/year-stratified, nested within
+seed, and shared by all model variants. The primary configuration retains the
+full 2022 tuning set; set `sampling.downsample_tuning: true` for the prespecified
+development-label scarcity sensitivity analysis. Natural primary,
+aggregate-only, and non-evaluable tiers remain distinct in every output.
 
 ## Pretraining-Scale Ablations
 

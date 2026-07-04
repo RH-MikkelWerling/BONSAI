@@ -139,6 +139,26 @@ def test_build_tabular_fraction_cmd_with_tune_flag(tmp_path):
     assert cmd[tune_split_idx + 1] == "tuning"
 
 
+def test_build_tabular_fraction_cmd_threads_outcome_contract(tmp_path):
+    from opera.run.label_efficiency import build_tabular_fraction_cmd
+
+    cmd = build_tabular_fraction_cmd(
+        features_path="/data/features.csv",
+        outcome_parquet="/data/outcome.parquet",
+        output_dir=tmp_path / "cell",
+        cohort="dlbcl",
+        outcome_name="aki_30d",
+        seed=42,
+        eligibility_path="/data/aki_audit.parquet",
+        competing_outcome_path="/data/mortality.parquet",
+        registry_start_date="2010-01-01",
+    )
+
+    assert cmd[cmd.index("--eligibility") + 1] == "/data/aki_audit.parquet"
+    assert cmd[cmd.index("--competing_outcome") + 1] == "/data/mortality.parquet"
+    assert cmd[cmd.index("--registry_start_date") + 1] == "2010-01-01"
+
+
 def test_build_tabular_fraction_cmd_seed_matches_encoder_seed(tmp_path):
     """The tabular cmd seed must exactly match the encoder finetuning seed."""
     from opera.run.label_efficiency import build_tabular_fraction_cmd

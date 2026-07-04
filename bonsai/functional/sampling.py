@@ -1,11 +1,13 @@
-from typing import List
+from typing import List, Optional
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
 import numpy as np
 from hydra.utils import instantiate
 
 
-def get_sampler(weight_fn, labels) -> WeightedRandomSampler:
+def get_sampler(weight_fn, labels) -> Optional[WeightedRandomSampler]:
+    if weight_fn is None:
+        return None
     label_counts = Counter(labels)
     label_weight = instantiate(
         weight_fn,

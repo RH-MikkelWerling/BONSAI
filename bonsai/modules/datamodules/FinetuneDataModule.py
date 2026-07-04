@@ -91,9 +91,10 @@ class FinetuneDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             pin_memory=True,
             persistent_workers=self.num_workers > 0,
-            drop_last=True,
+            drop_last=False,
             collate_fn=dynamic_padding,
             sampler=self.train_sampler,
+            shuffle=self.train_sampler is None,
         )
 
     def val_dataloader(self):
@@ -103,7 +104,7 @@ class FinetuneDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             pin_memory=True,
             persistent_workers=self.num_workers > 0,
-            drop_last=True,
+            drop_last=False,
             shuffle=False,
             collate_fn=dynamic_padding,
         )

@@ -259,8 +259,22 @@ def test_production_joint_config_matches_contrastive_task_balancing():
 
     assert config.cross_outcome.weighter == "uniform"
     assert config.cross_outcome.aggregation == "macro"
-    assert config.cross_outcome.positive_class_weighted is True
+    assert config.cross_outcome.positive_class_weighted is False
     assert config.cross_outcome.require_both_classes_per_batch is True
+
+
+def test_joint_config_rejects_event_sampling_plus_positive_weighting():
+    from opera.run.joint_finetune import _cross_outcome_config
+
+    config = OmegaConf.create(
+        {
+            "cross_outcome": {"positive_class_weighted": True},
+            "training": {"batch_sampling": {"type": "event_aware"}},
+        }
+    )
+
+    with pytest.raises(ValueError, match="amplified twice"):
+        _cross_outcome_config(config)
 
 
 def test_zero_informative_pairs_do_not_apply_kendall_regularizer():

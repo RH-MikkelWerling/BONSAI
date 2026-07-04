@@ -67,6 +67,16 @@ def _cross_outcome_config(cfg: DictConfig) -> dict:
         resolve=True,
     )
     settings = dict(settings or {})
+    batch_sampling = cfg.get("training", {}).get("batch_sampling", {}) or {}
+    sampler_type = str(batch_sampling.get("type", "event_aware")).lower()
+    if sampler_type in {"event_aware", "survival_event_aware"} and settings.get(
+        "positive_class_weighted", False
+    ):
+        raise ValueError(
+            "Joint finetuning cannot combine event-aware sampling with positive "
+            "class weighting. Choose one imbalance correction so rare events "
+            "are not amplified twice."
+        )
     needs_counts = bool(settings.get("class_balanced", False)) or bool(
         settings.get("positive_class_weighted", False)
     )
@@ -170,6 +180,7 @@ def main(cfg: DictConfig) -> None:
         require_all_configured_cells=cfg.training.get(
             "require_all_configured_cells", True
         ),
+        eligibility_scope="final",
         max_len=encoder.config.max_position_embeddings,
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )

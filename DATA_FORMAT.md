@@ -140,10 +140,11 @@ The sidecar may be CSV or parquet and must contain exactly one row per patient:
 | `split` | yes | `train`, `tuning`, or `held_out`. |
 | `eligible` | yes | Whether this outcome is ascertainable under the locked outcome-specific rule. |
 | `eligibility_reason` | yes | `eligible` or a specific primary exclusion reason. Ineligible rows may not have an empty reason. |
+| `ascertainment_eligible` | no | Whether the patient can contribute observed risk time to a censor-aware survival objective. Set this explicitly when incomplete fixed-horizon follow-up should still be retained as right-censored. |
 | `source_covered` | no | Whether the relevant registry/source could observe the outcome at the prediction date. |
 | `baseline_adequate` | no | Whether required pre-index measurements exist, for definitions such as creatinine-change AKI. |
 | `post_index_adequate` | no | Whether the source remains observable over the endpoint's risk window. |
-| `followup_adequate` | no | Whether follow-up is sufficient for the endpoint definition. |
+| `followup_adequate` | no | Whether follow-up is sufficient for the final fixed-horizon endpoint definition. |
 | `outcome_observed` | no | Whether an outcome event was actually observed. This must not define source coverage. |
 
 The eligibility rule must be fixed before model fitting. In particular:
@@ -158,6 +159,17 @@ The eligibility rule must be fixed before model fitting. In particular:
   full-window negative.
 - AKI-like definitions should expose baseline adequacy separately from source
   coverage and post-index follow-up.
+
+Fixed-horizon BCE and binary evaluation use `eligible`. Survival and
+survival-contrastive objectives use `ascertainment_eligible` when present. For
+older sidecars, a row with `followup_adequate=false` and no structural gate
+failure is treated as ascertainable but right-censored. Complete-horizon
+eligibility is then derived from `censor_date`; it must not be encoded as a
+negative label.
+
+An observed primary or competing event must be on or before `censor_date`. If
+both are present, the earlier event determines the cause (ties favor the
+primary event).
 
 Configure a sidecar and, where appropriate, an outcome-specific coverage date:
 

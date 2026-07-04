@@ -116,8 +116,21 @@ This train-coarse/eval-fine structure tests whether representations learned on g
 **Eligibility**: Each cohort-outcome pair has explicit inclusion/exclusion criteria encoded in eligibility sidecars:
 - Registry coverage requirement (data source must predate the index date)
 - Minimum baseline period
-- Minimum post-index follow-up
+- Separate final fixed-horizon and censor-aware ascertainment eligibility
 - Competing event exclusion (e.g., prior history of same cancer)
+
+Fixed-horizon models exclude event-free patients censored before the horizon;
+survival and contrastive objectives retain ascertainable patients for their
+observed risk time. Event chronology is enforced against the follow-up censor
+date, and every main or supplementary workflow receives the same registry,
+eligibility, and competing-event inputs.
+
+**Rare-outcome batching**: focused batches use distinct patients only and are
+enabled only when an outcome has enough unique events and eligible controls.
+Quotas never manufacture sample size through within-batch replacement;
+cross-batch reuse is diversity-penalized, and the loss independently masks any
+same-subject pair. Rare validation cases and controls are accumulated across
+the full epoch.
 
 ---
 
@@ -129,7 +142,10 @@ Based on the current branch state and recent commit history:
 2. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 25 evaluated fine diagnoses × all outcomes × all model variants.
 3. **Rarity analysis** — collect real and synthetic rarity results across all cohorts for the central paper claim.
 4. **Paper figures** — aggregate results, generate rarity delta plots, embedding projections, and comparison tables.
-5. **Final audit** — the recent "massive audit" commit fixed known issues; a final pass through eligibility and registry filtering is planned.
+5. **Eligibility audit complete** — primary/competing-event chronology,
+   fixed-horizon versus ascertainment masks, and supplementary workflow
+   propagation now share one tested contract. The remaining work is execution
+   of the locked experiment grid rather than another denominator rewrite.
 
 ---
 

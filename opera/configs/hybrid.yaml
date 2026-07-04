@@ -56,10 +56,8 @@ training:
   learning_rate: 1e-3            # higher LR since encoder is frozen
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 1
-  sampling_weight_fn:
-    _target_: bonsai.functional.sampling.effective_n_samples
-  loss_weight_function:
-    _target_: bonsai.functional.loss.effective_n_samples
+  sampling_weight_fn: null
+  loss_weight_function: null
   eval_monitor_metric: val/AUROC
   early_stopping_patience: 7
   limit_val_batches: 1.0

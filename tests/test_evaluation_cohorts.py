@@ -53,6 +53,35 @@ def test_canonical_cohorts_separate_early_censoring_and_eligibility():
     assert cohorts.survival.n_events == 1
 
 
+def test_survival_cohort_keeps_followup_only_sidecar_exclusions():
+    eligibility = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3, 4],
+            "split": ["held_out"] * 4,
+            "eligible": [True, True, False, False],
+            "eligibility_reason": [
+                "eligible",
+                "eligible",
+                "insufficient_followup",
+                "lab_not_ascertained",
+            ],
+            "source_covered": [True, True, True, False],
+            "followup_adequate": [True, True, False, True],
+        }
+    )
+
+    cohorts = build_evaluation_cohorts(
+        _outcomes(),
+        split="held_out",
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        eligibility=eligibility,
+    )
+
+    assert cohorts.fixed_horizon.subject_ids == {1, 2}
+    assert cohorts.survival.subject_ids == {1, 2, 3}
+
+
 def test_canonical_cohorts_respect_allowed_subject_ids():
     cohorts = build_evaluation_cohorts(
         _outcomes(),

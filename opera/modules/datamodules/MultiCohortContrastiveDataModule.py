@@ -99,6 +99,7 @@ def compute_pooled_sorted_event_times(
                     _eligibility_path(data_dir, ocfg),
                     cohort=cohort_name,
                     outcome_name=name,
+                    eligibility_scope="ascertainment",
                 )
                 split_df = df[df["split"] == split].copy()
                 if {"event", "time_days"}.issubset(split_df.columns):
@@ -178,6 +179,7 @@ def compute_pooled_event_time_probability_grids(
                     _eligibility_path(data_dir, ocfg),
                     cohort=cohort_name,
                     outcome_name=name,
+                    eligibility_scope="ascertainment",
                 )
                 df = attach_prediction_censor_abspos(df)
                 df = filter_registry_eligible_outcomes(
@@ -350,6 +352,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         require_min_followup_train: bool = False,
         require_min_followup_val: bool = False,
         require_all_configured_cells: bool = False,
+        eligibility_scope: str = "ascertainment",
         max_len: int = 8192,
         batch_sampling: Optional[Dict[str, object]] = None,
     ):
@@ -362,6 +365,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
         self.require_all_configured_cells = require_all_configured_cells
+        if eligibility_scope not in {"final", "ascertainment"}:
+            raise ValueError(
+                "eligibility_scope must be either 'final' or 'ascertainment'."
+            )
+        self.eligibility_scope = eligibility_scope
         self.max_len = max_len
         self.batch_sampling = dict(batch_sampling or {})
         self.outcome_names = sorted(outcome_configs.keys())
@@ -402,6 +410,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 _eligibility_path(data_dir, ocfg),
                 cohort=cohort_name,
                 outcome_name=name,
+                eligibility_scope=self.eligibility_scope,
             )
             df = attach_prediction_censor_abspos(df)
             df = filter_registry_eligible_outcomes(
@@ -591,6 +600,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 self.batch_sampling.get("min_events_per_batch", 4)
             ),
             min_valid_per_batch=None if min_valid is None else int(min_valid),
+            min_unique_events_for_focus=int(
+                self.batch_sampling.get("min_unique_events_for_focus", 2)
+            ),
+            min_unique_valid_for_focus=int(
+                self.batch_sampling.get("min_unique_valid_for_focus", 4)
+            ),
             batches_per_epoch=(
                 None if batches_per_epoch is None else int(batches_per_epoch)
             ),

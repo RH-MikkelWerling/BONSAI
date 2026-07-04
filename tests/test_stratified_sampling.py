@@ -255,7 +255,7 @@ def test_build_stratified_sampler_returns_weighted_sampler():
 
     assert isinstance(sampler, WeightedRandomSampler)
     assert sampler.num_samples == 50
-    assert sampler.replacement is True
+    assert sampler.replacement is False
     weights = np.asarray(sampler.weights)
     assert len(weights) == 50
     assert np.all(weights > 0)
@@ -354,6 +354,87 @@ def test_event_aware_batch_sampler_avoids_duplicates_when_pool_is_large_enough()
 
     for batch in sampler:
         assert len(batch) == len(set(batch))
+
+
+def test_event_aware_batch_sampler_never_clones_sparse_outcome_patients():
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(24)]
+    common = {
+        subject["subject_id"]: {
+            "time_days": float(20 + index),
+            "event": int(index % 5 == 0),
+        }
+        for index, subject in enumerate(subjects)
+    }
+    rare = {
+        "P000": {"time_days": 10.0, "event": 1},
+        "P001": {"time_days": 100.0, "event": 0},
+    }
+    ds = _FakeDataset(subjects, {"common": common, "rare": rare})
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=12,
+        min_events_per_batch=4,
+        min_valid_per_batch=8,
+        min_unique_events_for_focus=2,
+        min_unique_valid_for_focus=4,
+        seed=19,
+    )
+
+    assert "rare" not in sampler.focus_outcomes
+    batches = list(sampler)
+    assert all(len(batch) == len(set(batch)) for batch in batches)
+    assert sampler.last_epoch_usage_counts.max() <= len(batches)
+
+
+def test_event_aware_batch_sampler_caps_sparse_quotas_at_unique_pool_size():
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(24)]
+    common = {
+        subject["subject_id"]: {
+            "time_days": float(20 + index),
+            "event": int(index % 5 == 0),
+        }
+        for index, subject in enumerate(subjects)
+    }
+    rare = {
+        "P000": {"time_days": 10.0, "event": 1},
+        "P001": {"time_days": 15.0, "event": 1},
+        "P002": {"time_days": 100.0, "event": 0},
+        "P003": {"time_days": 120.0, "event": 0},
+    }
+    ds = _FakeDataset(subjects, {"common": common, "rare": rare})
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=12,
+        min_events_per_batch=4,
+        min_valid_per_batch=8,
+        min_unique_events_for_focus=2,
+        min_unique_valid_for_focus=4,
+        seed=23,
+    )
+
+    assert "rare" in sampler.focus_outcomes
+    batches = list(sampler)
+    assert all(len(batch) == len(set(batch)) for batch in batches)
+    assert any(
+        sum(ds.subjects[index]["subject_id"] in rare for index in batch) == 4
+        for batch in batches
+    )
+
+
+def test_event_aware_batch_sampler_returns_short_unique_batch_for_tiny_dataset():
+    ds = _make_event_dataset(n_subjects=5)
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=16,
+        seed=29,
+    )
+
+    batch = next(iter(sampler))
+    assert len(batch) == 5
+    assert len(batch) == len(set(batch))
 
 
 def test_event_aware_batch_sampler_falls_back_without_events():

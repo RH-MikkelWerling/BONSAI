@@ -48,6 +48,9 @@ def main(cfg: DictConfig) -> None:
         test_key="held_out",
         n_hours_start_include=cfg.labels.n_hours_start_include,
         n_hours_end_include=cfg.labels.n_hours_end_include,
+        require_min_followup_train=cfg.labels.get("require_min_followup_train", True),
+        require_min_followup_val=cfg.labels.get("require_min_followup_val", True),
+        require_min_followup_test=cfg.labels.get("require_min_followup_test", True),
     )
 
     train_labels = [v["label"] for v in train_outcomes.values()]

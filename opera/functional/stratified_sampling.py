@@ -222,7 +222,7 @@ def build_stratified_sampler(
 
     Returns
     -------
-    WeightedRandomSampler with replacement=True, num_samples=len(dataset).
+    WeightedRandomSampler without replacement, covering every patient once.
     """
     del missing_bucket
     all_times = _extract_patient_times(dataset, outcome_names)
@@ -238,7 +238,7 @@ def build_stratified_sampler(
     return WeightedRandomSampler(
         weights=torch.from_numpy(weights).float(),
         num_samples=n,
-        replacement=True,
+        replacement=False,
     )
 
 
@@ -265,7 +265,7 @@ def _draw_from_pool(
     selected: set[int],
     probabilities: Optional[np.ndarray] = None,
 ) -> list[int]:
-    """Draw indices, avoiding already-selected rows whenever possible."""
+    """Draw unique indices that are not already present in the batch."""
     if n <= 0 or pool.size == 0:
         return []
 
@@ -275,23 +275,13 @@ def _draw_from_pool(
         dtype=np.int64,
     )
 
-    drawn: list[int] = []
-    if available.size:
-        n_unique = min(n, available.size)
-        p = None
-        if probabilities is not None:
-            p = _normalise_probabilities(probabilities[available])
-        drawn.extend(rng.choice(available, size=n_unique, replace=False, p=p).tolist())
-
-    remaining = n - len(drawn)
-    if remaining > 0:
-        p = None
-        if probabilities is not None:
-            p = _normalise_probabilities(probabilities[unique_pool])
-        drawn.extend(
-            rng.choice(unique_pool, size=remaining, replace=True, p=p).tolist()
-        )
-    return drawn
+    if available.size == 0:
+        return []
+    n_unique = min(n, available.size)
+    p = None
+    if probabilities is not None:
+        p = _normalise_probabilities(probabilities[available])
+    return rng.choice(available, size=n_unique, replace=False, p=p).tolist()
 
 
 class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
@@ -313,6 +303,8 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         n_quantiles: int = 4,
         min_events_per_batch: int = 4,
         min_valid_per_batch: Optional[int] = None,
+        min_unique_events_for_focus: int = 2,
+        min_unique_valid_for_focus: int = 4,
         batches_per_epoch: Optional[int] = None,
         seed: int = 0,
     ):
@@ -327,6 +319,12 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             min_valid_per_batch = max(2 * self.min_events_per_batch, batch_size // 4)
             min_valid_per_batch = max(2, min_valid_per_batch)
         self.min_valid_per_batch = min(int(min_valid_per_batch), self.batch_size)
+        self.min_unique_events_for_focus = max(
+            1, int(min_unique_events_for_focus)
+        )
+        self.min_unique_valid_for_focus = max(
+            2, int(min_unique_valid_for_focus)
+        )
         self.seed = int(seed)
         self.epoch = 0
 
@@ -343,6 +341,8 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             dtype=np.float64,
         )
         self.base_probabilities = _normalise_probabilities(base_weights)
+        self._draw_probabilities = self.base_probabilities.copy()
+        self.last_epoch_usage_counts = np.zeros(self.n, dtype=np.int64)
 
         self.times_by_outcome: dict[str, np.ndarray] = {}
         self.events_by_outcome: dict[str, np.ndarray] = {}
@@ -369,8 +369,8 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             [
                 name
                 for name in self.outcome_names
-                if self.valid_indices[name].size >= 2
-                and self.event_indices[name].size >= 1
+                if self.valid_indices[name].size >= self.min_unique_valid_for_focus
+                and self.event_indices[name].size >= self.min_unique_events_for_focus
             ],
             key=lambda name: (
                 self.event_indices[name].size,
@@ -381,7 +381,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         self.num_batches = (
             int(batches_per_epoch)
             if batches_per_epoch is not None
-            else max(1, self.n // self.batch_size)
+            else max(1, (self.n + self.batch_size - 1) // self.batch_size)
         )
         if self.num_batches <= 0:
             raise ValueError("batches_per_epoch must be positive.")
@@ -408,12 +408,12 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         if n <= 0 or pool.size == 0:
             return []
         if n == 1 or pool.size <= 1:
-            return _draw_from_pool(rng, pool, n, selected, self.base_probabilities)
+            return _draw_from_pool(rng, pool, n, selected, self._draw_probabilities)
 
         times = self.times_by_outcome[name][pool]
         finite = np.isfinite(times)
         if finite.sum() < 2:
-            return _draw_from_pool(rng, pool, n, selected, self.base_probabilities)
+            return _draw_from_pool(rng, pool, n, selected, self._draw_probabilities)
 
         bins = _quartile_bins(times)
         drawn: list[int] = []
@@ -427,7 +427,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                     candidates,
                     1,
                     selected | set(drawn),
-                    self.base_probabilities,
+                    self._draw_probabilities,
                 )
                 if chosen:
                     drawn.extend(chosen)
@@ -443,7 +443,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                     pool,
                     n - len(drawn),
                     selected | set(drawn),
-                    self.base_probabilities,
+                    self._draw_probabilities,
                 )
             )
         return drawn[:n]
@@ -472,7 +472,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                 later_pool,
                 1,
                 selected | set(drawn),
-                self.base_probabilities,
+                self._draw_probabilities,
             )
             drawn.extend(chosen)
         return drawn
@@ -501,7 +501,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                 fill_pool,
                 needed,
                 selected,
-                self.base_probabilities,
+                self._draw_probabilities,
             ),
         )
 
@@ -531,7 +531,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                 self.valid_indices[name],
                 valid_needed,
                 selected,
-                self.base_probabilities,
+                self._draw_probabilities,
             ),
         )
 
@@ -545,6 +545,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
     def __iter__(self) -> Iterator[list[int]]:
         rng = np.random.default_rng(self.seed + self.epoch)
         self.epoch += 1
+        usage_counts = np.zeros(self.n, dtype=np.int64)
         rank, world_size = _distributed_context()
         if self.focus_outcomes:
             focus_order = list(self.focus_outcomes)
@@ -554,17 +555,23 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
 
         for batch_index in range(self.num_batches):
             should_yield = batch_index % world_size == rank
+            self._draw_probabilities = _normalise_probabilities(
+                self.base_probabilities / (1.0 + usage_counts)
+            )
             if focus_order:
                 focus = focus_order[batch_index % len(focus_order)]
                 batch = self._build_batch_for_outcome(focus, rng)
+                usage_counts[np.asarray(batch, dtype=np.int64)] += 1
                 if should_yield:
                     yield batch
             else:
                 batch: list[int] = []
                 selected: set[int] = set()
                 self._fill_batch(batch, selected, rng)
+                usage_counts[np.asarray(batch, dtype=np.int64)] += 1
                 if should_yield:
                     yield batch[: self.batch_size]
+        self.last_epoch_usage_counts = usage_counts
 
     def summary(self) -> str:
         lines = [
@@ -573,16 +580,33 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             f"batches_per_epoch={self.num_batches}",
             f"  min_events_per_batch={self.min_events_per_batch}, "
             f"min_valid_per_batch={self.min_valid_per_batch}",
+            f"  focus threshold: {self.min_unique_events_for_focus} unique events, "
+            f"{self.min_unique_valid_for_focus} unique valid patients",
         ]
         if not self.focus_outcomes:
-            lines.append("  no outcomes have primary events; falling back to bucket fill")
+            lines.append(
+                "  no outcomes meet the unique-evidence threshold; "
+                "falling back to diversity-balanced fill"
+            )
+            for name in self.outcome_names:
+                lines.append(
+                    f"  {name}: valid={self.valid_indices[name].size}, "
+                    f"primary_events={self.event_indices[name].size} [not focused]"
+                )
             return "\n".join(lines)
         lines.append(f"  focus outcomes: {self.focus_outcomes}")
         batches_per_focus = max(1, self.num_batches // len(self.focus_outcomes))
-        draws_per_epoch = batches_per_focus * self.min_events_per_batch
         for name in self.outcome_names:
             n_events = self.event_indices[name].size
-            coverage = draws_per_epoch / max(1, n_events) if name in self.focus_outcomes else 0.0
+            unique_event_draws = batches_per_focus * min(
+                self.min_events_per_batch,
+                n_events,
+            )
+            coverage = (
+                unique_event_draws / max(1, n_events)
+                if name in self.focus_outcomes
+                else 0.0
+            )
             coverage_str = f", epoch_coverage≈{coverage:.2f}"
             if name in self.focus_outcomes and coverage < 1.0:
                 coverage_str += " [WARNING: <1× per epoch, consider batches_per_epoch]"
@@ -600,6 +624,8 @@ def build_event_aware_batch_sampler(
     n_quantiles: int = 4,
     min_events_per_batch: int = 4,
     min_valid_per_batch: Optional[int] = None,
+    min_unique_events_for_focus: int = 2,
+    min_unique_valid_for_focus: int = 4,
     batches_per_epoch: Optional[int] = None,
     seed: int = 0,
 ) -> EventAwareSurvivalBatchSampler:
@@ -610,6 +636,8 @@ def build_event_aware_batch_sampler(
         n_quantiles=n_quantiles,
         min_events_per_batch=min_events_per_batch,
         min_valid_per_batch=min_valid_per_batch,
+        min_unique_events_for_focus=min_unique_events_for_focus,
+        min_unique_valid_for_focus=min_unique_valid_for_focus,
         batches_per_epoch=batches_per_epoch,
         seed=seed,
     )

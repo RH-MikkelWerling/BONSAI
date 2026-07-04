@@ -145,6 +145,54 @@ def test_subsampling_derives_horizon_labels_from_event_time_outcomes(tmp_path):
     assert "label" not in result.columns
 
 
+def test_subsampling_uses_final_eligible_complete_followup_denominator(tmp_path):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+
+    source = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3, 4],
+            "split": ["train"] * 4,
+            "index_date": pd.to_datetime(["2020-01-01"] * 4),
+            "outcome_date": pd.to_datetime(["2020-01-10", None, None, None]),
+            "censor_date": pd.to_datetime(
+                ["2020-01-15", "2020-03-01", "2020-01-10", "2020-03-01"]
+            ),
+        }
+    )
+    eligibility = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3, 4],
+            "split": ["train"] * 4,
+            "eligible": [True, True, True, False],
+            "eligibility_reason": [
+                "eligible",
+                "eligible",
+                "eligible",
+                "registry_not_covered",
+            ],
+        }
+    )
+    src = tmp_path / "outcome.parquet"
+    sidecar = tmp_path / "eligibility.parquet"
+    dst = tmp_path / "subsampled.parquet"
+    source.to_parquet(src)
+    eligibility.to_parquet(sidecar)
+
+    subsample_outcome_parquet(
+        str(src),
+        fraction=1.0,
+        seed=7,
+        output_path=str(dst),
+        n_hours_start_include=1,
+        n_hours_end_include=24 * 30,
+        eligibility_path=str(sidecar),
+    )
+
+    result = pd.read_parquet(dst)
+    assert set(result["subject_id"]) == {1, 2}
+
+
 def test_outcome_split_size_metadata_counts_events(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")

@@ -242,6 +242,18 @@ for an unascertainable laboratory endpoint. Fixed-horizon binary training
 requires complete follow-up for event-free controls; configured death tables
 encode death inside the risk window as competing `event=2`.
 
+Sidecars may additionally provide `ascertainment_eligible`. Fixed-horizon
+models use final `eligible` rows, while Cox, IPCW, and survival-contrastive
+models retain ascertainable early-censored rows and use their observed risk
+time. Events after `censor_date` are never treated as observed outcomes, and an
+earlier competing event takes precedence over a later primary event.
+
+Event-aware multi-outcome batches contain unique patients. Sparse endpoint
+quotas are capped at the available unique evidence, outcome-focused sampling
+requires configurable minimum unique event/patient counts, and repeat use over
+an epoch is diversity-penalized. Same-subject contrastive pairs are masked as a
+defensive backstop.
+
 External/tabular baselines can be evaluated from prediction files with
 `python -m opera.run.evaluate_predictions`.
 Locked tabular feature matrices can be converted into those prediction files

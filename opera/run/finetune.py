@@ -178,7 +178,7 @@ def main(cfg: DictConfig) -> None:
         test_key=cfg.labels.test_key,
         n_hours_start_include=cfg.labels.n_hours_start_include,
         n_hours_end_include=cfg.labels.n_hours_end_include,
-        require_min_followup_train=cfg.labels.get("require_min_followup_train", False),
+        require_min_followup_train=cfg.labels.get("require_min_followup_train", True),
         require_min_followup_val=cfg.labels.get("require_min_followup_val", True),
         require_min_followup_test=cfg.labels.get("require_min_followup_test", True),
         outcome_name=cfg.outcome,
@@ -192,7 +192,7 @@ def main(cfg: DictConfig) -> None:
             cfg.labels.test_key: test_outcomes,
         },
         require_min_followup_by_split={
-            cfg.labels.train_key: cfg.labels.get("require_min_followup_train", False),
+            cfg.labels.train_key: cfg.labels.get("require_min_followup_train", True),
             cfg.labels.val_key: cfg.labels.get("require_min_followup_val", True),
             cfg.labels.test_key: cfg.labels.get("require_min_followup_test", True),
         },

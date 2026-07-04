@@ -352,6 +352,54 @@ def test_competing_death_is_hard_negative_by_default():
     assert n_eff.item() > 0.0
 
 
+def test_same_subject_pairs_are_excluded_from_contrastive_weights():
+    sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
+    times = torch.tensor([30.0, 30.0, 180.0])
+    events = torch.tensor([1, 1, 0])
+    subject_ids = torch.tensor([10, 10, 11])
+    embeddings = F.normalize(torch.randn(3, 8), dim=-1)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+
+    weights, _ = loss_fn._compute_pair_weights(
+        times,
+        events,
+        sorted_et,
+        subject_ids=subject_ids,
+    )
+    loss = loss_fn(
+        embeddings,
+        times,
+        events,
+        sorted_event_times=sorted_et,
+        subject_ids=subject_ids,
+    )
+
+    assert weights[0, 1].item() == pytest.approx(0.0)
+    assert weights[1, 0].item() == pytest.approx(0.0)
+    assert torch.isfinite(loss)
+
+
+def test_batch_containing_only_duplicate_subject_has_no_informative_pairs():
+    sorted_et = torch.tensor([30.0, 90.0])
+    times = torch.tensor([30.0, 30.0])
+    events = torch.tensor([1, 1])
+    subject_ids = torch.tensor([10, 10])
+    embeddings = F.normalize(torch.randn(2, 8), dim=-1)
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+
+    loss, diagnostics = loss_fn(
+        embeddings,
+        times,
+        events,
+        sorted_event_times=sorted_et,
+        subject_ids=subject_ids,
+        return_diagnostics=True,
+    )
+
+    assert loss.item() == pytest.approx(0.0)
+    assert diagnostics["n_effective_pairs"].item() == pytest.approx(0.0)
+
+
 def test_competing_death_censor_mode_reproduces_conservative_zero_weight():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
     times = torch.tensor([90.0, 60.0])

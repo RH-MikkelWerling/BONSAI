@@ -268,14 +268,18 @@ class JointFinetuneModel(nn.Module):
 
             valid = labels_k >= 0
             log_dict[f"n_valid/{name}"] = valid.sum().float().detach()
-            if int(valid.sum().item()) < 2:
+            if int(valid.sum().item()) == 0:
                 continue
 
             labels_v = labels_k[valid].float()
+            logits_k = self.heads[name](pooled[valid]).squeeze(-1)  # (V,)
+            log_dict[f"logits/{name}"] = logits_k.detach()
+
+            if int(valid.sum().item()) < 2:
+                continue
             if self.require_both_classes_per_batch and torch.unique(labels_v).numel() < 2:
                 continue
 
-            logits_k = self.heads[name](pooled[valid]).squeeze(-1)  # (V,)
             pos_weight = self.positive_class_weights[k].to(
                 device=device,
                 dtype=pooled.dtype,
@@ -296,7 +300,6 @@ class JointFinetuneModel(nn.Module):
             log_dict[f"loss/{name}"] = loss_k.detach()
             log_dict[f"class_balance_factor/{name}"] = factor.detach()
             log_dict[f"positive_class_weight/{name}"] = pos_weight.detach()
-            log_dict[f"logits/{name}"] = logits_k.detach()
 
         active_mask = torch.isfinite(per_outcome_losses)
         outcome_weights = self.weighter.weights(per_outcome_losses)
