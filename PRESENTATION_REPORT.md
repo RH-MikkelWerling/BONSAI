@@ -101,7 +101,12 @@ Evaluation is rigorous and multi-dimensional:
 
 **Subgroup analysis**: metrics broken down by demographic and clinical subgroups (IPI score tiers, age, sex) for fairness and clinical relevance.
 
-**Rarity analysis**: Both synthetic (subsample training labels) and real (natural cohort-size variation) rarity experiments characterize how performance degrades with fewer training events — this is key to the central claim.
+**Rarity analysis**: The primary analysis now uses natural variation across
+cohort-outcome cells. A Bayesian hierarchical spline models paired
+OPERA-minus-tabular deltas against training-event count, with partial pooling
+across cohorts and outcomes and explicit patient-bootstrap uncertainty.
+Synthetic label subsampling remains a conditional label-efficiency sensitivity
+analysis, not the main emulation of true disease rarity.
 
 ---
 
@@ -140,7 +145,9 @@ Based on the current branch state and recent commit history:
 
 1. **Complete the cohorts.py integration** — `evaluate_joint.py` and the sweep orchestrator still use the old inline pattern and need to be updated.
 2. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 25 evaluated fine diagnoses × all outcomes × all model variants.
-3. **Rarity analysis** — collect real and synthetic rarity results across all cohorts for the central paper claim.
+3. **Hierarchical natural-rarity analysis** — collect patient-level prediction
+artifacts across all evaluable cohort-outcome cells, validate exact comparator
+parity, and fit the prespecified Bayesian spline hierarchy.
 4. **Paper figures** — aggregate results, generate rarity delta plots, embedding projections, and comparison tables.
 5. **Eligibility audit complete** — primary/competing-event chronology,
    fixed-horizon versus ascertainment masks, and supplementary workflow
@@ -171,7 +178,9 @@ Based on the current branch state and recent commit history:
 Suggest including these in slides (all generatable from the codebase):
 - **Pipeline diagram**: MEDS → tokenization → 4-stage training → evaluation
 - **Architecture diagram**: BonsaiEncoder with EhrEmbeddings → contrastive projections → task heads
-- **Rarity curve**: Performance vs. training set size (the central paper claim)
+- **Hierarchical rarity curve**: raw cohort-outcome OPERA-minus-XGBoost deltas
+  against training events, overlaid with posterior mean, credible, and
+  new-cell predictive uncertainty bands
 - **Patient embedding atlas**: Before/after contrastive adaptation, colored by disease, outcome, and first-line regimen
 - **Vocabulary embedding atlas**: learned code-token geography and token movement from pre-training → DAPT → OPERA
 - **Results table**: AUROC by cohort × model variant (BONSAI vs. DAPT vs. OPERA vs. tabular baseline)

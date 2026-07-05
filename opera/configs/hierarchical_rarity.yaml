@@ -1,0 +1,61 @@
+# Primary natural-rarity analysis: paired OPERA versus tabular performance
+# across every evaluable cohort-outcome cell. The workflow reads only standard
+# result.csv + predictions.npz pairs and reconstructs fixed-horizon eligibility
+# from binary_mask where required.
+
+results_root: ${oc.env:BONSAI_RESULTS_ROOT}/leukemia_sweep
+output_dir: ${oc.env:BONSAI_RESULTS_ROOT}/hierarchical_rarity
+sweep_config: opera/configs/leukemia_sweep.yaml
+task_metadata: null  # optional precomputed CSV/parquet with canonical task counts
+
+analysis:
+  model_family: opera
+  comparator_family: tabular_ehr_xgboost
+  evaluation_subset: full
+  primary_metric: auroc
+  # Keep the primary publication run focused. Regenerate separate analyses for
+  # AUPRC/PR skill and Brier skill rather than multiplying bootstrap cost here.
+  metrics: [auroc]
+  rarity_column: n_events_train
+  bootstrap_replicates: 2000
+  bootstrap_seed: 2026
+  # Cells need both classes to define AUROC. Very small cells contribute only
+  # through measurement-error-aware partial pooling and are plotted hollow.
+  minimum_test_positive: 2
+  minimum_test_negative: 2
+  primary_test_positive: 10
+  primary_test_negative: 10
+
+model:
+  spline_knots: 6
+  grid_size: 200
+  standard_error_floor: 0.001
+  prior_scale: 0.10
+  random_effect_scale: 0.05
+  fit_tiers: [primary, partial_pool_only]
+  require_convergence: true
+
+sampling:
+  draws: 2000
+  tune: 2000
+  chains: 4
+  cores: 4
+  target_accept: 0.95
+  seed: 2026
+
+figure:
+  title: "OPERA benefit across natural task information"
+  model_label: OPERA
+  comparator_label: XGBoost
+  show_predictive_interval: true
+  max_labels: 10
+
+# Extend this prespecified mapping when the full outcome inventory is locked.
+# Unmapped outcomes remain visible as "Other" rather than being guessed from
+# their names after results are seen.
+outcome_families:
+  mortality_1y: Mortality
+  mortality_2y: Mortality
+  treatment_failure: Treatment failure
+  aki_30d: Organ toxicity
+  severe_infection_90d: Infection

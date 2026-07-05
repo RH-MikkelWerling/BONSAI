@@ -260,6 +260,22 @@ Locked tabular feature matrices can be converted into those prediction files
 with `python -m opera.run.train_tabular_baselines`. TabPFN is supported as an
 optional baseline via `python -m pip install -e ".[tabpfn]"`.
 
+Natural rarity is analysed from the patient-level prediction artifacts with a
+measurement-error-aware Bayesian spline hierarchy. The workflow requires exact
+model/comparator patient and label parity, uses the fixed-horizon eligibility
+mask already saved by neural evaluation, and partially pools cohort-outcome
+deltas across cohorts and outcomes. Assemble inputs without optional Bayesian
+packages, then fit and plot with:
+
+```bash
+python -m opera.run.hierarchical_rarity --mode assemble
+python -m pip install -e ".[bayesian]"
+python -m opera.run.hierarchical_rarity --mode fit
+python -m opera.run.hierarchical_rarity --mode plot
+```
+
+The default configuration is `opera/configs/hierarchical_rarity.yaml`.
+
 ## Experiment Manifests
 
 Paper-oriented manifests live in `opera/configs/manifests/`:

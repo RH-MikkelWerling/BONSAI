@@ -73,6 +73,10 @@ retrieval = [
 tabpfn = [
     "tabpfn",
 ]
+bayesian = [
+    "pymc>=5.20,<7",
+    "arviz>=0.20,<1",
+]
 
 [project.urls]
 Homepage = "https://github.com/FGA-DIKU/BONSAI"

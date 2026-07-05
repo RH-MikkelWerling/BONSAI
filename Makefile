@@ -1,4 +1,4 @@
-.PHONY: test smoke readiness rarity-demo
+.PHONY: test smoke readiness rarity-demo hierarchical-rarity-assemble
 
 test:
 	python -m pytest tests
@@ -12,3 +12,6 @@ readiness:
 
 rarity-demo:
 	python -m opera.run.aggregate_results --results_dir ./results --output_dir ./results/aggregated --baseline tabular_ehr --rarity_plots
+
+hierarchical-rarity-assemble:
+	python -m opera.run.hierarchical_rarity --mode assemble

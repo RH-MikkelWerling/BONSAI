@@ -641,6 +641,58 @@ Outputs include:
 - `vocabulary_neighbors.csv`: optional nearest-neighbor table for highlighted
   query tokens.
 
+## Hierarchical Natural-Rarity Analysis
+
+The primary rarity analysis uses natural variation across all evaluable
+cohort-outcome cells rather than treating synthetic downstream subsampling as
+a complete emulation of disease rarity. It models paired OPERA-minus-tabular
+performance deltas against the observed number of training events.
+
+Prediction inputs are admitted only when they have standard `result.csv` and
+`predictions.npz` artifacts. Neural artifacts may contain the wider survival
+cohort, but their saved `binary_mask` is applied before fixed-horizon metrics.
+Precomputed fixed-horizon predictions already have to match the canonical
+eligible cohort exactly. The analysis then independently requires identical
+patient IDs and labels between OPERA and its comparator.
+
+Assemble and audit the inputs without installing PyMC:
+
+```bash
+python -m opera.run.hierarchical_rarity \
+  --config opera/configs/hierarchical_rarity.yaml \
+  --mode assemble
+```
+
+This writes the artifact inventory, canonical task-size table, paired deltas,
+patient-bootstrap draws, and deidentified patient-overlap diagnostics. To fit
+the robust Student-t hierarchy and generate the figure:
+
+```bash
+python -m pip install -e ".[bayesian]"
+python -m opera.run.hierarchical_rarity --mode fit
+python -m opera.run.hierarchical_rarity --mode plot
+```
+
+The model uses a penalized cubic spline on log2 training-event count, crossed
+cohort/outcome/outcome-family effects, a cell effect, known per-run bootstrap
+uncertainty, and an additional training-seed variance. It does not force a
+monotonic rarity relationship. Convergence is a hard gate by default: any
+divergence or maximum R-hat above 1.01 stops publication output.
+
+Primary outputs are:
+
+- `paired_deltas.csv/.parquet` and `paired_bootstrap_draws.csv/.parquet`;
+- `patient_overlap_summary.json` and `patient_overlap_pairs.csv/.parquet`;
+- `model/posterior.nc`, exact model inputs, design metadata, and diagnostics;
+- `model/posterior_curve.csv` and `model/posterior_cells.csv`;
+- `figures/hierarchical_rarity_<metric>.png/.pdf/.svg` and its scatter data.
+
+The figure distinguishes uncertainty about the population mean curve from the
+predictive dispersion of a new cohort-outcome cell. Low-event test cells are
+shown as hollow partial-pooling observations rather than silently removed.
+Risk-score-only survival artifacts do not enter binary AUROC/AUPRC analyses;
+they require a separate C-index analysis.
+
 ## Many-Outcome Training Guardrails
 
 OPERA can train with sparse outcome availability: patients do not need labels
