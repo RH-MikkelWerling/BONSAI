@@ -95,6 +95,7 @@ def assemble(config: dict[str, Any]) -> dict[str, Path]:
     task_metadata = apply_outcome_families(
         task_metadata,
         config.get("outcome_families"),
+        require_complete=bool(analysis.get("require_mapped_outcomes", True)),
     )
     artifacts = attach_task_metadata(artifacts, task_metadata)
     _write_frame(task_metadata, output / "task_metadata")
@@ -106,7 +107,9 @@ def assemble(config: dict[str, Any]) -> dict[str, Path]:
         comparator_family=analysis["comparator_family"],
         n_bootstrap=int(analysis.get("bootstrap_replicates", 1000)),
         seed=int(analysis.get("bootstrap_seed", 2026)),
-        metrics=tuple(analysis.get("metrics", [analysis.get("primary_metric", "auroc")])),
+        metrics=tuple(
+            analysis.get("metrics", [analysis.get("primary_metric", "auroc")])
+        ),
         min_test_positive=int(analysis.get("minimum_test_positive", 2)),
         min_test_negative=int(analysis.get("minimum_test_negative", 2)),
         primary_test_positive=int(analysis.get("primary_test_positive", 10)),
@@ -185,7 +188,10 @@ def plot(config: dict[str, Any]) -> Path:
     figure = config.get("figure", {})
     figure_dir = output / "figures"
     figure_dir.mkdir(parents=True, exist_ok=True)
-    figure_path = figure_dir / f"hierarchical_rarity_{analysis.get('primary_metric', 'auroc')}.png"
+    figure_path = (
+        figure_dir
+        / f"hierarchical_rarity_{analysis.get('primary_metric', 'auroc')}.png"
+    )
     scatter = aggregate_scatter_cells(
         deltas,
         metric=analysis.get("primary_metric", "auroc"),
@@ -199,13 +205,14 @@ def plot(config: dict[str, Any]) -> Path:
         rarity_column=analysis.get("rarity_column", "n_events_train"),
         model_label=figure.get("model_label", "OPERA"),
         comparator_label=figure.get("comparator_label", "XGBoost"),
-        title=figure.get(
-            "title", "Model benefit across natural task information"
-        ),
-        show_predictive_interval=bool(
-            figure.get("show_predictive_interval", True)
-        ),
-        max_labels=int(figure.get("max_labels", 10)),
+        title=figure.get("title", "Model benefit across natural task information"),
+        show_predictive_interval=bool(figure.get("show_predictive_interval", True)),
+        max_labels=int(figure.get("max_labels", 7)),
+        cohort_course_groups=figure.get("cohort_course_groups"),
+        cohort_group_labels=figure.get("cohort_group_labels"),
+        outcome_family_order=figure.get("outcome_family_order"),
+        highlight_cells=figure.get("highlight_cells"),
+        highlight_outcomes=figure.get("highlight_outcomes"),
         save_path=str(figure_path),
     )
     return figure_path

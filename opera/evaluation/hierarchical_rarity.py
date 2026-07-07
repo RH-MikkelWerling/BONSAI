@@ -160,9 +160,13 @@ def load_binary_prediction_artifact(path: str | Path) -> pd.DataFrame:
         }
     )
     if frame.empty:
-        raise ValueError(f"Prediction artifact contains no binary-eligible rows: {source}")
+        raise ValueError(
+            f"Prediction artifact contains no binary-eligible rows: {source}"
+        )
     if frame["subject_id"].duplicated().any():
-        raise ValueError(f"Prediction artifact contains duplicate subject IDs: {source}")
+        raise ValueError(
+            f"Prediction artifact contains duplicate subject IDs: {source}"
+        )
     if not set(frame["label"].unique()).issubset({0, 1}):
         raise ValueError(f"Binary labels outside {{0, 1}} in {source}.")
     if not np.isfinite(frame["probability"]).all():
@@ -192,8 +196,8 @@ def assert_paired_prediction_parity(
         raise ValueError(f"Patient parity failed for {task_label}: {counts}")
     if not np.array_equal(merged["label_model"], merged["label_comparator"]):
         raise ValueError(f"Label parity failed for {task_label}.")
-    return merged.drop(columns="_merge").sort_values("subject_id").reset_index(
-        drop=True
+    return (
+        merged.drop(columns="_merge").sort_values("subject_id").reset_index(drop=True)
     )
 
 
@@ -222,9 +226,7 @@ def _metric_values(
             )
             result["brier_skill"] = 1.0 - brier / reference
     if "log_loss" in metrics:
-        result["log_loss"] = float(
-            log_loss(labels, probabilities, labels=[0, 1])
-        )
+        result["log_loss"] = float(log_loss(labels, probabilities, labels=[0, 1]))
     return result
 
 
@@ -357,9 +359,7 @@ def build_paired_delta_tables(
         raise ValueError(f"Artifact table is missing columns: {sorted(missing)}")
     key_columns = [key for key in PAIR_KEYS if key in artifacts.columns]
     model_rows = artifacts[artifacts["model_family"] == model_family].copy()
-    comparator_rows = artifacts[
-        artifacts["model_family"] == comparator_family
-    ].copy()
+    comparator_rows = artifacts[artifacts["model_family"] == comparator_family].copy()
     if model_rows.empty or comparator_rows.empty:
         raise ValueError(
             f"Both {model_family!r} and {comparator_family!r} must have predictions."
@@ -419,8 +419,12 @@ def build_paired_delta_tables(
         cell_id = "|".join(str(pair[column]) for column in cell_columns)
         members = paired["subject_id"].to_numpy()
         previous = memberships.get(cell_id)
-        if previous is not None and not np.array_equal(np.sort(previous), np.sort(members)):
-            raise ValueError(f"Test patient membership changed across seeds for {cell_id}.")
+        if previous is not None and not np.array_equal(
+            np.sort(previous), np.sort(members)
+        ):
+            raise ValueError(
+                f"Test patient membership changed across seeds for {cell_id}."
+            )
         memberships[cell_id] = members
 
         cell_seed = _stable_seed(seed, key_values)
@@ -452,6 +456,7 @@ def build_paired_delta_tables(
             "n_events_train",
             "prevalence_train",
             "outcome_family",
+            "cohort_group",
         ):
             if column in model_row.index:
                 common[column] = model_row.get(column)
@@ -511,10 +516,9 @@ def build_task_size_metadata(sweep_config: str | Path) -> pd.DataFrame:
             rows.append(
                 {
                     "cohort": cohort_name,
+                    "cohort_group": cohort_cfg.get("training_cohort", cohort_name),
                     "outcome": outcome_name,
-                    "outcome_window_hours": outcome_cfg.get(
-                        "n_hours_end_include"
-                    ),
+                    "outcome_window_hours": outcome_cfg.get("n_hours_end_include"),
                     **sizes,
                 }
             )
@@ -546,6 +550,7 @@ def attach_task_metadata(
             "n_test",
             "n_events_test",
             "outcome_family",
+            "cohort_group",
         )
         if column in task_metadata.columns
     ]
@@ -570,10 +575,23 @@ def attach_task_metadata(
 def apply_outcome_families(
     frame: pd.DataFrame,
     mapping: Mapping[str, str] | None,
+    *,
+    require_complete: bool = False,
 ) -> pd.DataFrame:
     result = frame.copy()
     mapping = dict(mapping or {})
     result["outcome_family"] = result["outcome"].map(mapping).fillna("Other")
+    if require_complete:
+        unmapped = sorted(
+            result.loc[result["outcome_family"] == "Other", "outcome"]
+            .astype(str)
+            .unique()
+        )
+        if unmapped:
+            raise ValueError(
+                "Outcome-family mapping is incomplete; add explicit entries for: "
+                f"{unmapped}"
+            )
     return result
 
 

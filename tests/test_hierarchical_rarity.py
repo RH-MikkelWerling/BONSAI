@@ -5,9 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from opera.analysis.bayesian_rarity import prepare_rarity_data
 from opera.evaluation.hierarchical_rarity import (
+    apply_outcome_families,
     assert_paired_prediction_parity,
     attach_task_metadata,
     build_paired_delta_tables,
@@ -16,6 +18,7 @@ from opera.evaluation.hierarchical_rarity import (
     summarize_patient_overlap,
 )
 from opera.visualization.hierarchical_rarity_plots import (
+    _selected_labels,
     aggregate_scatter_cells,
     plot_hierarchical_rarity_curve,
 )
@@ -146,6 +149,7 @@ def _artifact_fixture(tmp_path: Path, n_cells: int = 8) -> pd.DataFrame:
                     "n_train": 200 + cell_index,
                     "prevalence_train": 0.1,
                     "outcome_family": "Mortality" if cell_index < 4 else "Toxicity",
+                    "cohort_group": "group_a" if cell_index % 2 == 0 else "group_b",
                 }
             )
     return pd.DataFrame(rows)
@@ -166,6 +170,7 @@ def test_paired_tables_overlap_and_model_preparation(tmp_path):
     assert deltas["cell_id"].nunique() == 8
     assert set(deltas["metric"]) == {"auroc", "brier_score"}
     assert (deltas["difference"] >= 0).all()
+    assert set(deltas["cohort_group"]) == {"group_a", "group_b"}
     assert not draws.empty
     summary, pairs = summarize_patient_overlap(memberships)
     assert summary["fraction_patients_in_multiple_cells"] == 1.0
@@ -181,12 +186,14 @@ def test_paired_tables_overlap_and_model_preparation(tmp_path):
     assert len(prepared.cells) == 8
     assert prepared.spline_grid.shape[0] == 30
     assert np.isfinite(prepared.spline_cells).all()
+    assert set(prepared.cells["cohort_group"]) == {"group_a", "group_b"}
+
+    scatter = aggregate_scatter_cells(deltas, metric="auroc")
+    assert set(scatter["cohort_group"]) == {"group_a", "group_b"}
 
 
 def test_attach_task_metadata_requires_complete_event_counts():
-    artifacts = pd.DataFrame(
-        [{"cohort": "c", "outcome": "o", "model_family": "m"}]
-    )
+    artifacts = pd.DataFrame([{"cohort": "c", "outcome": "o", "model_family": "m"}])
     metadata = pd.DataFrame(
         [{"cohort": "c", "outcome": "o", "n_events_train": 12, "n_train": 50}]
     )
@@ -205,6 +212,7 @@ def test_publication_plot_writes_png_pdf_svg(tmp_path):
                 "cohort": f"c{index % 2}",
                 "outcome": f"o{index}",
                 "outcome_family": "Mortality" if index < 5 else "Toxicity",
+                "cohort_group": f"group{index % 3}",
                 "metric": "auroc",
                 "difference": -0.01 + 0.004 * index,
                 "difference_se": 0.01,
@@ -242,6 +250,105 @@ def test_publication_plot_writes_png_pdf_svg(tmp_path):
     assert target.with_suffix(".svg").exists()
     scatter = aggregate_scatter_cells(deltas, metric="auroc")
     assert len(scatter) == 10
+
+
+def test_selected_labels_prioritizes_highlight_outcomes():
+    # cell_0 is the only instance of "target_outcome" and is also the
+    # globally rarest cell. "Rarest evaluable" must not silently drop just
+    # because "Key outcome" already claimed that row, and must not duplicate it.
+    x = np.geomspace(10, 100, 10)
+    curve = pd.DataFrame(
+        {"training_events": x, "median": np.linspace(0.015, 0.007, 10)}
+    )
+    cells = pd.DataFrame(
+        {
+            "cell_id": [f"cell_{i}" for i in range(10)],
+            "cohort": [f"c{i % 2}" for i in range(10)],
+            "outcome": ["target_outcome"] + [f"o{i}" for i in range(1, 10)],
+            "n_events_train": x,
+            "difference": np.linspace(-0.01, 0.026, 10),
+        }
+    )
+    labels = _selected_labels(
+        cells,
+        curve,
+        rarity_column="n_events_train",
+        max_labels=4,
+        highlight_outcomes=["target_outcome", "outcome_not_present"],
+    )
+    assert labels["cell_id"].nunique() == len(labels)
+    assert labels.loc[
+        labels["label_category"] == "Key outcome", "cell_id"
+    ].tolist() == ["cell_0"]
+    assert "Rarest evaluable" in set(labels["label_category"])
+    # cell_0 was already claimed by "Key outcome", so "Rarest evaluable" must
+    # fall through to the next-rarest distinct cell, not vanish or duplicate.
+    rarest_row = labels[labels["label_category"] == "Rarest evaluable"].iloc[0]
+    assert rarest_row["cell_id"] != "cell_0"
+    assert "Most data-rich" in set(labels["label_category"])
+
+
+def test_selected_labels_prioritizes_exact_clinical_cells():
+    x = np.geomspace(10, 100, 8)
+    curve = pd.DataFrame({"training_events": x, "median": np.zeros(8)})
+    cells = pd.DataFrame(
+        {
+            "cell_id": [f"cell_{i}" for i in range(8)],
+            "cohort": ["DLBCL", "MM", "DLBCL", "CLL", "HL", "BL", "FL", "MCL"],
+            "outcome": [
+                "treatment_failure",
+                "treatment_failure",
+                *[f"o{i}" for i in range(6)],
+            ],
+            "n_events_train": x,
+            "difference": np.linspace(-0.01, 0.02, 8),
+        }
+    )
+    labels = _selected_labels(
+        cells,
+        curve,
+        rarity_column="n_events_train",
+        max_labels=3,
+        highlight_cells=[
+            {
+                "cohort": "DLBCL",
+                "outcome": "treatment_failure",
+                "label": "DLBCL × treatment failure",
+            }
+        ],
+    )
+    first = labels.iloc[0]
+    assert first["cell_id"] == "cell_0"
+    assert first["annotation_label"] == "DLBCL × treatment failure"
+    assert first["label_category"] == "Clinical anchor"
+
+
+def test_outcome_family_mapping_is_deduplicated_and_manageable():
+    config_path = (
+        Path(__file__).resolve().parents[1]
+        / "opera"
+        / "configs"
+        / "hierarchical_rarity.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text())
+    mapping = config["outcome_families"]
+    assert len(mapping) == len(set(mapping))
+    families = set(mapping.values())
+    # A handful of clinically coherent families, not one row per outcome and
+    # not an undifferentiated "lab values" catch-all.
+    assert 1 < len(families) <= 8
+    assert "mortality_1y" in mapping and "treatment_failure" in mapping
+    assert "Organ & metabolic toxicity" not in families
+
+
+def test_outcome_family_mapping_can_fail_closed():
+    frame = pd.DataFrame({"outcome": ["mapped", "new_unmapped_outcome"]})
+    with pytest.raises(ValueError, match="new_unmapped_outcome"):
+        apply_outcome_families(
+            frame,
+            {"mapped": "Clinical family"},
+            require_complete=True,
+        )
 
 
 def test_overlap_summary_does_not_export_patient_ids():

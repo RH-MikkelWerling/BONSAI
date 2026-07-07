@@ -75,11 +75,15 @@ def prepare_rarity_data(
     observations["outcome_family"] = observations.get(
         "outcome_family", pd.Series("Other", index=observations.index)
     ).fillna("Other")
+    observations["cohort_group"] = observations.get(
+        "cohort_group", observations["cohort"]
+    ).fillna(observations["cohort"])
     observations["log2_rarity"] = np.log2(observations[rarity_column].astype(float))
 
     cell_columns = [
         "cell_id",
         "cohort",
+        "cohort_group",
         "outcome",
         "outcome_family",
         rarity_column,
@@ -110,8 +114,10 @@ def prepare_rarity_data(
     )
     basis_cells_raw = transformer.fit_transform(x_cells)
     basis_center = basis_cells_raw.mean(axis=0)
-    basis_scale = basis_cells_raw.std(axis=0)
-    basis_scale[basis_scale < 1e-8] = 1.0
+    # Centering makes alpha the mean-information intercept. Do not scale each
+    # basis column separately: the RW2 prior below acts on adjacent B-spline
+    # coefficients, and unequal column scaling would destroy that geometry.
+    basis_scale = np.ones(basis_cells_raw.shape[1], dtype=float)
 
     def transform(values: np.ndarray) -> np.ndarray:
         raw = transformer.transform(values.reshape(-1, 1))
@@ -247,28 +253,39 @@ def fit_hierarchical_rarity_model(
                 dims="spline",
             )
 
-        sigma_cohort = pm.HalfNormal(
-            "sigma_cohort", sigma=random_effect_scale
-        )
-        sigma_outcome = pm.HalfNormal(
-            "sigma_outcome", sigma=random_effect_scale
-        )
-        sigma_family = pm.HalfNormal(
-            "sigma_family", sigma=random_effect_scale
-        )
+        variance_components = []
+        if len(prepared.cohorts) > 1:
+            sigma_cohort = pm.HalfNormal("sigma_cohort", sigma=random_effect_scale)
+            cohort_z = pm.Normal("cohort_z", 0.0, 1.0, dims="cohort")
+            cohort_effect = sigma_cohort * cohort_z[prepared.cohort_index]
+            variance_components.append(sigma_cohort**2)
+        else:
+            cohort_effect = np.zeros(len(cells), dtype=float)
+
+        if len(prepared.outcomes) > 1:
+            sigma_outcome = pm.HalfNormal("sigma_outcome", sigma=random_effect_scale)
+            outcome_z = pm.Normal("outcome_z", 0.0, 1.0, dims="outcome")
+            outcome_effect = sigma_outcome * outcome_z[prepared.outcome_index]
+            variance_components.append(sigma_outcome**2)
+        else:
+            outcome_effect = np.zeros(len(cells), dtype=float)
+
+        if len(prepared.families) > 1:
+            sigma_family = pm.HalfNormal("sigma_family", sigma=random_effect_scale)
+            family_z = pm.Normal("family_z", 0.0, 1.0, dims="family")
+            family_effect = sigma_family * family_z[prepared.family_index]
+            variance_components.append(sigma_family**2)
+        else:
+            family_effect = np.zeros(len(cells), dtype=float)
+
         sigma_cell = pm.HalfNormal("sigma_cell", sigma=random_effect_scale)
+        variance_components.append(sigma_cell**2)
         sigma_training = pm.HalfNormal(
             "sigma_training", sigma=random_effect_scale / 2.0
         )
 
-        cohort_z = pm.Normal("cohort_z", 0.0, 1.0, dims="cohort")
-        outcome_z = pm.Normal("outcome_z", 0.0, 1.0, dims="outcome")
-        family_z = pm.Normal("family_z", 0.0, 1.0, dims="family")
         cell_z = pm.Normal("cell_z", 0.0, 1.0, dims="cell")
 
-        cohort_effect = sigma_cohort * cohort_z[prepared.cohort_index]
-        outcome_effect = sigma_outcome * outcome_z[prepared.outcome_index]
-        family_effect = sigma_family * family_z[prepared.family_index]
         smooth_cell = pm.math.dot(spline_cells, spline_coef)
         cell_theta = pm.Deterministic(
             "cell_theta",
@@ -287,12 +304,7 @@ def fit_hierarchical_rarity_model(
         )
         pm.Deterministic(
             "population_predictive_sd",
-            pm.math.sqrt(
-                sigma_cohort**2
-                + sigma_outcome**2
-                + sigma_family**2
-                + sigma_cell**2
-            ),
+            pm.math.sqrt(sum(variance_components)),
         )
         nu = pm.Deterministic("nu", 2.0 + pm.Exponential("nu_minus_two", 0.1))
         likelihood_scale = pm.math.sqrt(observed_se**2 + sigma_training**2)

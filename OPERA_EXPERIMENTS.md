@@ -676,7 +676,12 @@ python -m opera.run.hierarchical_rarity --mode plot
 The model uses a penalized cubic spline on log2 training-event count, crossed
 cohort/outcome/outcome-family effects, a cell effect, known per-run bootstrap
 uncertainty, and an additional training-seed variance. It does not force a
-monotonic rarity relationship. Convergence is a hard gate by default: any
+monotonic rarity relationship. Variance components are omitted when only one
+level is observed (for example, a core run containing one outcome family),
+because a between-family variance is not identified by a single family. The
+curve is an adjusted association across naturally occurring tasks, not a
+causal effect of adding training events; the synthetic label-efficiency
+analysis remains the intervention-style sensitivity analysis. Convergence is a hard gate by default: any
 divergence or maximum R-hat above 1.01 stops publication output.
 
 Primary outputs are:
@@ -690,8 +695,34 @@ Primary outputs are:
 The figure distinguishes uncertainty about the population mean curve from the
 predictive dispersion of a new cohort-outcome cell. Low-event test cells are
 shown as hollow partial-pooling observations rather than silently removed.
-Risk-score-only survival artifacts do not enter binary AUROC/AUPRC analyses;
-they require a separate C-index analysis.
+Point color encodes the prespecified outcome family
+(`opera/configs/hierarchical_rarity.yaml:outcome_families`) and point shape
+encodes the training cohort group, so cohort- and outcome-driven patterns
+stay visually separable in one panel. Point size is not used to encode
+held-out event counts: under the fixed train/val/test split, held-out events
+scale near-linearly with the training-event rarity already on the x-axis, so
+sizing by it would only redraw the x-position as area. Point size is therefore
+fixed; filled versus hollow markers distinguish primary from partial-pooled
+cells.
+
+Cohort shapes are grouped in the legend under prespecified disease-course
+headers (`opera/configs/hierarchical_rarity.yaml:figure.cohort_course_groups`,
+e.g. "Aggressive course group" vs. "Indolent / chronic course group") rather
+than one flat row of markers; cohort groups absent from that mapping still
+render, filed under "Other cohorts". A curated set of cells is annotated with
+leader lines, each tagged with why it was picked. Exact, prespecified
+cohort-outcome anchors (for example DLBCL × treatment failure) take priority.
+Labels are deliberately
+*not* chosen by statistical extremeness (e.g. "biggest residual from the
+curve") — that surfaces whichever cell is noisiest, not whichever a clinical
+reader cares about. Priority order is: (1) exact clinical anchors from
+`figure.highlight_cells`, followed by outcome-only fallbacks spread across
+the rarity range; (2) the rarest and most data-rich evaluable cells for scale
+context; (3) any remaining label budget filled with cells close to the curve
+(typical cells at that information level). The x-axis uses plain training-event counts on a
+log scale rather than log2-exponent tick labels. Risk-score-only survival
+artifacts do not enter binary AUROC/AUPRC analyses; they require a separate
+C-index analysis.
 
 ## Many-Outcome Training Guardrails
 

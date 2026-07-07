@@ -17,6 +17,9 @@ analysis:
   # AUPRC/PR skill and Brier skill rather than multiplying bootstrap cost here.
   metrics: [auroc]
   rarity_column: n_events_train
+  # Fail closed if the locked outcome inventory gains an endpoint without a
+  # prespecified clinical family; this prevents a silent "Other" catch-all.
+  require_mapped_outcomes: true
   bootstrap_replicates: 2000
   bootstrap_seed: 2026
   # Cells need both classes to define AUROC. Very small cells contribute only
@@ -48,14 +51,160 @@ figure:
   model_label: OPERA
   comparator_label: XGBoost
   show_predictive_interval: true
-  max_labels: 10
+  max_labels: 7
+  # Exact clinically interpretable anchors take priority. Missing cells are
+  # skipped safely, allowing one locked config to serve both the core and the
+  # expanded outcome runs. Labels are never chosen by residual extremeness.
+  highlight_cells:
+    - {cohort: DLBCL, outcome: treatment_failure, label: "DLBCL × treatment failure"}
+    - {cohort: BL, outcome: overall_survival, label: "BL × overall survival"}
+    - {cohort: CLL, outcome: infections_prescription_based, label: "CLL × prescription-based infection"}
+    - {cohort: MM, outcome: severe_cytopenia, label: "MM × severe cytopenia"}
+    - {cohort: HL, outcome: hospitalisation, label: "HL × hospitalisation"}
+  highlight_outcomes:
+    - mortality_1y
+    - mortality_2y
+    - sepsis
+    - MACE_composite
+  outcome_family_order:
+    - Disease control & survival
+    - Infection
+    - Hematologic toxicity & support
+    - Renal toxicity
+    - Hepatic & coagulation toxicity
+    - Electrolyte & metabolic toxicity
+    - Cardiovascular & thrombotic
+    - Acute care utilization
+  # Organizes the cohort-shape legend under clinically meaningful disease-course
+  # headers instead of one flat row of markers. Purely a display grouping —
+  # unlisted cohort groups still render, just under "Other cohorts".
+  cohort_course_groups:
+    dlbcl_like: Aggressive course group
+    t_nhl: Aggressive course group
+    hl: Aggressive course group
+    bl_lbl: Aggressive course group
+    cll_sll: Indolent / chronic course group
+    indolent_b_nhl: Indolent / chronic course group
+    hcl: Indolent / chronic course group
+    soim: Indolent / chronic course group
+    mm: Plasma-cell group
+    amyloidosis: Plasma-cell group
+  cohort_group_labels:
+    dlbcl_like: DLBCL-like
+    t_nhl: T-NHL
+    hl: HL
+    bl_lbl: BL/LBL
+    cll_sll: CLL/SLL
+    indolent_b_nhl: Indolent B-NHL
+    hcl: HCL
+    soim: SoIM
+    mm: MM
+    amyloidosis: Amyloidosis
 
-# Extend this prespecified mapping when the full outcome inventory is locked.
+# Prespecified mapping covering the full locked outcome inventory (fixed-horizon
+# mortality/treatment_failure plus the ~80-outcome safety panel). Grouped by what
+# each outcome clinically represents rather than by data type, so "labs" are
+# split into the clinical systems they actually signal (myelosuppression,
+# renal, hepatic/coagulation, and electrolyte/metabolic injury).
 # Unmapped outcomes remain visible as "Other" rather than being guessed from
 # their names after results are seen.
 outcome_families:
-  mortality_1y: Mortality
-  mortality_2y: Mortality
-  treatment_failure: Treatment failure
-  aki_30d: Organ toxicity
-  severe_infection_90d: Infection
+  # ── Disease control and survival ───────────────────────────────────
+  mortality_1y: Disease control & survival
+  mortality_2y: Disease control & survival
+  overall_survival: Disease control & survival
+
+  # Progression, relapse, and subsequent treatment outcomes
+  treatment_failure: Disease control & survival
+  treatment_failure_transformation: Disease control & survival
+  second_line_treatment: Disease control & survival
+  next_hematological_malignancy: Disease control & survival
+  next_malignancy: Disease control & survival
+
+  # ── Hematologic toxicity and supportive care ──────────────────────
+  anemia_g2plus: Hematologic toxicity & support
+  anemia_g3plus: Hematologic toxicity & support
+  neutropenia_g2plus: Hematologic toxicity & support
+  neutropenia_g3plus: Hematologic toxicity & support
+  thrombocytopenia_g2plus: Hematologic toxicity & support
+  thrombocytopenia_g3plus: Hematologic toxicity & support
+  lymphopenia_g2plus: Hematologic toxicity & support
+  lymphopenia_g3plus: Hematologic toxicity & support
+  lymphocytosis_g2plus: Hematologic toxicity & support
+  lymphocytosis_g3plus: Hematologic toxicity & support
+  leukocytosis_g2plus: Hematologic toxicity & support
+  WBC_decreased_g2plus: Hematologic toxicity & support
+  WBC_decreased_g3plus: Hematologic toxicity & support
+  severe_cytopenia: Hematologic toxicity & support
+  eosinophilia: Hematologic toxicity & support
+  haptoglobin_decreased: Hematologic toxicity & support
+
+  # ── Renal, hepatic/coagulation, and electrolyte/metabolic toxicity ─
+  aki_first_documented: Renal toxicity
+  creatinine_increased_g2plus: Renal toxicity
+  creatinine_increased_g3plus: Renal toxicity
+  dialysis: Renal toxicity
+  ALT_increased_g2plus: Hepatic & coagulation toxicity
+  ALT_increased_g3plus: Hepatic & coagulation toxicity
+  AST_increased_g2plus: Hepatic & coagulation toxicity
+  AST_increased_g3plus: Hepatic & coagulation toxicity
+  ALP_increased_g2plus: Hepatic & coagulation toxicity
+  ALP_increased_g3plus: Hepatic & coagulation toxicity
+  bilirubin_increased_g2plus: Hepatic & coagulation toxicity
+  bilirubin_increased_g3plus: Hepatic & coagulation toxicity
+  hepatotoxicity: Hepatic & coagulation toxicity
+  LDH_increased: Hepatic & coagulation toxicity
+  INR_increased_g2plus: Hepatic & coagulation toxicity
+  INR_increased_g3plus: Hepatic & coagulation toxicity
+  hypofibrinogenemia_g2plus: Hepatic & coagulation toxicity
+  hypofibrinogenemia_g3plus: Hepatic & coagulation toxicity
+  hypercalcemia_g2plus: Electrolyte & metabolic toxicity
+  hypercalcemia_g3plus: Electrolyte & metabolic toxicity
+  hypocalcemia_g2plus: Electrolyte & metabolic toxicity
+  hypocalcemia_g3plus: Electrolyte & metabolic toxicity
+  hyperkalemia_g2plus: Electrolyte & metabolic toxicity
+  hyperkalemia_g3plus: Electrolyte & metabolic toxicity
+  hypokalemia_g2plus: Electrolyte & metabolic toxicity
+  hypokalemia_g3plus: Electrolyte & metabolic toxicity
+  hypernatremia_g2plus: Electrolyte & metabolic toxicity
+  hypernatremia_g3plus: Electrolyte & metabolic toxicity
+  hyponatremia_g2plus: Electrolyte & metabolic toxicity
+  hyponatremia_g3plus: Electrolyte & metabolic toxicity
+  hypermagnesemia_g3plus: Electrolyte & metabolic toxicity
+  hypomagnesemia_g2plus: Electrolyte & metabolic toxicity
+  hypomagnesemia_g3plus: Electrolyte & metabolic toxicity
+  hypoalbuminemia_g2plus: Hepatic & coagulation toxicity
+  hypoalbuminemia_g3plus: Hepatic & coagulation toxicity
+  hypertriglyceridemia_g2plus: Electrolyte & metabolic toxicity
+  hypertriglyceridemia_g3plus: Electrolyte & metabolic toxicity
+  hyperuricemia: Electrolyte & metabolic toxicity
+  hypoglycemia_g2plus: Electrolyte & metabolic toxicity
+  hypoglycemia_g3plus: Electrolyte & metabolic toxicity
+  bone_fracture: Electrolyte & metabolic toxicity
+
+  # ── Infection ──────────────────────────────────────────────────────
+  sepsis: Infection
+  serious_infection_composite: Infection
+  infections_IV_based: Infection
+  infections_prescription_based: Infection
+  invasive_fungal: Infection
+  herpes_zoster: Infection
+  antibiotics: Infection
+
+  # ── Cardiovascular and thrombotic ──────────────────────────────────
+  MACE_composite: Cardiovascular & thrombotic
+  myocardial_infarction: Cardiovascular & thrombotic
+  atrial_fibrillation: Cardiovascular & thrombotic
+  heart_failure: Cardiovascular & thrombotic
+  stroke_TIA: Cardiovascular & thrombotic
+  VTE: Cardiovascular & thrombotic
+
+  # Transfusion endpoints join the hematologic toxicity family.
+  any_transfusion: Hematologic toxicity & support
+  RBC_transfusion: Hematologic toxicity & support
+  platelet_transfusion: Hematologic toxicity & support
+
+  # ── Acute care utilization ─────────────────────────────────────────
+  hospitalisation: Acute care utilization
+  emergency_stay: Acute care utilization
+  respiratory_support: Acute care utilization
