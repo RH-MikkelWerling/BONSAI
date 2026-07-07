@@ -21,7 +21,7 @@ This file is OPTIONAL — it exists for the hybrid experiment tier.
 from typing import Optional
 import torch
 import torch.nn as nn
-from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.compat.bonsai import BonsaiEncoder, BiGRU, encoder_hidden_state
 
 
 class HybridClassifier(nn.Module):
@@ -58,6 +58,7 @@ class HybridClassifier(nn.Module):
     ):
         super().__init__()
         self.encoder = encoder
+        self.hparams = dict(encoder.hparams)
         self.freeze_encoder = freeze_encoder
 
         if freeze_encoder:
@@ -103,14 +104,14 @@ class HybridClassifier(nn.Module):
         # Encoder
         with torch.set_grad_enabled(not self.freeze_encoder):
             outputs = self.encoder(batch)
-        hidden = outputs[0]
+        hidden = encoder_hidden_state(outputs)
 
         # Pool
         if self.pooling == "bigru":
             pooled = self.pooler(hidden, batch["attention_mask"], return_embedding=True)
         else:
             lengths = batch["attention_mask"].sum(dim=1) - 1
-            pooled = hidden[torch.arange(hidden.size(0)), lengths]
+            pooled = hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]
 
         # Tabular
         tabular = self.tabular_norm(batch["tabular"].float())

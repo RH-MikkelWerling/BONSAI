@@ -21,13 +21,13 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
 import lightning as L
 from torchmetrics import MetricCollection, Accuracy, AUROC, AveragePrecision
 from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+from bonsai.functional.scheduling import optimizer_with_warmup
 
 from opera.modules.networks.opera_nets import (
     ProjectionHead,
@@ -129,9 +129,15 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
         This requires reaching into the model's internals to get the
         pre-classification-head representation.
         """
-        # Get encoder output
-        outputs = self.model.__class__.__bases__[0].forward(self.model, batch)
-        hidden = outputs[0]
+        if hasattr(self.model, "get_pooled_representation"):
+            pooled = self.model.get_pooled_representation(batch)
+            return self.projection_head(pooled)
+
+        # Legacy fallback for non-native classification wrappers.
+        outputs = self.model.encoder(batch)
+        from opera.compat.bonsai import encoder_hidden_state
+
+        hidden = encoder_hidden_state(outputs)
 
         # Pool using the classification head's pooler (BiGRU)
         if hasattr(self.model, "cls") and hasattr(self.model.cls, "pool"):
@@ -141,7 +147,7 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
         else:
             # Fallback: CLS-last
             lengths = batch["attention_mask"].sum(dim=1) - 1
-            pooled = hidden[torch.arange(hidden.size(0)), lengths]
+            pooled = hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]
 
         # Project
         return self.projection_head(pooled)
@@ -188,14 +194,8 @@ class ContrastiveRegularizedFinetuneModule(L.LightningModule):
             lr=self.learning_rate,
             eps=self.optimizer_epsilon,
         )
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        return optimizer_with_warmup(
+            optimizer,
+            self.trainer,
+            self.scheduler_warmup_epochs,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer=optimizer,
-            num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return [optimizer], [
-            {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        ]

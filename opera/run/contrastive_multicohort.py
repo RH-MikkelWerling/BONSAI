@@ -16,16 +16,16 @@ import lightning as L
 import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import (
+    extract_encoder_state_dict,
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.compat.bonsai import BonsaiEncoder
+from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
@@ -54,28 +54,9 @@ def main(cfg: DictConfig) -> None:
     vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
-
-    encoder = BonsaiEncoder(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        )
-    )
-
-    state_dict = ckpt["state_dict"]
-    encoder_state = {}
-    for k, v in state_dict.items():
-        if k.startswith("model."):
-            clean = k[len("model.") :]
-            if clean.startswith("head.") or clean.startswith("decoder."):
-                continue
-            encoder_state[clean] = v
-    encoder.load_state_dict(encoder_state, strict=False)
+    encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
+    encoder_state = extract_encoder_state_dict(ckpt["state_dict"])
+    encoder.load_state_dict(encoder_state, strict=True)
 
     # ── DAPT-prior embedding store (optional) ─────────────────────────
     dapt_embedding_store = None
@@ -142,8 +123,10 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
         require_all_configured_cells=require_all_configured_cells,
-        require_min_followup_train=cfg.training.get("require_min_followup_train", False),
-        max_len=encoder.config.max_position_embeddings,
+        require_min_followup_train=cfg.training.get(
+            "require_min_followup_train", False
+        ),
+        max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 

@@ -10,7 +10,6 @@ import lightning as L
 import torch
 from torch import nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
 from torchmetrics import AUROC, AveragePrecision
 from typing import Dict, List
 from bonsai.functional.checkpointing import (
@@ -18,6 +17,8 @@ from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+from bonsai.functional.scheduling import optimizer_with_warmup
+from opera.compat.bonsai import encoder_hparams
 
 
 class JointFinetuneModule(L.LightningModule):
@@ -45,7 +46,7 @@ class JointFinetuneModule(L.LightningModule):
         self.save_hyperparameters(ignore=["model"])
         attach_model_config(self, model)
         self.hparams[MODEL_INIT_CONFIG_KEY] = {
-            "hidden_size": model.encoder.config.hidden_size,
+            "hidden_size": encoder_hparams(model.encoder)["hidden_size"],
             "pooling": model.pooling,
             "freeze_encoder": model.freeze_encoder,
             "dropout": model.dropout.p,
@@ -171,16 +172,8 @@ class JointFinetuneModule(L.LightningModule):
             param_groups.append({"params": encoder_params, "lr": lr * enc_mult})
 
         optimizer = AdamW(param_groups, eps=self.hparams.optimizer_epsilon)
-        steps_per_epoch = max(
-            1, self.trainer.estimated_stepping_batches // self.trainer.max_epochs
-        )
-        scheduler = get_linear_schedule_with_warmup(
+        return optimizer_with_warmup(
             optimizer,
-            num_warmup_steps=int(
-                steps_per_epoch * self.hparams.scheduler_warmup_epochs
-            ),
-            num_training_steps=self.trainer.estimated_stepping_batches,
+            self.trainer,
+            self.hparams.scheduler_warmup_epochs,
         )
-        return [optimizer], [
-            {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        ]

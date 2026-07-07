@@ -20,12 +20,11 @@ import lightning as L
 import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 from bonsai.functional.pathing import get_experiment_output_path
-from opera.compat.bonsai import BonsaiEncoder
+from opera.compat.bonsai import build_bonsai_encoder
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
 from bonsai.functional.outcomes import (
     save_binarized_split_summary,
@@ -66,18 +65,7 @@ def main(cfg: DictConfig) -> None:
     vocab = torch.load(cfg.paths.vocabulary)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
-
-    encoder = BonsaiEncoder(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        )
-    )
+    encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
     encoder.load_state_dict(encoder_state, strict=False)
 
     # ── Outcomes ─────────────────────────────────────────────────────

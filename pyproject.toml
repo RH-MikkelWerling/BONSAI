@@ -37,10 +37,9 @@ dependencies = [
     "PyYAML>=6.0.3",
     "scikit-learn>=1.5,<2",
     "scipy>=1.11.0",
-    "torch>=2.5,<3",
+    "torch>=2.10,<3",
     "torchmetrics>=1.6.0",
     "tqdm>=4.66.0",
-    "transformers>=4.48.2,<5",
     "matplotlib>=3.9.0",
     "python-dotenv>=1.0.1",
 ]
@@ -76,6 +75,12 @@ tabpfn = [
 bayesian = [
     "pymc>=5.20,<7",
     "arviz>=0.20,<1",
+]
+flash_attn = [
+    "packaging==25.0",
+    "psutil==7.2.0",
+    "ninja==1.13.0",
+    "flash-attn==2.8.3", # requires GCC version >=9
 ]
 
 [project.urls]

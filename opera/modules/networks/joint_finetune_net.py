@@ -43,7 +43,7 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.compat.bonsai import BonsaiEncoder, BiGRU, encoder_hidden_state
 from opera.modules.networks.cross_outcome_weighters import (
     KendallWeighter,
     build_cross_outcome_weighter,
@@ -215,7 +215,7 @@ class JointFinetuneModel(nn.Module):
 
         with torch.set_grad_enabled(not self.freeze_encoder):
             outputs = self.encoder(batch)
-        hidden = outputs[0]  # (B, L, H)
+        hidden = encoder_hidden_state(outputs)  # (B, L, H)
 
         if enable_dropout and not prev:
             self.encoder.eval()
@@ -277,7 +277,10 @@ class JointFinetuneModel(nn.Module):
 
             if int(valid.sum().item()) < 2:
                 continue
-            if self.require_both_classes_per_batch and torch.unique(labels_v).numel() < 2:
+            if (
+                self.require_both_classes_per_batch
+                and torch.unique(labels_v).numel() < 2
+            ):
                 continue
 
             pos_weight = self.positive_class_weights[k].to(
@@ -317,9 +320,7 @@ class JointFinetuneModel(nn.Module):
             total_loss = pooled.sum() * 0.0
 
         for index, name in enumerate(self.outcome_names):
-            log_dict[f"cross_outcome_weight/{name}"] = (
-                outcome_weights[index].detach()
-            )
+            log_dict[f"cross_outcome_weight/{name}"] = outcome_weights[index].detach()
             if isinstance(self.weighter, KendallWeighter):
                 log_dict[f"sigma/{name}"] = torch.exp(
                     self.weighter.log_sigma[index]

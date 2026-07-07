@@ -38,7 +38,6 @@ import hydra
 import lightning as L
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
@@ -47,7 +46,7 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.compat.bonsai import BonsaiEncoder
+from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
     MultiCohortContrastiveDataModule,
@@ -115,18 +114,7 @@ def main(cfg: DictConfig) -> None:
     vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
-
-    encoder = BonsaiEncoder(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        )
-    )
+    encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
     missing, unexpected = encoder.load_state_dict(encoder_state, strict=True)
 
     outcome_names = sorted(cfg.outcomes.keys())
@@ -181,7 +169,7 @@ def main(cfg: DictConfig) -> None:
             "require_all_configured_cells", True
         ),
         eligibility_scope="final",
-        max_len=encoder.config.max_position_embeddings,
+        max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 

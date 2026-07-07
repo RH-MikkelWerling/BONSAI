@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import torch
 
-from opera.compat.bonsai import BonsaiEncoder
+from bonsai.functional.model_config import normalize_bonsai_model_config
+from opera.compat.bonsai import BonsaiEncoder, encoder_hidden_state
 
 
 class BonsaiLinearProbe(BonsaiEncoder):
@@ -16,14 +17,15 @@ class BonsaiLinearProbe(BonsaiEncoder):
     embeddings is trained.
     """
 
-    def __init__(self, config):
-        super().__init__(config)
-        self.classifier = torch.nn.Linear(config.hidden_size, 1)
+    def __init__(self, config=None, **overrides):
+        model_config = normalize_bonsai_model_config(config, **overrides)
+        super().__init__(**model_config)
+        self.classifier = torch.nn.Linear(model_config["hidden_size"], 1)
 
     def pooled_embedding(self, batch: dict) -> torch.Tensor:
         """Return masked mean pooled encoder embeddings for one batch."""
         outputs = super().forward(batch)
-        hidden = outputs[0]
+        hidden = encoder_hidden_state(outputs)
         mask = batch["attention_mask"].unsqueeze(-1).to(hidden.dtype)
         denom = mask.sum(dim=1).clamp_min(1.0)
         return (hidden * mask).sum(dim=1) / denom

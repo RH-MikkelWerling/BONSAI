@@ -15,16 +15,16 @@ import lightning as L
 import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import (
+    extract_encoder_state_dict,
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.compat.bonsai import BonsaiEncoder
+from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
 from opera.modules.datamodules.ContrastiveDataModule import (
@@ -51,33 +51,11 @@ def main(cfg: DictConfig) -> None:
     vocab = torch.load(cfg.paths.vocabulary)
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
-
-    encoder = BonsaiEncoder(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        )
-    )
+    encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
 
     # Extract and load encoder weights from the checkpoint
-    state_dict = ckpt["state_dict"]
-    encoder_state = {}
-    for k, v in state_dict.items():
-        # PretrainModule stores as "model.XXX"; strip "model." prefix
-        # then only keep encoder weights (not the pretraining head/decoder)
-        if k.startswith("model."):
-            clean_key = k[len("model.") :]
-            # Skip the prediction head and decoder (pretraining-only)
-            if clean_key.startswith("head.") or clean_key.startswith("decoder."):
-                continue
-            encoder_state[clean_key] = v
-
-    encoder.load_state_dict(encoder_state, strict=False)
+    encoder_state = extract_encoder_state_dict(ckpt["state_dict"])
+    encoder.load_state_dict(encoder_state, strict=True)
 
     # ── Outcome names ────────────────────────────────────────────────
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
@@ -137,7 +115,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
-        max_len=encoder.config.max_position_embeddings,
+        max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )
 

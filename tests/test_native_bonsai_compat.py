@@ -1,0 +1,130 @@
+from pathlib import Path
+
+import pytest
+import torch
+
+from bonsai.functional.model_config import normalize_bonsai_model_config
+from bonsai.modules.networks.bonsai_nets import (
+    BonsaiBase,
+    BonsaiFinetune,
+    pack_valid_tokens,
+    unpack_valid_tokens,
+)
+from opera.modules.networks.opera_nets import OperaContrastiveModel
+
+
+def _small_model_config():
+    return {
+        "vocab_size": 12,
+        "max_seqlen": 8,
+        "hidden_size": 8,
+        "num_layers": 1,
+        "num_attention_heads": 2,
+        "bias": False,
+        "dropout": 0.0,
+        "attention_dropout": 0.0,
+        "causal": False,
+        "attn_type": "sdpa",
+    }
+
+
+def test_legacy_yaml_names_translate_to_native_flash_config():
+    config = normalize_bonsai_model_config(
+        {
+            "vocab_size": 12,
+            "max_position_embeddings": 8,
+            "hidden_size": 8,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+            "embedding_dropout": 0.2,
+            "is_causal": True,
+        }
+    )
+
+    assert config["max_seqlen"] == 8
+    assert config["num_layers"] == 1
+    assert config["causal"] is True
+    assert config["dropout"] == pytest.approx(0.2)
+    assert config["attn_type"] == "flash"
+
+
+def test_flash_varlen_pack_round_trip_ignores_padding():
+    states = torch.arange(3 * 5 * 2, dtype=torch.float32).reshape(3, 5, 2)
+    mask = torch.tensor(
+        [
+            [1, 1, 1, 1, 1],
+            [1, 1, 0, 0, 0],
+            [1, 1, 1, 0, 0],
+        ],
+        dtype=torch.bool,
+    )
+
+    packed, cu_seqlens = pack_valid_tokens(states, mask)
+    restored = unpack_valid_tokens(packed, mask, hidden_size=2)
+
+    assert cu_seqlens.tolist() == [0, 5, 7, 10]
+    assert torch.equal(restored[mask], states[mask])
+    assert torch.count_nonzero(restored[~mask]) == 0
+
+
+def test_sdpa_valid_representations_are_invariant_to_extra_right_padding():
+    torch.manual_seed(4)
+    model = BonsaiFinetune(**_small_model_config(), predict_token_id=1).eval()
+    short = {
+        "code": torch.tensor([[2, 3, 1]]),
+        "age": torch.tensor([[40.0, 41.0, 41.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 2.0]]),
+        "segment": torch.tensor([[0, 1, 1]]),
+        "attention_mask": torch.tensor([[True, True, True]]),
+    }
+    padded = {
+        "code": torch.tensor([[2, 3, 1, 0, 0]]),
+        "age": torch.tensor([[40.0, 41.0, 41.0, 0.0, 0.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 2.0, 0.0, 0.0]]),
+        "segment": torch.tensor([[0, 1, 1, 0, 0]]),
+        "attention_mask": torch.tensor([[True, True, True, False, False]]),
+    }
+
+    with torch.no_grad():
+        short_rep = model.get_pooled_representation(short)
+        padded_rep = model.get_pooled_representation(padded)
+
+    assert torch.allclose(short_rep, padded_rep, atol=1e-6)
+
+
+def test_primary_training_configs_default_to_flash_attention():
+    root = Path(__file__).parents[1]
+    paths = [
+        root / "configs" / "pretrain.yaml",
+        root / "configs" / "finetune.yaml",
+        root / "opera" / "configs" / "hematology_pretrain.yaml",
+        root / "opera" / "configs" / "finetune.yaml",
+    ]
+    for path in paths:
+        assert "attn_type: flash" in path.read_text(encoding="utf-8")
+
+
+def test_opera_embedding_model_accepts_native_bonsai_encoder_output():
+    config = _small_model_config()
+    encoder = BonsaiBase(**config)
+    model = OperaContrastiveModel(
+        encoder=encoder,
+        outcome_names=["mortality"],
+        hidden_size=config["hidden_size"],
+        projection_hidden_dim=8,
+        projection_dim=4,
+        pooling="cls_last",
+    ).eval()
+    batch = {
+        "code": torch.tensor([[2, 3, 1], [4, 1, 0]]),
+        "age": torch.tensor([[40.0, 41.0, 41.0], [50.0, 50.0, 0.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 2.0], [4.0, 4.0, 0.0]]),
+        "segment": torch.tensor([[0, 1, 1], [0, 1, 0]]),
+        "attention_mask": torch.tensor([[True, True, True], [True, True, False]]),
+    }
+
+    with torch.no_grad():
+        embeddings = model.get_embeddings(batch)
+
+    assert embeddings.shape == (2, 4)
+    assert torch.allclose(embeddings.norm(dim=1), torch.ones(2), atol=1e-6)

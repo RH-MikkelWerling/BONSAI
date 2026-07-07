@@ -106,7 +106,7 @@ class ContrastiveDataset(Dataset):
             subject, max_len=self.max_len, background_length=self.background_length
         )
         subject["segment"] = normalize_segments(subject["segment"])
-        subject["attention_mask"] = torch.ones(len(subject["code"]), dtype=torch.long)
+        subject["attention_mask"] = torch.ones(len(subject["code"]), dtype=torch.bool)
 
         # Attach survival fields per outcome
         for name in self.outcome_names:

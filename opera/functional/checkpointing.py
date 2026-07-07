@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import torch
-from transformers import ModernBertConfig
 
 from bonsai.functional.checkpointing import (
     MODEL_CONFIG_KEY,
@@ -11,6 +10,7 @@ from bonsai.functional.checkpointing import (
     load_finetune_model_from_checkpoint,
     load_state_dict_checked,
 )
+from bonsai.functional.model_config import require_native_checkpoint_config
 from opera.modules.networks.linear_probe_net import BonsaiLinearProbe
 
 
@@ -42,7 +42,7 @@ def load_opera_finetune_model_from_checkpoint(
             f"Checkpoint {ckpt_path!r} is missing '{MODEL_CONFIG_KEY}'. "
             "Linear-probe checkpoints require exact model config metadata."
         )
-    model = BonsaiLinearProbe(ModernBertConfig(**model_config))
+    model = BonsaiLinearProbe(require_native_checkpoint_config(model_config))
     clean_state = clean_lightning_state_dict(ckpt["state_dict"])
     load_state_dict_checked(model, clean_state, strict=strict)
     return model

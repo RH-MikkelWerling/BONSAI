@@ -1,13 +1,22 @@
 import lightning as L
 from torch import nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
+from torch.optim.lr_scheduler import LinearLR
 from torchmetrics import MetricCollection
+
 from bonsai.modules.metrics.metrics import SharedPrecisionAtK
 from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+
+loss_types = {"sdpa": nn.CrossEntropyLoss, "flash": nn.CrossEntropyLoss}
+try:
+    from flash_attn.losses.cross_entropy import CrossEntropyLoss as FACrossEntropyLoss
+
+    loss_types["flash"] = FACrossEntropyLoss
+except Exception:
+    pass
 
 
 class PretrainModule(L.LightningModule):
@@ -17,7 +26,7 @@ class PretrainModule(L.LightningModule):
         compile_mode: str = None,
         learning_rate: float = 5e-4,
         optimizer_epsilon: float = 1e-6,
-        scheduler_warmup_epochs: int = 0,
+        scheduler_warmup_epochs: float = 0,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -29,11 +38,11 @@ class PretrainModule(L.LightningModule):
         if compile_mode is not None:
             self.model.compile(mode=compile_mode)
 
-        self.train_loss = nn.CrossEntropyLoss()
+        self.train_loss = loss_types[self.model.hparams["attn_type"]]()
         self.val_loss = nn.CrossEntropyLoss()
         self.val_metrics = self.configure_metrics("val")
 
-        hparams = model.config.to_dict()
+        hparams = self.model.hparams.copy()
         hparams.update(
             {
                 "learning_rate": learning_rate,
@@ -69,17 +78,13 @@ class PretrainModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         logits, labels = self.model(batch)
-        loss = self.train_loss(
-            logits.view(-1, self.model.config.vocab_size), labels.view(-1)
-        )
+        loss = self.train_loss(logits.view(-1, logits.size(-1)), labels.view(-1))
         self.log("train/loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         logits, labels = self.model(batch)
-        loss = self.val_loss(
-            logits.view(-1, self.model.config.vocab_size), labels.view(-1)
-        )
+        loss = self.val_loss(logits.view(-1, logits.size(-1)), labels.view(-1))
         self.log("val/loss", loss, prog_bar=True)
         self.val_metrics.update(logits, labels)
         self.log_dict(self.val_metrics)
@@ -91,13 +96,18 @@ class PretrainModule(L.LightningModule):
             lr=self.learning_rate,
             eps=self.optimizer_epsilon,
         )
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        if self.scheduler_warmup_epochs == 0:
+            return optimizer
+
+        steps_per_epoch = max(
+            1,
+            self.trainer.estimated_stepping_batches // self.trainer.max_epochs,
         )
-        scheduler = get_linear_schedule_with_warmup(
+        warmup_steps = max(1, round(steps_per_epoch * self.scheduler_warmup_epochs))
+        scheduler = LinearLR(
             optimizer=optimizer,
-            num_warmup_steps=steps_per_epoch * self.scheduler_warmup_epochs,
-            num_training_steps=self.trainer.estimated_stepping_batches,
+            start_factor=1e-4,
+            total_iters=warmup_steps,
         )
         scheduler_config = {
             "scheduler": scheduler,

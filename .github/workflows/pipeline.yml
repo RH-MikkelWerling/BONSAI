@@ -43,13 +43,13 @@ jobs:
               run: python -m bonsai.run.create_outcome --config-name examples/example_outcome1 dataset=correlated_MEDS_data
 
             - name: pretrain
-              run: python -m bonsai.run.pretrain --config-name examples/example_pretrain dataset=correlated_MEDS_data hardware.accelerator=cpu hardware.num_workers=0 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=0
+              run: python -m bonsai.run.pretrain --config-name examples/example_pretrain dataset=correlated_MEDS_data model.attn_type=sdpa hardware.accelerator=cpu hardware.num_workers=0 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=0
 
             - name: finetune
               run: python -m bonsai.run.finetune --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 pretrain_path=$CKPT_PATH hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=1
 
             - name: train (no pretrain path)
-              run: python -m bonsai.run.train --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=2
+              run: python -m bonsai.run.train --config-name examples/example_finetune dataset=correlated_MEDS_data outcome=examples/example_outcome1 model.attn_type=sdpa hardware.compile_mode=null hardware.precision=32-true training.epochs=1 run_id=2
 
             - name: evaluate with OPERA
               shell: bash

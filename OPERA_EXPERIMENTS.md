@@ -115,6 +115,12 @@ Standalone evaluation reconstructs models from the saved full config and loads
 weights strictly by default. Old checkpoints without full config fail with an
 explicit metadata error.
 
+Checkpoints created by the former ModernBERT-backed BONSAI encoder are also
+reported explicitly as legacy artifacts. The native RoPE/FlashAttention
+architecture has different parameter names and semantics, so those weights are
+not silently partially loaded. Evaluate them in their original environment or
+retrain the pretraining/DAPT/OPERA chain for native-backbone comparisons.
+
 ## Evaluation Outputs
 
 Outcome task configs may reuse one event-time parquet for multiple horizons:

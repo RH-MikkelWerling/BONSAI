@@ -8,6 +8,11 @@ from typing import Any, Optional
 
 import torch
 
+from bonsai.functional.model_config import (
+    config_to_dict,
+    require_native_checkpoint_config,
+)
+
 MODEL_CONFIG_KEY = "model_config"
 ENCODER_CONFIG_KEY = "encoder_config"
 MODEL_INIT_CONFIG_KEY = "model_init_config"
@@ -16,17 +21,25 @@ MODEL_INIT_CONFIG_KEY = "model_init_config"
 def attach_model_config(module: Any, model: Any) -> None:
     """Store model architecture config and class name in module.hparams.
 
-    Supports models that expose .config directly (BonsaiFinetune, BonsaiPretrain)
-    or models whose encoder exposes .config (JointFinetuneModel, OperaContrastiveModel).
+    Supports native models exposing ``hparams`` and wrapped models whose
+    encoder exposes them. Legacy ``config`` objects remain readable for clear
+    checkpoint error reporting.
     """
-    if hasattr(model, "config"):
-        config_dict = model.config.to_dict()
+    if hasattr(model, "hparams"):
+        config_dict = config_to_dict(model.hparams)
+    elif hasattr(model, "encoder") and hasattr(model.encoder, "hparams"):
+        config_dict = config_to_dict(model.encoder.hparams)
+    elif hasattr(model, "config"):
+        config_dict = config_to_dict(model.config)
     elif hasattr(model, "encoder") and hasattr(model.encoder, "config"):
-        config_dict = model.encoder.config.to_dict()
+        config_dict = config_to_dict(model.encoder.config)
     else:
         module.hparams["model_class"] = model.__class__.__name__
         return
     module.hparams[MODEL_CONFIG_KEY] = config_dict
+    module.hparams["architecture_version"] = config_dict.get(
+        "architecture_version", "legacy-modernbert"
+    )
     module.hparams["model_class"] = model.__class__.__name__
 
 
@@ -76,9 +89,8 @@ def get_saved_encoder_config(hparams: dict) -> dict:
     MODEL_CONFIG_KEY) and flat config dicts (random_init case where
     the caller passes model config directly as hparams).
     """
-    if MODEL_CONFIG_KEY in hparams:
-        return dict(hparams[MODEL_CONFIG_KEY])
-    return dict(hparams)
+    config = hparams[MODEL_CONFIG_KEY] if MODEL_CONFIG_KEY in hparams else hparams
+    return require_native_checkpoint_config(config)
 
 
 def clean_lightning_state_dict(state_dict: dict) -> dict:
@@ -97,6 +109,27 @@ def clean_lightning_state_dict(state_dict: dict) -> dict:
         if key.startswith("model.")
     }
     return model_items or dict(state_dict)
+
+
+def extract_encoder_state_dict(state_dict: dict, prefix: str = "model.") -> dict:
+    """Extract native backbone tensors and discard stage-specific heads."""
+    head_prefixes = (
+        "head.",
+        "decoder.",
+        "cls.",
+        "classifier.",
+        "pretrain_head.",
+        "finetune_head.",
+    )
+    encoder_state = {}
+    for key, value in state_dict.items():
+        if prefix and not key.startswith(prefix):
+            continue
+        clean_key = key[len(prefix) :] if prefix else key
+        if clean_key.startswith(head_prefixes):
+            continue
+        encoder_state[clean_key] = value
+    return encoder_state
 
 
 def load_state_dict_checked(
@@ -121,14 +154,7 @@ def load_state_dict_checked(
 
 def load_pretrained_encoder_checked(model: Any, state_dict: dict) -> None:
     """Load BONSAI encoder weights while allowing a newly initialized task head."""
-    encoder_state = {}
-    for key, value in state_dict.items():
-        if not key.startswith("model."):
-            continue
-        clean_key = key[len("model.") :]
-        if clean_key.startswith(("head.", "decoder.", "cls.")):
-            continue
-        encoder_state[clean_key] = value
+    encoder_state = extract_encoder_state_dict(state_dict)
 
     if not encoder_state:
         raise RuntimeError("Checkpoint contains no BONSAI encoder weights.")
@@ -140,7 +166,11 @@ def load_pretrained_encoder_checked(model: Any, state_dict: dict) -> None:
             f"Encoder state mismatch loading {type(model).__name__}: {exc}"
         ) from exc
 
-    meaningful_missing = [key for key in missing if not key.startswith("cls.")]
+    meaningful_missing = [
+        key
+        for key in missing
+        if not key.startswith(("cls.", "finetune_head.", "pretrain_head."))
+    ]
     if meaningful_missing or unexpected:
         raise RuntimeError(
             f"Encoder state mismatch loading {type(model).__name__}. "
@@ -155,7 +185,6 @@ def load_finetune_model_from_checkpoint(
     map_location: str = "cpu",
 ):
     """Reconstruct a BonsaiFinetune model from a Lightning checkpoint."""
-    from transformers import ModernBertConfig
     from bonsai.modules.networks.bonsai_nets import BonsaiFinetune
 
     ckpt = torch.load(ckpt_path, map_location=map_location, weights_only=False)
@@ -165,8 +194,16 @@ def load_finetune_model_from_checkpoint(
             f"Checkpoint {ckpt_path!r} is missing '{MODEL_CONFIG_KEY}'. "
             "Ensure the checkpoint was saved with attach_model_config()."
         )
-    model_config = hparams[MODEL_CONFIG_KEY]
-    model = BonsaiFinetune(ModernBertConfig(**model_config))
+    model_config = require_native_checkpoint_config(hparams[MODEL_CONFIG_KEY])
+    predict_token_id = hparams[MODEL_CONFIG_KEY].get(
+        "predict_token_id", hparams.get("predict_token_id")
+    )
+    if predict_token_id is None:
+        raise ValueError(f"Checkpoint {ckpt_path!r} is missing 'predict_token_id'.")
+    model = BonsaiFinetune(
+        **model_config,
+        predict_token_id=int(predict_token_id),
+    )
     clean_state = clean_lightning_state_dict(ckpt["state_dict"])
     load_state_dict_checked(model, clean_state, strict=strict)
     return model
@@ -178,7 +215,6 @@ def load_joint_model_from_checkpoint(
     map_location: str = "cpu",
 ):
     """Reconstruct a JointFinetuneModel from a Lightning checkpoint."""
-    from transformers import ModernBertConfig
     from opera.modules.networks.joint_finetune_net import JointFinetuneModel
     from opera.compat.bonsai import BonsaiEncoder
 
@@ -189,14 +225,14 @@ def load_joint_model_from_checkpoint(
             f"Checkpoint {ckpt_path!r} is missing '{MODEL_CONFIG_KEY}'. "
             "Ensure the checkpoint was saved with attach_model_config()."
         )
-    model_config = hparams[MODEL_CONFIG_KEY]
+    model_config = require_native_checkpoint_config(hparams[MODEL_CONFIG_KEY])
     outcome_names = list(hparams.get("outcome_names", []))
     if not outcome_names:
         raise ValueError(
             f"Checkpoint {ckpt_path!r} is missing non-empty 'outcome_names'."
         )
     model_init_config = dict(hparams.get(MODEL_INIT_CONFIG_KEY, {}))
-    encoder = BonsaiEncoder(ModernBertConfig(**model_config))
+    encoder = BonsaiEncoder(**model_config)
     model = JointFinetuneModel(
         encoder=encoder,
         outcome_names=outcome_names,

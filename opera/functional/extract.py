@@ -16,6 +16,8 @@ import numpy as np
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from opera.compat.bonsai import encoder_hidden_state
+
 
 @torch.no_grad()
 def extract_predictions(
@@ -69,10 +71,12 @@ def extract_predictions(
             if hasattr(logits, "squeeze"):
                 logits = logits.squeeze(-1)
 
-            # Get embeddings from the cls head (BiGRU) with return_embedding=True
-            enc_out = model.__class__.__bases__[0].forward(model, batch)
-            hidden = enc_out[0]
-            emb = model.cls(hidden, batch["attention_mask"], return_embedding=True)
+            if hasattr(model, "get_pooled_representation"):
+                emb = model.get_pooled_representation(batch)
+            else:
+                hidden = encoder_hidden_state(model.encoder(batch))
+                mask = batch["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                emb = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
 
             all_logits.append(logits.cpu().numpy())
             all_embeddings.append(emb.cpu().numpy())
@@ -89,14 +93,16 @@ def extract_predictions(
             # Get embeddings: encoder + pool (before MLP)
             with torch.set_grad_enabled(False):
                 enc_out = model.encoder(batch)
-            hidden = enc_out[0]
+            hidden = encoder_hidden_state(enc_out)
             if model.pooling == "bigru":
                 emb = model.pooler(
                     hidden, batch["attention_mask"], return_embedding=True
                 )
             else:
                 lengths = batch["attention_mask"].sum(dim=1) - 1
-                emb = hidden[torch.arange(hidden.size(0)), lengths]
+                emb = hidden[
+                    torch.arange(hidden.size(0), device=hidden.device), lengths
+                ]
             all_embeddings.append(emb.cpu().numpy())
 
         all_subject_ids.append(subject_ids)

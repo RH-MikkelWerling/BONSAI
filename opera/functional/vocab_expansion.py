@@ -175,7 +175,7 @@ def expand_model_vocab(
         return model
 
     n_new = new_vocab_size - old_vocab_size
-    hidden_size = model.config.hidden_size
+    hidden_size = model.hparams["hidden_size"]
     logging.info(
         f"Expanding vocabulary: {old_vocab_size} → {new_vocab_size} (+{n_new} tokens)"
     )
@@ -192,22 +192,21 @@ def expand_model_vocab(
         nn.init.normal_(new_embed.weight[old_vocab_size:], mean=0.0, std=init_std)
     model.embeddings.code_embedding = new_embed
 
-    # ── Expand decoder (Linear: hidden_size → vocab_size) ────────────
-    if hasattr(model, "decoder"):
-        old_decoder = model.decoder
-        new_decoder = nn.Linear(
-            hidden_size, new_vocab_size, bias=old_decoder.bias is not None
+    # ── Expand tied pretraining head (Linear: hidden_size → vocab_size) ─
+    if hasattr(model, "pretrain_head"):
+        old_head = model.pretrain_head
+        new_head = nn.Linear(
+            hidden_size, new_vocab_size, bias=old_head.bias is not None
         )
         with torch.no_grad():
-            new_decoder.weight[:old_vocab_size] = old_decoder.weight
-            nn.init.normal_(new_decoder.weight[old_vocab_size:], mean=0.0, std=init_std)
-            if old_decoder.bias is not None:
-                new_decoder.bias[:old_vocab_size] = old_decoder.bias
-                new_decoder.bias[old_vocab_size:] = 0.0
-        model.decoder = new_decoder
+            if old_head.bias is not None:
+                new_head.bias[:old_vocab_size] = old_head.bias
+                new_head.bias[old_vocab_size:] = 0.0
+        new_head.weight = model.embeddings.code_embedding.weight
+        model.pretrain_head = new_head
 
     # ── Update config ────────────────────────────────────────────────
-    model.config.vocab_size = new_vocab_size
+    model.hparams["vocab_size"] = new_vocab_size
 
     return model
 
@@ -225,7 +224,7 @@ def get_vocab_aware_param_groups(
     We can't assign different LRs to different rows of the same tensor.
 
     Instead, we separate the model into:
-      - "new_embed_params": code_embedding.weight and decoder.weight
+      - "new_embed_params": code_embedding and tied pretraining-head parameters
         (these contain BOTH old and new rows, but we set a moderate LR
          that's a compromise — not as low as the pretrained LR, not as
          high as pure random-init LR)
@@ -261,9 +260,7 @@ def get_vocab_aware_param_groups(
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if "code_embedding" in name or (
-            name.startswith("decoder") and "weight" in name
-        ):
+        if "code_embedding" in name or name.startswith("pretrain_head"):
             embed_decoder_params.append(param)
         else:
             other_params.append(param)
@@ -305,11 +302,12 @@ def freeze_pretrained_embeddings(
     embed = model.embeddings.code_embedding.weight
     embed.register_hook(lambda g: _zero_old_grad(g, old_vocab_size))
 
-    if hasattr(model, "decoder"):
-        decoder_w = model.decoder.weight
-        decoder_w.register_hook(lambda g: _zero_old_grad(g, old_vocab_size))
+    if hasattr(model, "pretrain_head") and model.pretrain_head.bias is not None:
+        model.pretrain_head.bias.register_hook(
+            lambda g: _zero_old_grad(g, old_vocab_size)
+        )
 
     logging.info(
         f"Registered gradient hooks: freezing first {old_vocab_size} rows "
-        f"of code_embedding and decoder"
+        f"of code_embedding and the pretraining head"
     )

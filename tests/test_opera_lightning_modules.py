@@ -29,21 +29,6 @@ BATCH = 4
 OUTCOMES = ["mortality", "relapse"]
 
 
-class _StubConfig:
-    """Minimal encoder config exposing ``hidden_size`` and ``to_dict``.
-
-    ``attach_model_config`` serialises ``encoder.config.to_dict()`` into the
-    lightning module's hparams, and ``JointFinetuneModule`` reads
-    ``encoder.config.hidden_size`` directly, so both must be present.
-    """
-
-    def __init__(self, hidden_size: int = HIDDEN):
-        self.hidden_size = hidden_size
-
-    def to_dict(self) -> dict:
-        return {"hidden_size": self.hidden_size}
-
-
 class _StubEncoder(nn.Module):
     """Minimal BonsaiEncoder stand-in.
 
@@ -58,7 +43,19 @@ class _StubEncoder(nn.Module):
     def __init__(self, hidden: int = HIDDEN):
         super().__init__()
         self.proj = nn.Linear(hidden, hidden)
-        self.config = _StubConfig(hidden)
+        self.hparams = {
+            "architecture_version": "bonsai-native-rope-v1",
+            "vocab_size": 8,
+            "max_seqlen": SEQ_LEN,
+            "hidden_size": hidden,
+            "num_layers": 1,
+            "num_attention_heads": 1,
+            "bias": False,
+            "dropout": 0.0,
+            "attention_dropout": 0.0,
+            "causal": False,
+            "attn_type": "sdpa",
+        }
 
     def forward(self, batch):
         emb = batch["input_emb"]
@@ -71,7 +68,7 @@ def _batch():
     """Tiny batch of BATCH subjects, SEQ_LEN tokens, HIDDEN-dim embeddings."""
     torch.manual_seed(0)
     input_emb = torch.randn(BATCH, SEQ_LEN, HIDDEN)
-    attention_mask = torch.ones(BATCH, SEQ_LEN, dtype=torch.long)
+    attention_mask = torch.ones(BATCH, SEQ_LEN, dtype=torch.bool)
     return {
         "input_emb": input_emb,
         "attention_mask": attention_mask,
@@ -262,9 +259,10 @@ def test_joint_finetune_uses_uniform_macro_and_class_weights_for_rare_outcomes()
     assert torch.isfinite(out["loss"])
     assert out["cross_outcome_weight/mortality"].item() == 1.0
     assert out["cross_outcome_weight/relapse"].item() == 1.0
-    assert out["class_balance_factor/mortality"].item() > out[
-        "class_balance_factor/relapse"
-    ].item()
+    assert (
+        out["class_balance_factor/mortality"].item()
+        > out["class_balance_factor/relapse"].item()
+    )
     assert out["positive_class_weight/mortality"].item() == 10.0
     assert out["positive_class_weight/relapse"].item() == 1.0
 

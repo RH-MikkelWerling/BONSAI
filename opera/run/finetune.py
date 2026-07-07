@@ -23,14 +23,12 @@ import torch
 from typing import Optional
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
-from opera.compat.bonsai import BonsaiFinetune
 from opera.modules.networks.linear_probe_net import BonsaiLinearProbe
 from bonsai.functional.outcomes import (
     save_binarized_split_summary,
@@ -39,9 +37,12 @@ from bonsai.functional.outcomes import (
 from bonsai.functional.loss import get_loss_weight
 from bonsai.functional.sampling import get_sampler
 from bonsai.functional.checkpointing import (
+    extract_encoder_state_dict,
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.model_config import normalize_bonsai_model_config
+from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
@@ -78,13 +79,7 @@ def load_encoder_state_dict(
     encoder_state = {}
 
     if source in ("pretrain", "dapt"):
-        # PretrainModule: weights are "model.XXX"
-        for k, v in state_dict.items():
-            if k.startswith("model."):
-                clean = k[len("model.") :]
-                if clean.startswith("head.") or clean.startswith("decoder."):
-                    continue
-                encoder_state[clean] = v
+        encoder_state = extract_encoder_state_dict(state_dict)
 
     elif source in ("contrastive", "mol", "joint"):
         # Both OperaContrastiveModule and MOLModule store encoder as "model.encoder.XXX"
@@ -103,7 +98,7 @@ def resolve_finetune_max_len(cfg: DictConfig) -> int:
     """Resolve the sequence length used by the OPERA finetune datamodule."""
     value = cfg.training.get("max_len")
     if value is None:
-        value = cfg.model.get("max_position_embeddings", 8192)
+        value = cfg.model.get("max_seqlen", 8192)
     return int(value)
 
 
@@ -121,10 +116,11 @@ def build_finetune_data_module(
         num_workers=cfg.hardware.num_workers,
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
+        path_predict_data=cfg.paths.get("test_split"),
         path_population=cfg.paths.population,
         train_outcomes=train_outcomes,
         val_outcomes=val_outcomes,
-        test_outcomes=test_outcomes,
+        predict_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
         max_len=resolve_finetune_max_len(cfg),
         train_sampler=get_sampler(
@@ -213,9 +209,13 @@ def main(cfg: DictConfig) -> None:
     )
 
     # ── Build finetune model and load encoder weights ────────────────
-    model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
+    if encoder_state:
+        model_cfg = get_saved_encoder_config(pretrain_hparams)
+    else:
+        model_cfg = normalize_bonsai_model_config(
+            pretrain_hparams,
+            vocab_size=len(vocab),
+        )
     # Override with any explicit finetune model config
     non_architecture_model_keys = {"freeze_encoder", "trainable_prefixes", "head_type"}
     if cfg.get("model"):
@@ -229,22 +229,20 @@ def main(cfg: DictConfig) -> None:
         "head_type",
         "linear_probe" if cfg.model.get("freeze_encoder", False) else "finetune_head",
     )
-    model_class = BonsaiLinearProbe if head_type == "linear_probe" else BonsaiFinetune
-    model = model_class(
-        ModernBertConfig(
-            **model_cfg,
+    if head_type == "linear_probe":
+        model = BonsaiLinearProbe(model_cfg, vocab_size=len(vocab))
+    else:
+        model = build_bonsai_finetune(
+            model_cfg,
             vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        ),
-    )
+            predict_token_id=vocab["[CLS]"],
+        )
 
     if encoder_state:
         # The finetuning head is new, but all encoder tensors must match.
         missing, unexpected = model.load_state_dict(encoder_state, strict=False)
         allowed_missing_prefixes = (
-            ("classifier.",) if head_type == "linear_probe" else ("cls.",)
+            ("classifier.",) if head_type == "linear_probe" else ("finetune_head.",)
         )
         meaningful_missing = [
             key for key in missing if not key.startswith(allowed_missing_prefixes)
@@ -264,7 +262,11 @@ def main(cfg: DictConfig) -> None:
             model,
             trainable_prefixes=tuple(
                 cfg.model.get("trainable_prefixes")
-                or (["classifier."] if head_type == "linear_probe" else ["cls."])
+                or (
+                    ["classifier."]
+                    if head_type == "linear_probe"
+                    else ["finetune_head."]
+                )
             ),
         )
         print(

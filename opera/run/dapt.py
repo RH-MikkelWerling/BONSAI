@@ -43,16 +43,16 @@ import torch
 from dotenv import load_dotenv
 from hydra.utils import get_class
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import (
+    clean_lightning_state_dict,
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
-from opera.compat.bonsai import BonsaiPretrain
+from opera.compat.bonsai import build_bonsai_pretrain
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 
 load_dotenv()
@@ -71,8 +71,6 @@ def main(cfg: DictConfig) -> None:
     ckpt = torch.load(cfg.pretrain_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
 
     # ── Vocabulary handling ──────────────────────────────────────────
     base_vocab = torch.load(cfg.paths.vocab)
@@ -153,24 +151,11 @@ def main(cfg: DictConfig) -> None:
 
     # ── Model ────────────────────────────────────────────────────────
     # First: create model with OLD vocab size to load pretrained weights
-    model = BonsaiPretrain(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=old_vocab_size,
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-            sparse_prediction=True,
-        )
-    )
+    model = build_bonsai_pretrain(model_cfg, vocab_size=old_vocab_size)
 
     # Load pretrained weights
-    state_dict = ckpt["state_dict"]
-    model_state = {}
-    for k, v in state_dict.items():
-        if k.startswith("model."):
-            model_state[k[len("model.") :]] = v
-    model.load_state_dict(model_state, strict=False)
+    model_state = clean_lightning_state_dict(ckpt["state_dict"])
+    model.load_state_dict(model_state, strict=True)
 
     # Then: expand vocab if needed (preserves loaded weights)
     if expand and n_new > 0:

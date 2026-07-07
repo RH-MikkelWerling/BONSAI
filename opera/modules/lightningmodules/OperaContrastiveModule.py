@@ -12,7 +12,6 @@ import lightning as L
 import torch
 from torch import nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
 from typing import Dict, List
 import numpy as np
 from bonsai.functional.checkpointing import (
@@ -20,6 +19,7 @@ from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+from bonsai.functional.scheduling import optimizer_with_warmup
 
 LOGGER = logging.getLogger(__name__)
 
@@ -210,14 +210,8 @@ class OperaContrastiveModule(L.LightningModule):
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
 
-        steps_per_epoch = max(
-            1, self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        return optimizer_with_warmup(
+            optimizer,
+            self.trainer,
+            self.scheduler_warmup_epochs,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer=optimizer,
-            num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return [optimizer], [
-            {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        ]

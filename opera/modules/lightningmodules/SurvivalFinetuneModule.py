@@ -11,12 +11,12 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import AdamW
 from torchmetrics import AUROC
-from transformers import get_linear_schedule_with_warmup
 
 from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+from bonsai.functional.scheduling import optimizer_with_warmup
 from opera.evaluation.metrics import compute_concordance_index
 
 
@@ -177,17 +177,8 @@ class SurvivalFinetuneModule(L.LightningModule):
             lr=self.learning_rate,
             eps=self.optimizer_epsilon,
         )
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        return optimizer_with_warmup(
+            optimizer,
+            self.trainer,
+            self.scheduler_warmup_epochs,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer=optimizer,
-            num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        scheduler_config = {
-            "scheduler": scheduler,
-            "interval": "step",
-            "frequency": 1,
-        }
-        return [optimizer], [scheduler_config]

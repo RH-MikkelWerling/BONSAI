@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig
-from transformers import ModernBertConfig
 
 from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
@@ -21,7 +20,7 @@ from bonsai.functional.outcomes import (
     split_and_binarize_outcomes,
 )
 from bonsai.functional.pathing import get_experiment_output_path
-from opera.compat.bonsai import BonsaiFinetune
+from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
@@ -45,7 +44,7 @@ def _validate_encoder_load(missing, unexpected) -> None:
     """Fail when checkpoint handoff misses anything except the new task head."""
     unexpected = list(unexpected)
     missing = list(missing)
-    non_head_missing = [key for key in missing if not key.startswith("cls.")]
+    non_head_missing = [key for key in missing if not key.startswith("finetune_head.")]
     if unexpected or non_head_missing:
         raise RuntimeError(
             "Encoder checkpoint did not load cleanly into the survival finetune "
@@ -58,7 +57,7 @@ def resolve_survival_finetune_max_len(cfg: DictConfig) -> int:
     """Resolve the sequence length used by the survival finetune datamodule."""
     value = cfg.training.get("max_len")
     if value is None:
-        value = cfg.model.get("max_position_embeddings", 8192)
+        value = cfg.model.get("max_seqlen", 8192)
     return int(value)
 
 
@@ -75,10 +74,11 @@ def build_survival_finetune_data_module(
         num_workers=cfg.hardware.num_workers,
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
+        path_predict_data=cfg.paths.get("test_split"),
         path_population=cfg.paths.population,
         train_outcomes=train_outcomes,
         val_outcomes=val_outcomes,
-        test_outcomes=test_outcomes,
+        predict_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
         max_len=resolve_survival_finetune_max_len(cfg),
         train_sampler=None,
@@ -176,21 +176,15 @@ def main(cfg: DictConfig) -> None:
     )
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
-    for key in ("vocab_size", "pad_token_id", "cls_token_id", "sep_token_id"):
-        model_cfg.pop(key, None)
     if cfg.get("model"):
         for key, value in cfg.model.items():
             if key not in model_cfg:
                 model_cfg[key] = value
 
-    model = BonsaiFinetune(
-        ModernBertConfig(
-            **model_cfg,
-            vocab_size=len(vocab),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-        ),
+    model = build_bonsai_finetune(
+        model_cfg,
+        vocab_size=len(vocab),
+        predict_token_id=vocab["[CLS]"],
     )
     missing, unexpected = model.load_state_dict(encoder_state, strict=False)
     _validate_encoder_load(missing, unexpected)

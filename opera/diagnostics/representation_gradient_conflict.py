@@ -28,7 +28,6 @@ from dotenv import load_dotenv
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
-from transformers import ModernBertConfig
 
 from bonsai.functional.checkpointing import (
     MODEL_INIT_CONFIG_KEY,
@@ -36,7 +35,7 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     load_state_dict_checked,
 )
-from opera.compat.bonsai import BonsaiEncoder
+from opera.compat.bonsai import build_bonsai_encoder
 from opera.modules.datamodules.ContrastiveDataModule import (
     ContrastiveDataModule,
     compute_event_time_probability_grids,
@@ -133,7 +132,7 @@ def _load_model(
             weights_only=False,
         )
 
-    encoder = BonsaiEncoder(ModernBertConfig(**model_config))
+    encoder = build_bonsai_encoder(model_config)
     model = OperaContrastiveModel(
         encoder=encoder,
         outcome_names=outcome_names,
@@ -261,11 +260,9 @@ def _shared_checkpoint_max_len(checkpoints: list[Path]) -> int:
             weights_only=False,
         )
         model_config = get_saved_encoder_config(checkpoint.get("hyper_parameters", {}))
-        length = model_config.get("max_position_embeddings")
+        length = model_config.get("max_seqlen")
         if length is None:
-            raise ValueError(
-                f"Checkpoint {checkpoint_path} has no max_position_embeddings."
-            )
+            raise ValueError(f"Checkpoint {checkpoint_path} has no max_seqlen.")
         lengths.append(int(length))
     return min(lengths)
 

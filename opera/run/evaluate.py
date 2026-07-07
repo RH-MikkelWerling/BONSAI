@@ -263,9 +263,9 @@ def main(cfg: DictConfig) -> None:
         strict=cfg.get("strict_checkpoint_load", True),
     )
     training_mode = checkpoint_training_mode(str(resolved_ckpt_path))
-    if model.config.vocab_size != len(vocab):
+    if model.hparams["vocab_size"] != len(vocab):
         raise ValueError(
-            f"Checkpoint vocab_size={model.config.vocab_size} does not match "
+            f"Checkpoint vocab_size={model.hparams['vocab_size']} does not match "
             f"loaded vocabulary size={len(vocab)} from {cfg.paths.vocabulary}."
         )
     model = model.to(device)
@@ -321,7 +321,7 @@ def main(cfg: DictConfig) -> None:
     background_length = (test_data[0]["segment"] == 0).sum()
     max_len = cfg.get("max_len")
     if max_len is None:
-        max_len = model.config.max_position_embeddings
+        max_len = model.hparams["max_seqlen"]
 
     test_dataset = FinetuneDataset(
         test_data,
@@ -404,7 +404,9 @@ def main(cfg: DictConfig) -> None:
         model_name="OPERA",
         outcome_name=cfg.get("outcome", "unknown"),
     )
-    print(cohort_summary(evaluation_cohorts.fixed_horizon, cfg.get("outcome", "unknown")))
+    print(
+        cohort_summary(evaluation_cohorts.fixed_horizon, cfg.get("outcome", "unknown"))
+    )
     print(cohort_summary(evaluation_cohorts.survival, cfg.get("outcome", "unknown")))
     report = full_evaluation(
         labels_bin,
@@ -425,9 +427,7 @@ def main(cfg: DictConfig) -> None:
             strata_col,
         )
         survival_valid = (
-            np.isfinite(times_all)
-            & np.isfinite(probs_all)
-            & (events_all >= 0)
+            np.isfinite(times_all) & np.isfinite(probs_all) & (events_all >= 0)
         )
         stratified_n_bootstrap = stratified_cfg.get("n_bootstrap")
         if stratified_n_bootstrap is None:

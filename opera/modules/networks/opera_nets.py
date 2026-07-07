@@ -23,7 +23,7 @@ from typing import Dict, List, Mapping, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.compat.bonsai import BonsaiEncoder, BiGRU, encoder_hidden_state
 from opera.modules.networks.cross_outcome_weighters import (
     KendallWeighter,
     build_cross_outcome_weighter,
@@ -1132,7 +1132,7 @@ class OperaContrastiveModel(nn.Module):
         if enable_dropout and not prev_training:
             self.encoder.eval()
 
-        hidden = outputs[0]  # (B, L, H)
+        hidden = encoder_hidden_state(outputs)  # (B, L, H)
 
         if self.pooling == "bigru":
             return self.pooler(hidden, batch["attention_mask"], return_embedding=True)

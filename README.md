@@ -36,7 +36,14 @@ python -m pip install -e ".[visualization]" # PaCMAP, UMAP, LOWESS
 python -m pip install -e ".[survival]"      # lifelines
 python -m pip install -e ".[retrieval]"     # FAISS
 python -m pip install -e ".[tabpfn]"        # TabPFN
+python -m pip install -e ".[flash_attn]"    # FlashAttention 2 (Linux/CUDA)
 ```
+
+FlashAttention is the default backend for BONSAI and OPERA training. The
+encoder packs valid tokens before every transformer stack, so dynamically
+padded batches use the variable-length FlashAttention kernel without allowing
+padding to influence representations. CPU development and unsupported GPUs can
+select the fully tested fallback with `model.attn_type=sdpa`.
 
 On Windows PowerShell:
 

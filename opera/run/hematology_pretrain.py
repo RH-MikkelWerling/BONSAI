@@ -12,13 +12,12 @@ from hydra.utils import get_class
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig
-from transformers import ModernBertConfig
 
 from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
-from bonsai.modules.networks.bonsai_nets import BonsaiPretrain
+from opera.compat.bonsai import build_bonsai_pretrain
 
 load_dotenv()
 
@@ -50,15 +49,9 @@ def main(cfg: DictConfig) -> None:
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
     )
 
-    model = BonsaiPretrain(
-        ModernBertConfig(
-            **cfg.model,
-            vocab_size=len(data_module.vocabulary),
-            pad_token_id=0,
-            cls_token_id=1,
-            sep_token_id=2,
-            sparse_prediction=True,
-        )
+    model = build_bonsai_pretrain(
+        cfg.model,
+        vocab_size=len(data_module.vocabulary),
     )
 
     ckpt_callback = ModelCheckpoint(

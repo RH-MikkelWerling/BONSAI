@@ -143,15 +143,15 @@ def main(cfg: DictConfig) -> None:
         )
 
     vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
-    if model.encoder.config.vocab_size != len(vocab):
+    if model.encoder.hparams["vocab_size"] != len(vocab):
         raise ValueError(
-            f"Checkpoint vocab_size={model.encoder.config.vocab_size} does not "
+            f"Checkpoint vocab_size={model.encoder.hparams['vocab_size']} does not "
             f"match loaded vocabulary size={len(vocab)} from {cfg.paths.vocabulary}."
         )
     background_length = int((test_data[0]["segment"] == 0).sum())
     max_len = cfg.get("max_len")
     if max_len is None:
-        max_len = model.encoder.config.max_position_embeddings
+        max_len = model.encoder.hparams["max_seqlen"]
 
     test_dataset = FinetuneDataset(
         test_data,
@@ -248,9 +248,7 @@ def main(cfg: DictConfig) -> None:
             strata_col,
         )
         survival_valid = (
-            np.isfinite(times_all)
-            & np.isfinite(probs_all)
-            & (events_all >= 0)
+            np.isfinite(times_all) & np.isfinite(probs_all) & (events_all >= 0)
         )
         stratified_n_bootstrap = stratified_cfg.get("n_bootstrap")
         if stratified_n_bootstrap is None:

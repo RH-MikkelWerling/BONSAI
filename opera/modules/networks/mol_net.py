@@ -53,7 +53,7 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from opera.compat.bonsai import BonsaiEncoder, BiGRU
+from opera.compat.bonsai import BonsaiEncoder, BiGRU, encoder_hidden_state
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -267,13 +267,13 @@ class MultiOutcomeModel(nn.Module):
         with torch.set_grad_enabled(not self.freeze_encoder):
             outputs = self.encoder(batch)
 
-        hidden = outputs[0]  # (B, L, H)
+        hidden = encoder_hidden_state(outputs)  # (B, L, H)
 
         if self.pooling == "bigru":
             pooled = self.pooler(hidden, batch["attention_mask"], return_embedding=True)
         else:
             lengths = batch["attention_mask"].sum(dim=1) - 1
-            pooled = hidden[torch.arange(hidden.size(0)), lengths]
+            pooled = hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]
 
         return pooled
 

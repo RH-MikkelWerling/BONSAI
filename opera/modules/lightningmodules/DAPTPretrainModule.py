@@ -9,12 +9,12 @@ When no expansion is used, this behaves identically to the base module.
 import lightning as L
 from torch import nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
 from torchmetrics import MetricCollection, Precision
 from bonsai.functional.checkpointing import (
     attach_checkpoint_metadata,
     attach_model_config,
 )
+from bonsai.functional.scheduling import optimizer_with_warmup
 
 
 class DAPTPretrainModule(L.LightningModule):
@@ -39,7 +39,7 @@ class DAPTPretrainModule(L.LightningModule):
         self.new_embed_lr_multiplier = new_embed_lr_multiplier
         self.freeze_pretrained_embeds = freeze_pretrained_embeds
 
-        self.save_hyperparameters(model.config.to_dict(), ignore=["model"])
+        self.save_hyperparameters(dict(model.hparams), ignore=["model"])
         attach_model_config(self, model)
         attach_checkpoint_metadata(self, checkpoint_metadata)
         self.model = model
@@ -62,12 +62,12 @@ class DAPTPretrainModule(L.LightningModule):
             {
                 f"{prefix}/Prec-K1": Precision(
                     task="multiclass",
-                    num_classes=self.model.config.vocab_size,
+                    num_classes=self.model.hparams["vocab_size"],
                     top_k=1,
                 ),
                 f"{prefix}/Prec-K10": Precision(
                     task="multiclass",
-                    num_classes=self.model.config.vocab_size,
+                    num_classes=self.model.hparams["vocab_size"],
                     top_k=10,
                 ),
             }
@@ -76,7 +76,7 @@ class DAPTPretrainModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         logits, labels = self.model(batch)
         loss = self.train_loss(
-            logits.view(-1, self.model.config.vocab_size), labels.view(-1)
+            logits.view(-1, self.model.hparams["vocab_size"]), labels.view(-1)
         )
         self.train_metrics(logits, labels)
         self.log("train/loss", loss, prog_bar=True)
@@ -86,7 +86,7 @@ class DAPTPretrainModule(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         logits, labels = self.model(batch)
         loss = self.val_loss(
-            logits.view(-1, self.model.config.vocab_size), labels.view(-1)
+            logits.view(-1, self.model.hparams["vocab_size"]), labels.view(-1)
         )
         self.log("val/loss", loss, prog_bar=True)
         self.val_metrics(logits, labels)
@@ -112,9 +112,7 @@ class DAPTPretrainModule(L.LightningModule):
             for name, param in self.model.named_parameters():
                 if not param.requires_grad:
                     continue
-                if "code_embedding" in name or (
-                    name.startswith("decoder") and "weight" in name
-                ):
+                if "code_embedding" in name or name.startswith("pretrain_head"):
                     embed_decoder_params.append(param)
                 else:
                     other_params.append(param)
@@ -140,14 +138,8 @@ class DAPTPretrainModule(L.LightningModule):
 
         optimizer = AdamW(param_groups, eps=self.optimizer_epsilon)
 
-        steps_per_epoch = (
-            self.trainer.estimated_stepping_batches // self.trainer.max_epochs
+        return optimizer_with_warmup(
+            optimizer,
+            self.trainer,
+            self.scheduler_warmup_epochs,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer=optimizer,
-            num_warmup_steps=int(steps_per_epoch * self.scheduler_warmup_epochs),
-            num_training_steps=self.trainer.estimated_stepping_batches,
-        )
-        return [optimizer], [
-            {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        ]

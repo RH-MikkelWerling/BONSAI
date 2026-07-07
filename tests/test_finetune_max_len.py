@@ -15,7 +15,7 @@ def _base_cfg(tmp_path, max_len=17):
                 "val_split": str(tmp_path / "subject_data_tuning.pt"),
                 "population": str(population),
             },
-            "model": {"max_position_embeddings": 8192},
+            "model": {"max_seqlen": 8192},
             "training": {
                 "batch_size": 2,
                 "max_len": max_len,
