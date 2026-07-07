@@ -22,7 +22,7 @@ from bonsai.modules.networks.bonsai_nets import BonsaiFinetune
 from bonsai.paths import get_config_path
 
 OmegaConf.register_new_resolver(
-    "version", lambda: generate_unused_run_id(), use_cache=True
+    "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
 )
 
 load_dotenv()

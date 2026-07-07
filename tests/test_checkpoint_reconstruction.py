@@ -13,6 +13,8 @@ from bonsai.modules.networks.bonsai_nets import BonsaiFinetune, BonsaiPretrain
 from bonsai.functional.model_config import LegacyCheckpointError
 from opera.compat.bonsai import BonsaiEncoder
 from opera.modules.networks.joint_finetune_net import JointFinetuneModel
+from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
+from opera.run.evaluate import resolve_attention_backend
 
 
 def _small_config():
@@ -158,3 +160,48 @@ def test_legacy_modernbert_checkpoint_fails_with_migration_message(tmp_path):
 
     with pytest.raises(LegacyCheckpointError, match="legacy ModernBERT"):
         load_finetune_model_from_checkpoint(str(ckpt_path))
+
+
+def test_flash_checkpoint_can_load_with_sdpa_runtime_backend(tmp_path):
+    model = BonsaiFinetune(**_small_config(), predict_token_id=1)
+    saved_config = dict(model.hparams)
+    saved_config["attn_type"] = "flash"
+    ckpt_path = tmp_path / "flash-model.ckpt"
+    torch.save(
+        {
+            "hyper_parameters": {
+                MODEL_CONFIG_KEY: saved_config,
+                "model_class": "BonsaiFinetune",
+            },
+            "state_dict": {
+                f"model.{key}": value for key, value in model.state_dict().items()
+            },
+        },
+        ckpt_path,
+    )
+
+    loaded = load_finetune_model_from_checkpoint(
+        str(ckpt_path), strict=True, attn_type="sdpa"
+    )
+
+    assert loaded.hparams["attn_type"] == "sdpa"
+
+
+def test_unknown_finetune_model_class_fails_before_wrong_reconstruction(tmp_path):
+    ckpt_path = tmp_path / "hybrid.ckpt"
+    torch.save(
+        {
+            "hyper_parameters": {"model_class": "HybridClassifier"},
+            "state_dict": {},
+        },
+        ckpt_path,
+    )
+
+    with pytest.raises(ValueError, match="unsupported model_class"):
+        load_opera_finetune_model_from_checkpoint(str(ckpt_path))
+
+
+def test_evaluation_attention_backend_defaults_by_device():
+    assert resolve_attention_backend("auto", "cpu") == "sdpa"
+    assert resolve_attention_backend("auto", "cuda") is None
+    assert resolve_attention_backend("checkpoint", "cpu") is None

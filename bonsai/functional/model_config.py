@@ -114,3 +114,14 @@ def require_native_checkpoint_config(config: Any) -> dict:
             "architecture; use a legacy environment or retrain the checkpoint."
         )
     return normalize_bonsai_model_config(values)
+
+
+def validate_pretraining_attention(dataset_class: type, *, causal: bool) -> None:
+    """Reject autoregressive targets wired to bidirectional attention."""
+    from bonsai.modules.datasets.PretrainDataset import ARPretrainDataset
+
+    if issubclass(dataset_class, ARPretrainDataset) and not causal:
+        raise ValueError(
+            "ARPretrainDataset requires causal=True; bidirectional attention "
+            "would expose future target tokens and leak the pretraining label."
+        )

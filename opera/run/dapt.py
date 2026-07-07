@@ -47,6 +47,7 @@ from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.model_config import validate_pretraining_attention
 from bonsai.functional.checkpointing import (
     clean_lightning_state_dict,
     get_saved_encoder_config,
@@ -131,6 +132,8 @@ def main(cfg: DictConfig) -> None:
     else:
         vocab_path_for_dm = cfg.paths.vocab
 
+    dataset_class = get_class(cfg.paths.dataset_class)
+    validate_pretraining_attention(dataset_class, causal=model_cfg["causal"])
     data_module = PretrainDataModule(
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
@@ -138,7 +141,7 @@ def main(cfg: DictConfig) -> None:
         path_population=cfg.paths.population,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
-        dataset_class=get_class(cfg.paths.dataset_class),
+        dataset_class=dataset_class,
         masking_config=cfg.training.get("masking"),
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,

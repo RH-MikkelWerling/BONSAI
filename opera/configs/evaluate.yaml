@@ -14,6 +14,9 @@ head_type: null
 max_len: null
 
 device: auto    # "cuda", "cpu", or "auto"
+# auto uses SDPA on CPU and the checkpoint's backend on CUDA. Set explicitly
+# to "flash" or "sdpa" to override checkpoint metadata.
+attention_backend: auto
 batch_size: 64
 num_workers: 4
 threshold: 0.5

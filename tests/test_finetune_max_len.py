@@ -2,6 +2,7 @@ from omegaconf import OmegaConf
 
 from opera.run.finetune import build_finetune_data_module
 from opera.run.survival_finetune import build_survival_finetune_data_module
+from opera.modules.datamodules.HybridDataModule import HybridDataModule
 
 
 def _base_cfg(tmp_path, max_len=17):
@@ -60,3 +61,28 @@ def test_survival_finetune_runner_datamodule_threads_configured_max_len(tmp_path
     )
 
     assert datamodule.max_len == 31
+
+
+def test_hybrid_datamodule_uses_explicit_encoder_sequence_limit(tmp_path):
+    population = tmp_path / "population_full.csv"
+    population.write_text("subject_id\n1\n", encoding="utf-8")
+    tabular = tmp_path / "tabular.parquet"
+    import pandas as pd
+
+    pd.DataFrame({"subject_id": [1], "feature": [0.5]}).to_parquet(tabular)
+    datamodule = HybridDataModule(
+        path_train_data=str(tmp_path / "train.pt"),
+        path_val_data=str(tmp_path / "val.pt"),
+        path_population=str(population),
+        path_tabular=str(tabular),
+        feature_columns=["feature"],
+        train_outcomes={1: {"label": 0}},
+        val_outcomes={1: {"label": 0}},
+        test_outcomes={},
+        predict_token_id=1,
+        max_len=37,
+        batch_size=1,
+        num_workers=0,
+    )
+
+    assert datamodule.max_len == 37

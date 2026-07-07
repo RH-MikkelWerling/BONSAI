@@ -18,6 +18,7 @@ def load_opera_finetune_model_from_checkpoint(
     ckpt_path: str,
     strict: bool = True,
     map_location: str = "cpu",
+    attn_type: str | None = None,
 ):
     """Load an OPERA/BONSAI finetune-style checkpoint for evaluation.
 
@@ -30,11 +31,18 @@ def load_opera_finetune_model_from_checkpoint(
     ckpt = torch.load(ckpt_path, map_location=map_location, weights_only=False)
     hparams = ckpt["hyper_parameters"]
     model_class = hparams.get("model_class")
-    if model_class != "BonsaiLinearProbe":
+    if model_class in {None, "BonsaiFinetune"}:
         return load_finetune_model_from_checkpoint(
             ckpt_path,
             strict=strict,
             map_location=map_location,
+            attn_type=attn_type,
+        )
+    if model_class != "BonsaiLinearProbe":
+        raise ValueError(
+            f"Checkpoint {ckpt_path!r} contains unsupported model_class "
+            f"{model_class!r} for ordinary finetune evaluation. Use the "
+            "model-specific evaluation pipeline."
         )
     model_config = hparams.get(MODEL_CONFIG_KEY)
     if model_config is None:
@@ -42,7 +50,12 @@ def load_opera_finetune_model_from_checkpoint(
             f"Checkpoint {ckpt_path!r} is missing '{MODEL_CONFIG_KEY}'. "
             "Linear-probe checkpoints require exact model config metadata."
         )
-    model = BonsaiLinearProbe(require_native_checkpoint_config(model_config))
+    model_config = require_native_checkpoint_config(model_config)
+    if attn_type is not None:
+        if attn_type not in {"flash", "sdpa"}:
+            raise ValueError("attn_type override must be 'flash' or 'sdpa'.")
+        model_config["attn_type"] = attn_type
+    model = BonsaiLinearProbe(model_config)
     clean_state = clean_lightning_state_dict(ckpt["state_dict"])
     load_state_dict_checked(model, clean_state, strict=strict)
     return model

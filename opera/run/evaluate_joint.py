@@ -66,6 +66,17 @@ def resolve_device(device_cfg: str) -> str:
     return str(device_cfg)
 
 
+def resolve_attention_backend(backend_cfg: str, device: str) -> str | None:
+    """Resolve the checkpoint backend while keeping Flash as the CUDA default."""
+    if backend_cfg in (None, "auto"):
+        return None if str(device).startswith("cuda") else "sdpa"
+    if backend_cfg in {"checkpoint", "saved"}:
+        return None
+    if backend_cfg not in {"flash", "sdpa"}:
+        raise ValueError("attention_backend must be auto, checkpoint, flash, or sdpa.")
+    return str(backend_cfg)
+
+
 @hydra.main(
     config_path="../configs",
     config_name="evaluate",  # reuse evaluate.yaml paths structure
@@ -92,6 +103,9 @@ def main(cfg: DictConfig) -> None:
     model = load_joint_model_from_checkpoint(
         ckpt_path,
         strict=cfg.get("strict_checkpoint_load", True),
+        attn_type=resolve_attention_backend(
+            cfg.get("attention_backend", "auto"), device
+        ),
     )
     if outcome_name not in model.outcome_names:
         raise ValueError(

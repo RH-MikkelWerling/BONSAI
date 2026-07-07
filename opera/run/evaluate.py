@@ -24,7 +24,6 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from opera.compat.bonsai import (
-    BonsaiEncoder,
     FinetuneDataset,
     dynamic_padding,
     filter_subject_data,
@@ -64,6 +63,17 @@ def resolve_device(device_cfg: str) -> str:
     if device_cfg in (None, "auto"):
         return "cuda" if torch.cuda.is_available() else "cpu"
     return str(device_cfg)
+
+
+def resolve_attention_backend(backend_cfg: str, device: str) -> str | None:
+    """Resolve the checkpoint backend while keeping Flash as the CUDA default."""
+    if backend_cfg in (None, "auto"):
+        return None if str(device).startswith("cuda") else "sdpa"
+    if backend_cfg in {"checkpoint", "saved"}:
+        return None
+    if backend_cfg not in {"flash", "sdpa"}:
+        raise ValueError("attention_backend must be auto, checkpoint, flash, or sdpa.")
+    return str(backend_cfg)
 
 
 def checkpoint_training_mode(ckpt_path: str) -> str:
@@ -126,15 +136,10 @@ def resolve_evaluation_checkpoint(cfg: DictConfig) -> tuple[Path, dict]:
 
 def extract_patient_embeddings(model, batch: dict) -> torch.Tensor:
     """Return the pooled representation used by a supported prediction head."""
+    if hasattr(model, "get_pooled_representation"):
+        return model.get_pooled_representation(batch)
     if hasattr(model, "pooled_embedding"):
         return model.pooled_embedding(batch)
-    if hasattr(model, "cls"):
-        hidden = BonsaiEncoder.forward(model, batch)[0]
-        return model.cls(
-            hidden,
-            batch["attention_mask"],
-            return_embedding=True,
-        )
     raise TypeError(
         f"Cannot extract patient embeddings from model type {type(model).__name__}."
     )
@@ -261,6 +266,9 @@ def main(cfg: DictConfig) -> None:
     model = load_opera_finetune_model_from_checkpoint(
         str(resolved_ckpt_path),
         strict=cfg.get("strict_checkpoint_load", True),
+        attn_type=resolve_attention_backend(
+            cfg.get("attention_backend", "auto"), device
+        ),
     )
     training_mode = checkpoint_training_mode(str(resolved_ckpt_path))
     if model.hparams["vocab_size"] != len(vocab):

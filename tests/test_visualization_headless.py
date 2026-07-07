@@ -29,7 +29,11 @@ from opera.visualization.classification_plots import (  # noqa: E402
 )
 from opera.visualization.embedding_plots import (  # noqa: E402
     plot_embedding_projection,
+    plot_embedding_stage_metadata_grid,
     plot_similarity_distributions,
+)
+from opera.visualization.analysis_plots import (  # noqa: E402
+    plot_within_stratum_grid,
 )
 from opera.visualization.survival_plots import (  # noqa: E402
     plot_calibration_comparison,
@@ -195,6 +199,136 @@ def test_plot_similarity_distributions_smoke(tmp_path):
 
     assert isinstance(fig, Figure)
     assert (tmp_path / "sim.pdf").exists()
+
+
+def test_within_stratum_grid_uses_shared_projection_and_explanatory_layout(
+    monkeypatch, tmp_path
+):
+    rng = np.random.default_rng(17)
+    n_per_stratum = [45, 70, 55]
+    strata = np.concatenate(
+        [np.repeat(value, n) for value, n in zip(["0-1", "2-3", "4-5"], n_per_stratum)]
+    )
+    labels = np.concatenate(
+        [
+            np.array([1] * n_events + [0] * (n - n_events))
+            for n, n_events in zip(n_per_stratum, [5, 21, 29])
+        ]
+    )
+    embeddings = rng.normal(size=(len(labels), 8))
+    coords = rng.normal(size=(len(labels), 2))
+
+    import opera.visualization.embedding_plots as embedding_plots
+
+    monkeypatch.setattr(
+        embedding_plots,
+        "_reduce_embeddings",
+        lambda values, method: coords,
+    )
+    output = tmp_path / "within_stratum.png"
+    fig = plot_within_stratum_grid(
+        embeddings,
+        labels,
+        strata,
+        stratum_values=["0-1", "2-3", "4-5"],
+        stratum_name="IPI",
+        highlight_stratum="2-3",
+        callout_text="Same IPI band; outcomes occupy different regions",
+        talk_note="The middle panel is the prespecified clinical example.",
+        save_path=str(output),
+    )
+
+    assert isinstance(fig, Figure)
+    assert len(fig.axes) == 3
+    assert [axis.get_xlim() for axis in fig.axes].count(fig.axes[0].get_xlim()) == 3
+    assert [axis.get_ylim() for axis in fig.axes].count(fig.axes[0].get_ylim()) == 3
+    assert "event prevalence = 30%" in fig.axes[1].get_title()
+    assert any("Same IPI band" in text.get_text() for text in fig.axes[1].texts)
+    assert (
+        fig.axes[1].spines["left"].get_linewidth()
+        > fig.axes[0].spines["left"].get_linewidth()
+    )
+    legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
+    assert legend_labels == [
+        "all patients (background context)",
+        "within-stratum no event",
+        "within-stratum event",
+    ]
+    figure_text = " ".join(text.get_text() for text in fig.texts)
+    assert "Shared UMAP projection" in figure_text
+    assert "held-out discrimination" in figure_text.replace("\n", " ")
+    assert output.exists()
+    assert output.with_suffix(".pdf").exists()
+
+
+def test_within_stratum_grid_rejects_misaligned_inputs():
+    with pytest.raises(ValueError, match="equal length"):
+        plot_within_stratum_grid(
+            np.zeros((4, 2)),
+            np.zeros(3),
+            np.zeros(4),
+        )
+
+
+def test_embedding_stage_metadata_grid_reuses_each_stage_projection(tmp_path):
+    rng = np.random.default_rng(29)
+    n = 84
+    dapt = rng.normal(size=(n, 2))
+    theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    opera = np.column_stack([np.cos(theta), np.sin(theta)])
+    metadata = {
+        "Age": np.linspace(35, 85, n),
+        "Sex": np.where(np.arange(n) % 2, "Female", "Male"),
+        "Cohort (fine)": np.array(["DLBCL", "FL", "CLL"])[np.arange(n) % 3],
+        "Treatment failure": (np.arange(n) % 5 == 0).astype(int),
+    }
+    output = tmp_path / "stage_metadata.png"
+    fig = plot_embedding_stage_metadata_grid(
+        {"dapt": dapt, "opera": opera},
+        metadata,
+        variable_kinds={"Age": "continuous"},
+        stage_labels={"dapt": "DAPT\nembeddings", "opera": "OPERA\nembeddings"},
+        category_labels={
+            "Treatment failure": {0: "No failure", 1: "Treatment failure"}
+        },
+        annotations={
+            ("opera", "Treatment failure"): [
+                {"text": "Prespecified region", "xy": (1.0, 0.0)}
+            ]
+        },
+        outcome_definition="Failure within the prespecified follow-up window.",
+        save_path=str(output),
+    )
+
+    assert isinstance(fig, Figure)
+    panel_axes = [axis for axis in fig.axes if axis.get_label().startswith("panel:")]
+    assert len(panel_axes) == 8
+    assert np.allclose(panel_axes[0].collections[0].get_offsets(), dapt)
+    assert np.allclose(panel_axes[4].collections[0].get_offsets(), opera)
+    assert len({axis.get_xlim() for axis in panel_axes[:4]}) == 1
+    assert len({axis.get_ylim() for axis in panel_axes[:4]}) == 1
+    assert len({axis.get_xlim() for axis in panel_axes[4:]}) == 1
+    assert len({axis.get_ylim() for axis in panel_axes[4:]}) == 1
+    assert [axis.get_title() for axis in panel_axes[:4]] == list(metadata)
+    assert any(
+        "Prespecified region" in text.get_text() for text in panel_axes[-1].texts
+    )
+    all_text = [*fig.texts, *(text for axis in panel_axes for text in axis.texts)]
+    figure_text = " ".join(text.get_text() for text in all_text).replace("\n", " ")
+    assert "DAPT embeddings" in figure_text
+    assert "OPERA embeddings" in figure_text
+    assert "held-out probes" in figure_text
+    assert "coordinates are identical" in figure_text
+    assert output.exists()
+    assert output.with_suffix(".pdf").exists()
+
+
+def test_embedding_stage_metadata_grid_rejects_misaligned_metadata():
+    with pytest.raises(ValueError, match="one value per patient"):
+        plot_embedding_stage_metadata_grid(
+            {"opera": np.zeros((5, 2))},
+            {"Age": np.zeros(4)},
+        )
 
 
 def test_plot_roc_curve_smoke(binary_data, tmp_path):

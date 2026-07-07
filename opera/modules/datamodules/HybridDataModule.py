@@ -30,6 +30,7 @@ class HybridDataModule(L.LightningDataModule):
         val_outcomes: Dict[int, dict],
         test_outcomes: Dict[int, dict],
         predict_token_id: int,
+        max_len: int,
         batch_size: int,
         num_workers: int,
         train_sampler=None,
@@ -44,6 +45,7 @@ class HybridDataModule(L.LightningDataModule):
         self.val_outcomes = val_outcomes
         self.test_outcomes = test_outcomes
         self.predict_token_id = predict_token_id
+        self.max_len = int(max_len)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_sampler = train_sampler
@@ -60,8 +62,16 @@ class HybridDataModule(L.LightningDataModule):
 
         train_data = filter_subject_data(train_data, self.population["subject_id"])
         val_data = filter_subject_data(val_data, self.population["subject_id"])
+        if not train_data:
+            raise ValueError(
+                "No hybrid training subjects remain after outcome/population filtering."
+            )
+        if not val_data:
+            raise ValueError(
+                "No hybrid validation subjects remain after outcome/population filtering."
+            )
 
-        bg_len = (train_data[0]["segment"] == 0).sum() if train_data else 0
+        bg_len = int((train_data[0]["segment"] == 0).sum())
 
         self.train_dataset = HybridDataset(
             train_data,
@@ -70,6 +80,7 @@ class HybridDataModule(L.LightningDataModule):
             self.feature_columns,
             self.predict_token_id,
             bg_len,
+            max_len=self.max_len,
         )
         self.val_dataset = HybridDataset(
             val_data,
@@ -78,6 +89,7 @@ class HybridDataModule(L.LightningDataModule):
             self.feature_columns,
             self.predict_token_id,
             bg_len,
+            max_len=self.max_len,
         )
 
     def train_dataloader(self):

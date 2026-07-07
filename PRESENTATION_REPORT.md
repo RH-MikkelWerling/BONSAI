@@ -1,5 +1,5 @@
 # BONSAI / OPERA — Project State Report
-*Prepared for supervisor presentation — June 2026*
+*Prepared for supervisor presentation — July 2026*
 
 ---
 
@@ -34,14 +34,16 @@ The system has two namespaces/layers:
 
 **Model stack (four training stages)**:
 
-1. **General pre-training** (BONSAI): ModernBERT trained with masked language modeling on all-cause EHR sequences from the Danish national registries.
+1. **General pre-training** (BONSAI): a transformer trained with masked/autoregressive language modeling on all-cause EHR sequences from the Danish national registries.
 2. **Domain-adapted pre-training (DAPT)**: Continue pre-training on hematology patients only — the model learns the vocabulary of blood cancer.
 3. **Contrastive learning (OPERA)**: A survival-informed SupCon objective trains the model to embed patients with similar outcome trajectories closer together, using Kaplan-Meier cumulative event mass to weight pairs.
 4. **Fine-tuning**: Per-task or joint (multi-outcome) classifiers on top of the learned representations.
 
 **Key innovation**: The contrastive stage uses survival time — not just event/no-event — to weight patient pairs. This avoids treating a 6-month survivor the same as a 6-year survivor, which is scientifically important for censored clinical data.
 
-**Frameworks**: PyTorch + PyTorch Lightning (training), Hydra-Core (config composition), Polars/Pandas (data), scikit-learn/scipy (metrics and survival analysis).
+**Architecture rewrite (new since last report)**: The encoder has moved off the third-party ModernBERT/HuggingFace implementation onto a **native, from-scratch BONSAI transformer** (`bonsai-native-rope-v1`) with rotary position embeddings and FlashAttention 2 as the default attention backend (SDPA remains available as a portable CPU/non-CUDA fallback, and the two are tested for numerical equivalence). Tokens are processed packed/variable-length rather than padded, saving compute. This is a hard migration boundary, not a drop-in upgrade: old ModernBERT-era checkpoints are explicitly rejected at load time with a clear "retrain" error rather than silently mismatching — all existing pre-trained checkpoints upstream of this change need to be regenerated under the native architecture before hematology adaptation/evaluation can continue on them.
+
+**Frameworks**: PyTorch + PyTorch Lightning (training), Hydra-Core (config composition), Polars/Pandas (data), scikit-learn/scipy (metrics and survival analysis). FlashAttention 2 is now a first-class (optional) dependency on Linux/CUDA (requires GCC ≥9 to build); Bayesian rarity modeling adds PyMC/ArviZ as an optional dependency group.
 
 ---
 
@@ -102,11 +104,18 @@ Evaluation is rigorous and multi-dimensional:
 **Subgroup analysis**: metrics broken down by demographic and clinical subgroups (IPI score tiers, age, sex) for fairness and clinical relevance.
 
 **Rarity analysis**: The primary analysis now uses natural variation across
-cohort-outcome cells. A Bayesian hierarchical spline models paired
-OPERA-minus-tabular deltas against training-event count, with partial pooling
-across cohorts and outcomes and explicit patient-bootstrap uncertainty.
-Synthetic label subsampling remains a conditional label-efficiency sensitivity
-analysis, not the main emulation of true disease rarity.
+cohort-outcome cells. A robust (Student-t) Bayesian hierarchical spline models
+paired OPERA-minus-tabular deltas against log training-event count, with
+crossed cohort/outcome/outcome-family effects, partial pooling, explicit
+patient-bootstrap uncertainty, and a training-seed variance component
+(variance components drop out cleanly when only one level is observed).
+Convergence (divergences, max R-hat) is a hard gate on publishing results.
+The rarity plot itself was reworked: color encodes outcome family, marker
+shape encodes disease-course grouping (e.g. aggressive vs. indolent/chronic
+vs. plasma-cell), and cell labels are chosen for clinical relevance rather
+than statistical extremeness. Synthetic label subsampling remains a
+conditional label-efficiency sensitivity analysis, not the main emulation of
+true disease rarity.
 
 ---
 
@@ -143,13 +152,16 @@ the full epoch.
 
 Based on the current branch state and recent commit history:
 
-1. **Complete the cohorts.py integration** — `evaluate_joint.py` and the sweep orchestrator still use the old inline pattern and need to be updated.
-2. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 25 evaluated fine diagnoses × all outcomes × all model variants.
-3. **Hierarchical natural-rarity analysis** — collect patient-level prediction
+1. **Land the native-architecture attention-backend follow-up** — a focused, apparently-complete set of changes (currently uncommitted) makes the FlashAttention/SDPA backend independently selectable at checkpoint-load time (so CPU-only evaluation can load a checkpoint trained with FlashAttention), adds a guard against wiring autoregressive pretraining to non-causal attention, and finishes renaming the fine-tuning head for the native model class. All touched tests pass; this is close-out work, not a rewrite.
+2. **Retrain/re-adapt checkpoints under the native architecture** — because old ModernBERT-era checkpoints are no longer loadable, any pre-trained/DAPT/contrastive checkpoints produced before the architecture rewrite need to be regenerated before downstream fine-tuning and evaluation can proceed on them.
+3. **Complete the cohorts.py integration** — `evaluate_joint.py` and the sweep orchestrator still use the old inline pattern and need to be updated.
+4. **Leukemia sweep** — run the full train-coarse/eval-fine experiment grid across all 25 evaluated fine diagnoses × all outcomes × all model variants, now on the native architecture.
+5. **Hierarchical natural-rarity analysis** — collect patient-level prediction
 artifacts across all evaluable cohort-outcome cells, validate exact comparator
-parity, and fit the prespecified Bayesian spline hierarchy.
-4. **Paper figures** — aggregate results, generate rarity delta plots, embedding projections, and comparison tables.
-5. **Eligibility audit complete** — primary/competing-event chronology,
+parity, and fit the prespecified Bayesian spline hierarchy (model and plots
+already reworked; execution across the full grid is what remains).
+6. **Paper figures** — aggregate results, generate rarity delta plots, embedding projections, and comparison tables.
+7. **Eligibility audit complete** — primary/competing-event chronology,
    fixed-horizon versus ascertainment masks, and supplementary workflow
    propagation now share one tested contract. The remaining work is execution
    of the locked experiment grid rather than another denominator rewrite.
@@ -160,15 +172,15 @@ parity, and fit the prespecified Bayesian spline hierarchy.
 
 | Dimension | Detail |
 |-----------|--------|
-| **Model** | ModernBERT-based EHR transformer |
+| **Model** | Native EHR transformer with RoPE + FlashAttention 2 (`bonsai-native-rope-v1`; replaces prior ModernBERT/HuggingFace encoder) |
 | **Pre-training data** | Danish national EHR registries (all-cause) |
 | **Adaptation** | DAPT → contrastive → fine-tune (4-stage) |
-| **Key innovation** | Survival-informed contrastive learning |
+| **Key innovation** | Survival-informed contrastive learning; native architecture rewrite for speed/control |
 | **Diseases** | 25 evaluated hematological diagnoses plus explicit secondary-cancer exclusion label |
 | **Outcomes** | 1y mortality, treatment failure, remission, progression |
 | **Evaluation** | AUROC, AUPRC, C-index, calibration, rarity analysis |
-| **Test suite** | 228 passing tests, 47 modules |
-| **Current focus** | Consolidate evaluation cohort logic; run leukemia sweep |
+| **Test suite** | 521 passing tests, 71 modules |
+| **Current focus** | Close out native-architecture integration; consolidate evaluation cohort logic; run leukemia sweep |
 | **Branch** | `opera/leukemia` |
 
 ---
@@ -177,7 +189,7 @@ parity, and fit the prespecified Bayesian spline hierarchy.
 
 Suggest including these in slides (all generatable from the codebase):
 - **Pipeline diagram**: MEDS → tokenization → 4-stage training → evaluation
-- **Architecture diagram**: BonsaiEncoder with EhrEmbeddings → contrastive projections → task heads
+- **Architecture diagram**: Native BONSAI encoder (RoPE + FlashAttention) with EhrEmbeddings → contrastive projections → task heads
 - **Hierarchical rarity curve**: raw cohort-outcome OPERA-minus-XGBoost deltas
   against training events, overlaid with posterior mean, credible, and
   new-cell predictive uncertainty bands
@@ -187,4 +199,4 @@ Suggest including these in slides (all generatable from the codebase):
 
 ---
 
-*Report generated from repository at `c:\Users\MWER0040\Documents\repositories\bonsai\BONSAI`, branch `opera/leukemia`, commit `1bc1cad`.*
+*Report generated from repository at `c:\Users\MWER0040\Documents\repositories\bonsai\BONSAI`, branch `opera/leukemia`, commit `458c083`, with 23 uncommitted files representing a near-complete follow-up to the native-architecture merge.*

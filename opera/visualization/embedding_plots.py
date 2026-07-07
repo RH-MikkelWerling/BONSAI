@@ -1164,6 +1164,532 @@ def plot_embedding_map_insights(
     return fig
 
 
+def plot_embedding_stage_metadata_grid(
+    stage_coords: Dict[str, np.ndarray],
+    metadata: Dict[str, np.ndarray],
+    *,
+    variable_kinds: Optional[Dict[str, str]] = None,
+    stage_labels: Optional[Dict[str, str]] = None,
+    variable_labels: Optional[Dict[str, str]] = None,
+    category_labels: Optional[Dict[str, Dict[object, str]]] = None,
+    category_order: Optional[Dict[str, List[object]]] = None,
+    category_colors: Optional[Dict[str, Dict[object, str]]] = None,
+    continuous_cmaps: Optional[Dict[str, str]] = None,
+    annotations: Optional[Dict[tuple[str, str], List[dict]]] = None,
+    title: str = "Subgroup structure in learned patient embeddings",
+    subtitle: Optional[str] = None,
+    outcome_definition: Optional[str] = None,
+    interpretation_note: Optional[str] = None,
+    axis_label: str = "UMAP",
+    show_footer: bool = True,
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Compare metadata structure across representation-learning stages.
+
+    Each stage supplies one precomputed two-dimensional projection. That exact
+    coordinate array and axis limits are reused across every column in its row;
+    only the metadata coloring changes. This prevents separate projection fits
+    from being mistaken for learned subgroup structure.
+
+    ``annotations`` is keyed by ``(stage, variable)``. Each annotation accepts
+    ``text``, ``xy`` and optional Matplotlib ``xytext``/``textcoords`` values.
+    No enrichment claims are added automatically.
+    """
+    import textwrap
+
+    from matplotlib import colormaps
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import FancyBboxPatch, Rectangle
+    from matplotlib.ticker import MaxNLocator
+
+    if not stage_coords:
+        raise ValueError("stage_coords must contain at least one embedding stage.")
+    if not metadata:
+        raise ValueError("metadata must contain at least one variable.")
+
+    stage_labels = stage_labels or {}
+    variable_labels = variable_labels or {}
+    category_labels = category_labels or {}
+    category_order = category_order or {}
+    category_colors = category_colors or {}
+    continuous_cmaps = continuous_cmaps or {}
+    annotations = annotations or {}
+    variable_kinds = variable_kinds or {}
+
+    stages = list(stage_coords)
+    variables = list(metadata)
+    first_coords = np.asarray(stage_coords[stages[0]])
+    if first_coords.ndim != 2 or first_coords.shape[1] != 2:
+        raise ValueError("Every stage projection must have shape (n_patients, 2).")
+    n_patients = len(first_coords)
+    if n_patients == 0:
+        raise ValueError("At least one patient coordinate is required.")
+
+    normalized_coords: Dict[str, np.ndarray] = {}
+    for stage, values in stage_coords.items():
+        coords = np.asarray(values, dtype=float)
+        if coords.shape != (n_patients, 2):
+            raise ValueError(
+                "Every stage projection must have the same (n_patients, 2) shape."
+            )
+        if not np.isfinite(coords).all():
+            raise ValueError(f"Stage {stage!r} contains non-finite coordinates.")
+        normalized_coords[stage] = coords
+
+    normalized_metadata: Dict[str, np.ndarray] = {}
+    for variable, values in metadata.items():
+        array = np.asarray(values)
+        if array.ndim != 1 or len(array) != n_patients:
+            raise ValueError(
+                f"Metadata variable {variable!r} must have one value per patient."
+            )
+        normalized_metadata[variable] = array
+
+    def infer_kind(variable: str, values: np.ndarray) -> str:
+        requested = variable_kinds.get(variable)
+        if requested is not None:
+            if requested not in {"continuous", "categorical"}:
+                raise ValueError(
+                    "variable_kinds values must be 'continuous' or 'categorical'."
+                )
+            return requested
+        try:
+            numeric = values.astype(float)
+        except (TypeError, ValueError):
+            return "categorical"
+        finite = numeric[np.isfinite(numeric)]
+        return "categorical" if len(np.unique(finite)) <= 12 else "continuous"
+
+    def categorical_missing(values: np.ndarray) -> np.ndarray:
+        return np.array(
+            [pd.isna(value) or str(value).strip() == "" for value in values],
+            dtype=bool,
+        )
+
+    kinds = {
+        variable: infer_kind(variable, normalized_metadata[variable])
+        for variable in variables
+    }
+    category_orders: Dict[str, list] = {}
+    resolved_category_colors: Dict[str, Dict[object, str]] = {}
+    for variable in variables:
+        if kinds[variable] != "categorical":
+            continue
+        values = normalized_metadata[variable]
+        missing = categorical_missing(values)
+        observed_groups = list(pd.unique(values[~missing]))
+        if variable in category_order:
+            groups = list(category_order[variable])
+            if set(groups) != set(observed_groups) or len(groups) != len(
+                observed_groups
+            ):
+                raise ValueError(
+                    f"category_order[{variable!r}] must list every observed "
+                    "category exactly once."
+                )
+        else:
+            groups = observed_groups
+            try:
+                groups = sorted(groups)
+            except TypeError:
+                groups = sorted(groups, key=lambda value: str(value))
+        category_orders[variable] = groups
+        provided = category_colors.get(variable, {})
+        if set(groups) == {0, 1}:
+            defaults = {0: PALETTE["negative"], 1: PALETTE["positive"]}
+        else:
+            defaults = {
+                group: CATEGORICAL[index % len(CATEGORICAL)]
+                for index, group in enumerate(groups)
+            }
+        resolved_category_colors[variable] = {
+            group: provided.get(group, defaults[group]) for group in groups
+        }
+
+    n_rows = len(stages)
+    n_cols = len(variables)
+    footer_height = 1.65 if show_footer else 0.30
+    fig = plt.figure(
+        figsize=(max(7.1, 3.0 * n_cols), 2.75 * n_rows + footer_height + 0.75)
+    )
+    axes = fig.subplots(n_rows, n_cols, squeeze=False)
+    panel_aspect = 1.0
+
+    stage_limits: Dict[str, tuple[tuple[float, float], tuple[float, float]]] = {}
+    for stage in stages:
+        coords = normalized_coords[stage]
+        x_span = float(np.ptp(coords[:, 0])) or 1.0
+        y_span = float(np.ptp(coords[:, 1])) or 1.0
+        x_mid = float(coords[:, 0].min() + coords[:, 0].max()) / 2
+        y_mid = float(coords[:, 1].min() + coords[:, 1].max()) / 2
+        x_width = 1.08 * x_span
+        y_height = 1.08 * y_span
+        if y_height < panel_aspect * x_width:
+            y_height = panel_aspect * x_width
+        else:
+            x_width = y_height / panel_aspect
+        stage_limits[stage] = (
+            (x_mid - x_width / 2, x_mid + x_width / 2),
+            (y_mid - y_height / 2, y_mid + y_height / 2),
+        )
+
+    continuous_ranges: Dict[str, tuple[float, float]] = {}
+    for variable in variables:
+        if kinds[variable] != "continuous":
+            continue
+        numeric = normalized_metadata[variable].astype(float)
+        finite = np.isfinite(numeric)
+        if not finite.any():
+            raise ValueError(f"Continuous variable {variable!r} has no finite values.")
+        low, high = np.nanpercentile(numeric[finite], [2, 98])
+        if low == high:
+            low -= 0.5
+            high += 0.5
+        continuous_ranges[variable] = (float(low), float(high))
+
+    for row, stage in enumerate(stages):
+        coords = normalized_coords[stage]
+        x_limits, y_limits = stage_limits[stage]
+        for column, variable in enumerate(variables):
+            ax = axes[row, column]
+            ax.set_label(f"panel:{stage}:{variable}")
+            values = normalized_metadata[variable]
+            if kinds[variable] == "continuous":
+                numeric = values.astype(float)
+                missing = ~np.isfinite(numeric)
+            else:
+                missing = categorical_missing(values)
+
+            if missing.any():
+                ax.scatter(
+                    coords[missing, 0],
+                    coords[missing, 1],
+                    c=PALETTE["missing"],
+                    s=4.2,
+                    alpha=0.32,
+                    linewidths=0,
+                    rasterized=True,
+                    zorder=1,
+                )
+
+            valid = ~missing
+            if kinds[variable] == "continuous":
+                cmap_name = continuous_cmaps.get(
+                    variable,
+                    "plasma" if "age" in variable.lower() else "viridis",
+                )
+                vmin, vmax = continuous_ranges[variable]
+                ax.scatter(
+                    coords[valid, 0],
+                    coords[valid, 1],
+                    c=values.astype(float)[valid],
+                    cmap=cmap_name,
+                    vmin=vmin,
+                    vmax=vmax,
+                    s=4.2,
+                    alpha=0.72,
+                    linewidths=0,
+                    rasterized=True,
+                    zorder=2,
+                )
+            else:
+                for group in category_orders[variable]:
+                    selected = valid & (values == group)
+                    if selected.any():
+                        ax.scatter(
+                            coords[selected, 0],
+                            coords[selected, 1],
+                            c=resolved_category_colors[variable][group],
+                            s=4.2,
+                            alpha=0.67,
+                            linewidths=0,
+                            rasterized=True,
+                            zorder=2,
+                        )
+
+            ax.set_xlim(x_limits)
+            ax.set_ylim(y_limits)
+            ax.set_box_aspect(panel_aspect)
+            ax.xaxis.set_major_locator(MaxNLocator(4))
+            ax.yaxis.set_major_locator(MaxNLocator(4))
+            ax.tick_params(labelsize=6.5, length=2.2, colors="#6D7480")
+            ax.grid(
+                True,
+                color="#D9DDE5",
+                linewidth=0.55,
+                linestyle=(0, (2, 3)),
+                alpha=0.9,
+            )
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color("#7F8A99")
+            ax.spines["bottom"].set_color("#7F8A99")
+            ax.spines["left"].set_linewidth(0.65)
+            ax.spines["bottom"].set_linewidth(0.65)
+            ax.set_xlabel(f"{axis_label}-1", fontsize=7.2, labelpad=2)
+            ax.set_ylabel(f"{axis_label}-2", fontsize=7.2, labelpad=2)
+            if row == 0:
+                ax.set_title(
+                    variable_labels.get(variable, variable),
+                    fontsize=10.2,
+                    fontweight="bold",
+                    pad=8,
+                )
+
+            for note in annotations.get((stage, variable), []):
+                if "text" not in note or "xy" not in note:
+                    raise ValueError("Each annotation requires 'text' and 'xy'.")
+                ax.annotate(
+                    note["text"],
+                    xy=note["xy"],
+                    xycoords=note.get("xycoords", "data"),
+                    xytext=note.get("xytext", (0.78, 1.03)),
+                    textcoords=note.get("textcoords", "axes fraction"),
+                    ha=note.get("ha", "left"),
+                    va=note.get("va", "bottom"),
+                    fontsize=note.get("fontsize", 7.1),
+                    color=note.get("color", "#222222"),
+                    arrowprops=note.get(
+                        "arrowprops",
+                        {
+                            "arrowstyle": "-|>",
+                            "color": "#222222",
+                            "linewidth": 0.75,
+                            "connectionstyle": "arc3,rad=0.12",
+                        },
+                    ),
+                    zorder=5,
+                )
+
+        axes[row, 0].text(
+            -0.43,
+            0.5,
+            stage_labels.get(stage, stage),
+            transform=axes[row, 0].transAxes,
+            ha="center",
+            va="center",
+            fontsize=10.2,
+            fontweight="bold",
+            linespacing=1.15,
+        )
+
+    fig.suptitle(title, fontsize=14.5, fontweight="bold", y=0.988)
+    fig.text(
+        0.5,
+        0.954,
+        subtitle
+        or "Held-out patient embeddings projected to 2D and recolored by clinical metadata",
+        ha="center",
+        va="top",
+        fontsize=9.4,
+        style="italic",
+        color="#454B54",
+    )
+
+    if show_footer:
+        footer_bottom = 0.036
+        footer_top = 0.183 if n_rows <= 2 else 0.15
+        footer = FancyBboxPatch(
+            (0.045, footer_bottom),
+            0.91,
+            footer_top - footer_bottom,
+            boxstyle="round,pad=0.006,rounding_size=0.012",
+            transform=fig.transFigure,
+            facecolor="#FBFCFF",
+            edgecolor="#60738E",
+            linewidth=0.75,
+            zorder=-1,
+        )
+        fig.add_artist(footer)
+
+        note_columns = int(outcome_definition is not None) + 1
+        n_footer_columns = len(variables) + note_columns
+        inner_left, inner_right = 0.06, 0.94
+        column_width = (inner_right - inner_left) / n_footer_columns
+
+        for index in range(1, n_footer_columns):
+            x = inner_left + index * column_width
+            fig.add_artist(
+                Line2D(
+                    [x, x],
+                    [footer_bottom + 0.012, footer_top - 0.012],
+                    transform=fig.transFigure,
+                    color="#A0AEC5",
+                    linewidth=0.6,
+                    linestyle=(0, (2, 4)),
+                )
+            )
+
+        for index, variable in enumerate(variables):
+            left = inner_left + index * column_width
+            center = left + column_width / 2
+            fig.text(
+                center,
+                footer_top - 0.022,
+                variable_labels.get(variable, variable),
+                ha="center",
+                va="top",
+                fontsize=8.3,
+                fontweight="bold",
+            )
+            if kinds[variable] == "continuous":
+                cmap_name = continuous_cmaps.get(
+                    variable,
+                    "plasma" if "age" in variable.lower() else "viridis",
+                )
+                cmap = colormaps.get_cmap(cmap_name)
+                gradient_left = left + 0.16 * column_width
+                gradient_width = 0.68 * column_width
+                gradient_y = footer_top - 0.076
+                for step in range(24):
+                    fig.add_artist(
+                        Rectangle(
+                            (gradient_left + gradient_width * step / 24, gradient_y),
+                            gradient_width / 24 + 0.0002,
+                            0.014,
+                            transform=fig.transFigure,
+                            facecolor=cmap(step / 23),
+                            edgecolor="none",
+                        )
+                    )
+                low, high = continuous_ranges[variable]
+
+                def format_endpoint(value: float) -> str:
+                    return f"{value:.0f}" if abs(value) >= 100 else f"{value:.1f}"
+
+                fig.text(
+                    gradient_left,
+                    gradient_y - 0.008,
+                    format_endpoint(low),
+                    ha="left",
+                    va="top",
+                    fontsize=6.5,
+                    color="#444444",
+                )
+                fig.text(
+                    gradient_left + gradient_width,
+                    gradient_y - 0.008,
+                    format_endpoint(high),
+                    ha="right",
+                    va="top",
+                    fontsize=6.5,
+                    color="#444444",
+                )
+            else:
+                groups = category_orders[variable]
+                display_groups = groups[:7]
+                y_start = footer_top - 0.054
+                line_height = min(0.018, (footer_top - footer_bottom - 0.055) / 7)
+                for group_index, group in enumerate(display_groups):
+                    y = y_start - group_index * line_height
+                    fig.add_artist(
+                        Line2D(
+                            [left + 0.12 * column_width],
+                            [y],
+                            transform=fig.transFigure,
+                            marker="o",
+                            markersize=4.8,
+                            linestyle="none",
+                            markerfacecolor=resolved_category_colors[variable][group],
+                            markeredgecolor="none",
+                        )
+                    )
+                    label = category_labels.get(variable, {}).get(group, str(group))
+                    fig.text(
+                        left + 0.20 * column_width,
+                        y,
+                        label,
+                        ha="left",
+                        va="center",
+                        fontsize=6.6,
+                        color="#30343B",
+                    )
+                if len(groups) > len(display_groups):
+                    fig.text(
+                        left + 0.20 * column_width,
+                        y_start - len(display_groups) * line_height,
+                        f"+ {len(groups) - len(display_groups)} more",
+                        fontsize=6.3,
+                        color="#666666",
+                        va="center",
+                    )
+
+        next_index = len(variables)
+        if outcome_definition is not None:
+            left = inner_left + next_index * column_width
+            fig.text(
+                left + column_width / 2,
+                footer_top - 0.022,
+                "Outcome definition",
+                ha="center",
+                va="top",
+                fontsize=8.3,
+                fontweight="bold",
+            )
+            fig.text(
+                left + 0.08 * column_width,
+                footer_top - 0.052,
+                textwrap.fill(outcome_definition, width=29),
+                ha="left",
+                va="top",
+                fontsize=6.6,
+                linespacing=1.3,
+                color="#30343B",
+            )
+            next_index += 1
+
+        left = inner_left + next_index * column_width
+        fig.text(
+            left + column_width / 2,
+            footer_top - 0.022,
+            "Interpretation note",
+            ha="center",
+            va="top",
+            fontsize=8.3,
+            fontweight="bold",
+        )
+        neutral_note = (
+            "Compare geometry descriptively across stages. Apparent subgroup "
+            "organization should be confirmed with held-out probes and uncertainty "
+            "estimates."
+        )
+        fig.text(
+            left + 0.08 * column_width,
+            footer_top - 0.052,
+            textwrap.fill(interpretation_note or neutral_note, width=29),
+            ha="left",
+            va="top",
+            fontsize=6.6,
+            linespacing=1.3,
+            color="#30343B",
+        )
+
+        fig.text(
+            0.5,
+            0.010,
+            "Within each row, coordinates are identical across columns; only metadata coloring changes.",
+            ha="center",
+            va="bottom",
+            fontsize=7.2,
+            style="italic",
+            color="#555B63",
+        )
+
+    bottom_margin = (
+        0.235 if show_footer and n_rows <= 2 else 0.17 if show_footer else 0.065
+    )
+    fig.subplots_adjust(
+        left=0.115,
+        right=0.985,
+        top=0.895,
+        bottom=bottom_margin,
+        wspace=0.25,
+        hspace=0.37,
+    )
+    save_fig(fig, save_path)
+    return fig
+
+
 def plot_clinical_variables_panel(
     coords: np.ndarray,
     clinical_vars: Dict[str, np.ndarray],

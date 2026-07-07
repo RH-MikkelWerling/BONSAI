@@ -183,6 +183,7 @@ def load_finetune_model_from_checkpoint(
     ckpt_path: str,
     strict: bool = True,
     map_location: str = "cpu",
+    attn_type: str | None = None,
 ):
     """Reconstruct a BonsaiFinetune model from a Lightning checkpoint."""
     from bonsai.modules.networks.bonsai_nets import BonsaiFinetune
@@ -195,6 +196,10 @@ def load_finetune_model_from_checkpoint(
             "Ensure the checkpoint was saved with attach_model_config()."
         )
     model_config = require_native_checkpoint_config(hparams[MODEL_CONFIG_KEY])
+    if attn_type is not None:
+        if attn_type not in {"flash", "sdpa"}:
+            raise ValueError("attn_type override must be 'flash' or 'sdpa'.")
+        model_config["attn_type"] = attn_type
     predict_token_id = hparams[MODEL_CONFIG_KEY].get(
         "predict_token_id", hparams.get("predict_token_id")
     )
@@ -213,6 +218,7 @@ def load_joint_model_from_checkpoint(
     ckpt_path: str,
     strict: bool = True,
     map_location: str = "cpu",
+    attn_type: str | None = None,
 ):
     """Reconstruct a JointFinetuneModel from a Lightning checkpoint."""
     from opera.modules.networks.joint_finetune_net import JointFinetuneModel
@@ -226,6 +232,10 @@ def load_joint_model_from_checkpoint(
             "Ensure the checkpoint was saved with attach_model_config()."
         )
     model_config = require_native_checkpoint_config(hparams[MODEL_CONFIG_KEY])
+    if attn_type is not None:
+        if attn_type not in {"flash", "sdpa"}:
+            raise ValueError("attn_type override must be 'flash' or 'sdpa'.")
+        model_config["attn_type"] = attn_type
     outcome_names = list(hparams.get("outcome_names", []))
     if not outcome_names:
         raise ValueError(

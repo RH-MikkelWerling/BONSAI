@@ -66,7 +66,7 @@ def main(cfg: DictConfig) -> None:
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
     encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
-    encoder.load_state_dict(encoder_state, strict=False)
+    encoder.load_state_dict(encoder_state, strict=True)
 
     # ── Outcomes ─────────────────────────────────────────────────────
     outcomes = pd.read_parquet(cfg.paths.outcome)
@@ -133,6 +133,7 @@ def main(cfg: DictConfig) -> None:
         val_outcomes=val_outcomes,
         test_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
+        max_len=int(cfg.training.get("max_len") or model_cfg["max_seqlen"]),
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
         train_sampler=get_sampler(

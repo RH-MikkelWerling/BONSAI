@@ -50,6 +50,7 @@ hybrid:
   pooling: cls_last
 
 training:
+  max_len: null  # null inherits the encoder checkpoint's max_seqlen
   batch_size: 32
   accumulate_grad_batches: 1
   epochs: 30

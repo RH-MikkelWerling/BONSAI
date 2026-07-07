@@ -100,12 +100,24 @@ class BonsaiBase(nn.Module):
 
     def encode(self, batch):
         """Encode a padded batch and return ``(batch, sequence, hidden)`` states."""
-        x = self.embeddings(
-            code=batch["code"],
-            age=batch["age"],
-            abspos=batch["abspos"],
-            segment=batch["segment"],
-        )
+        if "token_embeddings" in batch:
+            x = batch["token_embeddings"]
+            if x.shape[:2] != batch["code"].shape:
+                raise ValueError(
+                    "token_embeddings must match batch['code'] in batch and "
+                    "sequence dimensions."
+                )
+            if x.shape[-1] != self.hparams["hidden_size"]:
+                raise ValueError(
+                    "token_embeddings hidden dimension does not match the encoder."
+                )
+        else:
+            x = self.embeddings(
+                code=batch["code"],
+                age=batch["age"],
+                abspos=batch["abspos"],
+                segment=batch["segment"],
+            )
 
         attention_mask = batch["attention_mask"].bool()
         use_flash = self.hparams["attn_type"] == "flash"

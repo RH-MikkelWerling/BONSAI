@@ -21,6 +21,7 @@ OPERA_CONFIGS = [
     "hematology_pretrain",
     "hybrid",
     "joint_finetune",
+    "leukemia_contrastive",
     "mol",
     "survival_finetune",
 ]
@@ -49,6 +50,9 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
     ):
         cfg = compose(config_name=config_name)
     assert cfg is not None
+    if config_name == "pretrain":
+        assert cfg.paths.dataset_class.endswith("ARPretrainDataset")
+        assert cfg.model.causal is True
 
 
 @pytest.mark.parametrize("config_name", OPERA_CONFIGS)

@@ -7,15 +7,16 @@ from typing import Sequence
 
 def freeze_encoder_for_linear_probe(
     model,
-    trainable_prefixes: Sequence[str] = ("cls.",),
+    trainable_prefixes: Sequence[str] = ("finetune_head.",),
 ) -> dict:
     """Freeze an encoder model while leaving readout-head parameters trainable.
 
     Parameters
     ----------
     model
-        PyTorch module with named parameters. OPERA/BONSAI finetune models use
-        the `cls.` prefix for the outcome head.
+        PyTorch module with named parameters. Native BONSAI finetune models use
+        the `finetune_head.` prefix for the outcome head. Strict linear-probe
+        wrappers can pass `classifier.` explicitly.
     trainable_prefixes
         Parameter-name prefixes that remain trainable.
 

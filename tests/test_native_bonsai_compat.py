@@ -4,6 +4,11 @@ import pytest
 import torch
 
 from bonsai.functional.model_config import normalize_bonsai_model_config
+from bonsai.functional.model_config import validate_pretraining_attention
+from bonsai.modules.datasets.PretrainDataset import (
+    ARPretrainDataset,
+    MLMPretrainDataset,
+)
 from bonsai.modules.networks.bonsai_nets import (
     BonsaiBase,
     BonsaiFinetune,
@@ -11,6 +16,7 @@ from bonsai.modules.networks.bonsai_nets import (
     unpack_valid_tokens,
 )
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.run.evaluate import extract_patient_embeddings
 
 
 def _small_model_config():
@@ -92,6 +98,38 @@ def test_sdpa_valid_representations_are_invariant_to_extra_right_padding():
     assert torch.allclose(short_rep, padded_rep, atol=1e-6)
 
 
+def test_evaluation_extracts_native_prediction_token_representation():
+    model = BonsaiFinetune(**_small_model_config(), predict_token_id=1).eval()
+    batch = {
+        "code": torch.tensor([[2, 3, 1]]),
+        "age": torch.tensor([[40.0, 41.0, 41.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 2.0]]),
+        "segment": torch.tensor([[0, 1, 1]]),
+        "attention_mask": torch.tensor([[True, True, True]]),
+    }
+
+    with torch.no_grad():
+        extracted = extract_patient_embeddings(model, batch)
+        expected = model.get_pooled_representation(batch)
+
+    assert torch.allclose(extracted, expected)
+
+
+def test_native_encoder_accepts_differentiable_token_embedding_override():
+    model = BonsaiFinetune(**_small_model_config(), predict_token_id=1).eval()
+    token_embeddings = torch.randn(1, 3, 8, requires_grad=True)
+    batch = {
+        "code": torch.tensor([[2, 3, 1]]),
+        "attention_mask": torch.tensor([[True, True, True]]),
+        "token_embeddings": token_embeddings,
+    }
+
+    model(batch).sum().backward()
+
+    assert token_embeddings.grad is not None
+    assert torch.isfinite(token_embeddings.grad).all()
+
+
 def test_primary_training_configs_default_to_flash_attention():
     root = Path(__file__).parents[1]
     paths = [
@@ -102,6 +140,13 @@ def test_primary_training_configs_default_to_flash_attention():
     ]
     for path in paths:
         assert "attn_type: flash" in path.read_text(encoding="utf-8")
+
+
+def test_autoregressive_pretraining_rejects_noncausal_attention():
+    with pytest.raises(ValueError, match="requires causal=True"):
+        validate_pretraining_attention(ARPretrainDataset, causal=False)
+    validate_pretraining_attention(ARPretrainDataset, causal=True)
+    validate_pretraining_attention(MLMPretrainDataset, causal=False)
 
 
 def test_opera_embedding_model_accepts_native_bonsai_encoder_output():

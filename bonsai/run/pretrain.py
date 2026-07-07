@@ -9,6 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
+from bonsai.functional.model_config import validate_pretraining_attention
 from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
@@ -16,7 +17,7 @@ from bonsai.modules.networks.bonsai_nets import BonsaiPretrain
 from bonsai.paths import get_config_path
 
 OmegaConf.register_new_resolver(
-    "version", lambda: generate_unused_run_id(), use_cache=True
+    "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
 )
 
 load_dotenv()
@@ -35,6 +36,8 @@ def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name=None, version=0)
     model_save_dir = logger.log_dir
 
+    dataset_class = get_class(cfg.paths.dataset_class)
+    validate_pretraining_attention(dataset_class, causal=cfg.model.causal)
     data_module = PretrainDataModule(
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
@@ -42,7 +45,7 @@ def main(cfg: DictConfig) -> None:
         path_population=cfg.paths.population,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
-        dataset_class=get_class(cfg.paths.dataset_class),
+        dataset_class=dataset_class,
         masking_config=cfg.training.get("masking"),
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,

@@ -335,86 +335,391 @@ def plot_within_stratum_grid(
     outcome_name: str = "outcome",
     save_path: Optional[str] = None,
     min_n: int = 30,
+    title: Optional[str] = None,
+    subtitle: Optional[str] = None,
+    stratum_labels: Optional[Dict[object, str]] = None,
+    highlight_stratum: Optional[object] = None,
+    emphasize_largest: bool = True,
+    callout_text: Optional[str] = None,
+    show_footer: bool = True,
+    talk_note: Optional[str] = None,
 ) -> plt.Figure:
+    """Show outcome geometry within clinical strata on one shared projection.
+
+    Every panel contains the complete cohort in grey and overlays one stratum,
+    split by observed outcome. Keeping the coordinates and axis limits fixed
+    means that only the highlighted patients change between panels.
+
+    By default the largest displayed stratum receives a subtle frame and a
+    descriptive callout. ``callout_text`` can replace that wording once the
+    pattern has been confirmed by held-out quantitative analysis.
     """
-    Grid of embedding plots, one per stratum, using a shared UMAP projection.
-    """
+    import textwrap
+
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import FancyBboxPatch
+
     from opera.visualization.embedding_plots import _reduce_embeddings
 
+    embeddings = np.asarray(embeddings)
+    labels = np.asarray(labels)
+    strata = np.asarray(strata)
+    if embeddings.ndim != 2:
+        raise ValueError("embeddings must be a two-dimensional array.")
+    if labels.ndim != 1 or strata.ndim != 1:
+        raise ValueError("labels and strata must be one-dimensional arrays.")
+    if not (len(embeddings) == len(labels) == len(strata)):
+        raise ValueError("embeddings, labels, and strata must have equal length.")
+    if len(embeddings) == 0:
+        raise ValueError("At least one embedding is required.")
+
+    binary_label = np.isin(labels, [0, 1])
     if stratum_values is None:
-        unique_s = sorted(set(strata))
+        unique_s = list(pd.unique(strata))
+        try:
+            unique_s = sorted(unique_s)
+        except TypeError:
+            unique_s = sorted(unique_s, key=lambda value: str(value))
         stratum_values = [
-            s
-            for s in unique_s
-            if (strata == s).sum() >= min_n and len(np.unique(labels[strata == s])) >= 2
+            value
+            for value in unique_s
+            if (strata == value).sum() >= min_n
+            and len(np.unique(labels[(strata == value) & binary_label])) >= 2
         ]
+    else:
+        stratum_values = list(stratum_values)
 
     n = len(stratum_values)
     if n == 0:
         fig, ax = plt.subplots()
         ax.text(0.5, 0.5, "No valid strata", ha="center", va="center")
+        ax.set_axis_off()
         return fig
 
-    coords = _reduce_embeddings(embeddings, method)
+    coords = np.asarray(_reduce_embeddings(embeddings, method))
+    if coords.shape != (len(embeddings), 2):
+        raise ValueError("The embedding reducer must return an (n_patients, 2) array.")
+    if not np.isfinite(coords).all():
+        raise ValueError("The shared embedding projection contains non-finite values.")
+
+    key_stratum = highlight_stratum
+    if key_stratum is None and emphasize_largest:
+        key_stratum = max(
+            stratum_values,
+            key=lambda value: int((strata == value).sum()),
+        )
+    if key_stratum is not None and key_stratum not in stratum_values:
+        raise ValueError("highlight_stratum must be one of the displayed strata.")
 
     cols = min(n, 3)
     rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(3.8 * cols, 3.5 * rows))
-    if n == 1:
-        axes = np.array([axes])
-    axes = axes.flatten()
+    footer_height = 1.28 if show_footer else 0.28
+    fig, axes = plt.subplots(
+        rows,
+        cols,
+        figsize=(max(7.1, 3.25 * cols), 3.05 * rows + footer_height + 0.72),
+        squeeze=False,
+    )
+    axes = axes.ravel()
+
+    x_span = float(np.ptp(coords[:, 0])) or 1.0
+    y_span = float(np.ptp(coords[:, 1])) or 1.0
+    x_limits = (
+        float(coords[:, 0].min() - 0.035 * x_span),
+        float(coords[:, 0].max() + 0.035 * x_span),
+    )
+    y_limits = (
+        float(coords[:, 1].min() - 0.035 * y_span),
+        float(coords[:, 1].max() + 0.035 * y_span),
+    )
+    panel_aspect = 1.02
+    x_width = x_limits[1] - x_limits[0]
+    y_height = y_limits[1] - y_limits[0]
+    x_midpoint = sum(x_limits) / 2
+    y_midpoint = sum(y_limits) / 2
+    if y_height < panel_aspect * x_width:
+        y_height = panel_aspect * x_width
+    else:
+        x_width = y_height / panel_aspect
+    x_limits = (x_midpoint - x_width / 2, x_midpoint + x_width / 2)
+    y_limits = (y_midpoint - y_height / 2, y_midpoint + y_height / 2)
+    background_color = "#D9DCE2"
+    border_color = "#C7CCD6"
+    key_border_color = "#3157B7"
+    negative_color = "#2458C7"
+    positive_color = "#F0441E"
+    stratum_labels = stratum_labels or {}
 
     for i, s_val in enumerate(stratum_values):
         ax = axes[i]
         mask = strata == s_val
-
         ax.scatter(
-            coords[~mask, 0],
-            coords[~mask, 1],
-            c=PALETTE["missing"],
-            s=3,
-            alpha=0.1,
+            coords[:, 0],
+            coords[:, 1],
+            c=background_color,
+            s=3.4,
+            alpha=0.43,
             rasterized=True,
             linewidths=0,
+            zorder=1,
         )
 
-        for label_val, color in [(0, PALETTE["negative"]), (1, PALETTE["positive"])]:
-            m = mask & (labels == label_val)
-            if m.sum() > 0:
+        for label_val, color in [(0, negative_color), (1, positive_color)]:
+            selected = mask & (labels == label_val)
+            if selected.any():
                 ax.scatter(
-                    coords[m, 0],
-                    coords[m, 1],
+                    coords[selected, 0],
+                    coords[selected, 1],
                     c=color,
-                    s=10,
-                    alpha=0.55,
+                    s=7.5,
+                    alpha=0.88,
                     rasterized=True,
                     linewidths=0,
-                    zorder=2,
+                    zorder=3,
                 )
 
-        n_s = mask.sum()
-        prev = labels[mask].mean() if mask.sum() > 0 else float("nan")
-        ax.set_title(
-            f"{stratum_name} = {s_val}\nn = {n_s},  prevalence = {prev:.2f}",
-            fontsize=8.5,
-            fontweight="semibold",
+        n_s = int(mask.sum())
+        valid_s = mask & binary_label
+        prevalence = (
+            f"{float(labels[valid_s].mean()):.0%}" if valid_s.any() else "not available"
         )
+        display_stratum = stratum_labels.get(s_val, f"{stratum_name} {s_val}")
+        display_math = str(display_stratum).replace(" ", r"\ ")
+        ax.set_title(
+            rf"$\bf{{{display_math}}}$   $n = {n_s:,}$   "
+            f"event prevalence = {prevalence}",
+            fontsize=9.2,
+            pad=9,
+        )
+        ax.set_xlim(x_limits)
+        ax.set_ylim(y_limits)
+        ax.set_box_aspect(panel_aspect)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.spines["left"].set_visible(False)
-        ax.spines["bottom"].set_visible(False)
+        is_key = s_val == key_stratum
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(1.0 if is_key else 0.7)
+            spine.set_edgecolor(key_border_color if is_key else border_color)
         ax.grid(False)
+
+        if is_key:
+            class_zero = mask & (labels == 0)
+            class_one = mask & (labels == 1)
+            if class_zero.any() and class_one.any():
+                target = (
+                    coords[class_zero].mean(axis=0) + coords[class_one].mean(axis=0)
+                ) / 2
+            else:
+                target = coords[mask].mean(axis=0)
+            annotation = callout_text or (
+                f"Largest displayed {stratum_name.lower()} band;\n"
+                "outcomes shown within the same clinical stratum"
+            )
+            ax.annotate(
+                annotation,
+                xy=target,
+                xycoords="data",
+                xytext=(0.025, 0.035),
+                textcoords="axes fraction",
+                ha="left",
+                va="bottom",
+                fontsize=7.4,
+                color="#222222",
+                bbox={
+                    "boxstyle": "round,pad=0.28",
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "alpha": 0.88,
+                },
+                arrowprops={
+                    "arrowstyle": "-|>",
+                    "color": "#222222",
+                    "linewidth": 0.8,
+                    "connectionstyle": "arc3,rad=0.25",
+                },
+                zorder=5,
+            )
 
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
-    fig.suptitle(
-        f"Within-stratum separation — {outcome_name.replace('_', ' ')}",
-        fontsize=10,
-        fontweight="semibold",
-        y=1.01,
+    default_title = f"{stratum_name} within-stratum separation in OPERA embedding space"
+    if outcome_name != "outcome":
+        default_title += f" — {outcome_name.replace('_', ' ')}"
+    title = title or default_title
+    subtitle = subtitle or (
+        f"Shared {method.upper()} projection, shown separately within "
+        f"clinician-defined {stratum_name} strata"
     )
-    fig.tight_layout()
+    fig.suptitle(title, fontsize=14.5, fontweight="bold", y=0.985)
+    fig.text(
+        0.5,
+        0.947,
+        subtitle,
+        ha="center",
+        va="top",
+        fontsize=9.5,
+        color="#424242",
+        style="italic",
+    )
+
+    if show_footer:
+        footer_bottom = 0.045
+        footer_top = 0.205 if rows == 1 else 0.17
+        footer = FancyBboxPatch(
+            (0.055, footer_bottom),
+            0.89,
+            footer_top - footer_bottom,
+            boxstyle="round,pad=0.006,rounding_size=0.012",
+            transform=fig.transFigure,
+            facecolor="#FBFCFF",
+            edgecolor=key_border_color,
+            linewidth=0.8,
+            zorder=-1,
+        )
+        fig.add_artist(footer)
+
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=background_color,
+                markeredgecolor="none",
+                markersize=7,
+                label="all patients (background context)",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=negative_color,
+                markeredgecolor="none",
+                markersize=7,
+                label="within-stratum no event",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=positive_color,
+                markeredgecolor="none",
+                markersize=7,
+                label="within-stratum event",
+            ),
+        ]
+        legend_width = 0.30 if talk_note else 0.36
+        fig.text(
+            0.085,
+            footer_top - 0.027,
+            "Displayed points",
+            fontsize=9.2,
+            fontweight="bold",
+            va="top",
+        )
+        fig.legend(
+            handles=legend_handles,
+            loc="center left",
+            bbox_to_anchor=(0.075, (footer_bottom + footer_top) / 2 - 0.012),
+            bbox_transform=fig.transFigure,
+            frameon=False,
+            fontsize=7.6,
+            labelspacing=0.75,
+            handletextpad=0.55,
+        )
+
+        divider_x = 0.055 + legend_width
+        fig.add_artist(
+            plt.Line2D(
+                [divider_x, divider_x],
+                [footer_bottom + 0.014, footer_top - 0.014],
+                transform=fig.transFigure,
+                color="#8BA0D7",
+                linewidth=0.7,
+                linestyle=(0, (2, 4)),
+            )
+        )
+        interpretation_x = divider_x + 0.03
+        fig.text(
+            interpretation_x,
+            footer_top - 0.027,
+            "Interpretation",
+            fontsize=9.2,
+            fontweight="bold",
+            va="top",
+        )
+        interpretation = (
+            f"Within a single clinician-defined {stratum_name} band, OPERA may "
+            "reveal outcome-enriched regions. Visual separation is descriptive "
+            "and should be confirmed with held-out discrimination and uncertainty "
+            "estimates."
+        )
+        fig.text(
+            interpretation_x,
+            footer_top - 0.061,
+            textwrap.fill(interpretation, width=53 if talk_note else 76),
+            fontsize=7.7,
+            va="top",
+            linespacing=1.35,
+            color="#252525",
+        )
+
+        if talk_note:
+            second_divider_x = 0.69
+            fig.add_artist(
+                plt.Line2D(
+                    [second_divider_x, second_divider_x],
+                    [footer_bottom + 0.014, footer_top - 0.014],
+                    transform=fig.transFigure,
+                    color="#8BA0D7",
+                    linewidth=0.7,
+                    linestyle=(0, (2, 4)),
+                )
+            )
+            fig.text(
+                second_divider_x + 0.025,
+                footer_top - 0.027,
+                "Talk note",
+                fontsize=9.2,
+                fontweight="bold",
+                va="top",
+            )
+            fig.text(
+                second_divider_x + 0.025,
+                footer_top - 0.061,
+                textwrap.fill(talk_note, width=43),
+                fontsize=7.7,
+                va="top",
+                linespacing=1.35,
+                color="#252525",
+            )
+
+        fig.text(
+            0.5,
+            0.014,
+            "Each panel shows the same 2D projection; only the highlighted stratum changes.",
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            style="italic",
+            color="#555555",
+        )
+
+    bottom_margin = (
+        0.235 if show_footer and rows == 1 else 0.195 if show_footer else 0.06
+    )
+    fig.subplots_adjust(
+        left=0.035,
+        right=0.985,
+        top=0.885,
+        bottom=bottom_margin,
+        wspace=0.055,
+        hspace=0.19,
+    )
     save_fig(fig, save_path)
     return fig
 
