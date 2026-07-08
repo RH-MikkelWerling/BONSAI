@@ -206,7 +206,7 @@ def classify_task_eligibility(
     aggregate_test_negative: int,
     max_test_indeterminate_fraction: float,
 ) -> dict:
-    """Apply prespecified count-only task eligibility and viability rules."""
+    """Annotate count-based training eligibility and reporting tiers."""
     train_reasons = []
     if int(counts["n_train_determinate"]) < min_train_patients:
         train_reasons.append("insufficient_train_patients")
@@ -221,23 +221,29 @@ def classify_task_eligibility(
     )
     pos = int(counts["n_test_positive"])
     neg = int(counts["n_test_negative"])
-    if ind_fraction > max_test_indeterminate_fraction:
-        tier = "non_evaluable"
-        test_reason = "excess_test_indeterminate"
-    elif pos >= primary_test_positive and neg >= primary_test_negative:
+    minority_class = min(pos, neg)
+    if pos >= primary_test_positive and neg >= primary_test_negative:
         tier = "primary"
         test_reason = ""
     elif pos >= aggregate_test_positive and neg >= aggregate_test_negative:
         tier = "aggregate_only"
         test_reason = "below_primary_test_counts"
+    elif minority_class > 0:
+        tier = "partial_pool_only"
+        test_reason = "below_aggregate_test_counts"
     else:
         tier = "non_evaluable"
-        test_reason = "insufficient_test_classes"
+        test_reason = "missing_test_class"
+    synthetic_reasons = [*train_reasons]
+    if tier == "non_evaluable":
+        synthetic_reasons.append(test_reason)
     return {
-        "synthetic_eligible": not train_reasons and tier == "primary",
-        "synthetic_exclusion_reason": ";".join([*train_reasons, *([test_reason] if test_reason else [])]),
+        "synthetic_eligible": not synthetic_reasons,
+        "synthetic_exclusion_reason": ";".join(synthetic_reasons),
         "natural_viability_tier": tier,
-        "natural_exclusion_reason": test_reason,
+        "natural_exclusion_reason": test_reason if tier == "non_evaluable" else "",
+        "natural_reporting_reason": test_reason,
+        "minority_class": int(minority_class),
         "test_indeterminate_fraction": ind_fraction,
     }
 
