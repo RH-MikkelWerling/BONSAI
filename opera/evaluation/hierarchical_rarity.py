@@ -3,7 +3,8 @@
 This module deliberately contains no PyMC imports. It discovers standard
 OPERA result/prediction artifacts, reconstructs the canonical fixed-horizon
 population encoded by each prediction artifact, requires exact patient and
-label parity between models, and produces paired patient-bootstrap deltas.
+label parity between models, and produces paired deltas with audited
+uncertainty estimates.
 The resulting tables are therefore usable without the optional Bayesian
 dependencies and are auditable before a model is fitted.
 """
@@ -255,14 +256,54 @@ def _metric_differences(
     }
 
 
+def _paired_auroc_delong_se(
+    labels: np.ndarray,
+    model_probabilities: np.ndarray,
+    comparator_probabilities: np.ndarray,
+) -> float:
+    labels = np.asarray(labels, dtype=int)
+    model_probabilities = np.asarray(model_probabilities, dtype=float)
+    comparator_probabilities = np.asarray(comparator_probabilities, dtype=float)
+    if np.unique(labels).size < 2:
+        return float("nan")
+
+    def components(probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        positive = probabilities[labels == 1]
+        negative = probabilities[labels == 0]
+        comparison = (positive[:, None] > negative[None, :]).astype(float)
+        comparison += 0.5 * (positive[:, None] == negative[None, :])
+        return comparison.mean(axis=1), comparison.mean(axis=0)
+
+    model_v10, model_v01 = components(model_probabilities)
+    comparator_v10, comparator_v01 = components(comparator_probabilities)
+    n_positive = len(model_v10)
+    n_negative = len(model_v01)
+    if n_positive < 2 or n_negative < 2:
+        return float("nan")
+
+    s10 = np.cov(np.vstack([model_v10, comparator_v10]), ddof=1)
+    s01 = np.cov(np.vstack([model_v01, comparator_v01]), ddof=1)
+    variance = (s10[0, 0] - 2.0 * s10[0, 1] + s10[1, 1]) / n_positive
+    variance += (s01[0, 0] - 2.0 * s01[0, 1] + s01[1, 1]) / n_negative
+    if not np.isfinite(variance):
+        return float("nan")
+    if variance < 0.0:
+        if np.isclose(variance, 0.0, atol=1e-15):
+            variance = 0.0
+        else:
+            return float("nan")
+    return float(np.sqrt(variance))
+
+
 def paired_bootstrap_differences(
     paired: pd.DataFrame,
     *,
     n_bootstrap: int,
     seed: int,
     metrics: Sequence[str] = SUPPORTED_METRICS,
+    small_sample_minority_threshold: int = 10,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Compute paired deltas and patient-bootstrap uncertainty."""
+    """Compute paired deltas and uncertainty estimates."""
     unknown = sorted(set(metrics).difference(SUPPORTED_METRICS))
     if unknown:
         raise ValueError(f"Unsupported metrics: {unknown}")
@@ -271,6 +312,7 @@ def paired_bootstrap_differences(
 
     observed = _metric_differences(paired, metrics)
     labels = paired["label_model"].to_numpy(dtype=int)
+    minority_class = int(min(labels.sum(), len(labels) - labels.sum()))
     rng = np.random.default_rng(seed)
     draws = {metric: [] for metric in metrics}
     n = len(paired)
@@ -288,20 +330,37 @@ def paired_bootstrap_differences(
     draw_rows: list[dict] = []
     for metric in metrics:
         values = np.asarray(draws[metric], dtype=float)
+        bootstrap_se = float(values.std(ddof=1)) if values.size > 1 else np.nan
+        se = bootstrap_se
+        lower = float(np.quantile(values, 0.025)) if values.size else np.nan
+        upper = float(np.quantile(values, 0.975)) if values.size else np.nan
+        se_method = "paired_bootstrap"
+        if metric == "auroc":
+            if minority_class >= int(small_sample_minority_threshold):
+                delong_se = _paired_auroc_delong_se(
+                    labels,
+                    paired["probability_model"].to_numpy(dtype=float),
+                    paired["probability_comparator"].to_numpy(dtype=float),
+                )
+                if np.isfinite(delong_se):
+                    se = delong_se
+                    lower = float(observed[metric] - 1.96 * delong_se)
+                    upper = float(observed[metric] + 1.96 * delong_se)
+                    se_method = "paired_delong"
+                else:
+                    se_method = "paired_bootstrap_delong_unavailable"
+            else:
+                se_method = "paired_bootstrap_small_sample"
         summary_rows.append(
             {
                 "metric": metric,
                 "difference": float(observed[metric]),
-                "difference_se": (
-                    float(values.std(ddof=1)) if values.size > 1 else np.nan
-                ),
-                "difference_ci_lower": (
-                    float(np.quantile(values, 0.025)) if values.size else np.nan
-                ),
-                "difference_ci_upper": (
-                    float(np.quantile(values, 0.975)) if values.size else np.nan
-                ),
+                "difference_se": se,
+                "difference_ci_lower": lower,
+                "difference_ci_upper": upper,
+                "difference_se_method": se_method,
                 "n_bootstrap_valid": int(values.size),
+                "minority_class": minority_class,
             }
         )
         draw_rows.extend(
@@ -348,10 +407,11 @@ def build_paired_delta_tables(
     n_bootstrap: int,
     seed: int,
     metrics: Sequence[str] = SUPPORTED_METRICS,
-    min_test_positive: int = 2,
-    min_test_negative: int = 2,
-    primary_test_positive: int = 10,
-    primary_test_negative: int = 10,
+    min_test_positive: int = 1,
+    min_test_negative: int = 1,
+    primary_test_positive: int = 25,
+    primary_test_negative: int = 25,
+    small_sample_minority_threshold: int = 10,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, np.ndarray]]:
     """Build paired cell/seed deltas, bootstrap draws, and cell memberships."""
     missing = REQUIRED_ARTIFACT_COLUMNS.difference(artifacts.columns)
@@ -410,6 +470,7 @@ def build_paired_delta_tables(
         n_negative = int(len(paired) - n_positive)
         if n_positive < min_test_positive or n_negative < min_test_negative:
             continue
+        minority_class = min(n_positive, n_negative)
 
         cell_columns = [
             column
@@ -433,6 +494,7 @@ def build_paired_delta_tables(
             n_bootstrap=n_bootstrap,
             seed=cell_seed,
             metrics=metrics,
+            small_sample_minority_threshold=small_sample_minority_threshold,
         )
         common = {column: pair[column] for column in key_columns}
         common.update(
@@ -443,6 +505,7 @@ def build_paired_delta_tables(
                 "n_test_patients": int(len(paired)),
                 "n_test_positive": n_positive,
                 "n_test_negative": n_negative,
+                "minority_class": int(minority_class),
                 "analysis_tier": (
                     "primary"
                     if n_positive >= primary_test_positive
@@ -464,7 +527,7 @@ def build_paired_delta_tables(
         all_draws.append(draws.assign(**common))
 
     if not summaries:
-        raise ValueError("No paired cells met the minimum held-out class counts.")
+        raise ValueError("No paired cells had estimable held-out class counts.")
     return (
         pd.concat(summaries, ignore_index=True),
         pd.concat(all_draws, ignore_index=True),
