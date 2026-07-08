@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -7,7 +8,10 @@ import pandas as pd
 import pytest
 import yaml
 
-from opera.analysis.bayesian_rarity import prepare_rarity_data
+from opera.analysis.bayesian_rarity import (
+    fit_hierarchical_rarity_model,
+    prepare_rarity_data,
+)
 from opera.evaluation.hierarchical_rarity import (
     apply_outcome_families,
     assert_paired_prediction_parity,
@@ -15,6 +19,7 @@ from opera.evaluation.hierarchical_rarity import (
     build_paired_delta_tables,
     discover_prediction_artifacts,
     load_binary_prediction_artifact,
+    paired_bootstrap_differences,
     summarize_patient_overlap,
 )
 from opera.visualization.hierarchical_rarity_plots import (
@@ -171,6 +176,9 @@ def test_paired_tables_overlap_and_model_preparation(tmp_path):
     assert set(deltas["metric"]) == {"auroc", "brier_score"}
     assert (deltas["difference"] >= 0).all()
     assert set(deltas["cohort_group"]) == {"group_a", "group_b"}
+    auroc = deltas[deltas["metric"] == "auroc"]
+    assert set(auroc["difference_se_method"]) == {"paired_delong"}
+    assert set(auroc["minority_class"]) == {20}
     assert not draws.empty
     summary, pairs = summarize_patient_overlap(memberships)
     assert summary["fraction_patients_in_multiple_cells"] == 1.0
@@ -187,9 +195,206 @@ def test_paired_tables_overlap_and_model_preparation(tmp_path):
     assert prepared.spline_grid.shape[0] == 30
     assert np.isfinite(prepared.spline_cells).all()
     assert set(prepared.cells["cohort_group"]) == {"group_a", "group_b"}
+    assert "minority_class" in prepared.cells
+    assert not prepared.cells["n_events_train"].equals(
+        prepared.cells["minority_class"]
+    )
+    assert len(prepared.group_of_cohort) == len(prepared.cohorts)
+    assert len(prepared.family_of_outcome) == len(prepared.outcomes)
+    assert np.all(prepared.group_of_cohort >= 0)
+    assert np.all(prepared.group_of_cohort < len(prepared.groups))
+    assert np.all(prepared.family_of_outcome >= 0)
+    assert np.all(prepared.family_of_outcome < len(prepared.families))
+    assert prepared.grid_event_counts.min() == pytest.approx(
+        prepared.cells["n_events_train"].min()
+    )
 
     scatter = aggregate_scatter_cells(deltas, metric="auroc")
     assert set(scatter["cohort_group"]) == {"group_a", "group_b"}
+
+
+def test_small_sample_auroc_uses_bootstrap_se():
+    labels = np.array([1] * 5 + [0] * 15)
+    paired = pd.DataFrame(
+        {
+            "subject_id": np.arange(len(labels)),
+            "label_model": labels,
+            "label_comparator": labels,
+            "probability_model": np.linspace(0.95, 0.05, len(labels)),
+            "probability_comparator": np.linspace(0.85, 0.15, len(labels)),
+        }
+    )
+    summary, draws = paired_bootstrap_differences(
+        paired,
+        n_bootstrap=50,
+        seed=11,
+        metrics=("auroc",),
+        small_sample_minority_threshold=10,
+    )
+    row = summary.iloc[0]
+    assert row["difference_se_method"] == "paired_bootstrap_small_sample"
+    assert row["minority_class"] == 5
+    assert np.isfinite(row["difference_se"])
+    assert not draws.empty
+
+
+def _nested_delta_fixture() -> pd.DataFrame:
+    rows = []
+    specs = [
+        ("group_a", "cohort_a_rich", "outcome_a0", "family_a", 8, 60, 0.09, 0.01),
+        ("group_a", "cohort_a_rich", "outcome_a1", "family_a", 10, 60, 0.08, 0.01),
+        ("group_a", "cohort_a_rich", "outcome_a2", "family_a", 12, 60, 0.10, 0.01),
+        ("group_a", "cohort_a_poor", "outcome_a3", "family_a", 14, 5, -0.01, 0.25),
+        ("group_b", "cohort_b0", "outcome_b0", "family_b", 40, 60, -0.10, 0.01),
+        ("group_b", "cohort_b0", "outcome_b1", "family_b", 50, 60, -0.09, 0.01),
+        ("group_b", "cohort_b1", "outcome_b2", "family_b", 60, 60, -0.11, 0.01),
+        ("group_b", "cohort_b1", "outcome_b3", "family_b", 70, 60, -0.08, 0.01),
+    ]
+    for index, (
+        cohort_group,
+        cohort,
+        outcome,
+        family,
+        train_events,
+        minority_class,
+        difference,
+        difference_se,
+    ) in enumerate(specs):
+        rows.append(
+            {
+                "cell_id": f"{cohort}|{outcome}|720",
+                "cohort": cohort,
+                "cohort_group": cohort_group,
+                "outcome": outcome,
+                "outcome_family": family,
+                "metric": "auroc",
+                "difference": difference,
+                "difference_se": difference_se,
+                "n_events_train": train_events,
+                "minority_class": minority_class,
+                "analysis_tier": (
+                    "primary" if minority_class >= 25 else "partial_pool_only"
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_prepare_rarity_data_keeps_partial_pool_cells():
+    deltas = _nested_delta_fixture()
+    prepared = prepare_rarity_data(
+        deltas,
+        metric="auroc",
+        spline_knots=4,
+        standard_error_floor=0.001,
+        fit_tiers=("primary",),
+        grid_size=25,
+    )
+    assert len(prepared.cells) == len(deltas)
+    poor = prepared.cells[prepared.cells["cohort"] == "cohort_a_poor"].iloc[0]
+    assert poor["minority_class"] == 5
+    assert "partial_pool_only" in set(prepared.observations["analysis_tier"])
+    assert prepared.grid_event_counts.min() == pytest.approx(8.0)
+    poor_cohort = prepared.cohorts.index("cohort_a_poor")
+    rich_cohort = prepared.cohorts.index("cohort_a_rich")
+    assert prepared.group_of_cohort[poor_cohort] == prepared.group_of_cohort[
+        rich_cohort
+    ]
+
+
+def test_prepare_rarity_data_requires_reporting_counts():
+    deltas = _nested_delta_fixture().drop(columns=["minority_class"])
+    with pytest.raises(ValueError, match="minority_class"):
+        prepare_rarity_data(
+            deltas.drop(columns=["analysis_tier"]),
+            metric="auroc",
+            spline_knots=4,
+        )
+
+
+def test_hierarchical_model_samples_nested_hierarchy(tmp_path):
+    pytest.importorskip("pymc")
+    az = pytest.importorskip("arviz")
+
+    output_root = Path.cwd() / ".pytest_bayes" / tmp_path.name
+    prepared = prepare_rarity_data(
+        _nested_delta_fixture(),
+        metric="auroc",
+        spline_knots=4,
+        standard_error_floor=0.001,
+        grid_size=8,
+    )
+    try:
+        paths = fit_hierarchical_rarity_model(
+            prepared,
+            output_dir=output_root / "nested",
+            draws=2,
+            tune=2,
+            chains=1,
+            cores=1,
+            target_accept=0.90,
+            random_seed=17,
+            prior_scale=0.15,
+            random_effect_scale=0.10,
+            require_convergence=False,
+            nest_outcomes=True,
+            min_report_minority=25,
+            nuts_max_treedepth=1,
+            progressbar=False,
+        )
+        idata = az.from_netcdf(paths["posterior"])
+        assert "sigma_group" in idata.posterior
+        assert "sigma_cohort_within" in idata.posterior
+        assert "sigma_family" in idata.posterior
+        assert "sigma_outcome_within" in idata.posterior
+        diagnostics = json.loads(paths["diagnostics_json"].read_text())
+        assert diagnostics["n_cohort_groups"] == 2
+        assert diagnostics["nest_outcomes"] is True
+
+        cells = pd.read_csv(paths["cells"])
+        assert len(cells) == len(prepared.cells)
+        poor = cells[cells["cohort"] == "cohort_a_poor"].iloc[0]
+        assert bool(poor["reportable_standalone"]) is False
+        assert np.isfinite(poor["posterior_median"])
+    finally:
+        shutil.rmtree(output_root, ignore_errors=True)
+
+
+def test_hierarchical_model_samples_crossed_outcome_toggle(tmp_path):
+    pytest.importorskip("pymc")
+    az = pytest.importorskip("arviz")
+
+    output_root = Path.cwd() / ".pytest_bayes" / tmp_path.name
+    prepared = prepare_rarity_data(
+        _nested_delta_fixture(),
+        metric="auroc",
+        spline_knots=4,
+        standard_error_floor=0.001,
+        grid_size=8,
+    )
+    try:
+        paths = fit_hierarchical_rarity_model(
+            prepared,
+            output_dir=output_root / "crossed",
+            draws=2,
+            tune=2,
+            chains=1,
+            cores=1,
+            target_accept=0.90,
+            random_seed=23,
+            prior_scale=0.15,
+            random_effect_scale=0.10,
+            require_convergence=False,
+            nest_outcomes=False,
+            nuts_max_treedepth=1,
+            progressbar=False,
+        )
+        idata = az.from_netcdf(paths["posterior"])
+        assert "sigma_outcome" in idata.posterior
+        assert "sigma_family" not in idata.posterior
+        assert "sigma_outcome_within" not in idata.posterior
+    finally:
+        shutil.rmtree(output_root, ignore_errors=True)
 
 
 def test_attach_task_metadata_requires_complete_event_counts():

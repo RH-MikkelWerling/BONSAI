@@ -142,6 +142,61 @@ def test_task_eligibility_uses_prespecified_counts_only():
     )
     assert result["synthetic_eligible"] is True
     assert result["natural_viability_tier"] == "primary"
+    assert result["minority_class"] == 50
+
+
+def test_task_eligibility_reports_indeterminate_without_excluding():
+    counts = {
+        "n_train_determinate": 500,
+        "n_train_positive": 50,
+        "n_train_negative": 450,
+        "n_test_total": 1011,
+        "n_test_positive": 5,
+        "n_test_negative": 6,
+        "n_test_indeterminate": 1000,
+    }
+    result = classify_task_eligibility(
+        counts,
+        min_train_patients=500,
+        min_train_positive=20,
+        min_train_negative=20,
+        primary_test_positive=25,
+        primary_test_negative=25,
+        aggregate_test_positive=10,
+        aggregate_test_negative=10,
+        max_test_indeterminate_fraction=0.5,
+    )
+    assert result["synthetic_eligible"] is True
+    assert result["natural_viability_tier"] == "partial_pool_only"
+    assert result["natural_exclusion_reason"] == ""
+    assert result["minority_class"] == 5
+    assert result["test_indeterminate_fraction"] == pytest.approx(1000 / 1011)
+
+
+def test_task_eligibility_marks_missing_class_non_evaluable():
+    counts = {
+        "n_train_determinate": 500,
+        "n_train_positive": 50,
+        "n_train_negative": 450,
+        "n_test_total": 100,
+        "n_test_positive": 0,
+        "n_test_negative": 100,
+        "n_test_indeterminate": 0,
+    }
+    result = classify_task_eligibility(
+        counts,
+        min_train_patients=500,
+        min_train_positive=20,
+        min_train_negative=20,
+        primary_test_positive=25,
+        primary_test_negative=25,
+        aggregate_test_positive=10,
+        aggregate_test_negative=10,
+        max_test_indeterminate_fraction=0.5,
+    )
+    assert result["synthetic_eligible"] is False
+    assert result["natural_viability_tier"] == "non_evaluable"
+    assert result["natural_exclusion_reason"] == "missing_test_class"
 
 
 def _prediction_frame(offset=0.0):
