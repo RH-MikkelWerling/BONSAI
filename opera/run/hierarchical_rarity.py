@@ -110,10 +110,13 @@ def assemble(config: dict[str, Any]) -> dict[str, Path]:
         metrics=tuple(
             analysis.get("metrics", [analysis.get("primary_metric", "auroc")])
         ),
-        min_test_positive=int(analysis.get("minimum_test_positive", 2)),
-        min_test_negative=int(analysis.get("minimum_test_negative", 2)),
-        primary_test_positive=int(analysis.get("primary_test_positive", 10)),
-        primary_test_negative=int(analysis.get("primary_test_negative", 10)),
+        min_test_positive=int(analysis.get("minimum_test_positive", 1)),
+        min_test_negative=int(analysis.get("minimum_test_negative", 1)),
+        primary_test_positive=int(analysis.get("primary_test_positive", 25)),
+        primary_test_negative=int(analysis.get("primary_test_negative", 25)),
+        small_sample_minority_threshold=int(
+            analysis.get("small_sample_minority_threshold", 10)
+        ),
     )
     _write_frame(deltas, output / "paired_deltas")
     _write_frame(bootstrap_draws, output / "paired_bootstrap_draws")
@@ -176,6 +179,8 @@ def fit(config: dict[str, Any]) -> dict[str, Path]:
         prior_scale=float(model_cfg.get("prior_scale", 0.10)),
         random_effect_scale=float(model_cfg.get("random_effect_scale", 0.05)),
         require_convergence=bool(model_cfg.get("require_convergence", True)),
+        nest_outcomes=bool(model_cfg.get("nest_outcomes", True)),
+        min_report_minority=int(model_cfg.get("min_report_minority", 25)),
     )
 
 

@@ -27,8 +27,11 @@ class PreparedRarityData:
     family_index: np.ndarray
     cell_index: np.ndarray
     cohorts: list[str]
+    groups: list[str]
     outcomes: list[str]
     families: list[str]
+    group_of_cohort: np.ndarray
+    family_of_outcome: np.ndarray
     basis_center: np.ndarray
     basis_scale: np.ndarray
 
@@ -57,14 +60,38 @@ def prepare_rarity_data(
     if missing:
         raise ValueError(f"Paired delta table is missing columns: {sorted(missing)}")
     observations = deltas[deltas["metric"] == metric].copy()
-    if "analysis_tier" in observations:
-        observations = observations[observations["analysis_tier"].isin(fit_tiers)]
-    for column in ("difference", "difference_se", rarity_column):
+    if "minority_class" not in observations:
+        count_pairs = (
+            ("n_pos", "n_neg"),
+            ("n_positive", "n_negative"),
+            ("n_test_positive", "n_test_negative"),
+            ("n_test_pos", "n_test_neg"),
+        )
+        for positive_column, negative_column in count_pairs:
+            if positive_column in observations and negative_column in observations:
+                positive = pd.to_numeric(
+                    observations[positive_column],
+                    errors="coerce",
+                )
+                negative = pd.to_numeric(
+                    observations[negative_column],
+                    errors="coerce",
+                )
+                observations["minority_class"] = np.minimum(positive, negative)
+                break
+        else:
+            raise ValueError(
+                "Paired delta table needs minority_class or paired positive "
+                "and negative test counts."
+            )
+    for column in ("difference", "difference_se", rarity_column, "minority_class"):
         observations[column] = pd.to_numeric(observations[column], errors="coerce")
     observations = observations.replace([np.inf, -np.inf], np.nan).dropna(
-        subset=["difference", "difference_se", rarity_column]
+        subset=["difference", "difference_se", rarity_column, "minority_class"]
     )
     observations = observations[observations[rarity_column] > 0].copy()
+    if (observations["minority_class"] < 0).any():
+        raise ValueError("minority_class must be non-negative.")
     if observations.empty:
         raise ValueError("No finite positive-rarity rows are available for modelling.")
     if observations["cell_id"].nunique() < 8:
@@ -87,22 +114,57 @@ def prepare_rarity_data(
         "outcome",
         "outcome_family",
         rarity_column,
+        "minority_class",
         "log2_rarity",
     ]
+    for count_column in (rarity_column, "minority_class"):
+        consistency = observations.groupby("cell_id")[count_column].nunique()
+        if (consistency > 1).any():
+            raise ValueError(
+                f"{count_column} changed across seeds within a task cell."
+            )
     cells = observations[cell_columns].drop_duplicates("cell_id").copy()
-    consistency = observations.groupby("cell_id")[rarity_column].nunique()
-    if (consistency > 1).any():
-        raise ValueError("Rarity counts changed across seeds within a task cell.")
     cells = cells.sort_values("cell_id").reset_index(drop=True)
     cell_lookup = {name: index for index, name in enumerate(cells["cell_id"])}
     observations["cell_index"] = observations["cell_id"].map(cell_lookup).astype(int)
 
     cohorts = sorted(cells["cohort"].astype(str).unique())
+    cohort_group_pairs = (
+        cells[["cohort", "cohort_group"]].astype(str).drop_duplicates()
+    )
+    group_counts = cohort_group_pairs.groupby("cohort")["cohort_group"].nunique()
+    if (group_counts > 1).any():
+        raise ValueError("Each fine cohort must map to exactly one cohort_group.")
+    groups = sorted(cohort_group_pairs["cohort_group"].unique())
+    group_lookup = {value: index for index, value in enumerate(groups)}
+    cohort_to_group = cohort_group_pairs.set_index("cohort")[
+        "cohort_group"
+    ].to_dict()
+    group_of_cohort = np.asarray(
+        [group_lookup[cohort_to_group[value]] for value in cohorts],
+        dtype=int,
+    )
+
     outcomes = sorted(cells["outcome"].astype(str).unique())
+    outcome_family_pairs = (
+        cells[["outcome", "outcome_family"]].astype(str).drop_duplicates()
+    )
+    family_counts = outcome_family_pairs.groupby("outcome")[
+        "outcome_family"
+    ].nunique()
+    if (family_counts > 1).any():
+        raise ValueError("Each outcome must map to exactly one outcome_family.")
     families = sorted(cells["outcome_family"].astype(str).unique())
     cohort_lookup = {value: index for index, value in enumerate(cohorts)}
     outcome_lookup = {value: index for index, value in enumerate(outcomes)}
     family_lookup = {value: index for index, value in enumerate(families)}
+    outcome_to_family = outcome_family_pairs.set_index("outcome")[
+        "outcome_family"
+    ].to_dict()
+    family_of_outcome = np.asarray(
+        [family_lookup[outcome_to_family[value]] for value in outcomes],
+        dtype=int,
+    )
 
     x_cells = cells[["log2_rarity"]].to_numpy(dtype=float)
     transformer = SplineTransformer(
@@ -146,8 +208,11 @@ def prepare_rarity_data(
         ),
         cell_index=observations["cell_index"].to_numpy(dtype=int),
         cohorts=cohorts,
+        groups=groups,
         outcomes=outcomes,
         families=families,
+        group_of_cohort=group_of_cohort,
+        family_of_outcome=family_of_outcome,
         basis_center=basis_center,
         basis_scale=basis_scale,
     )
@@ -178,6 +243,10 @@ def fit_hierarchical_rarity_model(
     prior_scale: float = 0.10,
     random_effect_scale: float = 0.05,
     require_convergence: bool = True,
+    nest_outcomes: bool = True,
+    min_report_minority: int = 25,
+    nuts_max_treedepth: Optional[int] = None,
+    progressbar: bool = True,
 ) -> dict[str, Path]:
     """Fit the robust crossed-effects spline model and persist all artifacts."""
     pm, az = _require_bayesian_dependencies()
@@ -190,6 +259,7 @@ def fit_hierarchical_rarity_model(
         "observation": np.arange(len(observations)),
         "cell": cells["cell_id"].tolist(),
         "cohort": prepared.cohorts,
+        "cohort_group": prepared.groups,
         "outcome": prepared.outcomes,
         "family": prepared.families,
         "spline": np.arange(prepared.spline_cells.shape[1]),
@@ -255,28 +325,54 @@ def fit_hierarchical_rarity_model(
 
         variance_components = []
         if len(prepared.cohorts) > 1:
-            sigma_cohort = pm.HalfNormal("sigma_cohort", sigma=random_effect_scale)
+            sigma_group = pm.HalfNormal("sigma_group", sigma=random_effect_scale)
+            group_z = pm.Normal("group_z", 0.0, 1.0, dims="cohort_group")
+            group_effect = sigma_group * group_z
+            sigma_cohort_within = pm.HalfNormal(
+                "sigma_cohort_within",
+                sigma=random_effect_scale,
+            )
             cohort_z = pm.Normal("cohort_z", 0.0, 1.0, dims="cohort")
-            cohort_effect = sigma_cohort * cohort_z[prepared.cohort_index]
-            variance_components.append(sigma_cohort**2)
+            cohort_level = (
+                group_effect[prepared.group_of_cohort]
+                + sigma_cohort_within * cohort_z
+            )
+            cohort_effect = cohort_level[prepared.cohort_index]
+            variance_components.append(sigma_group**2 + sigma_cohort_within**2)
         else:
             cohort_effect = np.zeros(len(cells), dtype=float)
 
         if len(prepared.outcomes) > 1:
-            sigma_outcome = pm.HalfNormal("sigma_outcome", sigma=random_effect_scale)
-            outcome_z = pm.Normal("outcome_z", 0.0, 1.0, dims="outcome")
-            outcome_effect = sigma_outcome * outcome_z[prepared.outcome_index]
-            variance_components.append(sigma_outcome**2)
+            if nest_outcomes:
+                sigma_family = pm.HalfNormal(
+                    "sigma_family",
+                    sigma=random_effect_scale,
+                )
+                family_z = pm.Normal("family_z", 0.0, 1.0, dims="family")
+                family_effect = sigma_family * family_z
+                sigma_outcome_within = pm.HalfNormal(
+                    "sigma_outcome_within",
+                    sigma=random_effect_scale,
+                )
+                outcome_z = pm.Normal("outcome_z", 0.0, 1.0, dims="outcome")
+                outcome_level = (
+                    family_effect[prepared.family_of_outcome]
+                    + sigma_outcome_within * outcome_z
+                )
+                outcome_effect = outcome_level[prepared.outcome_index]
+                variance_components.append(
+                    sigma_family**2 + sigma_outcome_within**2
+                )
+            else:
+                sigma_outcome = pm.HalfNormal(
+                    "sigma_outcome",
+                    sigma=random_effect_scale,
+                )
+                outcome_z = pm.Normal("outcome_z", 0.0, 1.0, dims="outcome")
+                outcome_effect = sigma_outcome * outcome_z[prepared.outcome_index]
+                variance_components.append(sigma_outcome**2)
         else:
             outcome_effect = np.zeros(len(cells), dtype=float)
-
-        if len(prepared.families) > 1:
-            sigma_family = pm.HalfNormal("sigma_family", sigma=random_effect_scale)
-            family_z = pm.Normal("family_z", 0.0, 1.0, dims="family")
-            family_effect = sigma_family * family_z[prepared.family_index]
-            variance_components.append(sigma_family**2)
-        else:
-            family_effect = np.zeros(len(cells), dtype=float)
 
         sigma_cell = pm.HalfNormal("sigma_cell", sigma=random_effect_scale)
         variance_components.append(sigma_cell**2)
@@ -293,7 +389,6 @@ def fit_hierarchical_rarity_model(
             + smooth_cell
             + cohort_effect
             + outcome_effect
-            + family_effect
             + sigma_cell * cell_z,
             dims="cell",
         )
@@ -317,6 +412,11 @@ def fit_hierarchical_rarity_model(
             dims="observation",
         )
 
+        sample_kwargs = {}
+        if nuts_max_treedepth is not None:
+            sample_kwargs["nuts_sampler_kwargs"] = {
+                "max_treedepth": int(nuts_max_treedepth)
+            }
         idata = pm.sample(
             draws=int(draws),
             tune=int(tune),
@@ -325,12 +425,15 @@ def fit_hierarchical_rarity_model(
             target_accept=float(target_accept),
             random_seed=int(random_seed),
             return_inferencedata=True,
+            progressbar=bool(progressbar),
+            **sample_kwargs,
         )
         pm.sample_posterior_predictive(
             idata,
             var_names=["observed_delta"],
             random_seed=int(random_seed),
             extend_inferencedata=True,
+            progressbar=bool(progressbar),
         )
 
     posterior_path = output / "posterior.nc"
@@ -383,6 +486,10 @@ def fit_hierarchical_rarity_model(
     for name, values in cell_quantiles.items():
         cell_summary[f"posterior_{name}"] = values
     cell_summary["posterior_probability_benefit"] = (cell_draws > 0).mean(axis=0)
+    cell_summary["reportable_standalone"] = (
+        pd.to_numeric(cell_summary["minority_class"], errors="coerce")
+        >= int(min_report_minority)
+    )
     cell_path = output / "posterior_cells.csv"
     cell_summary.to_csv(cell_path, index=False)
 
@@ -398,7 +505,12 @@ def fit_hierarchical_rarity_model(
         "n_observations": len(observations),
         "n_cells": len(cells),
         "n_cohorts": len(prepared.cohorts),
+        "n_cohort_groups": len(prepared.groups),
         "n_outcomes": len(prepared.outcomes),
+        "n_outcome_families": len(prepared.families),
+        "nest_outcomes": bool(nest_outcomes),
+        "min_report_minority": int(min_report_minority),
+        "n_reportable_standalone": int(cell_summary["reportable_standalone"].sum()),
     }
     diagnostic_json = output / "diagnostics.json"
     diagnostic_json.write_text(json.dumps(diagnostic_summary, indent=2))
@@ -435,8 +547,11 @@ def write_model_input_artifacts(
         json.dumps(
             {
                 "cohorts": prepared.cohorts,
+                "groups": prepared.groups,
                 "outcomes": prepared.outcomes,
                 "families": prepared.families,
+                "group_of_cohort": prepared.group_of_cohort.tolist(),
+                "family_of_outcome": prepared.family_of_outcome.tolist(),
                 "basis_center": prepared.basis_center.tolist(),
                 "basis_scale": prepared.basis_scale.tolist(),
                 "grid_event_counts": prepared.grid_event_counts.tolist(),

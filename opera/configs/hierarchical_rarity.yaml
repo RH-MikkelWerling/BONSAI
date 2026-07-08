@@ -22,12 +22,13 @@ analysis:
   require_mapped_outcomes: true
   bootstrap_replicates: 2000
   bootstrap_seed: 2026
-  # Cells need both classes to define AUROC. Very small cells contribute only
-  # through measurement-error-aware partial pooling and are plotted hollow.
-  minimum_test_positive: 2
-  minimum_test_negative: 2
-  primary_test_positive: 10
-  primary_test_negative: 10
+  # Cells need both classes to define AUROC. The 25-count line is a reporting
+  # label, not a model inclusion filter.
+  minimum_test_positive: 1
+  minimum_test_negative: 1
+  primary_test_positive: 25
+  primary_test_negative: 25
+  small_sample_minority_threshold: 10
 
 model:
   spline_knots: 6
@@ -36,6 +37,8 @@ model:
   prior_scale: 0.10
   random_effect_scale: 0.05
   fit_tiers: [primary, partial_pool_only]
+  nest_outcomes: true
+  min_report_minority: 25
   require_convergence: true
 
 sampling:
@@ -76,7 +79,7 @@ figure:
     - Cardiovascular & thrombotic
     - Acute care utilization
   # Organizes the cohort-shape legend under clinically meaningful disease-course
-  # headers instead of one flat row of markers. Purely a display grouping —
+  # headers instead of one flat row of markers. Purely a display grouping,
   # unlisted cohort groups still render, just under "Other cohorts".
   cohort_course_groups:
     dlbcl_like: Aggressive course group
