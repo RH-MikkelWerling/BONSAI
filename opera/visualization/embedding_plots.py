@@ -22,10 +22,18 @@ from opera.visualization.style import (
     CATEGORICAL,
     save_fig,
     despine,
+    clean_2d_axes,
     FIG_FULL,
     add_panel_label,
     ANNOT_SIZE,
     LEGEND_SIZE,
+    LEGEND_TITLE_SIZE,
+    NOTE_SIZE,
+    SUBTITLE_SIZE,
+    SUPTITLE_SIZE,
+    TICK_SIZE,
+    TITLE_SIZE,
+    sequential_cmap,
 )
 
 SOURCE_PALETTE = {
@@ -130,12 +138,8 @@ def plot_embedding_projection(
     ax.set_xlabel(f"{method.upper()} 1")
     ax.set_ylabel(f"{method.upper()} 2")
     ax.set_title(title or f"Embedding space  ({method.upper()})")
-    ax.legend(markerscale=3, framealpha=0.9, fontsize=LEGEND_SIZE)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_visible(False)
-    ax.grid(False)
+    ax.legend(markerscale=3, framealpha=0.94, fontsize=LEGEND_SIZE)
+    clean_2d_axes(ax)
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -175,7 +179,7 @@ def plot_embedding_survival_gradient(
         coords[:, 0],
         coords[:, 1],
         c=t_plot,
-        cmap="plasma_r",
+        cmap=sequential_cmap("opera"),
         s=5,
         alpha=0.55,
         rasterized=True,
@@ -193,7 +197,7 @@ def plot_embedding_survival_gradient(
             coords[cens_mask, 1],
             s=7,
             facecolors="none",
-            edgecolors="#888888",
+            edgecolors=PALETTE["connector"],
             linewidths=0.4,
             alpha=0.4,
             zorder=3,
@@ -209,7 +213,7 @@ def plot_embedding_survival_gradient(
             coords[comp_mask, 1],
             s=7,
             facecolors="none",
-            edgecolors="#cc4444",
+            edgecolors=PALETTE["positive"],
             linewidths=0.4,
             alpha=0.4,
             zorder=3,
@@ -218,19 +222,15 @@ def plot_embedding_survival_gradient(
         )
 
     cbar = fig.colorbar(sc, ax=ax, shrink=0.85, pad=0.02)
-    cbar.set_label(f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label(f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=NOTE_SIZE)
+    cbar.ax.tick_params(labelsize=NOTE_SIZE)
 
     ax.set_xlabel(f"{method.upper()} 1")
     ax.set_ylabel(f"{method.upper()} 2")
     ax.set_title(title or f"Embedding — {outcome_name.replace('_', ' ').title()}")
     if cens_mask.sum() > 0 or comp_mask.sum() > 0:
         ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="lower right")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_visible(False)
-    ax.grid(False)
+    clean_2d_axes(ax)
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -297,23 +297,16 @@ def plot_embedding_multi_outcome(
             if mask.sum() > 50:
                 _density_contour(ax, coords[mask, 0], coords[mask, 1], color, levels=4)
 
-        ax.set_title(name.replace("_", " ").title(), fontsize=9, fontweight="semibold")
-        ax.legend(markerscale=2, fontsize=6.5, loc="lower right")
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.spines["left"].set_visible(False)
-        ax.spines["bottom"].set_visible(False)
-        ax.grid(False)
+        ax.set_title(
+            name.replace("_", " ").title(), fontsize=SUBTITLE_SIZE, fontweight="semibold"
+        )
+        ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="lower right")
+        clean_2d_axes(ax)
 
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
-    fig.suptitle(
-        f"Embedding space by outcome  ({method.upper()})",
-        fontsize=10,
-        fontweight="semibold",
-        y=1.01,
-    )
+    fig.suptitle(f"Embedding space by outcome  ({method.upper()})", y=1.01)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -347,7 +340,7 @@ def plot_sigma_barplot(
     fig, ax = plt.subplots(figsize=(max(4.5, 2.0 * len(names)), 3.0))
 
     y = np.arange(len(names_s))
-    ax.hlines(y, 0, vals_s, color="#CCCCCC", linewidth=1.2, zorder=1)
+    ax.hlines(y, 0, vals_s, color=PALETTE["connector"], linewidth=1.2, zorder=1)
     ax.scatter(vals_s, y, color=colors, s=60, zorder=3)
     ax.axvline(
         1.0, color=PALETTE["diagonal"], ls=":", lw=1, label="σ = 1  (initialisation)"
@@ -361,9 +354,7 @@ def plot_sigma_barplot(
     ax.set_xlabel("σ  (lower = outcome more strongly structures embedding)")
     ax.set_title(title)
     ax.legend(fontsize=LEGEND_SIZE)
-    despine(ax, "none")
-    ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-    ax.grid(axis="y", visible=False)
+    despine(ax, "x")
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -407,7 +398,7 @@ def plot_sigma_evolution(
 
     add_panel_label(ax1, "A")
     add_panel_label(ax2, "B")
-    fig.suptitle(title, fontsize=10, fontweight="semibold", y=1.01)
+    fig.suptitle(title, y=1.01)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -548,7 +539,7 @@ def plot_training_curves(
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
-    fig.suptitle(title, fontsize=10, fontweight="semibold", y=1.01)
+    fig.suptitle(title, y=1.01)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -587,11 +578,7 @@ def plot_embedding_by_source(
 
     ax.set_title(title or f"Embedding by data source  ({method.upper()})")
     ax.legend(markerscale=3, fontsize=LEGEND_SIZE, loc="best")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_visible(False)
-    ax.grid(False)
+    clean_2d_axes(ax)
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -858,7 +845,7 @@ def plot_embedding_disease_map(
             marker="o",
             color="w",
             markerfacecolor="none",
-            markeredgecolor="#555555",
+            markeredgecolor=PALETTE["ink_secondary"],
             markeredgewidth=0.9,
             markersize=6,
             label=f"Isolated  (n={isolated.sum():,})",
@@ -884,20 +871,16 @@ def plot_embedding_disease_map(
             0.01,
             isolation_stat,
             transform=ax.transAxes,
-            fontsize=6.5,
-            color="#555555",
+            fontsize=NOTE_SIZE,
+            color=PALETTE["ink_muted"],
             va="bottom",
             ha="left",
         )
 
-    ax.set_title(title or "Embedding space — population structure", fontsize=10)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ("left", "bottom", "top", "right"):
-        ax.spines[spine].set_visible(False)
-    ax.grid(False)
-    ax.set_xlabel("UMAP 1", fontsize=8, color="#888888")
-    ax.set_ylabel("UMAP 2", fontsize=8, color="#888888")
+    ax.set_title(title or "Embedding space — population structure")
+    clean_2d_axes(ax)
+    ax.set_xlabel("UMAP 1", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
+    ax.set_ylabel("UMAP 2", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -1001,7 +984,7 @@ def plot_embedding_map_insights(
         coords[:, 0],
         coords[:, 1],
         c=entropy,
-        cmap="YlOrRd",
+        cmap=sequential_cmap("opera"),
         vmin=0,
         vmax=1,
         s=5,
@@ -1010,8 +993,8 @@ def plot_embedding_map_insights(
         linewidths=0,
     )
     cb = fig.colorbar(sc, ax=ax_ent, shrink=0.82, pad=0.02, aspect=20)
-    cb.set_label("Prediction entropy  (bits)", fontsize=7.5)
-    cb.ax.tick_params(labelsize=7)
+    cb.set_label("Prediction entropy  (bits)", fontsize=NOTE_SIZE)
+    cb.ax.tick_params(labelsize=NOTE_SIZE)
 
     # Overlay disease centroids as labelled dots
     for g in unique:
@@ -1022,7 +1005,7 @@ def plot_embedding_map_insights(
             cx,
             cy,
             name,
-            fontsize=7.5,
+            fontsize=ANNOT_SIZE,
             fontweight="semibold",
             ha="center",
             va="center",
@@ -1032,14 +1015,10 @@ def plot_embedding_map_insights(
             zorder=5,
         )
 
-    ax_ent.set_title("Prediction uncertainty", fontsize=9, fontweight="semibold")
-    ax_ent.set_xticks([])
-    ax_ent.set_yticks([])
-    for s in ("left", "bottom", "top", "right"):
-        ax_ent.spines[s].set_visible(False)
-    ax_ent.grid(False)
-    ax_ent.set_xlabel("UMAP 1", fontsize=7.5, color="#888888")
-    ax_ent.set_ylabel("UMAP 2", fontsize=7.5, color="#888888")
+    ax_ent.set_title("Prediction uncertainty")
+    clean_2d_axes(ax_ent)
+    ax_ent.set_xlabel("UMAP 1", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
+    ax_ent.set_ylabel("UMAP 2", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
 
     # ── Panel B: Density vs. error  (only when labels available) ────
     if has_labels and ax_bin is not None:
@@ -1082,11 +1061,9 @@ def plot_embedding_map_insights(
             bin_centers, bin_lo, bin_hi, color=PALETTE["opera"], alpha=0.15
         )
 
-        ax_bin.set_xlabel("Local neighbourhood density\n(low = isolated)", fontsize=8)
-        ax_bin.set_ylabel("Mean absolute error", fontsize=8)
-        ax_bin.set_title(
-            "Isolation → prediction error", fontsize=9, fontweight="semibold"
-        )
+        ax_bin.set_xlabel("Local neighbourhood density\n(low = isolated)")
+        ax_bin.set_ylabel("Mean absolute error")
+        ax_bin.set_title("Isolation → prediction error")
         # Annotate with correlation
         if len(bin_centers) > 2:
             rho = float(np.corrcoef(bin_centers, bin_means)[0, 1])
@@ -1098,7 +1075,7 @@ def plot_embedding_map_insights(
                 ha="right",
                 va="top",
                 fontsize=ANNOT_SIZE,
-                color="#555555",
+                color=PALETTE["ink_secondary"],
             )
         despine(ax_bin, "y")
 
@@ -1106,32 +1083,32 @@ def plot_embedding_map_insights(
     group_display = [(group_names or {}).get(g, str(g)) for g in unique]
 
     im = ax_prox.imshow(
-        proximity, cmap="Blues", vmin=0, vmax=proximity.max(), aspect="auto"
+        proximity, cmap=sequential_cmap("opera"), vmin=0, vmax=proximity.max(), aspect="auto"
     )
     cb2 = fig.colorbar(im, ax=ax_prox, shrink=0.82, pad=0.03, aspect=20)
-    cb2.set_label("Fraction of k-NN", fontsize=7.5)
-    cb2.ax.tick_params(labelsize=7)
+    cb2.set_label("Fraction of k-NN", fontsize=NOTE_SIZE)
+    cb2.ax.tick_params(labelsize=NOTE_SIZE)
 
     ax_prox.set_xticks(range(n_groups))
     ax_prox.set_yticks(range(n_groups))
-    ax_prox.set_xticklabels(group_display, rotation=40, ha="right", fontsize=7.5)
-    ax_prox.set_yticklabels(group_display, fontsize=7.5)
-    ax_prox.set_xlabel("Neighbour's disease", fontsize=8)
-    ax_prox.set_ylabel("Patient's disease", fontsize=8)
-    ax_prox.set_title("Inter-disease proximity", fontsize=9, fontweight="semibold")
+    ax_prox.set_xticklabels(group_display, rotation=40, ha="right", fontsize=NOTE_SIZE)
+    ax_prox.set_yticklabels(group_display, fontsize=NOTE_SIZE)
+    ax_prox.set_xlabel("Neighbour's disease")
+    ax_prox.set_ylabel("Patient's disease")
+    ax_prox.set_title("Inter-disease proximity")
 
     # Annotate cells
     for i in range(n_groups):
         for j in range(n_groups):
             v = proximity[i, j]
-            text_color = "white" if v > 0.55 * proximity.max() else "#333333"
+            text_color = "white" if v > 0.55 * proximity.max() else PALETTE["ink"]
             ax_prox.text(
                 j,
                 i,
                 f"{v:.2f}",
                 ha="center",
                 va="center",
-                fontsize=6.5,
+                fontsize=NOTE_SIZE,
                 color=text_color,
             )
 
@@ -1153,12 +1130,7 @@ def plot_embedding_map_insights(
     for ax, lbl in zip(axes, panel_labels):
         add_panel_label(ax, lbl)
 
-    fig.suptitle(
-        title or "Embedding space — clinical insights",
-        fontsize=10,
-        fontweight="semibold",
-        y=1.02,
-    )
+    fig.suptitle(title or "Embedding space — clinical insights", y=1.02)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -1178,8 +1150,6 @@ def plot_embedding_stage_metadata_grid(
     annotations: Optional[Dict[tuple[str, str], List[dict]]] = None,
     title: str = "Subgroup structure in learned patient embeddings",
     subtitle: Optional[str] = None,
-    outcome_definition: Optional[str] = None,
-    interpretation_note: Optional[str] = None,
     axis_label: str = "UMAP",
     show_footer: bool = True,
     save_path: Optional[str] = None,
@@ -1195,9 +1165,6 @@ def plot_embedding_stage_metadata_grid(
     ``text``, ``xy`` and optional Matplotlib ``xytext``/``textcoords`` values.
     No enrichment claims are added automatically.
     """
-    import textwrap
-
-    from matplotlib import colormaps
     from matplotlib.lines import Line2D
     from matplotlib.patches import FancyBboxPatch, Rectangle
     from matplotlib.ticker import MaxNLocator
@@ -1334,6 +1301,7 @@ def plot_embedding_stage_metadata_grid(
         )
 
     continuous_ranges: Dict[str, tuple[float, float]] = {}
+    resolved_continuous_cmaps: Dict[str, object] = {}
     for variable in variables:
         if kinds[variable] != "continuous":
             continue
@@ -1346,6 +1314,9 @@ def plot_embedding_stage_metadata_grid(
             low -= 0.5
             high += 0.5
         continuous_ranges[variable] = (float(low), float(high))
+        resolved_continuous_cmaps[variable] = continuous_cmaps.get(
+            variable, sequential_cmap("opera")
+        )
 
     for row, stage in enumerate(stages):
         coords = normalized_coords[stage]
@@ -1374,16 +1345,13 @@ def plot_embedding_stage_metadata_grid(
 
             valid = ~missing
             if kinds[variable] == "continuous":
-                cmap_name = continuous_cmaps.get(
-                    variable,
-                    "plasma" if "age" in variable.lower() else "viridis",
-                )
+                cmap = resolved_continuous_cmaps[variable]
                 vmin, vmax = continuous_ranges[variable]
                 ax.scatter(
                     coords[valid, 0],
                     coords[valid, 1],
                     c=values.astype(float)[valid],
-                    cmap=cmap_name,
+                    cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
                     s=4.2,
@@ -1412,28 +1380,24 @@ def plot_embedding_stage_metadata_grid(
             ax.set_box_aspect(panel_aspect)
             ax.xaxis.set_major_locator(MaxNLocator(4))
             ax.yaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(labelsize=6.5, length=2.2, colors="#6D7480")
-            ax.grid(
-                True,
-                color="#D9DDE5",
-                linewidth=0.55,
-                linestyle=(0, (2, 3)),
-                alpha=0.9,
-            )
+            ax.tick_params(labelsize=TICK_SIZE - 1.5, length=2.5, colors=PALETTE["ink_secondary"])
+            ax.grid(True, color=PALETTE["grid"], linewidth=0.6, alpha=1.0)
+            ax.set_axisbelow(True)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
-            ax.spines["left"].set_color("#7F8A99")
-            ax.spines["bottom"].set_color("#7F8A99")
-            ax.spines["left"].set_linewidth(0.65)
-            ax.spines["bottom"].set_linewidth(0.65)
-            ax.set_xlabel(f"{axis_label}-1", fontsize=7.2, labelpad=2)
-            ax.set_ylabel(f"{axis_label}-2", fontsize=7.2, labelpad=2)
+            ax.spines["left"].set_color(PALETTE["panel_border"])
+            ax.spines["bottom"].set_color(PALETTE["panel_border"])
+            ax.spines["left"].set_linewidth(0.7)
+            ax.spines["bottom"].set_linewidth(0.7)
+            ax.set_xlabel(f"{axis_label}-1", fontsize=TICK_SIZE, labelpad=3, color=PALETTE["ink_secondary"])
+            ax.set_ylabel(f"{axis_label}-2", fontsize=TICK_SIZE, labelpad=3, color=PALETTE["ink_secondary"])
             if row == 0:
                 ax.set_title(
                     variable_labels.get(variable, variable),
-                    fontsize=10.2,
-                    fontweight="bold",
-                    pad=8,
+                    fontsize=TITLE_SIZE - 1,
+                    fontweight="semibold",
+                    color=PALETTE["ink"],
+                    pad=9,
                 )
 
             for note in annotations.get((stage, variable), []):
@@ -1447,13 +1411,13 @@ def plot_embedding_stage_metadata_grid(
                     textcoords=note.get("textcoords", "axes fraction"),
                     ha=note.get("ha", "left"),
                     va=note.get("va", "bottom"),
-                    fontsize=note.get("fontsize", 7.1),
-                    color=note.get("color", "#222222"),
+                    fontsize=note.get("fontsize", ANNOT_SIZE),
+                    color=note.get("color", PALETTE["ink"]),
                     arrowprops=note.get(
                         "arrowprops",
                         {
                             "arrowstyle": "-|>",
-                            "color": "#222222",
+                            "color": PALETTE["ink"],
                             "linewidth": 0.75,
                             "connectionstyle": "arc3,rad=0.12",
                         },
@@ -1462,18 +1426,19 @@ def plot_embedding_stage_metadata_grid(
                 )
 
         axes[row, 0].text(
-            -0.43,
+            -0.46,
             0.5,
             stage_labels.get(stage, stage),
             transform=axes[row, 0].transAxes,
             ha="center",
             va="center",
-            fontsize=10.2,
-            fontweight="bold",
-            linespacing=1.15,
+            fontsize=TITLE_SIZE - 1,
+            fontweight="semibold",
+            color=PALETTE["ink"],
+            linespacing=1.2,
         )
 
-    fig.suptitle(title, fontsize=14.5, fontweight="bold", y=0.988)
+    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=0.988)
     fig.text(
         0.5,
         0.954,
@@ -1481,9 +1446,9 @@ def plot_embedding_stage_metadata_grid(
         or "Held-out patient embeddings projected to 2D and recolored by clinical metadata",
         ha="center",
         va="top",
-        fontsize=9.4,
+        fontsize=SUBTITLE_SIZE,
         style="italic",
-        color="#454B54",
+        color=PALETTE["ink_secondary"],
     )
 
     if show_footer:
@@ -1495,15 +1460,14 @@ def plot_embedding_stage_metadata_grid(
             footer_top - footer_bottom,
             boxstyle="round,pad=0.006,rounding_size=0.012",
             transform=fig.transFigure,
-            facecolor="#FBFCFF",
-            edgecolor="#60738E",
-            linewidth=0.75,
+            facecolor="white",
+            edgecolor=PALETTE["panel_border"],
+            linewidth=0.8,
             zorder=-1,
         )
         fig.add_artist(footer)
 
-        note_columns = int(outcome_definition is not None) + 1
-        n_footer_columns = len(variables) + note_columns
+        n_footer_columns = len(variables)
         inner_left, inner_right = 0.06, 0.94
         column_width = (inner_right - inner_left) / n_footer_columns
 
@@ -1514,9 +1478,8 @@ def plot_embedding_stage_metadata_grid(
                     [x, x],
                     [footer_bottom + 0.012, footer_top - 0.012],
                     transform=fig.transFigure,
-                    color="#A0AEC5",
-                    linewidth=0.6,
-                    linestyle=(0, (2, 4)),
+                    color=PALETTE["panel_border"],
+                    linewidth=0.7,
                 )
             )
 
@@ -1529,15 +1492,12 @@ def plot_embedding_stage_metadata_grid(
                 variable_labels.get(variable, variable),
                 ha="center",
                 va="top",
-                fontsize=8.3,
-                fontweight="bold",
+                fontsize=LEGEND_TITLE_SIZE,
+                fontweight="semibold",
+                color=PALETTE["ink"],
             )
             if kinds[variable] == "continuous":
-                cmap_name = continuous_cmaps.get(
-                    variable,
-                    "plasma" if "age" in variable.lower() else "viridis",
-                )
-                cmap = colormaps.get_cmap(cmap_name)
+                cmap = resolved_continuous_cmaps[variable]
                 gradient_left = left + 0.16 * column_width
                 gradient_width = 0.68 * column_width
                 gradient_y = footer_top - 0.076
@@ -1563,8 +1523,8 @@ def plot_embedding_stage_metadata_grid(
                     format_endpoint(low),
                     ha="left",
                     va="top",
-                    fontsize=6.5,
-                    color="#444444",
+                    fontsize=NOTE_SIZE,
+                    color=PALETTE["ink_secondary"],
                 )
                 fig.text(
                     gradient_left + gradient_width,
@@ -1572,8 +1532,8 @@ def plot_embedding_stage_metadata_grid(
                     format_endpoint(high),
                     ha="right",
                     va="top",
-                    fontsize=6.5,
-                    color="#444444",
+                    fontsize=NOTE_SIZE,
+                    color=PALETTE["ink_secondary"],
                 )
             else:
                 groups = category_orders[variable]
@@ -1601,80 +1561,23 @@ def plot_embedding_stage_metadata_grid(
                         label,
                         ha="left",
                         va="center",
-                        fontsize=6.6,
-                        color="#30343B",
+                        fontsize=NOTE_SIZE,
+                        color=PALETTE["ink"],
                     )
                 if len(groups) > len(display_groups):
                     fig.text(
                         left + 0.20 * column_width,
                         y_start - len(display_groups) * line_height,
                         f"+ {len(groups) - len(display_groups)} more",
-                        fontsize=6.3,
-                        color="#666666",
+                        fontsize=NOTE_SIZE - 0.5,
+                        color=PALETTE["ink_muted"],
                         va="center",
                     )
 
-        next_index = len(variables)
-        if outcome_definition is not None:
-            left = inner_left + next_index * column_width
-            fig.text(
-                left + column_width / 2,
-                footer_top - 0.022,
-                "Outcome definition",
-                ha="center",
-                va="top",
-                fontsize=8.3,
-                fontweight="bold",
-            )
-            fig.text(
-                left + 0.08 * column_width,
-                footer_top - 0.052,
-                textwrap.fill(outcome_definition, width=29),
-                ha="left",
-                va="top",
-                fontsize=6.6,
-                linespacing=1.3,
-                color="#30343B",
-            )
-            next_index += 1
-
-        left = inner_left + next_index * column_width
-        fig.text(
-            left + column_width / 2,
-            footer_top - 0.022,
-            "Interpretation note",
-            ha="center",
-            va="top",
-            fontsize=8.3,
-            fontweight="bold",
-        )
-        neutral_note = (
-            "Compare geometry descriptively across stages. Apparent subgroup "
-            "organization should be confirmed with held-out probes and uncertainty "
-            "estimates."
-        )
-        fig.text(
-            left + 0.08 * column_width,
-            footer_top - 0.052,
-            textwrap.fill(interpretation_note or neutral_note, width=29),
-            ha="left",
-            va="top",
-            fontsize=6.6,
-            linespacing=1.3,
-            color="#30343B",
-        )
-
-        fig.text(
-            0.5,
-            0.010,
-            "Within each row, coordinates are identical across columns; only metadata coloring changes.",
-            ha="center",
-            va="bottom",
-            fontsize=7.2,
-            style="italic",
-            color="#555B63",
-        )
-
+    # The footer's height is driven by the tallest per-variable legend (up to
+    # 7 category rows), not by the number of columns — removing the
+    # outcome-definition/interpretation-note columns freed width, not height,
+    # so bottom_margin still needs real clearance above footer_top.
     bottom_margin = (
         0.235 if show_footer and n_rows <= 2 else 0.17 if show_footer else 0.065
     )
@@ -1733,11 +1636,11 @@ def plot_clinical_variables_panel(
     axes_flat = np.array(axes).flatten()
 
     _default_cmaps = {
-        "age": "YlOrRd",
+        "age": sequential_cmap("opera"),
         "ipi": "RdYlGn_r",
         "score": "RdYlGn_r",
-        "stage": "Blues",
-        "default": "viridis",
+        "stage": sequential_cmap("opera"),
+        "default": sequential_cmap("opera"),
     }
 
     def _pick_cmap(name_lower):
@@ -1797,10 +1700,10 @@ def plot_clinical_variables_panel(
                 )
             ax.legend(
                 markerscale=2,
-                fontsize=6.5,
+                fontsize=LEGEND_SIZE,
                 borderpad=0.5,
                 title=var_name,
-                title_fontsize=7,
+                title_fontsize=LEGEND_TITLE_SIZE,
             )
         else:
             numeric_vals = vals.astype(float)
@@ -1821,24 +1724,15 @@ def plot_clinical_variables_panel(
                 zorder=2,
             )
             cb = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02, aspect=18)
-            cb.ax.tick_params(labelsize=6.5)
+            cb.ax.tick_params(labelsize=NOTE_SIZE)
 
-        ax.set_title(var_name, fontsize=9, fontweight="semibold")
-        ax.set_xticks([])
-        ax.set_yticks([])
-        for spine in ("left", "bottom", "top", "right"):
-            ax.spines[spine].set_visible(False)
-        ax.grid(False)
+        ax.set_title(var_name, fontsize=SUBTITLE_SIZE, fontweight="semibold")
+        clean_2d_axes(ax)
 
     for j in range(n_vars, len(axes_flat)):
         axes_flat[j].set_visible(False)
 
-    fig.suptitle(
-        title or "Clinical variables in embedding space",
-        fontsize=10,
-        fontweight="semibold",
-        y=1.01,
-    )
+    fig.suptitle(title or "Clinical variables in embedding space", y=1.01)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -1922,8 +1816,8 @@ def plot_embedding_boundary_patients(
         zorder=2,
     )
     cb = fig.colorbar(sc, ax=ax_map, shrink=0.8, pad=0.02, aspect=20)
-    cb.set_label("k-NN coherence  (1 = all neighbors same group)", fontsize=7.5)
-    cb.ax.tick_params(labelsize=7)
+    cb.set_label("k-NN coherence  (1 = all neighbors same group)", fontsize=NOTE_SIZE)
+    cb.ax.tick_params(labelsize=NOTE_SIZE)
 
     # Boundary patients: redraw as filled squares
     boundary = coherence < boundary_threshold
@@ -1938,7 +1832,7 @@ def plot_embedding_boundary_patients(
         alpha=0.9,
         marker="s",
         linewidths=0.5,
-        edgecolors="#333333",
+        edgecolors=PALETTE["ink_secondary"],
         rasterized=True,
         zorder=4,
         label=f"Boundary patients (n={boundary.sum()})",
@@ -1953,7 +1847,7 @@ def plot_embedding_boundary_patients(
             cx,
             cy,
             name,
-            fontsize=8,
+            fontsize=ANNOT_SIZE,
             fontweight="semibold",
             ha="center",
             va="center",
@@ -1972,21 +1866,17 @@ def plot_embedding_boundary_patients(
                 xy=(coords[idx, 0], coords[idx, 1]),
                 xytext=(8, 8),
                 textcoords="offset points",
-                fontsize=6.5,
-                color="#B5232A",
-                arrowprops=dict(arrowstyle="-", lw=0.6, color="#AAAAAA"),
+                fontsize=NOTE_SIZE,
+                color=PALETTE["positive"],
+                arrowprops=dict(arrowstyle="-", lw=0.6, color=PALETTE["connector"]),
             )
 
-    ax_map.set_title(title or "Boundary patients — k-NN coherence", fontsize=9)
+    ax_map.set_title(title or "Boundary patients — k-NN coherence")
     if boundary.sum() > 0:
         ax_map.legend(markerscale=1.5, fontsize=LEGEND_SIZE, loc="lower left")
-    ax_map.set_xticks([])
-    ax_map.set_yticks([])
-    for spine in ("left", "bottom", "top", "right"):
-        ax_map.spines[spine].set_visible(False)
-    ax_map.grid(False)
-    ax_map.set_xlabel("UMAP 1", fontsize=8, color="#888888")
-    ax_map.set_ylabel("UMAP 2", fontsize=8, color="#888888")
+    clean_2d_axes(ax_map)
+    ax_map.set_xlabel("UMAP 1", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
+    ax_map.set_ylabel("UMAP 2", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
 
     # Panel B: box plot of coherence per group, sorted by median
     group_coherence = {g: coherence[group_labels == g] for g in unique}
@@ -1999,7 +1889,7 @@ def plot_embedding_boundary_patients(
         vert=False,
         patch_artist=True,
         widths=0.55,
-        medianprops=dict(color="#333333", lw=1.5),
+        medianprops=dict(color=PALETTE["ink"], lw=1.5),
         whiskerprops=dict(lw=0.8),
         capprops=dict(lw=0.8),
         flierprops=dict(marker=".", ms=2.5, alpha=0.4),
@@ -2007,7 +1897,7 @@ def plot_embedding_boundary_patients(
     for patch, g in zip(bp["boxes"], sorted_groups):
         patch.set_facecolor(colors[g])
         patch.set_alpha(0.65)
-        patch.set_edgecolor("#444444")
+        patch.set_edgecolor(PALETTE["ink_secondary"])
         patch.set_linewidth(0.8)
 
     ax_box.axvline(
@@ -2018,14 +1908,12 @@ def plot_embedding_boundary_patients(
         label=f"Threshold ({boundary_threshold})",
     )
     ax_box.axvline(1.0, color=PALETTE["diagonal"], ls=":", lw=0.8)
-    ax_box.set_yticklabels(y_labels, fontsize=8)
+    ax_box.set_yticklabels(y_labels)
     ax_box.set_xlabel("k-NN coherence score")
-    ax_box.set_title("Separation by group", fontsize=9)
+    ax_box.set_title("Separation by group")
     ax_box.set_xlim(0, 1.05)
     ax_box.legend(fontsize=LEGEND_SIZE)
-    despine(ax_box, "none")
-    ax_box.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-    ax_box.grid(axis="y", visible=False)
+    despine(ax_box, "x")
 
     add_panel_label(ax_map, "A")
     add_panel_label(ax_box, "B")
@@ -2093,11 +1981,7 @@ def plot_source_vs_outcome(
     ax2.legend(markerscale=3, fontsize=LEGEND_SIZE)
 
     for ax in (ax1, ax2):
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.spines["left"].set_visible(False)
-        ax.spines["bottom"].set_visible(False)
-        ax.grid(False)
+        clean_2d_axes(ax)
 
     add_panel_label(ax1, "A")
     add_panel_label(ax2, "B")

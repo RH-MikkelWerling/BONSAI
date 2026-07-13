@@ -26,6 +26,11 @@ from opera.visualization.style import (
     model_label,
     ANNOT_SIZE,
     LEGEND_SIZE,
+    SUPTITLE_SIZE,
+    TITLE_SIZE,
+    LABEL_SIZE,
+    TICK_SIZE,
+    NOTE_SIZE,
     setup_style,
 )
 
@@ -99,9 +104,7 @@ def plot_forest(
     ax_main.invert_yaxis()
     ax_main.set_xlabel(metric.upper() + "  (95% CI)")
     ax_main.set_title(title or f"Forest plot — {metric.upper()}")
-    despine(ax_main, "none")
-    ax_main.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-    ax_main.grid(axis="y", visible=False)
+    despine(ax_main, "x")
 
     # Numeric annotation panel
     ax_num.set_ylim(ax_main.get_ylim())
@@ -114,7 +117,7 @@ def plot_forest(
         transform=ax_num.transAxes,
         ha="center",
         va="bottom",
-        fontsize=8,
+        fontsize=NOTE_SIZE,
         fontweight="semibold",
     )
     for i, (m, l, u) in enumerate(zip(means, lowers, uppers)):  # noqa: E741
@@ -167,16 +170,14 @@ def plot_metric_comparison(
             ax.scatter(val, i, color=color, s=55, zorder=3, linewidths=0)
             ax.hlines(i, 0, val, color=color, lw=1.0, alpha=0.4, zorder=2)
 
-        ax.set_xlabel(met.upper(), fontsize=8)
+        ax.set_xlabel(met.upper(), fontsize=LABEL_SIZE)
         ax.set_xlim(0, 1.02)
-        ax.set_title(met.upper(), fontsize=8, fontweight="semibold")
+        ax.set_title(met.upper(), fontsize=TITLE_SIZE, fontweight="semibold")
         if j == 0:
             ax.set_yticks(range(n_m))
-            ax.set_yticklabels([model_label(nm) for nm in names], fontsize=8)
+            ax.set_yticklabels([model_label(nm) for nm in names], fontsize=TICK_SIZE)
         ax.invert_yaxis()
-        despine(ax, "none")
-        ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-        ax.grid(axis="y", visible=False)
+        despine(ax, "x")
 
     # Legend
     handles = [
@@ -190,7 +191,7 @@ def plot_metric_comparison(
         borderaxespad=0,
     )
 
-    fig.suptitle(title, fontsize=10, fontweight="semibold")
+    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold")
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -246,13 +247,11 @@ def plot_pairwise_differences(
 
     ax.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.9, zorder=1)
     ax.set_yticks(y)
-    ax.set_yticklabels(pairs, fontsize=8)
+    ax.set_yticklabels(pairs, fontsize=TICK_SIZE)
     ax.invert_yaxis()
     ax.set_xlabel("AUROC difference  (95% CI)")
     ax.set_title(title)
-    despine(ax, "none")
-    ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-    ax.grid(axis="y", visible=False)
+    despine(ax, "x")
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -371,7 +370,7 @@ def plot_joint_vs_percohort_delta(
 
     ax.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.9, zorder=1)
     ax.set_yticks(y)
-    ax.set_yticklabels(df["label"].tolist(), fontsize=7.5)
+    ax.set_yticklabels(df["label"].tolist(), fontsize=TICK_SIZE)
     ax.set_xlabel("ΔAUROC  (joint − per-cohort)")
     ax.set_title("Joint training adds over per-cohort")
     pct = 100 * pos_mask.mean()
@@ -383,11 +382,9 @@ def plot_joint_vs_percohort_delta(
         ha="right",
         va="bottom",
         fontsize=ANNOT_SIZE,
-        color="grey",
+        color=PALETTE["ink_muted"],
     )
-    despine(ax, "none")
-    ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
-    ax.grid(axis="y", visible=False)
+    despine(ax, "x")
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -462,7 +459,7 @@ def plot_outcome_dot_matrix(
                 x,
                 y,
                 s=40 + 160 * max(0, val - 0.5),
-                color=model_color(model) if model == best else "#CCCCCC",
+                color=model_color(model) if model == best else PALETTE["panel_border"],
                 edgecolor=model_color(model),
                 linewidth=0.8,
             )
@@ -529,11 +526,13 @@ def plot_ipi_credibility(
             else np.nan
         )
         if np.isfinite(cov):
-            ax.text(j, 1.01, f"{100 * cov:.0f}%", ha="center", va="bottom", fontsize=7)
+            ax.text(
+                j, 1.01, f"{100 * cov:.0f}%", ha="center", va="bottom", fontsize=ANNOT_SIZE
+            )
     ax.set_xticks(range(len(tasks)), tasks, rotation=45, ha="right")
     ax.set_ylabel("AUROC")
     ax.set_ylim(0, 1.08)
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig

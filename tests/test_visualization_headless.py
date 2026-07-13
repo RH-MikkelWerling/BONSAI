@@ -233,8 +233,6 @@ def test_within_stratum_grid_uses_shared_projection_and_explanatory_layout(
         stratum_values=["0-1", "2-3", "4-5"],
         stratum_name="IPI",
         highlight_stratum="2-3",
-        callout_text="Same IPI band; outcomes occupy different regions",
-        talk_note="The middle panel is the prespecified clinical example.",
         save_path=str(output),
     )
 
@@ -242,21 +240,29 @@ def test_within_stratum_grid_uses_shared_projection_and_explanatory_layout(
     assert len(fig.axes) == 3
     assert [axis.get_xlim() for axis in fig.axes].count(fig.axes[0].get_xlim()) == 3
     assert [axis.get_ylim() for axis in fig.axes].count(fig.axes[0].get_ylim()) == 3
-    assert "event prevalence = 30%" in fig.axes[1].get_title()
-    assert any("Same IPI band" in text.get_text() for text in fig.axes[1].texts)
+    # The panel header is two text() calls (bold stratum name + regular n/
+    # prevalence detail) rather than a mathtext-bolded ax.set_title(), so it
+    # doesn't break on stratum labels containing underscores or other
+    # mathtext-special characters.
+    panel_header = " ".join(text.get_text() for text in fig.axes[1].texts)
+    assert "event prevalence = 30%" in panel_header
     assert (
         fig.axes[1].spines["left"].get_linewidth()
         > fig.axes[0].spines["left"].get_linewidth()
     )
+    # The figure carries only the point-color/highlight legend — no
+    # "Interpretation" or "Talk note" prose. That kind of commentary belongs
+    # in the surrounding narrative, not baked into the plot.
     legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
     assert legend_labels == [
-        "all patients (background context)",
-        "within-stratum no event",
-        "within-stratum event",
+        "All patients (background)",
+        "Within-stratum, no event",
+        "Within-stratum, event",
+        "Highlighted stratum",
     ]
     figure_text = " ".join(text.get_text() for text in fig.texts)
-    assert "Shared UMAP projection" in figure_text
-    assert "held-out discrimination" in figure_text.replace("\n", " ")
+    assert "Interpretation" not in figure_text
+    assert "Talk note" not in figure_text
     assert output.exists()
     assert output.with_suffix(".pdf").exists()
 
@@ -296,7 +302,6 @@ def test_embedding_stage_metadata_grid_reuses_each_stage_projection(tmp_path):
                 {"text": "Prespecified region", "xy": (1.0, 0.0)}
             ]
         },
-        outcome_definition="Failure within the prespecified follow-up window.",
         save_path=str(output),
     )
 
@@ -317,8 +322,10 @@ def test_embedding_stage_metadata_grid_reuses_each_stage_projection(tmp_path):
     figure_text = " ".join(text.get_text() for text in all_text).replace("\n", " ")
     assert "DAPT embeddings" in figure_text
     assert "OPERA embeddings" in figure_text
-    assert "held-out probes" in figure_text
-    assert "coordinates are identical" in figure_text
+    # No "Outcome definition"/"Interpretation note" prose baked into the
+    # figure — that kind of commentary belongs in the surrounding narrative.
+    assert "Interpretation" not in figure_text
+    assert "Outcome definition" not in figure_text
     assert output.exists()
     assert output.with_suffix(".pdf").exists()
 

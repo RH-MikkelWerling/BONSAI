@@ -23,8 +23,17 @@ from opera.visualization.style import (
     save_fig,
     despine,
     add_panel_label,
+    style_legend,
+    sequential_cmap,
     ANNOT_SIZE,
+    LABEL_SIZE,
     LEGEND_SIZE,
+    LEGEND_TITLE_SIZE,
+    NOTE_SIZE,
+    SUBTITLE_SIZE,
+    SUPTITLE_SIZE,
+    TICK_SIZE,
+    TITLE_SIZE,
 )
 
 
@@ -86,16 +95,16 @@ def plot_transfer_matrix(
                 text, fw = "—", "normal"
             else:
                 text, fw = f"{v:.3f}", ("bold" if i == j else "normal")
-            # White text on dark cells, black on light
+            # White text on dark cells, dark ink on light
             bg_val = v if not np.isnan(v) else 0.7
-            text_color = "white" if (bg_val < 0.52 or bg_val > 0.88) else "#222222"
+            text_color = "white" if (bg_val < 0.52 or bg_val > 0.88) else PALETTE["ink"]
             ax.text(
                 j,
                 i,
                 text,
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=ANNOT_SIZE,
                 fontweight=fw,
                 color=text_color,
                 zorder=3,
@@ -104,19 +113,21 @@ def plot_transfer_matrix(
     display_names = [_outcome_display(c) for c in matrix.columns]
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(display_names, fontsize=8)
-    ax.set_yticklabels(display_names, fontsize=8)
-    ax.set_xlabel("Evaluated on  (target outcome)", fontsize=9)
-    ax.set_ylabel("Trained on  (source outcome)", fontsize=9)
+    ax.set_xticklabels(display_names, fontsize=TICK_SIZE)
+    ax.set_yticklabels(display_names, fontsize=TICK_SIZE)
+    ax.set_xlabel("Evaluated on  (target outcome)", fontsize=LABEL_SIZE)
+    ax.set_ylabel("Trained on  (source outcome)", fontsize=LABEL_SIZE)
     ax.set_title(
         title or f"Cross-outcome transfer  ({metric})",
-        fontsize=10,
+        fontsize=TITLE_SIZE,
         fontweight="semibold",
+        color=PALETTE["ink"],
     )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label(f"{metric}  (off-diagonal)", fontsize=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label(f"{metric}  (off-diagonal)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"])
+    cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+    cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     # Legend for diagonal
     from matplotlib.patches import Patch
@@ -125,16 +136,18 @@ def plot_transfer_matrix(
         Patch(facecolor=plt.cm.Blues(0.7), label="Diagonal: self-prediction (CV)"),
         Patch(facecolor=plt.cm.RdYlGn(0.8), label="Off-diagonal: transfer"),
     ]
-    ax.legend(
+    legend = ax.legend(
         handles=legend_els,
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.18),
-        fontsize=7.5,
+        bbox_to_anchor=(0.5, -0.36),
+        fontsize=LEGEND_SIZE,
         frameon=True,
         ncol=2,
     )
+    style_legend(legend)
 
     fig.tight_layout()
+    fig.subplots_adjust(bottom=0.32)
     save_fig(fig, save_path)
     return fig
 
@@ -161,31 +174,46 @@ def plot_transfer_efficiency(
         for j in range(n):
             if i == j:
                 ax.text(
-                    j, i, "—", ha="center", va="center", fontsize=9, color="#888888"
+                    j,
+                    i,
+                    "—",
+                    ha="center",
+                    va="center",
+                    fontsize=ANNOT_SIZE,
+                    color=PALETTE["ink_muted"],
                 )
                 continue
             v = efficiency.iloc[i, j]
             if np.isnan(v):
                 continue
-            text_color = "white" if (v < 0.45 or v > 0.88) else "#222222"
+            text_color = "white" if (v < 0.45 or v > 0.88) else PALETTE["ink"]
             ax.text(
-                j, i, f"{v:.2f}", ha="center", va="center", fontsize=8, color=text_color
+                j,
+                i,
+                f"{v:.2f}",
+                ha="center",
+                va="center",
+                fontsize=ANNOT_SIZE,
+                color=text_color,
             )
 
     display_names = [_outcome_display(c) for c in efficiency.columns]
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(display_names, fontsize=8)
-    ax.set_yticklabels(display_names, fontsize=8)
-    ax.set_xlabel("Target outcome", fontsize=9)
-    ax.set_ylabel("Source outcome", fontsize=9)
-    ax.set_title(title, fontsize=10, fontweight="semibold")
+    ax.set_xticklabels(display_names, fontsize=TICK_SIZE)
+    ax.set_yticklabels(display_names, fontsize=TICK_SIZE)
+    ax.set_xlabel("Target outcome", fontsize=LABEL_SIZE)
+    ax.set_ylabel("Source outcome", fontsize=LABEL_SIZE)
+    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
     cbar.set_label(
-        "Transfer efficiency\n(fraction of self-prediction AUROC)", fontsize=8
+        "Transfer efficiency\n(fraction of self-prediction AUROC)",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_secondary"],
     )
-    cbar.ax.tick_params(labelsize=7)
+    cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+    cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -231,7 +259,7 @@ def plot_sigma_heatmap(
             if not np.isnan(v):
                 mid = (vmin + vmax) / 2
                 text_color = (
-                    "white" if abs(v - mid) > 0.3 * (vmax - vmin) else "#222222"
+                    "white" if abs(v - mid) > 0.3 * (vmax - vmin) else PALETTE["ink"]
                 )
                 ax.text(
                     j,
@@ -239,19 +267,28 @@ def plot_sigma_heatmap(
                     f"{v:.2f}",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=ANNOT_SIZE,
                     color=text_color,
                 )
 
     ax.set_xticks(range(len(sigma_data.columns)))
-    ax.set_xticklabels(sigma_data.columns, rotation=30, ha="right", fontsize=9)
+    ax.set_xticklabels(sigma_data.columns, rotation=30, ha="right", fontsize=TICK_SIZE)
     ax.set_yticks(range(len(sigma_data.index)))
-    ax.set_yticklabels([_outcome_display(s) for s in sigma_data.index], fontsize=9)
-    ax.set_title(title, fontsize=10, fontweight="semibold", pad=10)
+    ax.set_yticklabels(
+        [_outcome_display(s) for s in sigma_data.index], fontsize=TICK_SIZE
+    )
+    ax.set_title(
+        title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], pad=10
+    )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
-    cbar.set_label("σ  (lower = stronger outcome structure)", fontsize=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label(
+        "σ  (lower = stronger outcome structure)",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_secondary"],
+    )
+    cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+    cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -304,11 +341,13 @@ def plot_residual_embedding(
     cbar.set_label(
         "Residual  (actual − IPI predicted)\n"
         "Red = worse than expected    Blue = better",
-        fontsize=8,
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_secondary"],
     )
-    cbar.ax.tick_params(labelsize=7)
+    cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+    cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
-    ax.set_title(title, fontsize=10, fontweight="semibold")
+    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
     ax.set_xticks([])
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
@@ -340,24 +379,20 @@ def plot_within_stratum_grid(
     stratum_labels: Optional[Dict[object, str]] = None,
     highlight_stratum: Optional[object] = None,
     emphasize_largest: bool = True,
-    callout_text: Optional[str] = None,
     show_footer: bool = True,
-    talk_note: Optional[str] = None,
 ) -> plt.Figure:
     """Show outcome geometry within clinical strata on one shared projection.
 
     Every panel contains the complete cohort in grey and overlays one stratum,
     split by observed outcome. Keeping the coordinates and axis limits fixed
-    means that only the highlighted patients change between panels.
-
-    By default the largest displayed stratum receives a subtle frame and a
-    descriptive callout. ``callout_text`` can replace that wording once the
-    pattern has been confirmed by held-out quantitative analysis.
+    means that only the highlighted patients change between panels. The
+    largest displayed stratum (or ``highlight_stratum``) receives a bordered
+    frame, called out in the legend — the figure itself carries no
+    interpretive text; that belongs in the surrounding narrative, not the
+    plot.
     """
-    import textwrap
-
     from matplotlib.lines import Line2D
-    from matplotlib.patches import FancyBboxPatch
+    from matplotlib.patches import Patch
 
     from opera.visualization.embedding_plots import _reduce_embeddings
 
@@ -443,11 +478,11 @@ def plot_within_stratum_grid(
         x_width = y_height / panel_aspect
     x_limits = (x_midpoint - x_width / 2, x_midpoint + x_width / 2)
     y_limits = (y_midpoint - y_height / 2, y_midpoint + y_height / 2)
-    background_color = "#D9DCE2"
-    border_color = "#C7CCD6"
-    key_border_color = "#3157B7"
-    negative_color = "#2458C7"
-    positive_color = "#F0441E"
+    background_color = "#DBDAD5"
+    border_color = PALETTE["panel_border"]
+    key_border_color = PALETTE["opera"]
+    negative_color = PALETTE["negative"]
+    positive_color = PALETTE["positive"]
     stratum_labels = stratum_labels or {}
 
     for i, s_val in enumerate(stratum_values):
@@ -484,12 +519,29 @@ def plot_within_stratum_grid(
             f"{float(labels[valid_s].mean()):.0%}" if valid_s.any() else "not available"
         )
         display_stratum = stratum_labels.get(s_val, f"{stratum_name} {s_val}")
-        display_math = str(display_stratum).replace(" ", r"\ ")
-        ax.set_title(
-            rf"$\bf{{{display_math}}}$   $n = {n_s:,}$   "
-            f"event prevalence = {prevalence}",
-            fontsize=9.2,
-            pad=9,
+        # Two text() calls (bold name + regular detail) instead of a mathtext
+        # "$\\bf{...}$" hack — that broke on any label containing an
+        # underscore or other mathtext-special character.
+        ax.text(
+            0.0,
+            1.065,
+            str(display_stratum),
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=TITLE_SIZE - 2,
+            fontweight="semibold",
+            color=PALETTE["ink"],
+        )
+        ax.text(
+            0.0,
+            1.015,
+            f"n = {n_s:,}    event prevalence = {prevalence}",
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=NOTE_SIZE,
+            color=PALETTE["ink_secondary"],
         )
         ax.set_xlim(x_limits)
         ax.set_ylim(y_limits)
@@ -499,47 +551,9 @@ def plot_within_stratum_grid(
         is_key = s_val == key_stratum
         for spine in ax.spines.values():
             spine.set_visible(True)
-            spine.set_linewidth(1.0 if is_key else 0.7)
+            spine.set_linewidth(1.4 if is_key else 0.8)
             spine.set_edgecolor(key_border_color if is_key else border_color)
         ax.grid(False)
-
-        if is_key:
-            class_zero = mask & (labels == 0)
-            class_one = mask & (labels == 1)
-            if class_zero.any() and class_one.any():
-                target = (
-                    coords[class_zero].mean(axis=0) + coords[class_one].mean(axis=0)
-                ) / 2
-            else:
-                target = coords[mask].mean(axis=0)
-            annotation = callout_text or (
-                f"Largest displayed {stratum_name.lower()} band;\n"
-                "outcomes shown within the same clinical stratum"
-            )
-            ax.annotate(
-                annotation,
-                xy=target,
-                xycoords="data",
-                xytext=(0.025, 0.035),
-                textcoords="axes fraction",
-                ha="left",
-                va="bottom",
-                fontsize=7.4,
-                color="#222222",
-                bbox={
-                    "boxstyle": "round,pad=0.28",
-                    "facecolor": "white",
-                    "edgecolor": "none",
-                    "alpha": 0.88,
-                },
-                arrowprops={
-                    "arrowstyle": "-|>",
-                    "color": "#222222",
-                    "linewidth": 0.8,
-                    "connectionstyle": "arc3,rad=0.25",
-                },
-                zorder=5,
-            )
 
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
@@ -552,34 +566,19 @@ def plot_within_stratum_grid(
         f"Shared {method.upper()} projection, shown separately within "
         f"clinician-defined {stratum_name} strata"
     )
-    fig.suptitle(title, fontsize=14.5, fontweight="bold", y=0.985)
+    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=0.985)
     fig.text(
         0.5,
         0.947,
         subtitle,
         ha="center",
         va="top",
-        fontsize=9.5,
-        color="#424242",
+        fontsize=SUBTITLE_SIZE,
+        color=PALETTE["ink_secondary"],
         style="italic",
     )
 
     if show_footer:
-        footer_bottom = 0.045
-        footer_top = 0.205 if rows == 1 else 0.17
-        footer = FancyBboxPatch(
-            (0.055, footer_bottom),
-            0.89,
-            footer_top - footer_bottom,
-            boxstyle="round,pad=0.006,rounding_size=0.012",
-            transform=fig.transFigure,
-            facecolor="#FBFCFF",
-            edgecolor=key_border_color,
-            linewidth=0.8,
-            zorder=-1,
-        )
-        fig.add_artist(footer)
-
         legend_handles = [
             Line2D(
                 [0],
@@ -589,7 +588,7 @@ def plot_within_stratum_grid(
                 markerfacecolor=background_color,
                 markeredgecolor="none",
                 markersize=7,
-                label="all patients (background context)",
+                label="All patients (background)",
             ),
             Line2D(
                 [0],
@@ -599,7 +598,7 @@ def plot_within_stratum_grid(
                 markerfacecolor=negative_color,
                 markeredgecolor="none",
                 markersize=7,
-                label="within-stratum no event",
+                label="Within-stratum, no event",
             ),
             Line2D(
                 [0],
@@ -609,116 +608,39 @@ def plot_within_stratum_grid(
                 markerfacecolor=positive_color,
                 markeredgecolor="none",
                 markersize=7,
-                label="within-stratum event",
+                label="Within-stratum, event",
             ),
         ]
-        legend_width = 0.30 if talk_note else 0.36
-        fig.text(
-            0.085,
-            footer_top - 0.027,
-            "Displayed points",
-            fontsize=9.2,
-            fontweight="bold",
-            va="top",
-        )
-        fig.legend(
-            handles=legend_handles,
-            loc="center left",
-            bbox_to_anchor=(0.075, (footer_bottom + footer_top) / 2 - 0.012),
-            bbox_transform=fig.transFigure,
-            frameon=False,
-            fontsize=7.6,
-            labelspacing=0.75,
-            handletextpad=0.55,
-        )
-
-        divider_x = 0.055 + legend_width
-        fig.add_artist(
-            plt.Line2D(
-                [divider_x, divider_x],
-                [footer_bottom + 0.014, footer_top - 0.014],
-                transform=fig.transFigure,
-                color="#8BA0D7",
-                linewidth=0.7,
-                linestyle=(0, (2, 4)),
-            )
-        )
-        interpretation_x = divider_x + 0.03
-        fig.text(
-            interpretation_x,
-            footer_top - 0.027,
-            "Interpretation",
-            fontsize=9.2,
-            fontweight="bold",
-            va="top",
-        )
-        interpretation = (
-            f"Within a single clinician-defined {stratum_name} band, OPERA may "
-            "reveal outcome-enriched regions. Visual separation is descriptive "
-            "and should be confirmed with held-out discrimination and uncertainty "
-            "estimates."
-        )
-        fig.text(
-            interpretation_x,
-            footer_top - 0.061,
-            textwrap.fill(interpretation, width=53 if talk_note else 76),
-            fontsize=7.7,
-            va="top",
-            linespacing=1.35,
-            color="#252525",
-        )
-
-        if talk_note:
-            second_divider_x = 0.69
-            fig.add_artist(
-                plt.Line2D(
-                    [second_divider_x, second_divider_x],
-                    [footer_bottom + 0.014, footer_top - 0.014],
-                    transform=fig.transFigure,
-                    color="#8BA0D7",
-                    linewidth=0.7,
-                    linestyle=(0, (2, 4)),
+        if key_stratum is not None:
+            legend_handles.append(
+                Patch(
+                    facecolor="none",
+                    edgecolor=key_border_color,
+                    linewidth=1.4,
+                    label="Highlighted stratum",
                 )
             )
-            fig.text(
-                second_divider_x + 0.025,
-                footer_top - 0.027,
-                "Talk note",
-                fontsize=9.2,
-                fontweight="bold",
-                va="top",
-            )
-            fig.text(
-                second_divider_x + 0.025,
-                footer_top - 0.061,
-                textwrap.fill(talk_note, width=43),
-                fontsize=7.7,
-                va="top",
-                linespacing=1.35,
-                color="#252525",
-            )
-
-        fig.text(
-            0.5,
-            0.014,
-            "Each panel shows the same 2D projection; only the highlighted stratum changes.",
-            ha="center",
-            va="bottom",
-            fontsize=7.5,
-            style="italic",
-            color="#555555",
+        legend = fig.legend(
+            handles=legend_handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.01),
+            ncol=len(legend_handles),
+            fontsize=LEGEND_SIZE,
+            handletextpad=0.5,
+            columnspacing=1.5,
         )
+        style_legend(legend)
+        bottom_margin = 0.155
+    else:
+        bottom_margin = 0.05
 
-    bottom_margin = (
-        0.235 if show_footer and rows == 1 else 0.195 if show_footer else 0.06
-    )
     fig.subplots_adjust(
         left=0.035,
         right=0.985,
-        top=0.885,
+        top=0.80,
         bottom=bottom_margin,
-        wspace=0.055,
-        hspace=0.19,
+        wspace=0.08,
+        hspace=0.42,
     )
     save_fig(fig, save_path)
     return fig
@@ -779,11 +701,11 @@ def plot_embedding_confidence(
             label=f"{name}  (n={m.sum()})",
         )
 
-    ax1.set_xlabel("Embedding confidence  (locality score)", fontsize=9)
+    ax1.set_xlabel("Embedding confidence  (locality score)", fontsize=LABEL_SIZE)
     ax1.set_yticks([0, 1])
     ax1.set_yticklabels(["Negative", "Positive"])
     ax1.set_title("Confidence by outcome")
-    ax1.legend(fontsize=LEGEND_SIZE)
+    style_legend(ax1.legend(fontsize=LEGEND_SIZE))
     despine(ax1, "x")
 
     # Right: KDE of confidence distributions
@@ -807,17 +729,19 @@ def plot_embedding_confidence(
     ax2.set_xlabel("Embedding confidence")
     ax2.set_ylabel("Density")
     ax2.set_title("Confidence distribution")
-    ax2.legend(fontsize=LEGEND_SIZE)
+    style_legend(ax2.legend(fontsize=LEGEND_SIZE))
     despine(ax2, "y")
 
     add_panel_label(ax1, "A")
-    add_panel_label(ax2, "B")
+    add_panel_label(ax2, "B", x=-0.3)
     fig.suptitle(
         title or f"Embedding confidence — {outcome_name.replace('_', ' ')}",
-        fontsize=10,
+        fontsize=SUPTITLE_SIZE,
         fontweight="semibold",
+        color=PALETTE["ink"],
     )
     fig.tight_layout()
+    fig.subplots_adjust(wspace=0.55)
     save_fig(fig, save_path)
     return fig
 
@@ -868,13 +792,14 @@ def plot_added_value_comparison(
     ):
         for i, row in results_df.iterrows():
             delta = row["combined_auroc"] - row["rkkp_only_auroc"]
-            x_ann = row["combined_auroc"] + 0.01
             color = PALETTE["opera_joint"] if delta >= 0 else PALETTE["positive"]
-            ax.text(
-                x_ann,
-                i,
+            ax.annotate(
                 f"+{delta:.3f}" if delta >= 0 else f"{delta:.3f}",
+                xy=(row["combined_auroc"], i),
+                xytext=(8, 0),
+                textcoords="offset points",
                 va="center",
+                ha="left",
                 fontsize=ANNOT_SIZE,
                 color=color,
                 fontweight="bold",
@@ -884,7 +809,7 @@ def plot_added_value_comparison(
     ax.set_yticklabels(display)
     ax.set_xlabel("AUROC")
     ax.set_title(title)
-    ax.legend(fontsize=LEGEND_SIZE, loc="lower right")
+    style_legend(ax.legend(fontsize=LEGEND_SIZE, loc="center left"))
     ax.set_xlim(0.35, None)
     despine(ax, "none")
     ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.5)
@@ -1036,7 +961,7 @@ def plot_performance_landscape(
         cbar_label = "Signed error  (prob − label)\n+ overconfident positive   − overconfident negative"
         ref_line = 0.0
     else:
-        cmap, vmin, vmax = "viridis", None, None
+        cmap, vmin, vmax = sequential_cmap("opera"), None, None
         cbar_label = metric
         ref_line = None
 
@@ -1069,7 +994,7 @@ def plot_performance_landscape(
         coords_v[correct, 0],
         coords_v[correct, 1],
         s=3,
-        c="#FFFFFF",
+        c="white",
         alpha=0.22,
         linewidths=0,
         rasterized=True,
@@ -1079,7 +1004,7 @@ def plot_performance_landscape(
         coords_v[~correct, 0],
         coords_v[~correct, 1],
         s=4,
-        c="#111111",
+        c=PALETTE["ink"],
         alpha=0.28,
         linewidths=0,
         rasterized=True,
@@ -1088,45 +1013,49 @@ def plot_performance_landscape(
 
     from matplotlib.lines import Line2D
 
-    ax_map.legend(
-        handles=[
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="none",
-                markerfacecolor="#AAAAAA",
-                markersize=5,
-                label=f"Correct  (n={correct.sum()})",
-            ),
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="none",
-                markerfacecolor="#111111",
-                markersize=5,
-                label=f"Incorrect  (n={(~correct).sum()})",
-            ),
-        ],
-        loc="lower right",
-        fontsize=7,
-        framealpha=0.85,
+    style_legend(
+        ax_map.legend(
+            handles=[
+                Line2D(
+                    [0],
+                    [0],
+                    marker="o",
+                    color="none",
+                    markerfacecolor=PALETTE["ink_muted"],
+                    markersize=5,
+                    label=f"Correct  (n={correct.sum()})",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="o",
+                    color="none",
+                    markerfacecolor=PALETTE["ink"],
+                    markersize=5,
+                    label=f"Incorrect  (n={(~correct).sum()})",
+                ),
+            ],
+            loc="lower right",
+            fontsize=NOTE_SIZE,
+            framealpha=0.85,
+        )
     )
 
     cbar = fig.colorbar(im, ax=ax_map, shrink=0.85, pad=0.02)
-    cbar.set_label(cbar_label, fontsize=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label(cbar_label, fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"])
+    cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+    cbar.outline.set_edgecolor(PALETTE["panel_border"])
     if ref_line is not None and vmin is not None and vmin < ref_line < vmax:
         norm_pos = (ref_line - vmin) / (vmax - vmin)
         cbar.ax.axhline(norm_pos, color=PALETTE["zero_line"], lw=1.0, ls="--")
 
-    ax_map.set_xlabel(f"{method.upper()} 1", fontsize=9)
-    ax_map.set_ylabel(f"{method.upper()} 2", fontsize=9)
+    ax_map.set_xlabel(f"{method.upper()} 1", fontsize=LABEL_SIZE)
+    ax_map.set_ylabel(f"{method.upper()} 2", fontsize=LABEL_SIZE)
     ax_map.set_title(
         title or f"Performance landscape — {outcome_name.replace('_', ' ')}",
-        fontsize=10,
+        fontsize=TITLE_SIZE,
         fontweight="semibold",
+        color=PALETTE["ink"],
     )
     ax_map.set_xticks([])
     ax_map.set_yticks([])
@@ -1187,10 +1116,10 @@ def plot_performance_landscape(
                 orientation="horizontal",
             )
 
-    ax_dist.set_xlabel("Density", fontsize=8)
-    ax_dist.set_ylabel(dist_label, fontsize=8)
-    ax_dist.set_title("By outcome label", fontsize=9, fontweight="semibold")
-    ax_dist.legend(fontsize=7)
+    ax_dist.set_xlabel("Density", fontsize=LABEL_SIZE)
+    ax_dist.set_ylabel(dist_label, fontsize=LABEL_SIZE)
+    ax_dist.set_title("By outcome label", fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
+    style_legend(ax_dist.legend(fontsize=LEGEND_SIZE))
     ax_dist.spines["top"].set_visible(False)
     ax_dist.spines["right"].set_visible(False)
     ax_dist.grid(False)
@@ -1329,14 +1258,19 @@ def plot_performance_landscape_multi_outcome(
             coords_v[:, 0],
             coords_v[:, 1],
             s=2,
-            c="#555555",
+            c=PALETTE["ink_secondary"],
             alpha=0.10,
             linewidths=0,
             rasterized=True,
             zorder=2,
         )
 
-        ax.set_title(name.replace("_", " ").title(), fontsize=9, fontweight="semibold")
+        ax.set_title(
+            name.replace("_", " ").title(),
+            fontsize=TITLE_SIZE,
+            fontweight="semibold",
+            color=PALETTE["ink"],
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         ax.spines["left"].set_visible(False)
@@ -1344,7 +1278,8 @@ def plot_performance_landscape_multi_outcome(
         ax.grid(False)
 
         cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-        cbar.ax.tick_params(labelsize=6)
+        cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+        cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
@@ -1357,8 +1292,9 @@ def plot_performance_landscape_multi_outcome(
 
     fig.suptitle(
         f"Performance landscape — {metric_display}",
-        fontsize=10,
+        fontsize=SUPTITLE_SIZE,
         fontweight="semibold",
+        color=PALETTE["ink"],
         y=1.01,
     )
     fig.tight_layout()
@@ -1618,8 +1554,9 @@ def plot_embedding_atlas(
             "accuracy": f"Accuracy ({background_outcome.replace('_', ' ')})",
             "mean_prob": f"Mean risk ({background_outcome.replace('_', ' ')})",
         }.get(background_metric, background_metric)
-        cbar.set_label(metric_label, fontsize=7.5)
-        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label(metric_label, fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"])
+        cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+        cbar.outline.set_edgecolor(PALETTE["panel_border"])
     else:
         # Neutral grey patient scatter as background
         ax.scatter(
@@ -1650,7 +1587,7 @@ def plot_embedding_atlas(
                 group_name,
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=ANNOT_SIZE,
                 fontweight="bold",
                 color=color,
                 zorder=6,
@@ -1721,7 +1658,7 @@ def plot_embedding_atlas(
                 f"{display}\n{r2_str}",
                 ha="center",
                 va="center",
-                fontsize=7,
+                fontsize=NOTE_SIZE,
                 color=color,
                 fontweight="semibold",
                 zorder=7,
@@ -1739,16 +1676,18 @@ def plot_embedding_atlas(
             [origin_x], [origin_y], s=30, c=PALETTE["zero_line"], zorder=6, linewidths=0
         )
 
-    ax.set_xlabel(f"{method.upper()} 1", fontsize=9)
-    ax.set_ylabel(f"{method.upper()} 2", fontsize=9)
-    ax.set_title(title, fontsize=11, fontweight="bold")
+    ax.set_xlabel(f"{method.upper()} 1", fontsize=LABEL_SIZE)
+    ax.set_ylabel(f"{method.upper()} 2", fontsize=LABEL_SIZE)
+    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
     ax.set_xticks([])
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.spines["bottom"].set_visible(False)
     ax.grid(False)
 
-    # Legend for axes (small, outside plot)
+    # Legend for axes — placed below the map (not inside plot bounds) so it
+    # never collides with population-group labels/contours, which are
+    # positioned at data-dependent centroids and can land in any corner.
     if axes_to_draw:
         from matplotlib.lines import Line2D
 
@@ -1763,16 +1702,22 @@ def plot_embedding_atlas(
             )
             for d, color in zip(axes_to_draw, ax_colors)
         ]
-        ax.legend(
-            handles=handles,
-            fontsize=6.5,
-            loc="lower left",
-            framealpha=0.88,
-            title="Outcome axes",
-            title_fontsize=7,
+        style_legend(
+            ax.legend(
+                handles=handles,
+                fontsize=LEGEND_SIZE,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.05),
+                ncol=2,
+                framealpha=0.94,
+                title="Outcome axes",
+                title_fontsize=LEGEND_TITLE_SIZE,
+            )
         )
 
     fig.tight_layout()
+    if axes_to_draw:
+        fig.subplots_adjust(bottom=0.24)
     save_fig(fig, save_path)
     return fig
 
@@ -1941,7 +1886,7 @@ def plot_landscape_summary(
             s_str,
             va="center",
             fontsize=ANNOT_SIZE,
-            color="#666666",
+            color=PALETTE["ink_secondary"],
         )
 
     ax_frac.set_yticks(y)
@@ -1979,12 +1924,19 @@ def plot_landscape_summary(
         )
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=[ax_frac, ax_err], shrink=0.6, pad=0.01, aspect=20)
-        cbar.set_label("σ  (low = strongly structured)", fontsize=7.5)
-        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label(
+            "σ  (low = strongly structured)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"]
+        )
+        cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
+        cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     add_panel_label(ax_frac, "A")
     add_panel_label(ax_err, "B")
-    fig.suptitle(title, fontsize=10, fontweight="semibold")
-    fig.tight_layout()
+    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=1.04)
+    # No fig.tight_layout() here: fig.colorbar(..., ax=[ax_frac, ax_err]) above
+    # already shrinks both axes to make room for itself, and running
+    # tight_layout afterward fights that placement (colorbar ends up drifting
+    # over the right-hand panel instead of sitting outside it).
+    fig.subplots_adjust(top=0.78, bottom=0.16, wspace=0.3)
     save_fig(fig, save_path)
     return fig

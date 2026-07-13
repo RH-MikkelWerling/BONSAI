@@ -6,6 +6,7 @@ import pytest
 from opera.functional.ipcw import compute_ipcw_train_weights
 from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
+    cox_batch_signal_counts,
     cox_partial_likelihood_loss,
 )
 
@@ -71,6 +72,22 @@ def test_cox_partial_likelihood_loss_rewards_correct_ordering():
     )
 
     assert correct < incorrect
+
+
+def test_cox_batch_signal_counts_distinguishes_events_without_comparators():
+    n_events, n_comparable = cox_batch_signal_counts(
+        torch.tensor([20.0, 10.0, 5.0]),
+        torch.tensor([1, 0, 0]),
+    )
+    assert n_events.item() == 1
+    assert n_comparable.item() == 0
+
+    n_events, n_comparable = cox_batch_signal_counts(
+        torch.tensor([5.0, 10.0, 20.0]),
+        torch.tensor([1, 0, 0]),
+    )
+    assert n_events.item() == 1
+    assert n_comparable.item() == 1
 
 
 class BatchScoreModel(nn.Module):

@@ -8,7 +8,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from opera.visualization.style import CATEGORICAL, FIG_FULL, save_fig, setup_style
+from opera.visualization.style import (
+    ANNOT_SIZE,
+    CATEGORICAL,
+    FIG_FULL,
+    LEGEND_SIZE,
+    PALETTE,
+    save_fig,
+    sequential_cmap,
+    setup_style,
+)
 
 
 def _layout(df: pd.DataFrame) -> np.ndarray:
@@ -51,11 +60,16 @@ def plot_disease_embedding(
         )
         centroid = coords[idx].mean(axis=0)
         ax.text(
-            centroid[0], centroid[1], str(disease), fontsize=8, ha="center", va="center"
+            centroid[0],
+            centroid[1],
+            str(disease),
+            fontsize=ANNOT_SIZE,
+            ha="center",
+            va="center",
         )
     ax.set_xlabel("PaCMAP 1")
     ax.set_ylabel("PaCMAP 2")
-    ax.legend(frameon=False, fontsize=7)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -78,7 +92,7 @@ def plot_survival_gradient(
         coords[:, 0],
         coords[:, 1],
         c=embeddings_df["survival_quantile"],
-        cmap="viridis",
+        cmap=sequential_cmap("opera"),
         s=8,
         rasterized=True,
         alpha=0.9,
@@ -92,7 +106,7 @@ def plot_survival_gradient(
                     coords[idx, 1],
                     np.arange(len(idx)),
                     levels=[max(1, len(idx) * 0.3)],
-                    colors="#666666",
+                    colors=PALETTE["connector"],
                     linewidths=0.4,
                     alpha=0.3,
                 )

@@ -18,6 +18,7 @@ from opera.visualization.style import (
     FIG_FULL,
     LEGEND_SIZE,
     PALETTE,
+    TITLE_SIZE,
     add_panel_label,
     despine,
     save_fig,
@@ -254,8 +255,8 @@ def _plot_gain_panel(
         loess_it,
     )
     ax.plot(lx, ly, color=PALETTE["zero_line"], linewidth=2.0)
-    ax.axhline(0, color=PALETTE["zero_line"], linestyle="--", linewidth=0.8)
-    ax.axvline(0, color=PALETTE["zero_line"], linestyle="--", linewidth=0.8)
+    ax.axhline(0, color=PALETTE["zero_line"], linestyle="-", linewidth=0.7)
+    ax.axvline(0, color=PALETTE["zero_line"], linestyle="-", linewidth=0.7)
     rho, pval, n = _spearman(
         merged[x_col].to_numpy(float), merged[gain_col].to_numpy(float)
     )
@@ -267,7 +268,7 @@ def _plot_gain_panel(
         ha="left",
         va="top",
         fontsize=ANNOT_SIZE,
-        color=PALETTE["zero_line"],
+        color=PALETTE["ink_secondary"],
     )
     if annotate_extremes > 0 and not merged.empty:
         top = merged.nlargest(annotate_extremes, gain_col)
@@ -280,7 +281,7 @@ def _plot_gain_panel(
                     xytext=(2, 2),
                     textcoords="offset points",
                     fontsize=ANNOT_SIZE,
-                    color=PALETTE["zero_line"],
+                    color=PALETTE["ink_secondary"],
                 )
             )
         try:
@@ -362,7 +363,7 @@ def plot_patient_benefit(
             ha="right",
             va="bottom",
             fontsize=ANNOT_SIZE,
-            color=PALETTE["zero_line"],
+            color=PALETTE["ink_secondary"],
         )
 
     for cohort, group in coords.groupby(cohort_col, dropna=False):
@@ -394,7 +395,7 @@ def plot_patient_benefit(
             va="center",
             fontsize=ANNOT_SIZE,
             fontweight="bold",
-            color=PALETTE["zero_line"],
+            color=PALETTE["ink"],
             zorder=6,
         )
     ax_map.set_xlabel("PaCMAP 1")
@@ -458,8 +459,8 @@ def plot_patient_benefit(
     if contrast_name:
         fig.suptitle(
             f"Patient-level benefit - {contrast_name}",
-            fontsize=9,
-            color=PALETTE["zero_line"],
+            fontsize=TITLE_SIZE,
+            color=PALETTE["ink"],
             y=0.99,
         )
     _legend(fig, colors, len(colors))
@@ -548,7 +549,7 @@ def plot_benefit_contrast_ladder(
             ha="center",
             va="center",
             fontsize=ANNOT_SIZE,
-            color=PALETTE["zero_line"],
+            color=PALETTE["ink"],
         )
         add_panel_label(ax, chr(ord("A") + i), x=-0.08)
         if i < len(axes) - 1:

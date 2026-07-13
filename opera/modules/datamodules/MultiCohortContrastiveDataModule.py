@@ -36,6 +36,7 @@ See opera/configs/contrastive_multicohort.yaml for the expected structure.
 
 from typing import Dict, Literal, Optional
 import os
+import numpy as np
 import pandas as pd
 import lightning as L
 import torch
@@ -539,12 +540,14 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
         print("Loading multi-cohort contrastive datasets...")
         train_datasets, val_datasets = [], []
+        train_cohort_names: list[str] = []
 
         for cohort_name, cohort_cfg in self.cohort_configs.items():
             train_ds = self._build_dataset_for_cohort(cohort_name, cohort_cfg, "train")
             val_ds = self._build_dataset_for_cohort(cohort_name, cohort_cfg, "tuning")
             if train_ds:
                 train_datasets.append(train_ds)
+                train_cohort_names.append(cohort_name)
             if val_ds:
                 val_datasets.append(val_ds)
 
@@ -553,6 +556,14 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
         self.train_dataset = ConcatDataset(train_datasets)
         self.val_dataset = ConcatDataset(val_datasets) if val_datasets else None
+
+        # Diagnostic-only: which cohort each pooled training index came from.
+        # Never influences sampling probability — see EventAwareSurvivalBatchSampler
+        # and OPERA_EXPERIMENTS.md for why cohort-aware oversampling was deliberately
+        # deferred pending real coverage numbers from this diagnostic.
+        self.train_cohort_labels = np.repeat(
+            train_cohort_names, [len(ds) for ds in train_datasets]
+        )
 
         total_train = sum(len(d) for d in train_datasets)
         total_val = sum(len(d) for d in val_datasets) if val_datasets else 0
@@ -601,7 +612,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             ),
             min_valid_per_batch=None if min_valid is None else int(min_valid),
             min_unique_events_for_focus=int(
-                self.batch_sampling.get("min_unique_events_for_focus", 2)
+                self.batch_sampling.get("min_unique_events_for_focus", 1)
             ),
             min_unique_valid_for_focus=int(
                 self.batch_sampling.get("min_unique_valid_for_focus", 4)
@@ -610,6 +621,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 None if batches_per_epoch is None else int(batches_per_epoch)
             ),
             seed=int(self.batch_sampling.get("seed", 0)),
+            cohort_labels=self.train_cohort_labels,
         )
         print(self.train_batch_sampler.summary())
 

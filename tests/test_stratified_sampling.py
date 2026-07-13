@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 from torch.utils.data import ConcatDataset, WeightedRandomSampler
 
+import opera.functional.stratified_sampling as stratified_sampling
 from opera.functional.stratified_sampling import (
+    CoverageBalancedSurvivalBatchSampler,
     EventAwareSurvivalBatchSampler,
     _extract_patient_times,
     _project_rank_matrix,
@@ -20,9 +22,17 @@ from opera.functional.stratified_sampling import (
     _quantile_rank_matrix,
     _quartile_bins,
     _standardize_rank_matrix,
+    build_coverage_balanced_survival_batch_sampler,
     build_event_aware_batch_sampler,
     build_stratified_sampler,
     log_bucket_stats,
+)
+from opera.modules.datamodules.SurvivalFinetuneDataModule import (
+    SurvivalFinetuneDataModule,
+    resolve_survival_batch_sampler_type,
+)
+from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
+    MultiCohortContrastiveDataModule,
 )
 
 
@@ -307,6 +317,129 @@ def test_build_event_aware_batch_sampler_returns_batch_sampler():
     assert all(min(batch) >= 0 and max(batch) < len(ds) for batch in batches)
 
 
+def test_coverage_balanced_survival_sampler_preserves_epoch_coverage_and_signal():
+    ds = _make_event_dataset()
+    sampler = build_coverage_balanced_survival_batch_sampler(
+        ds,
+        outcome_name="common",
+        batch_size=16,
+        seed=31,
+    )
+
+    assert isinstance(sampler, CoverageBalancedSurvivalBatchSampler)
+    batches = list(sampler)
+    flattened = [index for batch in batches for index in batch]
+
+    assert len(batches) == 6
+    assert sorted(flattened) == list(range(len(ds)))
+    assert all(len(batch) == len(set(batch)) for batch in batches)
+    assert (
+        max(sampler.last_epoch_event_counts) - min(sampler.last_epoch_event_counts) <= 1
+    )
+    assert min(sampler.last_epoch_event_counts) > 0
+    assert min(sampler.last_epoch_comparable_event_counts) > 0
+    assert sampler.last_epoch_usage_counts.tolist() == [1] * len(ds)
+
+
+def test_coverage_balanced_survival_sampler_is_deterministic_per_epoch():
+    ds = _make_event_dataset()
+    first = build_coverage_balanced_survival_batch_sampler(
+        ds, "common", batch_size=16, seed=37
+    )
+    second = build_coverage_balanced_survival_batch_sampler(
+        ds, "common", batch_size=16, seed=37
+    )
+
+    first_epoch = list(first)
+    assert first_epoch == list(second)
+    assert first_epoch != list(first)
+
+
+def test_coverage_balanced_survival_sampler_rejects_missing_survival_records():
+    ds = _make_event_dataset()
+    del ds.outcome_dicts["common"]["P003"]
+
+    with pytest.raises(ValueError, match="invalid records"):
+        build_coverage_balanced_survival_batch_sampler(
+            ds,
+            "common",
+            batch_size=16,
+        )
+
+
+def test_survival_datamodule_auto_sampling_is_objective_aware():
+    source = _make_event_dataset()
+    ds = _FakeDataset(source.subjects, {"survival": source.outcome_dicts["common"]})
+
+    cox = object.__new__(SurvivalFinetuneDataModule)
+    cox.batch_sampling = {"type": "auto", "seed": 5}
+    cox.training_mode = "cox"
+    cox.train_dataset = ds
+    cox.batch_size = 16
+    cox.train_sampler = None
+    cox.train_batch_sampler = None
+    cox._setup_train_sampling()
+    assert isinstance(
+        cox.train_batch_sampler,
+        CoverageBalancedSurvivalBatchSampler,
+    )
+
+    ipcw = object.__new__(SurvivalFinetuneDataModule)
+    ipcw.batch_sampling = {"type": "auto", "seed": 5}
+    ipcw.training_mode = "ipcw_bce"
+    ipcw.train_dataset = ds
+    ipcw.batch_size = 16
+    ipcw.train_sampler = None
+    ipcw.train_batch_sampler = None
+    ipcw._setup_train_sampling()
+    assert ipcw.train_batch_sampler is None
+    assert ipcw.train_sampler is None
+
+
+def test_survival_sampler_type_resolution_is_objective_aware():
+    assert resolve_survival_batch_sampler_type("cox", {"type": "auto"}) == (
+        "coverage_balanced"
+    )
+    assert resolve_survival_batch_sampler_type("ipcw_bce", {"type": "auto"}) == ("none")
+    assert (
+        resolve_survival_batch_sampler_type("cox", {"type": "risk_set_balanced"})
+        == "coverage_balanced"
+    )
+    assert (
+        resolve_survival_batch_sampler_type("cox", {"type": "survival_event_aware"})
+        == "event_aware"
+    )
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        lambda ds: build_coverage_balanced_survival_batch_sampler(
+            ds, "common", batch_size=16, seed=43
+        ),
+        lambda ds: build_event_aware_batch_sampler(
+            ds, ["common"], batch_size=16, seed=43
+        ),
+    ],
+)
+def test_survival_batch_samplers_give_ddp_ranks_equal_step_counts(
+    monkeypatch,
+    builder,
+):
+    ds = _make_event_dataset(n_subjects=80)  # five batches before DDP padding
+    rank_batches = []
+    for rank in (0, 1):
+        monkeypatch.setattr(
+            stratified_sampling,
+            "_distributed_context",
+            lambda rank=rank: (rank, 2),
+        )
+        sampler = builder(ds)
+        rank_batches.append(list(sampler))
+
+    assert len(rank_batches[0]) == len(rank_batches[1]) == 3
+
+
 def test_event_aware_batch_sampler_enriches_rare_outcome_batches():
     ds = _make_event_dataset()
     sampler = build_event_aware_batch_sampler(
@@ -485,3 +618,169 @@ def test_log_bucket_stats_reports_event_signal_for_batch_size():
 
     assert "primary events" in summary
     assert "expected random batch" in summary
+
+
+def test_event_aware_batch_sampler_default_focus_threshold_admits_single_event_outcome():
+    """min_unique_events_for_focus now defaults to 1, so a genuinely
+    single-event outcome enters the focus rotation without needing an
+    explicit override -- mirrors
+    test_event_aware_batch_sampler_never_clones_sparse_outcome_patients'
+    fixture but exercises the default rather than pinning the old threshold."""
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(24)]
+    common = {
+        subject["subject_id"]: {
+            "time_days": float(20 + index),
+            "event": int(index % 5 == 0),
+        }
+        for index, subject in enumerate(subjects)
+    }
+    rare = {
+        "P000": {"time_days": 10.0, "event": 1},
+        "P001": {"time_days": 100.0, "event": 0},
+        "P002": {"time_days": 110.0, "event": 0},
+        "P003": {"time_days": 120.0, "event": 0},
+    }
+    ds = _FakeDataset(subjects, {"common": common, "rare": rare})
+
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=12,
+        min_events_per_batch=4,
+        min_valid_per_batch=8,
+        seed=41,
+    )
+
+    assert sampler.min_unique_events_for_focus == 1
+    assert "rare" in sampler.focus_outcomes
+    batches = list(sampler)
+    assert all(len(batch) == len(set(batch)) for batch in batches)
+
+
+def test_event_aware_batch_sampler_never_clones_sparse_outcome_patients_still_holds_with_explicit_threshold():
+    """The original threshold=2 test remains valid when the threshold is
+    passed explicitly, confirming the new default (1) doesn't silently
+    change behavior for callers who still pin the old value."""
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(24)]
+    common = {
+        subject["subject_id"]: {
+            "time_days": float(20 + index),
+            "event": int(index % 5 == 0),
+        }
+        for index, subject in enumerate(subjects)
+    }
+    rare = {
+        "P000": {"time_days": 10.0, "event": 1},
+        "P001": {"time_days": 100.0, "event": 0},
+    }
+    ds = _FakeDataset(subjects, {"common": common, "rare": rare})
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common", "rare"],
+        batch_size=12,
+        min_events_per_batch=4,
+        min_valid_per_batch=8,
+        min_unique_events_for_focus=2,
+        min_unique_valid_for_focus=4,
+        seed=19,
+    )
+
+    assert "rare" not in sampler.focus_outcomes
+    batches = list(sampler)
+    assert all(len(batch) == len(set(batch)) for batch in batches)
+    assert sampler.last_epoch_usage_counts.max() <= len(batches)
+
+
+def test_event_aware_batch_sampler_cohort_labels_rejects_wrong_length():
+    ds = _make_event_dataset(n_subjects=24)
+
+    with pytest.raises(ValueError, match="cohort_labels"):
+        build_event_aware_batch_sampler(
+            ds,
+            ["common", "rare"],
+            batch_size=12,
+            cohort_labels=["big"] * 10,  # wrong length: dataset has 24 patients
+        )
+
+
+def test_event_aware_batch_sampler_cohort_summary_flags_undercovered_cohort():
+    rng = np.random.default_rng(51)
+    n_big, n_small = 200, 12
+    subjects = [{"subject_id": f"P{i:03d}"} for i in range(n_big + n_small)]
+    common = {
+        subject["subject_id"]: {
+            "time_days": float(rng.uniform(10, 2000)),
+            "event": int(rng.random() < 0.3),
+        }
+        for subject in subjects
+    }
+    ds = _FakeDataset(subjects, {"common": common})
+    cohort_labels = ["big"] * n_big + ["small"] * n_small
+
+    sampler = build_event_aware_batch_sampler(
+        ds,
+        ["common"],
+        batch_size=16,
+        cohort_labels=cohort_labels,
+        seed=5,
+    )
+
+    summary = sampler.summary()
+    assert "cohort epoch coverage" in summary
+    assert "big: patients=200" in summary
+    assert "small: patients=12" in summary
+    # The small cohort is undercovered relative to a full epoch given its
+    # tiny population share -- this is the diagnostic the plan calls for,
+    # not a sampling behavior change.
+    small_line = next(line for line in summary.splitlines() if "small:" in line)
+    assert "epoch_coverage" in small_line
+
+
+def test_event_aware_batch_sampler_cohort_labels_do_not_change_sampling_behavior():
+    """cohort_labels is diagnostic-only: passing it must not change which
+    batches get drawn for a fixed seed."""
+    ds = _make_event_dataset(n_subjects=48)
+    cohort_labels = ["a"] * 24 + ["b"] * 24
+
+    without_labels = build_event_aware_batch_sampler(
+        ds, ["common", "rare"], batch_size=16, seed=8
+    )
+    with_labels = build_event_aware_batch_sampler(
+        ds, ["common", "rare"], batch_size=16, seed=8, cohort_labels=cohort_labels
+    )
+
+    assert list(without_labels) == list(with_labels)
+
+
+def test_multicohort_datamodule_threads_cohort_labels_to_sampler():
+    """_setup_train_sampling wires self.train_cohort_labels through to the
+    sampler in the same order ConcatDataset concatenates sub-datasets --
+    built via object.__new__ + manual attrs, matching the existing
+    test_survival_datamodule_auto_sampling_is_objective_aware pattern, since
+    setup() itself does real file I/O this test deliberately avoids."""
+    big = _make_event_dataset(n_subjects=40)
+    small = _make_event_dataset(n_subjects=6)
+    concatenated = ConcatDataset([big, small])
+
+    module = object.__new__(MultiCohortContrastiveDataModule)
+    module.train_dataset = concatenated
+    module.train_cohort_labels = np.repeat(
+        ["big_cohort", "small_cohort"], [len(big), len(small)]
+    )
+    module.outcome_names = ["common", "rare"]
+    module.batch_size = 8
+    module.batch_sampling = {"type": "event_aware", "seed": 3}
+    module.train_sampler = None
+    module.train_batch_sampler = None
+
+    module._setup_train_sampling()
+
+    sampler = module.train_batch_sampler
+    assert isinstance(sampler, EventAwareSurvivalBatchSampler)
+    assert sampler.cohort_indices is not None
+    assert sorted(sampler.cohort_indices) == ["big_cohort", "small_cohort"]
+    assert sampler.cohort_indices["big_cohort"].size == len(big)
+    assert sampler.cohort_indices["small_cohort"].size == len(small)
+    # Ordering contract: small_cohort's global indices must be the tail
+    # range, matching ConcatDataset's concatenation order.
+    assert sampler.cohort_indices["small_cohort"].min() == len(big)

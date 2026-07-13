@@ -12,7 +12,16 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import NullLocator
 
-from opera.visualization.style import CATEGORICAL, FIG_FULL, save_fig, setup_style
+from opera.visualization.style import (
+    ANNOT_SIZE,
+    CATEGORICAL,
+    FIG_FULL,
+    NOTE_SIZE,
+    PALETTE,
+    TITLE_SIZE,
+    save_fig,
+    setup_style,
+)
 
 
 METRIC_LABELS = {
@@ -317,6 +326,23 @@ def _course_group(cohort_group: str, course_groups: Optional[Mapping[str, str]])
     return course_groups.get(cohort_group, OTHER_COURSE_GROUP)
 
 
+def _wrap_label(label: str, max_chars: int = 11) -> str:
+    """Break a long legend label onto a second line at the nearest space to
+    its midpoint, so a narrow legend column doesn't force the figure to
+    either overflow or shrink everything else to fit the longest word."""
+    if len(label) <= max_chars or " " not in label:
+        return label
+    mid = len(label) / 2
+    best_space = min(
+        (i for i, ch in enumerate(label) if ch == " "), key=lambda i: abs(i - mid)
+    )
+    return label[:best_space] + "\n" + label[best_space + 1 :]
+
+
+_DENSE_LEGEND_SIZE = 8.0
+_DENSE_TITLE_SIZE = 8.5
+
+
 def _draw_unified_legend(
     fig: plt.Figure,
     *,
@@ -330,103 +356,115 @@ def _draw_unified_legend(
     from matplotlib.patches import FancyBboxPatch
 
     panel_left, panel_right = 0.01, 0.99
-    panel_top, panel_bottom = top_y, 0.015
+    panel_top, panel_bottom = top_y, 0.02
     fig.add_artist(
         FancyBboxPatch(
             (panel_left, panel_bottom),
             panel_right - panel_left,
             panel_top - panel_bottom,
-            boxstyle="round,pad=0.004,rounding_size=0.006",
+            boxstyle="round,pad=0.004,rounding_size=0.008",
             transform=fig.transFigure,
             facecolor="white",
-            edgecolor="#CCCCCC",
-            linewidth=0.7,
+            edgecolor=PALETTE["panel_border"],
+            linewidth=0.8,
             zorder=0,
         )
     )
 
     n_courses = max(1, len(cohort_handles_by_course))
-    family_x0, family_x1 = 0.025, 0.225
-    cohort_x0, cohort_x1 = 0.245, 0.65
-    lowinfo_x0, lowinfo_x1 = 0.665, 0.81
-    model_x0, model_x1 = 0.825, 0.975
+    # Family stays a single column (its 8 entries are long clinical phrases;
+    # a 2-up layout would need to double the column width to avoid
+    # overlapping the next column, which costs more than the row count it
+    # saves). Cohort and model labels wrap at _wrap_label's threshold
+    # instead, so those columns can stay narrow without truncating text.
+    family_x0, family_x1 = 0.02, 0.245
+    cohort_x0, cohort_x1 = 0.265, 0.60
+    lowinfo_x0, lowinfo_x1 = 0.62, 0.80
+    model_x0, model_x1 = 0.82, 0.98
     for x in (family_x1 + 0.005, cohort_x1 + 0.005, lowinfo_x1 + 0.005):
         fig.add_artist(
             Line2D(
                 [x, x],
-                [panel_bottom + 0.01, panel_top - 0.01],
+                [panel_bottom + 0.015, panel_top - 0.015],
                 transform=fig.transFigure,
-                color="#DDDDDD",
-                linewidth=0.7,
+                color=PALETTE["panel_border"],
+                linewidth=0.8,
                 zorder=1,
             )
         )
 
+    title_y = panel_top - 0.025
     fig.legend(
         handles=family_handles,
         title="Outcome family (color)",
         loc="upper left",
-        bbox_to_anchor=(family_x0, panel_top - 0.015),
+        bbox_to_anchor=(family_x0, title_y),
         bbox_transform=fig.transFigure,
         ncol=1,
         frameon=False,
-        fontsize=6.8,
-        title_fontsize=7.3,
-        handletextpad=0.4,
+        fontsize=_DENSE_LEGEND_SIZE,
+        title_fontsize=_DENSE_TITLE_SIZE,
+        handletextpad=0.45,
+        labelspacing=0.62,
     )
 
-    # Long titles wrap onto a second line so 3-4 narrow side-by-side
-    # sub-legends don't overflow into each other.
     fig.text(
         cohort_x0,
-        panel_top - 0.018,
+        title_y,
         "Training cohort group (shape)",
         transform=fig.transFigure,
-        fontsize=7.3,
+        fontsize=_DENSE_TITLE_SIZE,
         fontweight="semibold",
+        color=PALETTE["ink"],
         ha="left",
         va="top",
     )
     course_width = (cohort_x1 - cohort_x0) / n_courses
     for index, (course, handles) in enumerate(cohort_handles_by_course.items()):
-        wrapped_title = course.replace(" course group", "\ncourse group").replace(
-            " group", "\ngroup"
-        )
+        for h in handles:
+            h.set_label(_wrap_label(h.get_label()))
+        wrapped_title = _wrap_label(course, max_chars=14)
         fig.legend(
             handles=handles,
             title=wrapped_title,
             loc="upper left",
-            bbox_to_anchor=(cohort_x0 + index * course_width, panel_top - 0.047),
+            bbox_to_anchor=(cohort_x0 + index * course_width, title_y - 0.05),
             bbox_transform=fig.transFigure,
             ncol=1,
             frameon=False,
-            fontsize=6.5,
-            title_fontsize=6.5,
-            handletextpad=0.4,
+            fontsize=_DENSE_LEGEND_SIZE,
+            title_fontsize=_DENSE_LEGEND_SIZE,
+            handletextpad=0.45,
+            labelspacing=0.6,
         )
 
     fig.legend(
         handles=[low_info_handle],
         title="Low-information cells",
         loc="upper left",
-        bbox_to_anchor=(lowinfo_x0, panel_top - 0.015),
+        bbox_to_anchor=(lowinfo_x0, title_y),
         bbox_transform=fig.transFigure,
         frameon=False,
-        fontsize=6.6,
-        title_fontsize=7.3,
+        fontsize=_DENSE_LEGEND_SIZE,
+        title_fontsize=_DENSE_TITLE_SIZE,
         handletextpad=0.6,
-        labelspacing=1.2,
+        labelspacing=1.0,
     )
 
+    def _rewrap(handle):
+        handle.set_label(_wrap_label(handle.get_label(), max_chars=13))
+        return handle
+
     fig.legend(
-        handles=interval_handles,
+        handles=[_rewrap(h) for h in interval_handles],
         title="Model components",
         loc="upper left",
-        bbox_to_anchor=(model_x0, panel_top - 0.015),
+        bbox_to_anchor=(model_x0, title_y),
         bbox_transform=fig.transFigure,
         frameon=False,
-        fontsize=6.8,
-        title_fontsize=7.3,
+        fontsize=_DENSE_LEGEND_SIZE,
+        title_fontsize=_DENSE_TITLE_SIZE,
+        labelspacing=0.7,
     )
     _ = (
         family_x1,
@@ -619,12 +657,12 @@ def plot_hierarchical_rarity_curve(
             ax.annotate(
                 text,
                 xy=(point_x, point_y),
-                fontsize=6.5,
-                color="#333333",
+                fontsize=ANNOT_SIZE,
+                color=PALETTE["ink_secondary"],
                 zorder=7,
                 arrowprops=dict(
                     arrowstyle="-",
-                    color="#999999",
+                    color=PALETTE["connector"],
                     linewidth=0.6,
                     shrinkA=1.5,
                     shrinkB=3.5,
@@ -646,8 +684,8 @@ def plot_hierarchical_rarity_curve(
                 text_x,
                 text_y,
                 text,
-                fontsize=6.5,
-                color="#333333",
+                fontsize=ANNOT_SIZE,
+                color=PALETTE["ink_secondary"],
                 ha="left" if lane == "left" else "right",
                 va="center",
                 zorder=7,
@@ -662,13 +700,13 @@ def plot_hierarchical_rarity_curve(
         np.full(len(cells), rug_y),
         marker="|",
         s=18,
-        color="#555555",
-        alpha=0.22,
+        color=PALETTE["ink_muted"],
+        alpha=0.3,
         linewidths=0.6,
         rasterized=True,
         zorder=2,
     )
-    ax.axhline(0.0, color="#333333", linewidth=0.85, zorder=4)
+    ax.axhline(0.0, color=PALETTE["zero_line"], linewidth=0.85, zorder=4)
     ax.set_xscale("log")
     ax.set_xlim(x_min / 1.12, x_max * 1.12)
     ax.set_ylim(y_min, y_max)
@@ -683,10 +721,10 @@ def plot_hierarchical_rarity_curve(
     ax.set_xticks(ticks)
     ax.set_xticklabels([f"{int(t):,}" for t in ticks])
     ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_xlabel("Training events (log scale)")
+    ax.set_xlabel("Training events (log scale)", labelpad=8)
     metric_name = METRIC_LABELS.get(metric, metric.replace("_", " ").upper())
-    ax.set_ylabel(f"Paired Δ{metric_name} ({model_label} − {comparator_label})")
-    ax.set_title(title, loc="left", pad=9)
+    ax.set_ylabel(f"Paired Δ{metric_name} ({model_label} − {comparator_label})", labelpad=8)
+    ax.set_title(title, loc="left", pad=14, fontsize=TITLE_SIZE)
     ax.text(
         0.995,
         0.985,
@@ -694,10 +732,12 @@ def plot_hierarchical_rarity_curve(
         transform=ax.transAxes,
         ha="right",
         va="top",
-        fontsize=7.5,
-        color="#46517E",
+        fontsize=NOTE_SIZE,
+        fontstyle="italic",
+        color=PALETTE["opera_joint"],
     )
     ax.grid(axis="x", which="minor", visible=False)
+    ax.margins(x=0)
 
     # The curated set is small, so a deterministic final repulsion pass is
     # cheap and protects against collisions caused by the realized data. The
@@ -737,7 +777,7 @@ def plot_hierarchical_rarity_curve(
             linestyle="none",
             markerfacecolor=colors[family],
             markeredgecolor="white",
-            markersize=5.5,
+            markersize=6,
             label=family,
         )
         for family in families
@@ -751,9 +791,9 @@ def plot_hierarchical_rarity_curve(
                 [0],
                 marker=markers[group],
                 linestyle="none",
-                markerfacecolor="#777777",
+                markerfacecolor=PALETTE["ink_muted"],
                 markeredgecolor="white",
-                markersize=5.5,
+                markersize=6,
                 label=(cohort_group_labels or {}).get(group, group),
             )
         )
@@ -767,13 +807,13 @@ def plot_hierarchical_rarity_curve(
         marker="o",
         linestyle="none",
         markerfacecolor="white",
-        markeredgecolor="#777777",
-        markersize=5.5,
+        markeredgecolor=PALETTE["ink_muted"],
+        markersize=6,
         label="Hollow markers: <10 held-out\ncases or controls",
     )
     interval_handles = [
-        Line2D([0], [0], color="#1A237E", linewidth=2.2, label="Posterior median"),
-        Patch(facecolor="#2D3A8C", alpha=0.25, label="50% credible interval"),
+        Line2D([0], [0], color=PALETTE["opera_joint"], linewidth=2.2, label="Posterior median"),
+        Patch(facecolor=PALETTE["opera"], alpha=0.25, label="50% credible interval"),
         Patch(facecolor="#5264A8", alpha=0.18, label="95% credible interval"),
     ]
     if show_predictive_interval:
@@ -781,8 +821,8 @@ def plot_hierarchical_rarity_curve(
             Patch(facecolor="#AEB8D8", alpha=0.14, label="95% prediction interval")
         )
 
-    top_margin = 0.90
-    bottom_margin = 0.37
+    top_margin = 0.91
+    bottom_margin = 0.36
     fig.subplots_adjust(left=0.075, right=0.98, top=top_margin, bottom=bottom_margin)
     _draw_unified_legend(
         fig,
@@ -790,7 +830,7 @@ def plot_hierarchical_rarity_curve(
         cohort_handles_by_course=cohort_handles_by_course,
         low_info_handle=low_info_handle,
         interval_handles=interval_handles,
-        top_y=bottom_margin - 0.10,
+        top_y=bottom_margin - 0.095,
     )
 
     if save_path:

@@ -12,7 +12,19 @@ from sklearn.decomposition import PCA
 
 from opera.evaluation.treatment_embeddings import embedding_columns
 from opera.visualization.embedding_plots import _cohort_colors, reduce_embeddings
-from opera.visualization.style import CATEGORICAL, add_panel_label, save_fig
+from opera.visualization.style import (
+    ANNOT_SIZE,
+    CATEGORICAL,
+    LEGEND_SIZE,
+    LEGEND_TITLE_SIZE,
+    NOTE_SIZE,
+    PALETTE,
+    TITLE_SIZE,
+    add_panel_label,
+    clean_2d_axes,
+    figure_title,
+    save_fig,
+)
 
 
 REGIMEN_MARKERS = ("o", "s", "^", "D", "P", "X", "v", "<", ">", "h", "p", "*")
@@ -38,13 +50,9 @@ def project_embedding_frame(
 
 
 def _clean_axis(ax: plt.Axes, xlabel: str = "Atlas 1", ylabel: str = "Atlas 2") -> None:
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_xlabel(xlabel, fontsize=7, color="#777777")
-    ax.set_ylabel(ylabel, fontsize=7, color="#777777")
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    clean_2d_axes(ax)
+    ax.set_xlabel(xlabel, fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
+    ax.set_ylabel(ylabel, fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
 
 
 def _scatter_groups(
@@ -66,7 +74,7 @@ def _scatter_groups(
             valid.loc[other_mask, "atlas_x"],
             valid.loc[other_mask, "atlas_y"],
             s=3,
-            color="#D7D7D7",
+            color=PALETTE["missing"],
             alpha=0.22,
             linewidths=0,
             rasterized=True,
@@ -93,7 +101,7 @@ def _scatter_groups(
             y,
             group,
             color=colors[group],
-            fontsize=6.5,
+            fontsize=ANNOT_SIZE,
             fontweight="semibold",
             ha="center",
             va="center",
@@ -149,7 +157,7 @@ def plot_disease_treatment_atlas(
     }
 
     fig, axes = plt.subplots(1, 3, figsize=(12.2, 4.35), sharex=True, sharey=True)
-    fig.suptitle(title, fontsize=11, fontweight="semibold", y=1.01)
+    figure_title(fig, title, y=1.01)
 
     _scatter_groups(
         axes[0],
@@ -159,14 +167,14 @@ def plot_disease_treatment_atlas(
         min_n=min_disease_n,
         max_labels=max_disease_labels,
     )
-    axes[0].set_title("Disease geography", fontsize=9)
+    axes[0].set_title("Disease geography", fontsize=TITLE_SIZE)
     axes[0].text(
         0.01,
         0.01,
         "Color = disease",
         transform=axes[0].transAxes,
-        fontsize=6.5,
-        color="#555555",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_muted"],
     )
 
     _scatter_groups(
@@ -177,14 +185,14 @@ def plot_disease_treatment_atlas(
         min_n=min_treatment_n,
         max_labels=max_treatment_labels,
     )
-    axes[1].set_title("First-line regimen geography", fontsize=9)
+    axes[1].set_title("First-line regimen geography", fontsize=TITLE_SIZE)
     axes[1].text(
         0.01,
         0.01,
         "Color = disease-specific regimen",
         transform=axes[1].transAxes,
-        fontsize=6.5,
-        color="#555555",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_muted"],
     )
 
     joint_ax = axes[2]
@@ -192,7 +200,7 @@ def plot_disease_treatment_atlas(
         coordinates["atlas_x"],
         coordinates["atlas_y"],
         s=3,
-        color="#CFCFCF",
+        color=PALETTE["missing"],
         alpha=0.10,
         linewidths=0,
         rasterized=True,
@@ -253,7 +261,7 @@ def plot_disease_treatment_atlas(
             (row["atlas_x"], row["atlas_y"]),
             xytext=(0, 7),
             textcoords="offset points",
-            fontsize=6.3,
+            fontsize=ANNOT_SIZE,
             fontweight="bold",
             ha="center",
             va="bottom",
@@ -271,7 +279,7 @@ def plot_disease_treatment_atlas(
             (row["atlas_x"], row["atlas_y"]),
             xytext=(3, 3),
             textcoords="offset points",
-            fontsize=5.5,
+            fontsize=NOTE_SIZE,
             color=disease_colors[disease],
             bbox={
                 "boxstyle": "round,pad=0.10",
@@ -302,26 +310,26 @@ def plot_disease_treatment_atlas(
         joint_ax.legend(
             handles=marker_handles,
             title="Regimen marker (most common)",
-            fontsize=5.8,
-            title_fontsize=6.0,
+            fontsize=LEGEND_SIZE,
+            title_fontsize=LEGEND_TITLE_SIZE,
             loc="upper right",
             framealpha=0.88,
             ncol=1,
         )
-    joint_ax.set_title("Joint disease–regimen atlas", fontsize=9)
+    joint_ax.set_title("Joint disease–regimen atlas", fontsize=TITLE_SIZE)
     joint_ax.text(
         0.01,
         0.01,
         "Color = disease  ·  marker = regimen  ·  size = n",
         transform=joint_ax.transAxes,
-        fontsize=6.5,
-        color="#555555",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_muted"],
     )
 
     for label, ax in zip(("A", "B", "C"), axes):
         add_panel_label(ax, label, x=-0.04, y=1.03)
         _clean_axis(ax)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
     save_fig(fig, save_path)
     return fig
 
@@ -367,14 +375,14 @@ def plot_treatment_probe_performance(
             marker="|",
             s=110,
             linewidth=1.2,
-            color="#555555",
+            color=PALETTE["ink_secondary"],
             zorder=2,
         )
     ax.set_yticks(range(len(diseases)), labels=diseases)
     ax.set_xlabel("Balanced accuracy for first-line regimen")
     ax.set_ylabel("Disease")
     ax.set_xlim(0, 1)
-    ax.axvline(0.5, color="#BBBBBB", linewidth=0.7, linestyle="--", zorder=1)
+    ax.axvline(0.5, color=PALETTE["diagonal"], linewidth=0.7, linestyle="--", zorder=1)
     ax.legend(title="Frozen embedding", loc="lower right")
     ax.set_title("How much treatment-selection information is accessible?")
     ax.text(
@@ -384,8 +392,8 @@ def plot_treatment_probe_performance(
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=6.5,
-        color="#666666",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_muted"],
     )
     fig.tight_layout()
     save_fig(fig, save_path)

@@ -22,6 +22,8 @@ from opera.visualization.style import (
     despine,
     FIG_SQUARE,
     add_panel_label,
+    LEGEND_SIZE,
+    ANNOT_SIZE,
 )
 from opera.evaluation.metrics import (
     decision_curve_analysis,
@@ -109,7 +111,7 @@ def plot_roc_comparison(
     ax.set_xlim(-0.01, 1.01)
     ax.set_ylim(-0.01, 1.01)
     ax.set_title(title)
-    ax.legend(loc="lower right", fontsize=7.5)
+    ax.legend(loc="lower right", fontsize=LEGEND_SIZE)
     despine(ax, "none")
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -244,7 +246,7 @@ def plot_calibration(
             transform=ax1.transAxes,
             ha="right",
             va="bottom",
-            fontsize=7.5,
+            fontsize=ANNOT_SIZE,
             color=color_hl,
         )
 
@@ -252,7 +254,7 @@ def plot_calibration(
     ax1.set_xlim(-0.01, 1.01)
     ax1.set_ylim(-0.01, 1.01)
     ax1.set_title(title)
-    ax1.legend(loc="upper left", fontsize=7.5)
+    ax1.legend(loc="upper left", fontsize=LEGEND_SIZE)
     despine(ax1, "none")
 
     # ── Prediction histogram ─────────────────────────────────────────
@@ -275,7 +277,7 @@ def plot_calibration(
     )
     ax2.set_xlabel("Predicted probability")
     ax2.set_ylabel("Density")
-    ax2.legend(fontsize=7.5)
+    ax2.legend(fontsize=LEGEND_SIZE)
     ax2.yaxis.set_major_locator(mticker.MaxNLocator(3))
     despine(ax2, "none")
 
@@ -322,7 +324,7 @@ def plot_decision_curve(
     ax.set_xlabel("Decision threshold")
     ax.set_ylabel("Net benefit")
     ax.set_title(title)
-    ax.legend(fontsize=7.5)
+    ax.legend(fontsize=LEGEND_SIZE)
     ax.set_xlim(0, 1)
 
     y_lo = max(dca["net_benefit_treat_all"].min(), -0.15)
@@ -407,7 +409,7 @@ def plot_timedep_auc(
     ax.set_ylabel("IPCW-AUC")
     ax.set_ylim(None, None)
     ax.set_title(title)
-    ax.legend(fontsize=7.5)
+    ax.legend(fontsize=LEGEND_SIZE)
     ax.xaxis.set_major_locator(mticker.MaxNLocator(6, integer=True))
     despine(ax, "y")
 
@@ -450,7 +452,7 @@ def plot_timedep_auc_comparison(
     ax.set_xlabel("Days from index date")
     ax.set_ylabel("IPCW-AUC  (95% CI)")
     ax.set_title(title)
-    ax.legend(fontsize=7.5, loc="lower right")
+    ax.legend(fontsize=LEGEND_SIZE, loc="lower right")
     despine(ax, "y")
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -497,7 +499,7 @@ def plot_threshold_analysis(
     ax.set_xlabel("Decision threshold")
     ax.set_ylabel("Metric value")
     ax.set_title(title)
-    ax.legend(fontsize=7.5)
+    ax.legend(fontsize=LEGEND_SIZE)
     ax.set_xlim(0, 1)
     ax.set_ylim(-0.01, 1.01)
     despine(ax, "y")
@@ -575,13 +577,13 @@ def plot_evaluation_panel(
             transform=ax_cal.transAxes,
             ha="right",
             va="bottom",
-            fontsize=7,
+            fontsize=ANNOT_SIZE,
             color=color_hl,
         )
     ax_cal.set_xlabel("Predicted probability")
     ax_cal.set_ylabel("Observed frequency")
     ax_cal.set_title(f"Calibration{title_sfx}")
-    ax_cal.legend(fontsize=7.5)
+    ax_cal.legend(fontsize=LEGEND_SIZE)
     ax_cal.set_xlim(-0.01, 1.01)
     ax_cal.set_ylim(-0.01, 1.01)
     despine(ax_cal, "none")
@@ -628,14 +630,14 @@ def plot_evaluation_panel(
         ax_bot.set_xlabel("Decision threshold")
         ax_bot.set_ylabel("Net benefit")
         ax_bot.set_title(f"Decision Curve{title_sfx}")
-        ax_bot.legend(fontsize=7.5)
+        ax_bot.legend(fontsize=LEGEND_SIZE)
         ax_bot.set_xlim(0, 1)
         despine(ax_bot, "y")
 
     for label, ax in zip("ABCD", axes.flat):
-        add_panel_label(ax, label)
+        add_panel_label(ax, label, x=-0.16, y=1.14)
 
-    fig.tight_layout(h_pad=2.0, w_pad=2.0)
+    fig.tight_layout(h_pad=3.2, w_pad=2.4)
     save_fig(fig, save_path)
     return fig
 

@@ -7,8 +7,13 @@ import pandas as pd
 from matplotlib.lines import Line2D
 
 from opera.visualization.style import (
+    ANNOT_SIZE,
     CATEGORICAL,
     FIG_FULL,
+    LEGEND_SIZE,
+    NOTE_SIZE,
+    PALETTE,
+    despine,
     model_color,
     model_label,
     save_fig,
@@ -17,11 +22,8 @@ from opera.visualization.style import (
 
 
 def _finish_delta_axis(ax: plt.Axes) -> None:
-    ax.axhline(0, color="#333333", linestyle="--", linewidth=0.9, zorder=1)
-    ax.grid(axis="y", color="#E6E6E6", linewidth=0.7)
-    ax.grid(axis="x", color="#F2F2F2", linewidth=0.5)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.9, zorder=1)
+    despine(ax, grid_axis="both")
 
 
 def _split_main_supplement(group: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -214,7 +216,7 @@ def plot_synthetic_rarity_delta(
     ax.set_ylabel("Delta ROC-AUC vs baseline")
     ax.set_title("Synthetic rarity / label scarcity")
     ax.set_xlim(left=0)
-    ax.legend(frameon=False, fontsize=8, loc="best")
+    ax.legend(fontsize=LEGEND_SIZE, loc="best")
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -285,7 +287,7 @@ def plot_real_rarity_delta(
     ax.set_xlabel(_rarity_x_label(x_col))
     ax.set_ylabel("Delta ROC-AUC vs baseline")
     ax.set_title("Real rare cohort-outcome cells")
-    ax.legend(frameon=False, fontsize=7.5, loc="best")
+    ax.legend(fontsize=LEGEND_SIZE, loc="best")
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -399,7 +401,7 @@ def plot_combined_rarity_delta(
                 marker="s",
                 linestyle="None",
                 markerfacecolor="white",
-                markeredgecolor="#333333",
+                markeredgecolor=PALETTE["ink_secondary"],
                 markersize=5,
             ),
         )
@@ -408,7 +410,7 @@ def plot_combined_rarity_delta(
             by_label.values(),
             by_label.keys(),
             frameon=False,
-            fontsize=8,
+            fontsize=LEGEND_SIZE,
             loc="lower center",
             ncol=min(4, len(by_label)),
         )
@@ -473,7 +475,7 @@ def plot_synthetic_learning_curves(
     ax.set_xlabel("Labelled target-diagnosis training patients")
     ax.set_ylabel(metric.replace("_", " ").upper())
     ax.set_title("Controlled synthetic label scarcity (task-macro)")
-    ax.legend(frameon=False)
+    ax.legend()
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -510,7 +512,7 @@ def plot_relative_benefit_curve(
     ax.set_xlabel("Labelled target-diagnosis training patients")
     ax.set_ylabel(f"Paired {metric.replace('_', ' ')} benefit")
     ax.set_title("Relative benefit under target-label scarcity")
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -544,7 +546,7 @@ def plot_natural_viability_heatmap(
     del image
     for i in range(len(diagnoses)):
         for j in range(len(outcomes)):
-            ax.text(j, i, annotations[i, j], ha="center", va="center", fontsize=6.5)
+            ax.text(j, i, annotations[i, j], ha="center", va="center", fontsize=NOTE_SIZE)
     ax.set_xticks(range(len(outcomes)), [v.replace("_", " ") for v in outcomes], rotation=30, ha="right")
     ax.set_yticks(range(len(diagnoses)), diagnoses)
     ax.set_title("Natural rarity task viability (fixed 2023+ test set)")
@@ -591,7 +593,7 @@ def plot_natural_rarity_scatter(
     ax.set_xlabel("Natural target-diagnosis training patients")
     ax.set_ylabel(f"Paired {metric.replace('_', ' ')} benefit")
     ax.set_title("Naturally occurring fine-cohort rarity")
-    ax.legend(frameon=False, fontsize=7.5)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -626,7 +628,7 @@ def plot_diagnosis_learning_curves(
     ax.set_xlabel("Labelled target-diagnosis training patients")
     ax.set_ylabel(metric.replace("_", " ").upper())
     ax.set_title(f"{cohort_fine}: controlled label scarcity")
-    ax.legend(frameon=False, fontsize=7, ncol=2)
+    ax.legend(fontsize=LEGEND_SIZE, ncol=2)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -666,7 +668,7 @@ def plot_combined_rarity_experiment(
     handles, labels = ax_syn.get_legend_handles_labels()
     handles2, labels2 = ax_nat.get_legend_handles_labels()
     if handles or handles2:
-        fig.legend(handles + handles2, labels + labels2, frameon=False, fontsize=7.5, loc="lower center", ncol=3)
+        fig.legend(handles + handles2, labels + labels2, frameon=False, fontsize=LEGEND_SIZE, loc="lower center", ncol=3)
         fig.tight_layout(rect=(0, 0.14, 1, 1))
     else:
         fig.tight_layout()
@@ -767,8 +769,8 @@ def plot_rarity_delta(
         tier = str(row.get("rarity_tier", "unknown"))
         color = CATEGORICAL[hash(tier) % len(CATEGORICAL)]
         ax.scatter(i, row["delta"], color=color, s=38, zorder=3)
-        ax.text(i, row["delta"], row["label"], fontsize=6.5, ha="center", va="bottom")
-    ax.axhline(0, color="#333333", linewidth=0.9)
+        ax.text(i, row["delta"], row["label"], fontsize=ANNOT_SIZE, ha="center", va="bottom")
+    ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.9)
     ax.set_xlabel(
         f"Cohort-outcome cells sorted by {_rarity_x_label(rarity_col).lower()}"
     )
@@ -831,12 +833,12 @@ def plot_rarity_invariance_panel(
             stable_only=False,
             log_x=True,
         )
-    ax.axhline(0.0, color="#333333", linewidth=0.9)
+    ax.axhline(0.0, color=PALETTE["zero_line"], linewidth=0.9)
     ax.set_xscale("log")
     ax.set_xlabel("Held-out event rate")
     ax.set_ylabel(f"{metric.upper()}(OPERA) - {metric.upper()}({baseline_model})")
     ax.set_title("Rarity gradient by cross-outcome weighter")
-    ax.legend(frameon=False)
+    ax.legend()
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig

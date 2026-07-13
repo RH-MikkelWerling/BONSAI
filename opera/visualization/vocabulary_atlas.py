@@ -11,7 +11,18 @@ from sklearn.decomposition import PCA
 
 from opera.evaluation.treatment_embeddings import embedding_columns
 from opera.visualization.embedding_plots import _cohort_colors, reduce_embeddings
-from opera.visualization.style import CATEGORICAL, add_panel_label, save_fig
+from opera.visualization.style import (
+    ANNOT_SIZE,
+    CATEGORICAL,
+    LEGEND_SIZE,
+    LEGEND_TITLE_SIZE,
+    NOTE_SIZE,
+    PALETTE,
+    add_panel_label,
+    clean_2d_axes,
+    despine,
+    save_fig,
+)
 
 
 def project_vocabulary_embeddings(
@@ -71,7 +82,7 @@ def plot_vocabulary_embedding_atlas(
             frame.loc[other, "atlas_x"],
             frame.loc[other, "atlas_y"],
             s=6,
-            color="#D7D7D7",
+            color=PALETTE["missing"],
             alpha=0.22,
             linewidths=0,
             rasterized=True,
@@ -96,7 +107,7 @@ def plot_vocabulary_embedding_atlas(
             float(subset["atlas_x"].median()),
             float(subset["atlas_y"].median()),
             f"{group} (n={len(subset)})",
-            fontsize=6.5,
+            fontsize=ANNOT_SIZE,
             fontweight="semibold",
             color=colors[group],
             ha="center",
@@ -120,7 +131,7 @@ def plot_vocabulary_embedding_atlas(
             highlighted["atlas_x"],
             highlighted["atlas_y"],
             s=34,
-            color="#111111",
+            color=PALETTE["ink"],
             edgecolor="white",
             linewidth=0.6,
             zorder=5,
@@ -131,8 +142,8 @@ def plot_vocabulary_embedding_atlas(
                 (row["atlas_x"], row["atlas_y"]),
                 xytext=(3, 3),
                 textcoords="offset points",
-                fontsize=6.0,
-                color="#111111",
+                fontsize=ANNOT_SIZE,
+                color=PALETTE["ink"],
                 bbox={
                     "boxstyle": "round,pad=0.10",
                     "facecolor": "white",
@@ -149,14 +160,14 @@ def plot_vocabulary_embedding_atlas(
         0.01,
         "One point = one vocabulary token/code",
         transform=ax.transAxes,
-        fontsize=6.5,
-        color="#555555",
+        fontsize=NOTE_SIZE,
+        color=PALETTE["ink_muted"],
     )
     if len(retained_groups) <= 12:
         ax.legend(
             title=color_col,
-            fontsize=6,
-            title_fontsize=6,
+            fontsize=LEGEND_SIZE,
+            title_fontsize=LEGEND_TITLE_SIZE,
             loc="upper right",
             framealpha=0.88,
         )
@@ -206,8 +217,7 @@ def plot_token_movement(
         ax.set_yticks(y, labels=subset[token_col].astype(str))
         ax.set_xlabel(metric.replace("_", " "))
         ax.set_title(f"Most shifted tokens: {stage}")
-        ax.grid(axis="x", color="#EEEEEE", linewidth=0.5)
-        ax.grid(axis="y", visible=False)
+        despine(ax, grid_axis="x")
         add_panel_label(ax, chr(ord("A") + index), x=-0.09, y=1.03)
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -215,10 +225,6 @@ def plot_token_movement(
 
 
 def _clean_token_axis(ax: plt.Axes) -> None:
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_xlabel("Atlas 1", fontsize=7, color="#777777")
-    ax.set_ylabel("Atlas 2", fontsize=7, color="#777777")
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    clean_2d_axes(ax)
+    ax.set_xlabel("Atlas 1", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])
+    ax.set_ylabel("Atlas 2", fontsize=NOTE_SIZE, color=PALETTE["ink_muted"])

@@ -9,6 +9,7 @@ import pandas as pd
 
 from opera.visualization.style import (
     FIG_FULL,
+    LEGEND_SIZE,
     PALETTE,
     model_color,
     model_label,
@@ -54,7 +55,7 @@ def plot_timedep_auc_curves(
         ax.axvline(x, color=PALETTE["diagonal"], linewidth=0.7, linestyle="--")
     ax.set_xlabel("Horizon (days)")
     ax.set_ylabel("IPCW-AUC")
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -78,11 +79,17 @@ def plot_calibration_comparison(
         label = str(cohort)
         if "ece" in group.columns and "hl_pvalue" in group.columns:
             label = f"{label} ECE={group['ece'].iloc[0]:.3f}, HL p={group['hl_pvalue'].iloc[0]:.3f}"
-        ax.plot(group["predicted"], group["observed"], marker="o", label=label)
+        ax.plot(
+            group["predicted"],
+            group["observed"],
+            marker="o",
+            color=model_color(str(cohort)),
+            label=label,
+        )
     ax.plot([0, 1], [0, 1], color=PALETTE["diagonal"], linestyle="--", linewidth=0.9)
     ax.set_xlabel("Predicted risk")
     ax.set_ylabel("Observed event rate")
-    ax.legend(frameon=False, fontsize=7)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
@@ -125,7 +132,7 @@ def plot_decision_curves(
     ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.8, label="Treat none")
     ax.set_xlabel("Risk threshold")
     ax.set_ylabel("Net benefit")
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig

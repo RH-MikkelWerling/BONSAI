@@ -284,6 +284,261 @@ def _draw_from_pool(
     return rng.choice(available, size=n_unique, replace=False, p=p).tolist()
 
 
+class CoverageBalancedSurvivalBatchSampler(Sampler[list[int]]):
+    """Spread survival signal across batches without changing epoch exposure.
+
+    Every eligible patient appears exactly once per single-process epoch. Primary
+    events are assigned as evenly as possible across batches, then later
+    non-event comparators are paired where capacity permits. Remaining patients
+    are distributed across follow-up-time bins. Unlike outcome-weighted random
+    sampling, this does not duplicate rare events or alter patient-level epoch
+    weights.
+
+    This improves the usefulness of mini-batch Cox updates but does not make
+    their risk sets exact: the full Cox partial likelihood still requires the
+    complete training risk set (or a formally corrected sampled-risk objective).
+    """
+
+    def __init__(
+        self,
+        dataset,
+        outcome_name: str,
+        batch_size: int,
+        seed: int = 0,
+    ):
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive.")
+        self.dataset = dataset
+        self.outcome_name = str(outcome_name)
+        self.batch_size = int(batch_size)
+        self.seed = int(seed)
+        self.epoch = 0
+
+        records = _extract_patient_records(dataset, [self.outcome_name])
+        self.n = len(records)
+        if self.n == 0:
+            raise ValueError("Cannot build a batch sampler for an empty dataset.")
+
+        self.times = np.full(self.n, np.nan, dtype=np.float64)
+        self.events = np.full(self.n, -1, dtype=np.int64)
+        for index, patient_records in enumerate(records):
+            record = patient_records.get(self.outcome_name)
+            if record is None:
+                continue
+            self.times[index] = _as_float(record.get("time_days"))
+            self.events[index] = _as_event(record.get("event", record.get("label", -1)))
+
+        self.valid_mask = np.isfinite(self.times) & (self.events >= 0)
+        if not self.valid_mask.all():
+            invalid = int((~self.valid_mask).sum())
+            raise ValueError(
+                "Coverage-balanced survival sampling requires finite times and "
+                f"event indicators for every patient; found {invalid} invalid records."
+            )
+        self.event_indices = np.flatnonzero(self.events == 1).astype(np.int64)
+        self.non_event_indices = np.flatnonzero(self.events != 1).astype(np.int64)
+        self.num_batches = max(1, (self.n + self.batch_size - 1) // self.batch_size)
+        self.last_epoch_usage_counts = np.zeros(self.n, dtype=np.int64)
+        self.last_epoch_event_counts: list[int] = []
+        self.last_epoch_comparable_event_counts: list[int] = []
+
+    def __len__(self) -> int:
+        _, world_size = _distributed_context()
+        return (self.num_batches + world_size - 1) // world_size
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
+
+    def _capacities(self) -> list[int]:
+        base, remainder = divmod(self.n, self.num_batches)
+        return [base + int(index < remainder) for index in range(self.num_batches)]
+
+    @staticmethod
+    def _least_loaded_batch(
+        batches: Sequence[list[int]],
+        capacities: Sequence[int],
+        rng: np.random.Generator,
+        *,
+        event_counts: Optional[np.ndarray] = None,
+    ) -> int:
+        candidates = [
+            index
+            for index, batch in enumerate(batches)
+            if len(batch) < capacities[index]
+        ]
+        if not candidates:
+            raise RuntimeError("No batch capacity remains while assigning patients.")
+        if event_counts is not None:
+            minimum_events = min(event_counts[index] for index in candidates)
+            candidates = [
+                index for index in candidates if event_counts[index] == minimum_events
+            ]
+        minimum_size = min(len(batches[index]) for index in candidates)
+        candidates = [
+            index for index in candidates if len(batches[index]) == minimum_size
+        ]
+        return int(rng.choice(candidates))
+
+    def _build_epoch_batches(self, rng: np.random.Generator) -> list[list[int]]:
+        capacities = self._capacities()
+        batches: list[list[int]] = [[] for _ in capacities]
+        event_counts = np.zeros(self.num_batches, dtype=np.int64)
+        assigned = np.zeros(self.n, dtype=bool)
+
+        shuffled_events = rng.permutation(self.event_indices)
+        for patient_index in shuffled_events:
+            batch_index = self._least_loaded_batch(
+                batches,
+                capacities,
+                rng,
+                event_counts=event_counts,
+            )
+            batches[batch_index].append(int(patient_index))
+            event_counts[batch_index] += 1
+            assigned[int(patient_index)] = True
+
+        # Reserve long-follow-up non-events for the latest events first. This
+        # increases the chance that every event has a genuine at-risk comparator
+        # without duplicating either cases or controls.
+        available_controls = set(self.non_event_indices.tolist())
+        events_latest_first = sorted(
+            self.event_indices.tolist(),
+            key=lambda index: self.times[index],
+            reverse=True,
+        )
+        event_to_batch = {
+            patient_index: batch_index
+            for batch_index, batch in enumerate(batches)
+            for patient_index in batch
+            if self.events[patient_index] == 1
+        }
+        for event_index in events_latest_first:
+            batch_index = event_to_batch[event_index]
+            if len(batches[batch_index]) >= capacities[batch_index]:
+                continue
+            candidates = np.array(
+                [
+                    index
+                    for index in available_controls
+                    if self.times[index] >= self.times[event_index]
+                ],
+                dtype=np.int64,
+            )
+            if candidates.size == 0:
+                continue
+            comparator = int(rng.choice(candidates))
+            batches[batch_index].append(comparator)
+            assigned[comparator] = True
+            available_controls.remove(comparator)
+
+        remaining = np.flatnonzero(~assigned).astype(np.int64)
+        if remaining.size:
+            time_bins = _quartile_bins(self.times[remaining])
+            queues = []
+            for bin_id in np.unique(time_bins):
+                queue = remaining[time_bins == bin_id].copy()
+                rng.shuffle(queue)
+                queues.append(queue.tolist())
+            rng.shuffle(queues)
+
+            queue_index = 0
+            while any(queues):
+                queue = queues[queue_index % len(queues)]
+                queue_index += 1
+                if not queue:
+                    continue
+                patient_index = int(queue.pop())
+                batch_index = self._least_loaded_batch(batches, capacities, rng)
+                batches[batch_index].append(patient_index)
+                assigned[patient_index] = True
+
+        if not assigned.all():
+            raise RuntimeError(
+                "Coverage-balanced sampler failed to assign all patients."
+            )
+        for batch, capacity in zip(batches, capacities):
+            if len(batch) != capacity or len(batch) != len(set(batch)):
+                raise RuntimeError(
+                    "Coverage-balanced sampler produced an invalid batch."
+                )
+            rng.shuffle(batch)
+        return batches
+
+    def _comparable_event_count(self, batch: Sequence[int]) -> int:
+        indices = np.asarray(batch, dtype=np.int64)
+        times = self.times[indices]
+        events = self.events[indices]
+        count = 0
+        for local_index in np.flatnonzero(events == 1):
+            at_risk = times >= times[local_index]
+            if int(at_risk.sum()) >= 2:
+                count += 1
+        return count
+
+    def __iter__(self) -> Iterator[list[int]]:
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+        batches = self._build_epoch_batches(rng)
+        rank, world_size = _distributed_context()
+
+        # All ranks must execute the same number of optimizer steps. Pad the
+        # global batch list only for distributed execution; single-process
+        # training retains exact once-per-epoch coverage.
+        target_global_batches = self.__len__() * world_size
+        if target_global_batches > len(batches):
+            padding = target_global_batches - len(batches)
+            for index in range(padding):
+                batches.append(list(batches[index % len(batches)]))
+
+        usage_counts = np.zeros(self.n, dtype=np.int64)
+        event_counts: list[int] = []
+        comparable_counts: list[int] = []
+        for batch in batches:
+            usage_counts[np.asarray(batch, dtype=np.int64)] += 1
+            event_counts.append(int((self.events[np.asarray(batch)] == 1).sum()))
+            comparable_counts.append(self._comparable_event_count(batch))
+        self.last_epoch_usage_counts = usage_counts
+        self.last_epoch_event_counts = event_counts
+        self.last_epoch_comparable_event_counts = comparable_counts
+
+        yield from batches[rank::world_size]
+
+    def summary(self) -> str:
+        expected_random_empty = (
+            (1.0 - self.event_indices.size / self.n) ** self.batch_size
+            if self.n
+            else float("nan")
+        )
+        return "\n".join(
+            [
+                "Coverage-balanced survival batch sampler",
+                f"  patients={self.n}, events={self.event_indices.size}, "
+                f"batch_size={self.batch_size}, batches_per_epoch={self.num_batches}",
+                "  each patient appears exactly once per single-process epoch",
+                "  primary events are spread across batches; later non-event "
+                "comparators are paired when available",
+                f"  random-shuffle probability of an event-free full batch≈"
+                f"{expected_random_empty:.1%}",
+                "  note: mini-batch Cox risk sets remain an approximation of the "
+                "full partial likelihood",
+            ]
+        )
+
+
+def build_coverage_balanced_survival_batch_sampler(
+    dataset,
+    outcome_name: str,
+    batch_size: int,
+    seed: int = 0,
+) -> CoverageBalancedSurvivalBatchSampler:
+    return CoverageBalancedSurvivalBatchSampler(
+        dataset=dataset,
+        outcome_name=outcome_name,
+        batch_size=batch_size,
+        seed=seed,
+    )
+
+
 class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
     """
     Compose batches with outcome-specific survival signal.
@@ -303,10 +558,11 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         n_quantiles: int = 4,
         min_events_per_batch: int = 4,
         min_valid_per_batch: Optional[int] = None,
-        min_unique_events_for_focus: int = 2,
+        min_unique_events_for_focus: int = 1,
         min_unique_valid_for_focus: int = 4,
         batches_per_epoch: Optional[int] = None,
         seed: int = 0,
+        cohort_labels: Optional[Sequence[str]] = None,
     ):
         if batch_size <= 0:
             raise ValueError("batch_size must be positive.")
@@ -319,12 +575,8 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             min_valid_per_batch = max(2 * self.min_events_per_batch, batch_size // 4)
             min_valid_per_batch = max(2, min_valid_per_batch)
         self.min_valid_per_batch = min(int(min_valid_per_batch), self.batch_size)
-        self.min_unique_events_for_focus = max(
-            1, int(min_unique_events_for_focus)
-        )
-        self.min_unique_valid_for_focus = max(
-            2, int(min_unique_valid_for_focus)
-        )
+        self.min_unique_events_for_focus = max(1, int(min_unique_events_for_focus))
+        self.min_unique_valid_for_focus = max(2, int(min_unique_valid_for_focus))
         self.seed = int(seed)
         self.epoch = 0
 
@@ -332,6 +584,22 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         self.n = len(self.records)
         if self.n == 0:
             raise ValueError("Cannot build a batch sampler for an empty dataset.")
+
+        # Diagnostics only: cohort_labels never affects sampling probability
+        # or draw order, only the per-cohort coverage estimate in summary().
+        # Deliberately not an oversampling lever — see OPERA_EXPERIMENTS.md.
+        self.cohort_indices: Optional[dict[str, np.ndarray]] = None
+        if cohort_labels is not None:
+            labels_array = np.asarray(list(cohort_labels))
+            if labels_array.shape[0] != self.n:
+                raise ValueError(
+                    "cohort_labels must have one entry per patient; got "
+                    f"{labels_array.shape[0]} labels for {self.n} patients."
+                )
+            self.cohort_indices = {
+                str(label): np.flatnonzero(labels_array == label).astype(np.int64)
+                for label in np.unique(labels_array)
+            }
 
         all_times = _extract_patient_times(dataset, self.outcome_names)
         buckets = _projected_buckets(all_times, self.outcome_names, self.n_quantiles)
@@ -387,10 +655,12 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
             raise ValueError("batches_per_epoch must be positive.")
 
     def __len__(self) -> int:
-        rank, world_size = _distributed_context()
-        return max(0, (self.num_batches + world_size - 1 - rank) // world_size)
+        _, world_size = _distributed_context()
+        return (self.num_batches + world_size - 1) // world_size
 
-    def _add(self, batch: list[int], selected: set[int], indices: Sequence[int]) -> None:
+    def _add(
+        self, batch: list[int], selected: set[int], indices: Sequence[int]
+    ) -> None:
         for index in indices:
             if len(batch) >= self.batch_size:
                 return
@@ -553,7 +823,11 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
         else:
             focus_order = []
 
-        for batch_index in range(self.num_batches):
+        # Pad the global schedule to a multiple of world size so every DDP rank
+        # executes the same number of optimizer steps. Unequal iterator lengths
+        # can otherwise deadlock gradient synchronization.
+        global_num_batches = self.__len__() * world_size
+        for batch_index in range(global_num_batches):
             should_yield = batch_index % world_size == rank
             self._draw_probabilities = _normalise_probabilities(
                 self.base_probabilities / (1.0 + usage_counts)
@@ -593,6 +867,7 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                     f"  {name}: valid={self.valid_indices[name].size}, "
                     f"primary_events={self.event_indices[name].size} [not focused]"
                 )
+            self._append_cohort_summary(lines)
             return "\n".join(lines)
         lines.append(f"  focus outcomes: {self.focus_outcomes}")
         batches_per_focus = max(1, self.num_batches // len(self.focus_outcomes))
@@ -614,7 +889,25 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
                 f"  {name}: valid={self.valid_indices[name].size}, "
                 f"primary_events={n_events}{coverage_str}"
             )
+
+        self._append_cohort_summary(lines)
         return "\n".join(lines)
+
+    def _append_cohort_summary(self, lines: list[str]) -> None:
+        if not self.cohort_indices:
+            return
+        lines.append("  cohort epoch coverage (diagnostic only; does not affect sampling):")
+        total_draws = self.num_batches * self.batch_size
+        for label in sorted(self.cohort_indices):
+            indices = self.cohort_indices[label]
+            weight_share = float(self.base_probabilities[indices].sum())
+            expected_draws_per_patient = (
+                total_draws * weight_share / indices.size if indices.size else 0.0
+            )
+            coverage_str = f"epoch_coverage≈{expected_draws_per_patient:.2f}"
+            if expected_draws_per_patient < 1.0:
+                coverage_str += " [WARNING: <1× per epoch on average]"
+            lines.append(f"    {label}: patients={indices.size}, {coverage_str}")
 
 
 def build_event_aware_batch_sampler(
@@ -624,10 +917,11 @@ def build_event_aware_batch_sampler(
     n_quantiles: int = 4,
     min_events_per_batch: int = 4,
     min_valid_per_batch: Optional[int] = None,
-    min_unique_events_for_focus: int = 2,
+    min_unique_events_for_focus: int = 1,
     min_unique_valid_for_focus: int = 4,
     batches_per_epoch: Optional[int] = None,
     seed: int = 0,
+    cohort_labels: Optional[Sequence[str]] = None,
 ) -> EventAwareSurvivalBatchSampler:
     return EventAwareSurvivalBatchSampler(
         dataset=dataset,
@@ -640,6 +934,7 @@ def build_event_aware_batch_sampler(
         min_unique_valid_for_focus=min_unique_valid_for_focus,
         batches_per_epoch=batches_per_epoch,
         seed=seed,
+        cohort_labels=cohort_labels,
     )
 
 

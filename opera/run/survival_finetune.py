@@ -29,6 +29,7 @@ from opera.functional.outcomes import (
 )
 from opera.modules.datamodules.SurvivalFinetuneDataModule import (
     SurvivalFinetuneDataModule,
+    resolve_survival_batch_sampler_type,
 )
 from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
@@ -83,6 +84,7 @@ def build_survival_finetune_data_module(
         max_len=resolve_survival_finetune_max_len(cfg),
         train_sampler=None,
         batch_sampling=cfg.training.get("batch_sampling", {}),
+        training_mode=cfg.get("training_mode", "cox"),
     )
 
 
@@ -252,6 +254,13 @@ def main(cfg: DictConfig) -> None:
         max_epochs=cfg.training.epochs,
         num_nodes=cfg.hardware.num_nodes,
         precision=cfg.hardware.precision,
+        use_distributed_sampler=(
+            resolve_survival_batch_sampler_type(
+                cfg.training_mode,
+                cfg.training.get("batch_sampling", {}),
+            )
+            == "none"
+        ),
     )
 
     trainer.fit(model=lightning_module, datamodule=data_module)

@@ -48,9 +48,11 @@ training:
   max_len: ${model.max_seqlen}
   batch_size: 128
   batch_sampling:
-    # Avoid outcome-dependent distortion of mini-batch Cox risk sets.
-    # Event-aware sampling remains available as an explicit ablation.
-    type: none
+    # Cox: spread real events across batches while preserving once-per-epoch
+    # patient coverage. IPCW-BCE: use ordinary random batches so the weighted
+    # additive objective remains representative. Event-aware oversampling is
+    # available only as a deliberately biased ablation.
+    type: auto
     seed: 0
   accumulate_grad_batches: 1
   epochs: 20

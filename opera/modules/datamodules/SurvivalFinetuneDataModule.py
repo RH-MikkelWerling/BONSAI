@@ -1,5 +1,6 @@
 """Survival-aware finetuning datamodule for OPERA."""
 
+import warnings
 from typing import Optional, Literal
 
 import torch
@@ -7,8 +8,28 @@ from torch.utils.data import DataLoader
 
 from opera.compat.bonsai import dynamic_padding, filter_subject_data
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
-from opera.functional.stratified_sampling import build_event_aware_batch_sampler
+from opera.functional.stratified_sampling import (
+    build_coverage_balanced_survival_batch_sampler,
+    build_event_aware_batch_sampler,
+)
 from opera.modules.datasets.SurvivalFinetuneDataset import SurvivalFinetuneDataset
+
+
+def resolve_survival_batch_sampler_type(
+    training_mode: str,
+    batch_sampling: Optional[dict],
+) -> str:
+    """Resolve objective-aware sampling without duplicating runner logic."""
+    sampler_type = str(dict(batch_sampling or {}).get("type", "auto")).lower()
+    if sampler_type == "auto":
+        return "coverage_balanced" if training_mode == "cox" else "none"
+    if sampler_type == "random":
+        return "none"
+    if sampler_type == "risk_set_balanced":
+        return "coverage_balanced"
+    if sampler_type == "survival_event_aware":
+        return "event_aware"
+    return sampler_type
 
 
 def survival_finetune_collate(batch: list[dict]) -> dict:
@@ -22,9 +43,18 @@ def survival_finetune_collate(batch: list[dict]) -> dict:
 class SurvivalFinetuneDataModule(FinetuneDataModule):
     """Use ``SurvivalFinetuneDataset`` while preserving BONSAI loaders."""
 
-    def __init__(self, *args, batch_sampling: Optional[dict] = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        batch_sampling: Optional[dict] = None,
+        training_mode: str = "cox",
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.batch_sampling = dict(batch_sampling or {})
+        self.training_mode = str(training_mode)
+        if self.training_mode not in {"cox", "ipcw_bce"}:
+            raise ValueError("training_mode must be 'cox' or 'ipcw_bce'.")
         self.train_batch_sampler = None
 
     def setup(self, stage: Literal["fit", "test", "predict"]):
@@ -47,7 +77,12 @@ class SurvivalFinetuneDataModule(FinetuneDataModule):
                 "No training subjects remain after outcome/population filtering."
             )
 
-        background_length = (train_data[0]["segment"] == 0).sum()
+        if not val_data:
+            raise ValueError(
+                "No validation subjects remain after outcome/population filtering."
+            )
+
+        background_length = int((train_data[0]["segment"] == 0).sum())
 
         self.train_dataset = SurvivalFinetuneDataset(
             train_data,
@@ -66,13 +101,35 @@ class SurvivalFinetuneDataModule(FinetuneDataModule):
         self._setup_train_sampling()
 
     def _setup_train_sampling(self) -> None:
-        sampler_type = str(self.batch_sampling.get("type", "event_aware")).lower()
-        if sampler_type in {"none", "random"}:
+        sampler_type = resolve_survival_batch_sampler_type(
+            self.training_mode,
+            self.batch_sampling,
+        )
+        if sampler_type == "none":
             self.train_batch_sampler = None
             self.train_sampler = None
             return
-        if sampler_type not in {"event_aware", "survival_event_aware"}:
+        if sampler_type == "coverage_balanced":
+            self.train_sampler = None
+            self.train_batch_sampler = build_coverage_balanced_survival_batch_sampler(
+                self.train_dataset,
+                outcome_name="survival",
+                batch_size=self.batch_size,
+                seed=int(self.batch_sampling.get("seed", 0)),
+            )
+            print(self.train_batch_sampler.summary())
+            return
+        if sampler_type != "event_aware":
             raise ValueError(f"Unknown survival batch sampler: {sampler_type!r}")
+
+        warnings.warn(
+            "Event-aware sampling duplicates and outcome-weights patients. This "
+            "changes mini-batch Cox risk sets and biases IPCW-BCE unless the loss "
+            "is importance-corrected. Prefer type=auto or coverage_balanced for "
+            "survival finetuning; event_aware should be treated as an ablation.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
         min_valid = self.batch_sampling.get("min_valid_per_batch")
         batches_per_epoch = self.batch_sampling.get("batches_per_epoch")
@@ -87,7 +144,7 @@ class SurvivalFinetuneDataModule(FinetuneDataModule):
             ),
             min_valid_per_batch=None if min_valid is None else int(min_valid),
             min_unique_events_for_focus=int(
-                self.batch_sampling.get("min_unique_events_for_focus", 2)
+                self.batch_sampling.get("min_unique_events_for_focus", 1)
             ),
             min_unique_valid_for_focus=int(
                 self.batch_sampling.get("min_unique_valid_for_focus", 4)

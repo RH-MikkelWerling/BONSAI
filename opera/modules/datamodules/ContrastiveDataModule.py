@@ -375,7 +375,7 @@ class ContrastiveDataModule(L.LightningDataModule):
             ),
             min_valid_per_batch=None if min_valid is None else int(min_valid),
             min_unique_events_for_focus=int(
-                self.batch_sampling.get("min_unique_events_for_focus", 2)
+                self.batch_sampling.get("min_unique_events_for_focus", 1)
             ),
             min_unique_valid_for_focus=int(
                 self.batch_sampling.get("min_unique_valid_for_focus", 4)

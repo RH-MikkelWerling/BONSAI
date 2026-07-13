@@ -41,6 +41,22 @@ def cox_partial_likelihood_loss(
     return -(event_risks - log_denominator).mean()
 
 
+def cox_batch_signal_counts(
+    times: torch.Tensor,
+    events: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return primary-event and genuinely comparable-event counts."""
+    times = times.reshape(-1)
+    events = events.reshape(-1)
+    event_times = times[events == 1]
+    n_events = torch.tensor(event_times.numel(), device=times.device)
+    if event_times.numel() == 0:
+        return n_events, n_events.clone()
+    risk_set_sizes = (times.unsqueeze(0) >= event_times.unsqueeze(1)).sum(dim=1)
+    n_comparable = (risk_set_sizes >= 2).sum()
+    return n_events, n_comparable
+
+
 class SurvivalFinetuneModule(L.LightningModule):
     """Train a finetune head with Cox or IPCW-weighted BCE objectives."""
 
@@ -101,9 +117,32 @@ class SurvivalFinetuneModule(L.LightningModule):
         )
         return (raw_loss * ipcw_weights).sum() / (ipcw_weights.sum() + 1e-8)
 
+    def on_train_epoch_start(self) -> None:
+        """Keep custom sampler shuffling reproducible across checkpoint resume."""
+        dataloader = getattr(self.trainer, "train_dataloader", None)
+        batch_sampler = getattr(dataloader, "batch_sampler", None)
+        if hasattr(batch_sampler, "set_epoch"):
+            batch_sampler.set_epoch(self.current_epoch)
+
     def training_step(self, batch, batch_idx):
         loss = self._loss(batch)
         self.log("train/loss", loss, prog_bar=True)
+        if self.training_mode == "cox":
+            n_events, n_comparable = cox_batch_signal_counts(
+                batch["time_days"], batch["event"]
+            )
+            self.log("train/events_per_batch", n_events.float(), on_step=True)
+            self.log(
+                "train/comparable_events_per_batch",
+                n_comparable.float(),
+                on_step=True,
+            )
+            self.log(
+                "train/zero_signal_batch",
+                (n_comparable == 0).float(),
+                on_step=True,
+                on_epoch=True,
+            )
         return loss
 
     def validation_step(self, batch, batch_idx):

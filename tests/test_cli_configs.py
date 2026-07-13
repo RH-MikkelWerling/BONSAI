@@ -63,3 +63,5 @@ def test_opera_hydra_configs_compose(config_environment, config_name):
     ):
         cfg = compose(config_name=config_name)
     assert cfg is not None
+    if config_name == "survival_finetune":
+        assert cfg.training.batch_sampling.type == "auto"

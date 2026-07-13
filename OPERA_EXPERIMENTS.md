@@ -67,19 +67,101 @@ right-censored observations instead.
 ## Rare-Outcome Batch Construction
 
 Event-aware batching uses outcome quotas only when an endpoint has enough
-distinct evidence. Production configs require at least two unique events and
-eight unique eligible patients before an outcome receives focused batches.
-Quotas are capped by the unique pool: a patient is never cloned inside a batch.
-Patients already used during the epoch are progressively deprioritized so a
-patient labelled for many outcomes does not become the default choice for every
-task. Outcomes below the threshold can still contribute opportunistically when
-two or more genuinely distinct eligible patients co-occur in a batch.
+distinct evidence. Focused batches require at least one unique event and
+(production configs) eight unique eligible patients before an outcome
+receives focused batches — `min_unique_events_for_focus` was lowered from 2
+to 1 across every `event_aware` config (`contrastive.yaml`,
+`contrastive_multicohort.yaml`, `leukemia_contrastive.yaml`,
+`joint_finetune.yaml`): a single observed event still anchors a real KM
+cumulative-mass location, and the quota-drawing code
+(`_draw_events`/`_draw_from_pool` in `stratified_sampling.py`) already caps
+every quota at whatever's actually available, so the old threshold excluded
+outcomes the mechanics already handled safely. `min_unique_valid_for_focus`
+is left alone — that one guards the minimum for a non-degenerate pairwise
+weight matrix. Quotas are capped by the unique pool: a patient is never
+cloned inside a batch. Patients already used during the epoch are
+progressively deprioritized so a patient labelled for many outcomes does not
+become the default choice for every task. Outcomes below the threshold can
+still contribute opportunistically when two or more genuinely distinct
+eligible patients co-occur in a batch.
 
 The contrastive loss also excludes equal-subject pairs from both its target
 weights and softmax denominator. Joint validation accumulates predictions over
 the full epoch, allowing rare cases and controls from different batches to form
 one AUROC. Event enrichment and positive-class weighting are mutually
 exclusive in joint training to avoid amplifying rare events twice.
+
+## Rare-Cohort Batch Composition (diagnostic, not oversampling)
+
+`MultiCohortContrastiveDataModule` pools patients from multiple disease
+cohorts into one `ConcatDataset` for `EventAwareSurvivalBatchSampler`, which
+was previously blind to which cohort each patient came from. Investigating
+this surfaced that per-patient sampling probability (survival-time bucket
+weighting + usage-count decay) is already independent of cohort population
+size — a rare cohort isn't penalized per patient, it simply has fewer
+patients, so its *aggregate* epoch contribution is proportionally smaller.
+That's normal, not a bug.
+
+Whether artificially inflating a rare cohort's per-patient exposure (e.g. via
+effective-number-of-samples reweighting, the same technique
+`cross_outcome_weighters.py` already uses for outcome class imbalance) would
+actually improve held-out rare-cohort performance — versus simply adding
+overfitting risk on a handful of patients — is an empirical question the
+sampler design can't resolve on paper. Rather than guess, `stratified_sampling.py`
+gained an optional `cohort_labels` parameter on `EventAwareSurvivalBatchSampler`
+that feeds a **diagnostic-only** per-cohort epoch-coverage block into
+`summary()` (expected draws per epoch per cohort, flagged with
+`[WARNING: <1× per epoch on average]` the same way outcome coverage already
+is). It never affects `__iter__`/the draw probabilities. `MultiCohortContrastiveDataModule`
+computes and passes this automatically. Decide whether cohort-aware
+oversampling is worth building only after looking at real coverage numbers
+from this diagnostic on an actual training run.
+
+## DAPT-Prior Mechanisms — Activation and Ablation
+
+`MultiOutcomeSurvivalLoss` has always supported two mechanisms gated on a
+`dapt_embedding_store` dict (`{subject_id: pre-projection DAPT embedding}`):
+
+- **Pairwise similarity modulation** (`dapt_lambda_floor`): multiplies the
+  KM-based pair weight by `floor + (1-floor) * cosine_similarity01`, damping
+  (never zeroing, due to the floor) pairs whose frozen DAPT-stage clinical
+  presentations look dissimilar — a check against purely-coincidental-timing
+  pairs dominating the loss.
+- **Anchor loss** (`dapt_anchor_weight`): pulls the pooled (pre-projection)
+  encoder state toward its frozen DAPT position, guarding against
+  representation drift during contrastive fine-tuning.
+
+Both were dead code in practice: `dapt_embedding_store` defaults to `null` in
+every config, and no run script ever populated it (`build_dapt_embedding_store`
+in `opera/functional/extract.py` was fully implemented but called from
+nowhere). `opera/run/build_dapt_embedding_store.py` now wires it up — loads a
+DAPT checkpoint's encoder, runs it over the exact same pooled cohort
+population contrastive training uses (via `MultiCohortContrastiveDataModule`),
+and saves the pre-projection embeddings.
+
+Starting values (`dapt_lambda_floor: 0.55`, `dapt_anchor_weight: 0.2` in
+`contrastive.yaml`, `contrastive_multicohort.yaml`, `leukemia_contrastive.yaml`,
+up from the previously-inert `0.3`/`0.0`) are informed, **not validated**.
+The floor was raised specifically because DAPT-embedding outliers are
+disproportionately likely to *be* the rare/unusual patients the rare-outcome
+and rare-cohort work above cares about — aggressive clinical-similarity
+gating could quietly re-suppress exactly those patients' pair weight.
+Before trusting either number on a real run, log `dapt/weight_mean|std|min|max`
+(already instrumented in `opera_nets.py`) and the raw anchor-loss magnitude
+against the main contrastive loss on a few batches, and adjust if the ratio
+looks off.
+
+**Planned ablation** (2×2 minimum): `dapt_lambda_floor ∈ {1.0 (neutral/off), 0.55}`
+× `dapt_anchor_weight ∈ {0.0 (off), 0.2}`, using `floor=1.0` rather than
+dropping `dapt_embedding_store` entirely for the "off" arm so the control run
+is identical in every other respect and only the multiplier is neutralized.
+For each arm, re-run the existing hierarchical rarity aggregation on that
+arm's predictions, not just the aggregate AUROC delta table — the question
+that matters is whether anchoring to DAPT clinical similarity changes the
+slope/intercept of the OPERA-vs-baseline benefit curve at low training-event
+counts, which is genuine supporting evidence for (or an informative
+qualification of) the paper's central small-cohort-benefit claim, distinct
+from and complementary to the main comparison table.
 
 ## Long-Sequence Pretraining
 
