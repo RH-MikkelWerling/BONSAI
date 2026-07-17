@@ -6,6 +6,15 @@ from typing import Tuple, Union
 import numpy as np
 import pandas as pd
 
+OPTIONAL_FEATURE_COLUMNS = (
+    "row_idx",
+    "row_id",
+    "value_normalized",
+    "value_bin",
+    "value_present",
+)
+ORDER_COLUMNS = ("row_idx", "row_id")
+
 
 def create_features(df: pl.DataFrame) -> pl.DataFrame:
     """
@@ -35,14 +44,22 @@ def create_features(df: pl.DataFrame) -> pl.DataFrame:
 
     features = features.with_columns(abspos=compute_abspos(pl.col("time")))
 
-    features = features.sort(["subject_id", "time"]).with_columns(
+    sort_columns = ["subject_id", "time"]
+    sort_columns.extend(
+        column for column in ORDER_COLUMNS if column in features.columns
+    )
+    features = features.sort(sort_columns).with_columns(
         segment=compute_segments(
             time=pl.col("time"),
             subject_id=pl.col("subject_id"),
         )
     )
 
-    features = features.select("subject_id", "code", "age", "abspos", "segment")
+    output_columns = ["subject_id", "code", "age", "abspos", "segment"]
+    output_columns.extend(
+        column for column in OPTIONAL_FEATURE_COLUMNS if column in features.columns
+    )
+    features = features.select(*output_columns)
 
     return features
 

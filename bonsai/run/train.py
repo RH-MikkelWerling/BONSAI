@@ -82,6 +82,7 @@ def main(cfg: DictConfig) -> None:
         causal=cfg.model.causal,
         attn_type=cfg.model.attn_type,
         predict_token_id=vocab["[CLS]"],
+        value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
     )
 
     lightning_module = FinetuneModule(

@@ -94,6 +94,7 @@ def main(cfg: DictConfig) -> None:
         causal=cfg.model.causal,
         attn_type=model_cfg["attn_type"],
         predict_token_id=vocab["[CLS]"],
+        value_bin_vocab_size=model_cfg.get("value_bin_vocab_size", 0),
     )
 
     load_pretrained_encoder_checked(model, ckpt["state_dict"])

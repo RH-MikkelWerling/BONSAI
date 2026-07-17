@@ -5,6 +5,8 @@ from typing import List, Dict, Iterable
 import torch
 import polars as pl
 
+ORDER_COLUMNS = ("row_idx", "row_id")
+
 
 def clone_subject(subject: Dict) -> Dict:
     """Clone a subject record without sharing mutable tensor storage."""
@@ -19,18 +21,20 @@ def prepare_subject_data(split_path: Path) -> List[Dict[str, torch.Tensor]]:
     all_tokenized = []
     for shard in split_path.glob("*.parquet"):
         tokenized_data = pl.read_parquet(shard)
+        sort_columns = ["subject_id", "abspos"]
+        sort_columns.extend(
+            column for column in ORDER_COLUMNS if column in tokenized_data.columns
+        )
+        tokenized_data = tokenized_data.sort(sort_columns)
 
         # Convert to training format
         for subject_id, group in tokenized_data.group_by("subject_id"):
-            all_tokenized.append(
-                {
-                    "subject_id": subject_id[0],
-                    "code": group["code"].to_torch(),
-                    "abspos": group["abspos"].to_torch(),
-                    "segment": group["segment"].to_torch(),
-                    "age": group["age"].to_torch(),
-                }
-            )
+            subject = {"subject_id": subject_id[0]}
+            for column in group.columns:
+                if column == "subject_id":
+                    continue
+                subject[column] = group[column].to_torch()
+            all_tokenized.append(subject)
 
     return all_tokenized
 

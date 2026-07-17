@@ -7,12 +7,10 @@ small synthetic predictions directory, and that ``aggregate_results.main``
 writes the paired delta CSV when ``--predictions_dir`` is supplied.
 """
 
-import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 
 def _write_predictions(directory: Path, labels, probs, subject_ids) -> None:
@@ -132,6 +130,7 @@ def test_aggregate_results_writes_paired_delta_csv(tmp_path, monkeypatch):
             "--comparator", "opera",
             "--predictions_dir", str(preds_dir),
             "--paired_n_bootstrap", "200",
+            "--diagnostic_plots",
         ],
     )
 
@@ -147,3 +146,4 @@ def test_aggregate_results_writes_paired_delta_csv(tmp_path, monkeypatch):
     assert "delta_mean" in df.columns
     assert "delta_lower" in df.columns
     assert "p_adjusted" in df.columns
+    assert (output_dir / "seed_stability_auroc.png").exists()

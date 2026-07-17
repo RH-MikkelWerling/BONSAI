@@ -62,6 +62,7 @@ def main(cfg: DictConfig) -> None:
         attention_dropout=cfg.model.attention_dropout,
         causal=cfg.model.causal,
         attn_type=cfg.model.attn_type,
+        value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
     )
 
     ckpt_callback = ModelCheckpoint(

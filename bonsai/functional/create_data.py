@@ -4,13 +4,24 @@ from typing import Optional
 import polars as pl
 from bonsai.functional.features import create_features
 
+OPTIONAL_TOKEN_COLUMNS = (
+    "row_idx",
+    "row_id",
+    "value_normalized",
+    "value_bin",
+    "value_present",
+)
+ORDER_COLUMNS = ("row_idx", "row_id")
+
 
 def drop_duplicates(df: pl.DataFrame) -> pl.DataFrame:
     pre = len(df)
-    df = df.unique(subset=["subject_id", "code", "time"], maintain_order=True)
+    subset = ["subject_id", "code", "time"]
+    subset.extend(column for column in OPTIONAL_TOKEN_COLUMNS if column in df.columns)
+    df = df.unique(subset=subset, maintain_order=True)
     if pre != len(df):
         logging.info(
-            f"Dropped {pre - len(df)} duplicate rows based on subject_id, code, and time"
+            f"Dropped {pre - len(df)} duplicate rows based on {subset}"
         )
     return df
 
@@ -56,15 +67,46 @@ def process_split(
 
         # Tokenize
         tokenized = tokenizer(features)
+        sort_columns = ["subject_id", "abspos"]
+        sort_columns.extend(
+            column for column in ORDER_COLUMNS if column in tokenized.columns
+        )
+        tokenized = tokenized.sort(sort_columns)
+
+        if "value_present" not in tokenized.columns and (
+            "value_normalized" in tokenized.columns or "value_bin" in tokenized.columns
+        ):
+            present_exprs = []
+            if "value_normalized" in tokenized.columns:
+                present_exprs.append(pl.col("value_normalized").is_not_null())
+            if "value_bin" in tokenized.columns:
+                present_exprs.append(pl.col("value_bin").is_not_null())
+            value_present = present_exprs[0]
+            for expr in present_exprs[1:]:
+                value_present = value_present | expr
+            tokenized = tokenized.with_columns(value_present=value_present)
 
         # Cast to correct dtypes
-        tokenized = tokenized.select(
+        columns = [
             pl.col("subject_id").cast(pl.Int64),
             pl.col("code").cast(pl.Int64),
             pl.col("age").cast(pl.Float32),
             pl.col("abspos").cast(pl.Float32),
             pl.col("segment").cast(pl.Int32),
-        )
+        ]
+        if "row_idx" in tokenized.columns:
+            columns.append(pl.col("row_idx").cast(pl.Int64))
+        if "row_id" in tokenized.columns:
+            columns.append(pl.col("row_id").cast(pl.Int64))
+        if "value_normalized" in tokenized.columns:
+            columns.append(
+                pl.col("value_normalized").fill_null(0.0).cast(pl.Float32)
+            )
+        if "value_bin" in tokenized.columns:
+            columns.append(pl.col("value_bin").fill_null(0).cast(pl.Int64))
+        if "value_present" in tokenized.columns:
+            columns.append(pl.col("value_present").fill_null(False).cast(pl.Boolean))
+        tokenized = tokenized.select(*columns)
         tokenized.write_parquet(path_output_dir_split / f"{shard.stem}.parquet")
 
         ids.extend(tokenized["subject_id"].unique())

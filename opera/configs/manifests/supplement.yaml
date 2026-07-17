@@ -44,6 +44,12 @@ experiments:
       - sex
       - calendar_period
       - cohort
+    aggregate_with: opera.run.aggregate_results --diagnostic_plots
+    outputs:
+      - subgroup_results.csv
+      - subgroup_delta.csv
+      - subgroup_delta_auroc.png
+      - seed_stability_auroc.png
 
   - name: pretraining_scale_ablation
     accepts_multiple_upstream_checkpoints: true

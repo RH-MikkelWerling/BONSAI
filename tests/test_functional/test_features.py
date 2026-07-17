@@ -39,6 +39,29 @@ class TestFeatures(unittest.TestCase):
         self.assertIn("segment", features.columns)
         self.assertEqual(len(features), 6)
 
+    def test_create_features_preserves_value_columns_and_sorts_by_row_idx(self):
+        event_time = datetime(2000, 1, 2)
+        df = pl.DataFrame(
+            {
+                "subject_id": [1, 1, 1, 1],
+                "code": ["DOB", "GENDER", "LAB//aux", "LAB//parent"],
+                "time": [datetime(2000, 1, 1), None, event_time, event_time],
+                "row_idx": [0, 1, 3, 2],
+                "value_normalized": [None, None, 0.8, 0.3],
+                "value_bin": [None, None, 4, 2],
+                "value_present": [False, False, True, True],
+            }
+        )
+
+        features = create_features(df)
+
+        for column in ("row_idx", "value_normalized", "value_bin", "value_present"):
+            self.assertIn(column, features.columns)
+        lab_codes = features.filter(pl.col("code").str.starts_with("LAB"))[
+            "code"
+        ].to_list()
+        self.assertEqual(lab_codes, ["LAB//parent", "LAB//aux"])
+
     def test_create_background(self):
         df, dob_info = create_background(self.df)
         self.assertTrue(isinstance(df, pl.DataFrame))

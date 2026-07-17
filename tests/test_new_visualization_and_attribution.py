@@ -8,6 +8,8 @@ from opera.interpretability.integrated_gradients import (
 from opera.visualization.comparison_plots import (
     plot_ipi_credibility,
     plot_outcome_dot_matrix,
+    plot_seed_stability,
+    plot_subgroup_delta_forest,
 )
 from opera.visualization.disease_geometry_plots import (
     plot_disease_embedding,
@@ -102,6 +104,25 @@ def test_new_visualization_functions_return_figures():
             "net_benefit_treat_all": [0.03, 0.02],
         }
     )
+    stability = pd.DataFrame(
+        {
+            "cohort": ["c", "c"],
+            "outcome": ["o", "o"],
+            "model_family": ["opera", "tabular_ehr"],
+            "auroc_mean": [0.8, 0.7],
+            "auroc_sd": [0.03, 0.01],
+            "n_seeds": [3, 3],
+        }
+    )
+    subgroup_delta = pd.DataFrame(
+        {
+            "subgroup_column": ["sex", "sex", "age_group"],
+            "subgroup_value": ["F", "M", "70+"],
+            "baseline_model": ["tabular_ehr"] * 3,
+            "comparator_model": ["opera"] * 3,
+            "delta_auroc_vs_tabular_ehr": [0.04, -0.02, 0.01],
+        }
+    )
 
     figs = [
         plot_disease_embedding(emb),
@@ -113,6 +134,8 @@ def test_new_visualization_functions_return_figures():
         plot_timedep_auc_curves(auc, "o"),
         plot_calibration_comparison(cal, "o"),
         plot_decision_curves(dca, "o"),
+        plot_seed_stability(stability),
+        plot_subgroup_delta_forest(subgroup_delta),
     ]
     assert all(fig is not None for fig in figs)
     for fig in figs:

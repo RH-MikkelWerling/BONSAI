@@ -23,11 +23,12 @@ class TestSubjectData(unittest.TestCase):
         # Mock the dataframe returned by read_parquet
         df = pl.from_dict(
             {
-                "subject_id": [1, 1, 2],
-                "code": [10, 11, 20],
-                "abspos": [0, 1, 0],
-                "segment": [0, 0, 1],
-                "age": [30, 31, 40],
+                "subject_id": [1, 1, 2, 1],
+                "code": [11, 10, 20, 12],
+                "abspos": [1, 0, 0, 1],
+                "row_idx": [3, 1, 1, 2],
+                "segment": [0, 0, 1, 0],
+                "age": [31, 30, 40, 31],
             }
         )
         mock_read_parquet.return_value = df
@@ -40,5 +41,5 @@ class TestSubjectData(unittest.TestCase):
         self.assertEqual(len(result), 2)
         result_by_subject = {s["subject_id"]: s for s in result}
 
-        self.assertEqual(len(result_by_subject[1]["code"]), 2)
+        self.assertEqual(result_by_subject[1]["code"].tolist(), [10, 12, 11])
         self.assertEqual(len(result_by_subject[2]["code"]), 1)

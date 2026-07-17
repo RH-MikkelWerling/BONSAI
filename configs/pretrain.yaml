@@ -46,6 +46,7 @@ model:
   bias: false
   causal: true
   attn_type: flash
+  value_bin_vocab_size: 0
 
 
 #scheduler:

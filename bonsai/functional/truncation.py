@@ -12,6 +12,18 @@ TruncationStrategy = Literal["tail", "random_window", "mixed_window"]
 SEQUENCE_FIELDS = ("code", "abspos", "segment", "age")
 
 
+def sequence_tensor_fields(subject: Dict[str, torch.Tensor]) -> tuple[str, ...]:
+    """Return per-token tensor fields aligned to ``subject["code"]``."""
+    sequence_length = len(subject["code"])
+    return tuple(
+        key
+        for key, value in subject.items()
+        if isinstance(value, torch.Tensor)
+        and value.ndim > 0
+        and len(value) == sequence_length
+    )
+
+
 def _clinical_window_start(
     clinical_length: int,
     kept_clinical_tokens: int,
@@ -80,7 +92,7 @@ def truncate_subject(
         background_indices = torch.arange(background_length, dtype=torch.long)
         clinical_indices = torch.arange(clinical_start, clinical_stop, dtype=torch.long)
         indices = torch.cat((background_indices, clinical_indices))
-        for field in SEQUENCE_FIELDS:
+        for field in sequence_tensor_fields(result):
             result[field] = result[field][indices]
         metadata["clinical_window_started_mid_history"] = start_offset > 0
 

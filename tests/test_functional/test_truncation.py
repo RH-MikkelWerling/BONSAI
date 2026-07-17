@@ -41,3 +41,29 @@ class TestTruncation(unittest.TestCase):
             post_subject["code"], torch.tensor([1, 2, 3, 7, 8, 9, 10])
         )
         self.assertEqual(len(post_subject["code"]), 7)
+
+    def test_truncate_preserves_optional_sequence_value_fields(self):
+        subject = {
+            **self.subject,
+            "value_bin": torch.tensor([0, 0, 0, 2, 3, 0, 4, 5, 6, 7]),
+            "value_normalized": torch.tensor(
+                [0.0, 0.0, 0.0, 0.2, 0.3, 0.0, 0.4, 0.5, 0.6, 0.7]
+            ),
+            "value_present": torch.tensor(
+                [False, False, False, True, True, False, True, True, True, True]
+            ),
+        }
+
+        post_subject = truncate_subject(subject, max_len=5, background_length=3)
+
+        torch.testing.assert_close(
+            post_subject["value_bin"], torch.tensor([0, 0, 0, 6, 7])
+        )
+        torch.testing.assert_close(
+            post_subject["value_normalized"],
+            torch.tensor([0.0, 0.0, 0.0, 0.6, 0.7]),
+        )
+        torch.testing.assert_close(
+            post_subject["value_present"],
+            torch.tensor([False, False, False, True, True]),
+        )

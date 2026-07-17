@@ -19,7 +19,9 @@ MODEL_CONSTRUCTOR_KEYS = {
     "attention_dropout",
     "causal",
     "attn_type",
+    "value_bin_vocab_size",
 }
+REQUIRED_MODEL_CONSTRUCTOR_KEYS = MODEL_CONSTRUCTOR_KEYS - {"value_bin_vocab_size"}
 
 _ALIASES = {
     "max_position_embeddings": "max_seqlen",
@@ -83,8 +85,10 @@ def normalize_bonsai_model_config(
     source.setdefault("causal", False)
     source.setdefault("attn_type", default_attn_type)
 
+    source.setdefault("value_bin_vocab_size", 0)
+
     result = {key: source[key] for key in MODEL_CONSTRUCTOR_KEYS if key in source}
-    missing = MODEL_CONSTRUCTOR_KEYS - set(result)
+    missing = REQUIRED_MODEL_CONSTRUCTOR_KEYS - set(result)
     if missing:
         raise ValueError(f"Model config is missing required keys: {sorted(missing)}")
     if result["hidden_size"] % result["num_attention_heads"] != 0:

@@ -55,3 +55,4 @@ model:
   bias: false
   causal: false
   attn_type: flash
+  value_bin_vocab_size: 0

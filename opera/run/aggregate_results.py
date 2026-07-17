@@ -56,6 +56,30 @@ def _seed_stability(results, metrics):
     return results.groupby(group_cols, dropna=False).agg(**agg).reset_index()
 
 
+def _first_available_metric(frame, metrics, suffix):
+    for metric in metrics:
+        if f"{metric}{suffix}" in frame.columns:
+            return metric
+    return None
+
+
+def _first_available_delta_metric(frame, metrics, baseline):
+    for metric in metrics:
+        if f"delta_{metric}_vs_{baseline}" in frame.columns:
+            return metric
+    return None
+
+
+def _write_diagnostic_plot(plotter, frame, metric, output_path):
+    try:
+        import matplotlib.pyplot as plt
+
+        fig = plotter(frame, metric=metric, save_path=str(output_path))
+        plt.close(fig)
+    except Exception as exc:
+        print(f"Diagnostic plotting failed for {output_path.name}: {exc}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Aggregate OPERA result.jsonl files")
     parser.add_argument("--results_dir", required=True)
@@ -104,6 +128,14 @@ def main():
         help="Column used for pretraining-scale summaries when present.",
     )
     parser.add_argument("--rarity_plots", action="store_true")
+    parser.add_argument(
+        "--diagnostic_plots",
+        action="store_true",
+        help=(
+            "Write aggregate diagnostic figures for seed stability and subgroup "
+            "robustness when the corresponding tables are available."
+        ),
+    )
     parser.add_argument(
         "--min_train_events",
         type=int,
@@ -187,6 +219,17 @@ def main():
     seed_stability = _seed_stability(aggregate_results, metrics)
     if not seed_stability.empty:
         seed_stability.to_csv(output_dir / "seed_stability.csv", index=False)
+        if args.diagnostic_plots:
+            from opera.visualization.comparison_plots import plot_seed_stability
+
+            plot_metric = _first_available_metric(seed_stability, metrics, "_sd")
+            if plot_metric:
+                _write_diagnostic_plot(
+                    plot_seed_stability,
+                    seed_stability,
+                    plot_metric,
+                    output_dir / f"seed_stability_{plot_metric}.png",
+                )
 
     task_size_summary = summarize_by_task_size(aggregate_results, metrics=metrics)
     if not task_size_summary.empty:
@@ -209,6 +252,23 @@ def main():
         )
         if not subgroup_delta.empty:
             subgroup_delta.to_csv(output_dir / "subgroup_delta.csv", index=False)
+            if args.diagnostic_plots:
+                from opera.visualization.comparison_plots import (
+                    plot_subgroup_delta_forest,
+                )
+
+                plot_metric = _first_available_delta_metric(
+                    subgroup_delta,
+                    metrics,
+                    args.subgroup_baseline,
+                )
+                if plot_metric:
+                    _write_diagnostic_plot(
+                        plot_subgroup_delta_forest,
+                        subgroup_delta,
+                        plot_metric,
+                        output_dir / f"subgroup_delta_{plot_metric}.png",
+                    )
 
     scale_summary = summarize_scale_ablation(
         aggregate_results,
@@ -295,7 +355,7 @@ def main():
         # join the per-cell bootstrap CI onto the rarity delta table so that
         # tau^2 and I^2 are based on calibrated within-cell SE rather than the
         # equal-weight fallback (which makes tau^2 = 0 by construction).
-        _paired_ci: Optional["pd.DataFrame"] = None
+        _paired_ci = None
         if (
             args.baseline
             and args.comparator

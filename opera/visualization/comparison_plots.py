@@ -536,3 +536,215 @@ def plot_ipi_credibility(
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig
+
+
+def _empty_message_figure(message: str, save_path: Optional[str] = None) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(4.8, 2.4))
+    ax.axis("off")
+    ax.text(
+        0.5,
+        0.5,
+        message,
+        ha="center",
+        va="center",
+        fontsize=ANNOT_SIZE,
+        color=PALETTE["ink_secondary"],
+        wrap=True,
+    )
+    fig.tight_layout()
+    save_fig(fig, save_path)
+    return fig
+
+
+def plot_seed_stability(
+    stability: pd.DataFrame,
+    metric: str = "auroc",
+    top_n: int = 25,
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot the least stable task/model cells across repeated seeds."""
+    sd_col = f"{metric}_sd"
+    mean_col = f"{metric}_mean"
+    if stability.empty or sd_col not in stability.columns:
+        return _empty_message_figure(
+            f"No across-seed {metric.upper()} stability rows available.",
+            save_path,
+        )
+
+    df = stability.copy()
+    df[sd_col] = pd.to_numeric(df[sd_col], errors="coerce")
+    if mean_col in df.columns:
+        df[mean_col] = pd.to_numeric(df[mean_col], errors="coerce")
+    else:
+        df[mean_col] = np.nan
+    if "n_seeds" in df.columns:
+        df["n_seeds"] = pd.to_numeric(df["n_seeds"], errors="coerce")
+    else:
+        df["n_seeds"] = np.nan
+    if "model_family" not in df.columns:
+        df["model_family"] = "model"
+    df = df[df[sd_col].notna()].copy()
+    if df.empty:
+        return _empty_message_figure(
+            f"No finite across-seed {metric.upper()} standard deviations.",
+            save_path,
+        )
+
+    label_parts = []
+    for _, row in df.iterrows():
+        parts = [
+            str(row.get("cohort", "cohort")),
+            str(row.get("outcome", "outcome")),
+            model_label(str(row.get("model_family", "model"))),
+        ]
+        label_parts.append(" / ".join(parts))
+    df["label"] = label_parts
+    df = df.sort_values(sd_col, ascending=False).head(int(top_n))
+    df = df.sort_values(sd_col, ascending=True).reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(6.4, max(2.8, 0.34 * len(df))))
+    y = np.arange(len(df))
+    colors = [model_color(str(value)) for value in df["model_family"]]
+    ax.barh(y, df[sd_col], color=colors, alpha=0.92)
+    ax.set_yticks(y)
+    ax.set_yticklabels(df["label"], fontsize=TICK_SIZE)
+    ax.set_xlabel(f"Across-seed SD of {metric.upper()}")
+    ax.set_title("Seed stability diagnostic")
+
+    xmax = max(float(df[sd_col].max()) * 1.18, 0.01)
+    ax.set_xlim(0, xmax)
+    for idx, row in df.iterrows():
+        n_seeds = row.get("n_seeds")
+        mean = row.get(mean_col)
+        detail = []
+        if np.isfinite(mean):
+            detail.append(f"mean {mean:.3f}")
+        if np.isfinite(n_seeds):
+            detail.append(f"n={int(n_seeds)}")
+        if detail:
+            ax.text(
+                float(row[sd_col]) + xmax * 0.015,
+                idx,
+                ", ".join(detail),
+                va="center",
+                ha="left",
+                fontsize=ANNOT_SIZE,
+                color=PALETTE["ink_secondary"],
+            )
+    despine(ax, "x")
+    fig.tight_layout()
+    save_fig(fig, save_path)
+    return fig
+
+
+def plot_subgroup_delta_forest(
+    subgroup_delta: pd.DataFrame,
+    metric: str = "auroc",
+    top_n: int = 30,
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """Plot comparator-minus-baseline subgroup deltas across tasks/seeds."""
+    if subgroup_delta.empty:
+        return _empty_message_figure("No subgroup delta rows available.", save_path)
+
+    baseline = None
+    if "baseline_model" in subgroup_delta.columns and subgroup_delta[
+        "baseline_model"
+    ].notna().any():
+        baseline = str(subgroup_delta["baseline_model"].dropna().iloc[0])
+    delta_col = f"delta_{metric}_vs_{baseline}" if baseline else ""
+    if delta_col not in subgroup_delta.columns:
+        candidates = [
+            column
+            for column in subgroup_delta.columns
+            if column.startswith(f"delta_{metric}_vs_")
+        ]
+        if not candidates:
+            return _empty_message_figure(
+                f"No subgroup delta column found for {metric.upper()}.",
+                save_path,
+            )
+        delta_col = candidates[0]
+        baseline = delta_col.split("_vs_", 1)[1]
+
+    comparator = None
+    if "comparator_model" in subgroup_delta.columns and subgroup_delta[
+        "comparator_model"
+    ].notna().any():
+        comparator = str(subgroup_delta["comparator_model"].dropna().iloc[0])
+    comparator = comparator or "comparator"
+
+    required = {"subgroup_column", "subgroup_value", delta_col}
+    if not required.issubset(subgroup_delta.columns):
+        return _empty_message_figure(
+            "Subgroup delta rows are missing subgroup identifiers.",
+            save_path,
+        )
+
+    df = subgroup_delta.copy()
+    df[delta_col] = pd.to_numeric(df[delta_col], errors="coerce")
+    df = df[df[delta_col].notna()].copy()
+    if df.empty:
+        return _empty_message_figure(
+            f"No finite subgroup {metric.upper()} deltas available.",
+            save_path,
+        )
+    df["subgroup_value"] = df["subgroup_value"].fillna("missing").astype(str)
+
+    rows = []
+    for (column, value), group in df.groupby(
+        ["subgroup_column", "subgroup_value"],
+        dropna=False,
+    ):
+        values = group[delta_col].to_numpy(dtype=float)
+        rows.append(
+            {
+                "label": f"{column}: {value}",
+                "mean": float(np.mean(values)),
+                "lower": float(np.quantile(values, 0.025)),
+                "upper": float(np.quantile(values, 0.975)),
+                "n_rows": int(len(values)),
+            }
+        )
+    summary = pd.DataFrame(rows)
+    summary = summary.reindex(summary["mean"].abs().sort_values(ascending=False).index)
+    summary = summary.head(int(top_n)).sort_values("mean").reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(6.2, max(2.8, 0.34 * len(summary))))
+    y = np.arange(len(summary))
+    for idx, row in summary.iterrows():
+        color = PALETTE["opera"] if row["mean"] >= 0 else PALETTE["positive"]
+        ax.plot(
+            [row["lower"], row["upper"]],
+            [idx, idx],
+            color=color,
+            lw=1.7,
+            solid_capstyle="round",
+            zorder=2,
+        )
+        ax.scatter(row["mean"], idx, color=color, s=38, zorder=3, linewidths=0)
+        ax.text(
+            row["upper"] + 0.006,
+            idx,
+            f"n={int(row['n_rows'])}",
+            va="center",
+            ha="left",
+            fontsize=ANNOT_SIZE,
+            color=PALETTE["ink_secondary"],
+        )
+
+    ax.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.9, zorder=1)
+    ax.set_yticks(y)
+    ax.set_yticklabels(summary["label"], fontsize=TICK_SIZE)
+    ax.set_xlabel(
+        f"Delta {metric.upper()} ({model_label(comparator)} - {model_label(baseline)})"
+    )
+    ax.set_title("Subgroup robustness diagnostic")
+    xmin = float(summary["lower"].min())
+    xmax = float(summary["upper"].max())
+    pad = max(0.02, 0.12 * (xmax - xmin if xmax > xmin else 0.02))
+    ax.set_xlim(xmin - pad, xmax + pad * 2.5)
+    despine(ax, "x")
+    fig.tight_layout()
+    save_fig(fig, save_path)
+    return fig

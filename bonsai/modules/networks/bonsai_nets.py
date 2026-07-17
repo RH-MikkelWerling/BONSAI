@@ -55,6 +55,7 @@ class BonsaiBase(nn.Module):
         attention_dropout,
         causal,
         attn_type,
+        value_bin_vocab_size=0,
     ):
         if attn_type == "flash" and not _FLASH_ATTENTION_AVAILABLE:
             raise ImportError(
@@ -65,6 +66,7 @@ class BonsaiBase(nn.Module):
             vocab_size=vocab_size,
             hidden_size=hidden_size,
             max_seqlen=max_seqlen,
+            value_bin_vocab_size=value_bin_vocab_size,
         )
         self.drop = nn.Dropout(dropout)
         self.layers = nn.ModuleList(
@@ -96,6 +98,7 @@ class BonsaiBase(nn.Module):
             "attention_dropout": attention_dropout,
             "causal": causal,
             "attn_type": attn_type,
+            "value_bin_vocab_size": int(value_bin_vocab_size),
         }
 
     def encode(self, batch):
@@ -117,6 +120,9 @@ class BonsaiBase(nn.Module):
                 age=batch["age"],
                 abspos=batch["abspos"],
                 segment=batch["segment"],
+                value_bin=batch.get("value_bin"),
+                value_normalized=batch.get("value_normalized"),
+                value_present=batch.get("value_present"),
             )
 
         attention_mask = batch["attention_mask"].bool()
@@ -175,6 +181,7 @@ class BonsaiPretrain(BonsaiBase):
         attention_dropout,
         causal,
         attn_type,
+        value_bin_vocab_size=0,
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -187,8 +194,18 @@ class BonsaiPretrain(BonsaiBase):
             attention_dropout=attention_dropout,
             causal=causal,
             attn_type=attn_type,
+            value_bin_vocab_size=value_bin_vocab_size,
         )
         self.pretrain_head = nn.Linear(hidden_size, vocab_size, bias=bias)
+        self.value_bin_head = None
+        self.value_head = None
+        if int(value_bin_vocab_size) > 0:
+            self.value_bin_head = nn.Linear(
+                hidden_size,
+                int(value_bin_vocab_size),
+                bias=bias,
+            )
+            self.value_head = nn.Linear(hidden_size, 1, bias=bias)
 
         # Weight tying (shares weights from code embedding to pretrain head)
         self.pretrain_head.weight = self.embeddings.code_embedding.weight
@@ -199,11 +216,42 @@ class BonsaiPretrain(BonsaiBase):
 
         # Predicts only on the non-masked tokens
         mask = labels != -100
-        last_hidden_state = last_hidden_state[mask]
-        labels = labels[mask]
+        code_hidden_state = last_hidden_state[mask]
+        code_labels = labels[mask]
 
-        logits = self.pretrain_head(last_hidden_state)
-        return logits, labels
+        logits = self.pretrain_head(code_hidden_state)
+        if (
+            self.value_bin_head is None
+            or "target_value_mask" not in batch
+            or "target_value_bin" not in batch
+            or "target_value_normalized" not in batch
+        ):
+            return logits, code_labels
+
+        value_mask = batch["target_value_mask"].bool()
+        output = {
+            "logits": logits,
+            "labels": code_labels,
+        }
+        if value_mask.any():
+            value_hidden = last_hidden_state[value_mask]
+            output["value_bin_logits"] = self.value_bin_head(value_hidden)
+            output["target_value_bin"] = batch["target_value_bin"][value_mask].long()
+            output["value_prediction"] = self.value_head(value_hidden).squeeze(-1)
+            output["target_value_normalized"] = batch["target_value_normalized"][
+                value_mask
+            ].float()
+        else:
+            empty_hidden = last_hidden_state.reshape(-1, last_hidden_state.shape[-1])[
+                :0
+            ]
+            output["value_bin_logits"] = self.value_bin_head(empty_hidden)
+            output["target_value_bin"] = batch["target_value_bin"].reshape(-1)[:0]
+            output["value_prediction"] = self.value_head(empty_hidden).squeeze(-1)
+            output["target_value_normalized"] = batch[
+                "target_value_normalized"
+            ].reshape(-1)[:0]
+        return output
 
 
 class BonsaiFinetune(BonsaiBase):
@@ -224,6 +272,7 @@ class BonsaiFinetune(BonsaiBase):
         attn_type,
         # Misc
         predict_token_id,
+        value_bin_vocab_size=0,
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -236,6 +285,7 @@ class BonsaiFinetune(BonsaiBase):
             attention_dropout=attention_dropout,
             causal=causal,
             attn_type=attn_type,
+            value_bin_vocab_size=value_bin_vocab_size,
         )
         self.hparams["predict_token_id"] = predict_token_id
         self.finetune_head = nn.Linear(hidden_size, 1, bias=bias)

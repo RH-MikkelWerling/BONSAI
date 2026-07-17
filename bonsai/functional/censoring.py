@@ -2,6 +2,7 @@ from bisect import bisect_right
 from typing import Dict, Optional
 import torch
 from bonsai.functional.subject_data import clone_subject
+from bonsai.functional.truncation import sequence_tensor_fields
 
 
 def censor_subject(
@@ -19,7 +20,7 @@ def censor_subject(
     idx = bisect_right(subject["abspos"].numpy(), censor_date_abspos)
 
     # Slice everything up to idx
-    for embed_name in ["code", "abspos", "segment", "age"]:
+    for embed_name in sequence_tensor_fields(subject):
         subject[embed_name] = subject[embed_name][:idx]
 
     if predict_token_id is not None:
@@ -31,6 +32,11 @@ def censor_subject(
 def append_predict_token(
     subject: Dict, censor_date_abspos: float, predict_token_id: int
 ) -> Dict:
+    extra_sequence_fields = [
+        field
+        for field in sequence_tensor_fields(subject)
+        if field not in {"code", "abspos", "segment", "age"}
+    ]
     subject["code"] = torch.cat(
         (
             subject["code"],
@@ -63,4 +69,12 @@ def append_predict_token(
             ),
         )
     )
+    for field in extra_sequence_fields:
+        value = subject[field]
+        subject[field] = torch.cat(
+            (
+                value,
+                torch.zeros(1, dtype=value.dtype, device=value.device),
+            )
+        )
     return subject

@@ -15,6 +15,7 @@ from bonsai.functional.checkpointing import (
     attach_model_config,
 )
 from bonsai.functional.scheduling import optimizer_with_warmup
+from bonsai.modules.lightningmodules.PretrainModule import compute_pretrain_loss
 
 
 class DAPTPretrainModule(L.LightningModule):
@@ -54,6 +55,8 @@ class DAPTPretrainModule(L.LightningModule):
 
         self.train_loss = nn.CrossEntropyLoss()
         self.val_loss = nn.CrossEntropyLoss()
+        self.value_bin_loss = nn.CrossEntropyLoss()
+        self.value_regression_loss = nn.MSELoss()
         self.train_metrics = self._configure_metrics("train")
         self.val_metrics = self._configure_metrics("val")
 
@@ -74,21 +77,43 @@ class DAPTPretrainModule(L.LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
-        logits, labels = self.model(batch)
-        loss = self.train_loss(
-            logits.view(-1, self.model.hparams["vocab_size"]), labels.view(-1)
+        output = self.model(batch)
+        loss, logits, labels, losses = compute_pretrain_loss(
+            output,
+            self.train_loss,
+            self.value_bin_loss,
+            self.value_regression_loss,
         )
         self.train_metrics(logits, labels)
         self.log("train/loss", loss, prog_bar=True)
+        if "value_bin" in losses:
+            self.log("train/code_loss", losses["code"], prog_bar=False)
+            self.log("train/value_bin_loss", losses["value_bin"], prog_bar=False)
+            self.log(
+                "train/value_regression_loss",
+                losses["value_regression"],
+                prog_bar=False,
+            )
         self.log_dict(self.train_metrics)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        logits, labels = self.model(batch)
-        loss = self.val_loss(
-            logits.view(-1, self.model.hparams["vocab_size"]), labels.view(-1)
+        output = self.model(batch)
+        loss, logits, labels, losses = compute_pretrain_loss(
+            output,
+            self.val_loss,
+            self.value_bin_loss,
+            self.value_regression_loss,
         )
         self.log("val/loss", loss, prog_bar=True)
+        if "value_bin" in losses:
+            self.log("val/code_loss", losses["code"], prog_bar=False)
+            self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
+            self.log(
+                "val/value_regression_loss",
+                losses["value_regression"],
+                prog_bar=False,
+            )
         self.val_metrics(logits, labels)
         self.log_dict(self.val_metrics)
         return loss

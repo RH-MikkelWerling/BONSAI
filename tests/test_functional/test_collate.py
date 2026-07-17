@@ -45,3 +45,34 @@ class TestCollate(unittest.TestCase):
         self.assertEqual(output["segment"][1, 1].item(), 0)
         self.assertEqual(output["attention_mask"][1, 1].item(), 0)
         self.assertEqual(output["target"][1, 1].item(), -100)
+
+    def test_dynamic_padding_value_targets(self):
+        batch = [
+            {
+                "code": torch.tensor([1, 2]),
+                "value_bin": torch.tensor([0, 3]),
+                "value_normalized": torch.tensor([0.0, 0.7]),
+                "value_present": torch.tensor([False, True]),
+                "target_value_bin": torch.tensor([-100, 3]),
+                "target_value_normalized": torch.tensor([0.0, 0.7]),
+                "target_value_mask": torch.tensor([False, True]),
+            },
+            {
+                "code": torch.tensor([4]),
+                "value_bin": torch.tensor([2]),
+                "value_normalized": torch.tensor([0.2]),
+                "value_present": torch.tensor([True]),
+                "target_value_bin": torch.tensor([2]),
+                "target_value_normalized": torch.tensor([0.2]),
+                "target_value_mask": torch.tensor([True]),
+            },
+        ]
+
+        output = dynamic_padding(batch)
+
+        self.assertEqual(output["value_bin"][1, 1].item(), 0)
+        self.assertEqual(output["value_normalized"][1, 1].item(), 0.0)
+        self.assertFalse(output["value_present"][1, 1].item())
+        self.assertEqual(output["target_value_bin"][1, 1].item(), -100)
+        self.assertEqual(output["target_value_normalized"][1, 1].item(), 0.0)
+        self.assertFalse(output["target_value_mask"][1, 1].item())

@@ -8,7 +8,7 @@ from bonsai.functional.censoring import censor_subject
 from bonsai.functional.features import compute_abspos
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
-from bonsai.functional.truncation import truncate_subject
+from bonsai.functional.truncation import sequence_tensor_fields, truncate_subject
 
 
 class PretrainDataset(Dataset):
@@ -97,14 +97,17 @@ class MLMPretrainDataset(PretrainDataset):
 
     def __getitem__(self, index: int) -> dict:
         subject, _ = self._prepare_subject(index)
-        masked_codes, target = self.mask_patient_codes(subject["code"])
+        masked_codes, target, selected_indices = self.mask_patient_codes(
+            subject["code"]
+        )
+        self._prepare_value_targets(subject, selected_indices)
         subject["code"] = masked_codes
         subject["target"] = target
         return subject
 
     def mask_patient_codes(
         self, codes: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         target = codes.clone()
         probability_vector = torch.full(target.shape, self.masking_select_ratio)
 
@@ -137,7 +140,31 @@ class MLMPretrainDataset(PretrainDataset):
             dtype=codes.dtype,
         )
         codes[indicies_random] = random_words[indicies_random]
-        return codes, target
+        return codes, target, selected_indices
+
+    def _prepare_value_targets(
+        self,
+        subject: dict,
+        selected_indices: torch.Tensor,
+    ) -> None:
+        if not {
+            "value_bin",
+            "value_normalized",
+            "value_present",
+        }.issubset(subject):
+            return
+        value_mask = selected_indices & subject["value_present"].bool()
+        subject["target_value_mask"] = value_mask
+        subject["target_value_bin"] = subject["value_bin"].clone()
+        subject["target_value_bin"][~value_mask] = -100
+        subject["target_value_normalized"] = subject["value_normalized"].clone()
+        subject["target_value_normalized"][~value_mask] = 0.0
+        subject["value_bin"] = subject["value_bin"].clone()
+        subject["value_normalized"] = subject["value_normalized"].clone()
+        subject["value_present"] = subject["value_present"].clone()
+        subject["value_bin"][value_mask] = 0
+        subject["value_normalized"][value_mask] = 0.0
+        subject["value_present"][value_mask] = False
 
 
 class ARPretrainDataset(PretrainDataset):
@@ -165,10 +192,26 @@ class ARPretrainDataset(PretrainDataset):
         subject, truncation_metadata = self._prepare_subject(index)
         subject["target"] = subject["code"][1:]
         subject["target"] = subject["target"].masked_fill(subject["target"] == 0, -100)
+        has_values = {
+            "value_bin",
+            "value_normalized",
+            "value_present",
+        }.issubset(subject)
+        if has_values:
+            value_mask = subject["value_present"][1:].bool()
+            subject["target_value_mask"] = value_mask
+            subject["target_value_bin"] = subject["value_bin"][1:].clone()
+            subject["target_value_bin"][~value_mask] = -100
+            subject["target_value_normalized"] = subject["value_normalized"][1:].clone()
+            subject["target_value_normalized"][~value_mask] = 0.0
         if truncation_metadata["clinical_window_started_mid_history"]:
             boundary_target = self.background_length - 1
             if 0 <= boundary_target < len(subject["target"]):
                 subject["target"][boundary_target] = -100
-        for key in ["code", "abspos", "segment", "age", "attention_mask"]:
+                if has_values:
+                    subject["target_value_mask"][boundary_target] = False
+                    subject["target_value_bin"][boundary_target] = -100
+                    subject["target_value_normalized"][boundary_target] = 0.0
+        for key in sequence_tensor_fields(subject):
             subject[key] = subject[key][:-1]
         return subject

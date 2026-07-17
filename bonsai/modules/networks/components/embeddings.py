@@ -10,6 +10,7 @@ class EhrEmbeddings(nn.Module):
         vocab_size: int,
         hidden_size: int,
         max_seqlen: int,
+        value_bin_vocab_size: int = 0,
     ):
         super().__init__()
 
@@ -18,6 +19,17 @@ class EhrEmbeddings(nn.Module):
         self.segment_embedding = nn.Embedding(max_seqlen, hidden_size, padding_idx=0)
         self.age_embedding = Time2Vec(hidden_size, clip_range=100)
         self.abspos_embedding = Time2Vec(hidden_size, clip_range=100)
+        self.value_bin_vocab_size = int(value_bin_vocab_size)
+        if self.value_bin_vocab_size > 0:
+            self.value_bin_embedding = nn.Embedding(
+                self.value_bin_vocab_size,
+                hidden_size,
+                padding_idx=0,
+            )
+            self.value_projection = nn.Linear(1, hidden_size)
+        else:
+            self.value_bin_embedding = None
+            self.value_projection = None
 
     def forward(
         self,
@@ -25,12 +37,32 @@ class EhrEmbeddings(nn.Module):
         age: torch.Tensor,
         abspos: torch.Tensor,
         segment: torch.LongTensor,
+        value_bin: Optional[torch.LongTensor] = None,
+        value_normalized: Optional[torch.Tensor] = None,
+        value_present: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         embeddings = self.code_embedding(code)
 
         embeddings += self.age_embedding(age)
         embeddings += self.abspos_embedding(abspos)
         embeddings += self.segment_embedding(segment)
+        if value_bin is not None or value_normalized is not None:
+            if self.value_bin_embedding is None or self.value_projection is None:
+                raise ValueError(
+                    "Batch contains numeric value tensors, but the model was "
+                    "created with value_bin_vocab_size=0."
+                )
+            if value_bin is None:
+                value_bin = torch.zeros_like(code)
+            if value_normalized is None:
+                value_normalized = torch.zeros_like(age)
+            if value_present is None:
+                value_present = value_bin != 0
+            value_present = value_present.bool().unsqueeze(-1)
+            value_normalized = torch.nan_to_num(value_normalized.float()).unsqueeze(-1)
+            value_embeddings = self.value_bin_embedding(value_bin.long())
+            value_embeddings += self.value_projection(value_normalized)
+            embeddings += value_embeddings * value_present.to(embeddings.dtype)
 
         return embeddings
 

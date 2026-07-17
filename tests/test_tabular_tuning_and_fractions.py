@@ -218,12 +218,6 @@ def test_label_efficiency_calls_tabular_at_each_fraction_seed(
     tmp_path, monkeypatch
 ):
     """When --tabular_features is set, subprocess.run is called for each cell."""
-    import yaml
-    from opera.run.label_efficiency import (
-        build_tabular_fraction_cmd,
-        subsample_outcome_parquet,
-    )
-
     # Build a tiny outcome parquet the subsampler accepts.
     outcome_df = pd.DataFrame(
         {

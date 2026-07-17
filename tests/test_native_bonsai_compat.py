@@ -12,6 +12,7 @@ from bonsai.modules.datasets.PretrainDataset import (
 from bonsai.modules.networks.bonsai_nets import (
     BonsaiBase,
     BonsaiFinetune,
+    BonsaiPretrain,
     pack_valid_tokens,
     unpack_valid_tokens,
 )
@@ -128,6 +129,36 @@ def test_native_encoder_accepts_differentiable_token_embedding_override():
 
     assert token_embeddings.grad is not None
     assert torch.isfinite(token_embeddings.grad).all()
+
+
+def test_native_pretrain_model_predicts_combined_binned_values():
+    model = BonsaiPretrain(**_small_model_config(), value_bin_vocab_size=5).eval()
+    batch = {
+        "code": torch.tensor([[2, 3, 4, 5]]),
+        "age": torch.tensor([[40.0, 41.0, 42.0, 43.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 3.0, 4.0]]),
+        "segment": torch.tensor([[0, 0, 1, 1]]),
+        "attention_mask": torch.tensor([[True, True, True, True]]),
+        "value_bin": torch.tensor([[0, 2, 0, 3]]),
+        "value_normalized": torch.tensor([[0.0, 0.5, 0.0, 0.8]]),
+        "value_present": torch.tensor([[False, True, False, True]]),
+        "target": torch.tensor([[3, -100, 5, -100]]),
+        "target_value_mask": torch.tensor([[False, True, False, True]]),
+        "target_value_bin": torch.tensor([[-100, 2, -100, 3]]),
+        "target_value_normalized": torch.tensor([[0.0, 0.5, 0.0, 0.8]]),
+    }
+
+    with torch.no_grad():
+        output = model(batch)
+
+    assert output["logits"].shape == (2, 12)
+    assert torch.equal(output["labels"], torch.tensor([3, 5]))
+    assert output["value_bin_logits"].shape == (2, 5)
+    assert torch.equal(output["target_value_bin"], torch.tensor([2, 3]))
+    assert output["value_prediction"].shape == (2,)
+    torch.testing.assert_close(
+        output["target_value_normalized"], torch.tensor([0.5, 0.8])
+    )
 
 
 def test_primary_training_configs_default_to_flash_attention():

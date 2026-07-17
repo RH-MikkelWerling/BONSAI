@@ -313,7 +313,8 @@ python -m opera.run.aggregate_results \
   --output_dir ./results/aggregated \
   --baseline per_cohort \
   --comparator joint \
-  --rarity_plots
+  --rarity_plots \
+  --diagnostic_plots
 ```
 
 Before launching a long sweep, run:
@@ -354,6 +355,8 @@ This writes:
 - `joint_minus_per_cohort.csv` when baseline/comparator are provided
 - rarity-specific delta tables when `--baseline` is provided
 - rarity plots when `--rarity_plots` is set
+- aggregate seed-stability and subgroup-delta figures when
+  `--diagnostic_plots` is set and the corresponding tables are available
 
 Use `--strict_aggregation` for paper outputs. Duplicate
 cohort/outcome/split/seed/model keys are errors because selecting the first row

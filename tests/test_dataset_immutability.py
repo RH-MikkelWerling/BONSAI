@@ -6,7 +6,11 @@ import torch
 from bonsai.functional.censoring import censor_subject
 from bonsai.functional.truncation import truncate_subject
 from bonsai.modules.datasets.FinetuneDataset import FinetuneDataset
-from bonsai.modules.datasets.PretrainDataset import ARPretrainDataset, PretrainDataset
+from bonsai.modules.datasets.PretrainDataset import (
+    ARPretrainDataset,
+    MLMPretrainDataset,
+    PretrainDataset,
+)
 from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 
 
@@ -210,3 +214,75 @@ def test_ar_pretraining_masks_artificial_background_to_window_boundary():
     assert torch.equal(sample["code"], torch.tensor([10, 11, 18, 19, 20]))
     assert sample["target"][1].item() == -100
     assert torch.equal(sample["target"][[0, 2, 3, 4]], torch.tensor([11, 19, 20, 21]))
+
+
+def test_ar_pretraining_builds_next_token_value_targets():
+    subject = {
+        "subject_id": 44,
+        "code": torch.tensor([5, 6, 7, 8, 9], dtype=torch.long),
+        "abspos": torch.arange(5, dtype=torch.float),
+        "segment": torch.zeros(5, dtype=torch.long),
+        "age": torch.arange(40, 45, dtype=torch.float),
+        "value_bin": torch.tensor([0, 2, 3, 0, 4], dtype=torch.long),
+        "value_normalized": torch.tensor([0.0, 0.2, 0.3, 0.0, 0.4]),
+        "value_present": torch.tensor([False, True, True, False, True]),
+    }
+    dataset = ARPretrainDataset([subject], max_len=4, background_length=0)
+
+    sample = dataset[0]
+
+    assert torch.equal(sample["code"], torch.tensor([5, 6, 7, 8]))
+    assert torch.equal(sample["target"], torch.tensor([6, 7, 8, 9]))
+    assert torch.equal(sample["target_value_mask"], torch.tensor([True, True, False, True]))
+    assert torch.equal(sample["target_value_bin"], torch.tensor([2, 3, -100, 4]))
+    torch.testing.assert_close(
+        sample["target_value_normalized"],
+        torch.tensor([0.2, 0.3, 0.0, 0.4]),
+    )
+
+
+def test_mlm_pretraining_masks_value_inputs_for_selected_value_tokens():
+    subject = {
+        "subject_id": 55,
+        "code": torch.tensor([5, 6, 7], dtype=torch.long),
+        "abspos": torch.arange(3, dtype=torch.float),
+        "segment": torch.zeros(3, dtype=torch.long),
+        "age": torch.arange(40, 43, dtype=torch.float),
+        "value_bin": torch.tensor([0, 2, 3], dtype=torch.long),
+        "value_normalized": torch.tensor([0.0, 0.2, 0.3]),
+        "value_present": torch.tensor([False, True, True]),
+    }
+    dataset = MLMPretrainDataset(
+        [subject],
+        max_len=3,
+        background_length=0,
+        vocabulary={
+            "[PAD]": 0,
+            "[CLS]": 1,
+            "[SEP]": 2,
+            "[UNK]": 3,
+            "[MASK]": 4,
+            "A": 5,
+            "B": 6,
+            "C": 7,
+        },
+        masking_select_ratio=1.0,
+        masking_mask_ratio=0.0,
+        masking_random_ratio=0.0,
+    )
+
+    sample = dataset[0]
+
+    assert torch.equal(sample["target"], torch.tensor([5, 6, 7]))
+    assert torch.equal(sample["target_value_mask"], torch.tensor([False, True, True]))
+    assert torch.equal(sample["target_value_bin"], torch.tensor([-100, 2, 3]))
+    torch.testing.assert_close(
+        sample["target_value_normalized"],
+        torch.tensor([0.0, 0.2, 0.3]),
+    )
+    assert torch.equal(sample["value_bin"], torch.tensor([0, 0, 0]))
+    torch.testing.assert_close(
+        sample["value_normalized"],
+        torch.tensor([0.0, 0.0, 0.0]),
+    )
+    assert torch.equal(sample["value_present"], torch.tensor([False, False, False]))
