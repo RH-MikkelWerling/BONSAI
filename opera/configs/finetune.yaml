@@ -50,9 +50,10 @@ model:
   bias: false
   dropout: 0.1
   attention_dropout: 0.0
-  causal: false
+  causal: true
   attn_type: flash
-  value_bin_vocab_size: 0
+  value_bin_vocab_size: 1
+  value_embedding_mode: combined_binning
   freeze_encoder: false
   head_type: finetune_head
   trainable_prefixes: null

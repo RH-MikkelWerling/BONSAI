@@ -11,6 +11,7 @@ class EhrEmbeddings(nn.Module):
         hidden_size: int,
         max_seqlen: int,
         value_bin_vocab_size: int = 0,
+        value_embedding_mode: str = "legacy",
     ):
         super().__init__()
 
@@ -20,6 +21,7 @@ class EhrEmbeddings(nn.Module):
         self.age_embedding = Time2Vec(hidden_size, clip_range=100)
         self.abspos_embedding = Time2Vec(hidden_size, clip_range=100)
         self.value_bin_vocab_size = int(value_bin_vocab_size)
+        self.value_embedding_mode = value_embedding_mode
         if self.value_bin_vocab_size > 0:
             self.value_bin_embedding = nn.Embedding(
                 self.value_bin_vocab_size,
@@ -60,9 +62,19 @@ class EhrEmbeddings(nn.Module):
                 value_present = value_bin != 0
             value_present = value_present.bool().unsqueeze(-1)
             value_normalized = torch.nan_to_num(value_normalized.float()).unsqueeze(-1)
-            value_embeddings = self.value_bin_embedding(value_bin.long())
-            value_embeddings += self.value_projection(value_normalized)
-            embeddings += value_embeddings * value_present.to(embeddings.dtype)
+            if self.value_embedding_mode == "combined_binning":
+                # The normalized bin representative is projected in place of
+                # the [VAL] code embedding. Temporal/segment features remain.
+                value_embeddings = self.value_projection(value_normalized)
+                embeddings = torch.where(value_present, value_embeddings, embeddings)
+            elif self.value_embedding_mode == "legacy":
+                value_embeddings = self.value_bin_embedding(value_bin.long())
+                value_embeddings += self.value_projection(value_normalized)
+                embeddings += value_embeddings * value_present.to(embeddings.dtype)
+            else:
+                raise ValueError(
+                    f"Unknown value_embedding_mode: {self.value_embedding_mode!r}"
+                )
 
         return embeddings
 

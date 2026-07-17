@@ -408,3 +408,25 @@ contract rather than relying on a silent skip.
 All outcomes for a patient must share the same `index_date` (typically
 first-line treatment start). `ContrastiveDataset` validates the derived
 prediction positions and fails before training when they disagree.
+# Numeric combined binning
+
+BONSAI's paper-aligned numeric path is enabled with
+`numeric_value_mode: combined_binning` during data creation. An ehr2meds event
+with `numeric_value_present=true` is expanded into two adjacent positions:
+
+```text
+LAB/CODE, [VAL]
+```
+
+The clinical position has no numeric payload. The `[VAL]` position carries
+`numeric_value_bin` as `value_bin` and preferentially carries
+`numeric_value_binned` as the model scalar (`value_normalized` is the fallback).
+The normalized bin representative keeps inputs and MSE targets in `[0, 1]`
+across concepts with different bin counts.
+
+With causal pretraining, the hidden state at `LAB/CODE` predicts the scalar at
+the following `[VAL]` position. `[VAL]` is excluded from categorical CE, so the
+combined objective is ordinary next-code CE plus numeric MSE. At the `[VAL]`
+input position its projected scalar replaces the code embedding; time, age, and
+segment embeddings are still added normally. Rows without numeric values are
+unchanged.

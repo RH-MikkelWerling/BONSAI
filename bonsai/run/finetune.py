@@ -91,10 +91,11 @@ def main(cfg: DictConfig) -> None:
         bias=model_cfg["bias"],
         dropout=cfg.model.dropout,
         attention_dropout=cfg.model.attention_dropout,
-        causal=cfg.model.causal,
+        causal=model_cfg["causal"],
         attn_type=model_cfg["attn_type"],
         predict_token_id=vocab["[CLS]"],
         value_bin_vocab_size=model_cfg.get("value_bin_vocab_size", 0),
+        value_embedding_mode=model_cfg.get("value_embedding_mode", "legacy"),
     )
 
     load_pretrained_encoder_checked(model, ckpt["state_dict"])

@@ -177,6 +177,8 @@ class ARPretrainDataset(PretrainDataset):
         truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
         generator: Optional[torch.Generator] = None,
+        vocabulary: Optional[Dict[str, int]] = None,
+        value_embedding_mode: str = "legacy",
     ):
         super().__init__(
             subjects,
@@ -187,6 +189,8 @@ class ARPretrainDataset(PretrainDataset):
             tail_window_probability=tail_window_probability,
             generator=generator,
         )  # +1 because we shift by one token in __getitem__
+        self.val_token_id = None if vocabulary is None else vocabulary.get("[VAL]")
+        self.value_embedding_mode = value_embedding_mode
 
     def __getitem__(self, index: int) -> dict:
         subject, truncation_metadata = self._prepare_subject(index)
@@ -204,6 +208,16 @@ class ARPretrainDataset(PretrainDataset):
             subject["target_value_bin"][~value_mask] = -100
             subject["target_value_normalized"] = subject["value_normalized"][1:].clone()
             subject["target_value_normalized"][~value_mask] = 0.0
+            if self.value_embedding_mode == "combined_binning":
+                # In causal training, the state at the owning lab event
+                # predicts the following [VAL] scalar. Avoid an additional,
+                # nearly trivial CE target for the shared marker token.
+                if self.val_token_id is None:
+                    raise ValueError("combined_binning requires [VAL] in the vocabulary.")
+                value_mask = value_mask & (subject["code"][1:] == self.val_token_id)
+                subject["target_value_mask"] = value_mask
+                subject["target_value_bin"][~value_mask] = -100
+                subject["target"][subject["code"][1:] == self.val_token_id] = -100
         if truncation_metadata["clinical_window_started_mid_history"]:
             boundary_target = self.background_length - 1
             if 0 <= boundary_target < len(subject["target"]):

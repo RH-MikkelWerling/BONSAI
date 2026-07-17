@@ -56,6 +56,7 @@ class BonsaiBase(nn.Module):
         causal,
         attn_type,
         value_bin_vocab_size=0,
+        value_embedding_mode="legacy",
     ):
         if attn_type == "flash" and not _FLASH_ATTENTION_AVAILABLE:
             raise ImportError(
@@ -67,6 +68,7 @@ class BonsaiBase(nn.Module):
             hidden_size=hidden_size,
             max_seqlen=max_seqlen,
             value_bin_vocab_size=value_bin_vocab_size,
+            value_embedding_mode=value_embedding_mode,
         )
         self.drop = nn.Dropout(dropout)
         self.layers = nn.ModuleList(
@@ -99,6 +101,7 @@ class BonsaiBase(nn.Module):
             "causal": causal,
             "attn_type": attn_type,
             "value_bin_vocab_size": int(value_bin_vocab_size),
+            "value_embedding_mode": value_embedding_mode,
         }
 
     def encode(self, batch):
@@ -182,6 +185,7 @@ class BonsaiPretrain(BonsaiBase):
         causal,
         attn_type,
         value_bin_vocab_size=0,
+        value_embedding_mode="legacy",
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -195,8 +199,10 @@ class BonsaiPretrain(BonsaiBase):
             causal=causal,
             attn_type=attn_type,
             value_bin_vocab_size=value_bin_vocab_size,
+            value_embedding_mode=value_embedding_mode,
         )
         self.pretrain_head = nn.Linear(hidden_size, vocab_size, bias=bias)
+        self.value_embedding_mode = value_embedding_mode
         self.value_bin_head = None
         self.value_head = None
         if int(value_bin_vocab_size) > 0:
@@ -232,6 +238,7 @@ class BonsaiPretrain(BonsaiBase):
         output = {
             "logits": logits,
             "labels": code_labels,
+            "value_embedding_mode": self.value_embedding_mode,
         }
         if value_mask.any():
             value_hidden = last_hidden_state[value_mask]
@@ -273,6 +280,7 @@ class BonsaiFinetune(BonsaiBase):
         # Misc
         predict_token_id,
         value_bin_vocab_size=0,
+        value_embedding_mode="legacy",
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -286,6 +294,7 @@ class BonsaiFinetune(BonsaiBase):
             causal=causal,
             attn_type=attn_type,
             value_bin_vocab_size=value_bin_vocab_size,
+            value_embedding_mode=value_embedding_mode,
         )
         self.hparams["predict_token_id"] = predict_token_id
         self.finetune_head = nn.Linear(hidden_size, 1, bias=bias)

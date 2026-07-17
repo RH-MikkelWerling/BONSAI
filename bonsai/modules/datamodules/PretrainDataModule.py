@@ -27,6 +27,7 @@ class PretrainDataModule(L.LightningDataModule):
         train_truncation_strategy: str = "tail",
         val_truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
+        value_embedding_mode: str = "legacy",
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -44,6 +45,7 @@ class PretrainDataModule(L.LightningDataModule):
         self.train_truncation_strategy = train_truncation_strategy
         self.val_truncation_strategy = val_truncation_strategy
         self.tail_window_probability = tail_window_probability
+        self.value_embedding_mode = value_embedding_mode
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -105,6 +107,8 @@ class PretrainDataModule(L.LightningDataModule):
                 cutoff_date=self.cutoff_date,
                 truncation_strategy=self.train_truncation_strategy,
                 tail_window_probability=self.tail_window_probability,
+                vocabulary=self.vocabulary,
+                value_embedding_mode=self.value_embedding_mode,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -113,6 +117,8 @@ class PretrainDataModule(L.LightningDataModule):
                 cutoff_date=self.cutoff_date,
                 truncation_strategy=self.val_truncation_strategy,
                 tail_window_probability=1.0,
+                vocabulary=self.vocabulary,
+                value_embedding_mode=self.value_embedding_mode,
             )
         else:
             raise ValueError(f"Unexpected dataset class. Got: {self.dataset_class}")

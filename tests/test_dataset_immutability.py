@@ -286,3 +286,33 @@ def test_mlm_pretraining_masks_value_inputs_for_selected_value_tokens():
         torch.tensor([0.0, 0.0, 0.0]),
     )
     assert torch.equal(sample["value_present"], torch.tensor([False, False, False]))
+
+
+def test_ar_combined_binning_predicts_value_from_preceding_event():
+    subject = {
+        "subject_id": 55,
+        "code": torch.tensor([5, 6, 7, 6, 7]),
+        "abspos": torch.arange(5, dtype=torch.float),
+        "segment": torch.zeros(5, dtype=torch.long),
+        "age": torch.arange(40, 45, dtype=torch.float),
+        "value_bin": torch.tensor([0, 0, 3, 0, 4]),
+        "value_normalized": torch.tensor([0.0, 0.0, 0.3, 0.0, 0.4]),
+        "value_present": torch.tensor([False, False, True, False, True]),
+    }
+    dataset = ARPretrainDataset(
+        [subject],
+        max_len=4,
+        background_length=0,
+        vocabulary={"[VAL]": 7},
+        value_embedding_mode="combined_binning",
+    )
+
+    sample = dataset[0]
+
+    # The state at code 6 predicts the following bin representative.
+    assert torch.equal(sample["target_value_mask"], torch.tensor([False, True, False, True]))
+    torch.testing.assert_close(
+        sample["target_value_normalized"], torch.tensor([0.0, 0.3, 0.0, 0.4])
+    )
+    # [VAL] is a numeric regression target, not a categorical CE target.
+    assert torch.equal(sample["target"], torch.tensor([6, -100, 6, -100]))

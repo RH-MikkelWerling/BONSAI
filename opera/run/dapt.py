@@ -150,6 +150,7 @@ def main(cfg: DictConfig) -> None:
             "validation_truncation_strategy", "tail"
         ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
+        value_embedding_mode=model_cfg.get("value_embedding_mode", "legacy"),
     )
 
     # ── Model ────────────────────────────────────────────────────────

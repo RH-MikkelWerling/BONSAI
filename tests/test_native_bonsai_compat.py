@@ -161,6 +161,41 @@ def test_native_pretrain_model_predicts_combined_binned_values():
     )
 
 
+def test_combined_binning_uses_ce_plus_scalar_mse_without_bin_ce():
+    from bonsai.modules.lightningmodules.PretrainModule import compute_pretrain_loss
+
+    model = BonsaiPretrain(
+        **_small_model_config(),
+        value_bin_vocab_size=1,
+        value_embedding_mode="combined_binning",
+    ).eval()
+    batch = {
+        "code": torch.tensor([[2, 3, 4]]),
+        "age": torch.tensor([[40.0, 41.0, 42.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 3.0]]),
+        "segment": torch.tensor([[0, 0, 0]]),
+        "attention_mask": torch.tensor([[True, True, True]]),
+        "value_bin": torch.tensor([[0, 0, 3]]),
+        "value_normalized": torch.tensor([[0.0, 0.0, 0.3]]),
+        "value_present": torch.tensor([[False, False, True]]),
+        "target": torch.tensor([[3, -100, 5]]),
+        "target_value_mask": torch.tensor([[False, True, False]]),
+        "target_value_bin": torch.tensor([[-100, 3, -100]]),
+        "target_value_normalized": torch.tensor([[0.0, 0.3, 0.0]]),
+    }
+
+    output = model(batch)
+    _, _, _, losses = compute_pretrain_loss(
+        output,
+        torch.nn.CrossEntropyLoss(),
+        torch.nn.CrossEntropyLoss(),
+        torch.nn.MSELoss(),
+    )
+
+    assert set(losses) == {"code", "value_regression", "total"}
+    assert torch.isfinite(losses["total"])
+
+
 def test_primary_training_configs_default_to_flash_attention():
     root = Path(__file__).parents[1]
     paths = [

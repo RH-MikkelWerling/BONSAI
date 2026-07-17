@@ -15,6 +15,10 @@ paths:
 
 exclude_regex: 
 
+# Paper-aligned sequence construction: numeric event -> event, [VAL].
+# Has no effect when the ehr2meds numeric columns are absent.
+numeric_value_mode: combined_binning
+
 tokenizer:
   vocabulary:
   cutoffs:

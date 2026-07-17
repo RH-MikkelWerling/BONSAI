@@ -38,21 +38,26 @@ def compute_pretrain_loss(
     loss = code_loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
     losses = {"code": loss}
     if isinstance(output, dict) and output["target_value_bin"].numel() > 0:
-        value_bin_loss = value_bin_loss_fn(
-            output["value_bin_logits"].view(-1, output["value_bin_logits"].size(-1)),
-            output["target_value_bin"].view(-1),
-        )
         value_regression_loss = value_regression_loss_fn(
             output["value_prediction"].view(-1),
             output["target_value_normalized"].view(-1),
         )
-        losses["value_bin"] = value_bin_loss
         losses["value_regression"] = value_regression_loss
-        loss = (
-            loss
-            + float(value_bin_loss_weight) * value_bin_loss
-            + float(value_regression_loss_weight) * value_regression_loss
-        )
+        if output.get("value_embedding_mode") == "combined_binning":
+            loss = loss + float(value_regression_loss_weight) * value_regression_loss
+        else:
+            value_bin_loss = value_bin_loss_fn(
+                output["value_bin_logits"].view(
+                    -1, output["value_bin_logits"].size(-1)
+                ),
+                output["target_value_bin"].view(-1),
+            )
+            losses["value_bin"] = value_bin_loss
+            loss = (
+                loss
+                + float(value_bin_loss_weight) * value_bin_loss
+                + float(value_regression_loss_weight) * value_regression_loss
+            )
     losses["total"] = loss
     return loss, logits, labels, losses
 
@@ -133,9 +138,10 @@ class PretrainModule(L.LightningModule):
             value_regression_loss_weight=self.value_regression_loss_weight,
         )
         self.log("train/loss", loss, prog_bar=True)
-        if "value_bin" in losses:
+        if "value_regression" in losses:
             self.log("train/code_loss", losses["code"], prog_bar=False)
-            self.log("train/value_bin_loss", losses["value_bin"], prog_bar=False)
+            if "value_bin" in losses:
+                self.log("train/value_bin_loss", losses["value_bin"], prog_bar=False)
             self.log(
                 "train/value_regression_loss",
                 losses["value_regression"],
@@ -154,9 +160,10 @@ class PretrainModule(L.LightningModule):
             value_regression_loss_weight=self.value_regression_loss_weight,
         )
         self.log("val/loss", loss, prog_bar=True)
-        if "value_bin" in losses:
+        if "value_regression" in losses:
             self.log("val/code_loss", losses["code"], prog_bar=False)
-            self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
+            if "value_bin" in losses:
+                self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
             self.log(
                 "val/value_regression_loss",
                 losses["value_regression"],

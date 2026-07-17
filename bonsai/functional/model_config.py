@@ -20,8 +20,12 @@ MODEL_CONSTRUCTOR_KEYS = {
     "causal",
     "attn_type",
     "value_bin_vocab_size",
+    "value_embedding_mode",
 }
-REQUIRED_MODEL_CONSTRUCTOR_KEYS = MODEL_CONSTRUCTOR_KEYS - {"value_bin_vocab_size"}
+REQUIRED_MODEL_CONSTRUCTOR_KEYS = MODEL_CONSTRUCTOR_KEYS - {
+    "value_bin_vocab_size",
+    "value_embedding_mode",
+}
 
 _ALIASES = {
     "max_position_embeddings": "max_seqlen",
@@ -86,6 +90,7 @@ def normalize_bonsai_model_config(
     source.setdefault("attn_type", default_attn_type)
 
     source.setdefault("value_bin_vocab_size", 0)
+    source.setdefault("value_embedding_mode", "legacy")
 
     result = {key: source[key] for key in MODEL_CONSTRUCTOR_KEYS if key in source}
     missing = REQUIRED_MODEL_CONSTRUCTOR_KEYS - set(result)

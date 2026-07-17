@@ -50,6 +50,7 @@ def main(cfg: DictConfig) -> None:
             "validation_truncation_strategy", "tail"
         ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
+        value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
     )
 
     model = build_bonsai_pretrain(
@@ -73,6 +74,9 @@ def main(cfg: DictConfig) -> None:
         learning_rate=cfg.training.learning_rate,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
+        value_regression_loss_weight=cfg.training.get(
+            "value_regression_loss_weight", 1.0
+        ),
         checkpoint_metadata={
             "training_stage": cfg.get("training_stage", "hematology_only_pretraining"),
             "dataset": cfg.get("dataset"),

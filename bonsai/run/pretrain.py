@@ -49,6 +49,7 @@ def main(cfg: DictConfig) -> None:
         masking_config=cfg.training.get("masking"),
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,
+        value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
     )
 
     model = BonsaiPretrain(
@@ -63,6 +64,7 @@ def main(cfg: DictConfig) -> None:
         causal=cfg.model.causal,
         attn_type=cfg.model.attn_type,
         value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
+        value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
     )
 
     ckpt_callback = ModelCheckpoint(
@@ -81,6 +83,9 @@ def main(cfg: DictConfig) -> None:
         learning_rate=cfg.training.learning_rate,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
+        value_regression_loss_weight=cfg.training.get(
+            "value_regression_loss_weight", 1.0
+        ),
         checkpoint_metadata={
             "training_stage": "general_pretraining",
             "dataset": cfg.dataset,
