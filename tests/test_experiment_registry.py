@@ -32,9 +32,13 @@ def test_production_registry_has_locked_inventory() -> None:
 
 def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) -> None:
     paths = generate_configs(REGISTRY, tmp_path)
-    sweep_paths = [path for path in paths if path.name != "outcome_families.yaml"]
+    sweep_paths = [
+        path
+        for path in paths
+        if path.name.startswith(("fine_", "grouped_"))
+    ]
 
-    assert len(paths) == 13
+    assert len(paths) == 15
     assert len(sweep_paths) == 12
     for path in sweep_paths:
         load_sweep_config(path)
@@ -56,3 +60,13 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert fine["cohorts"]["SolM"]["cohort_fine_value"] == "SolM"
     assert set(fine["cohorts"]["BL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES
     assert fine["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
+
+    joint = yaml.safe_load((tmp_path / "joint_opera_full_panel.yaml").read_text())
+    mol = yaml.safe_load((tmp_path / "multi_outcome_full_panel.yaml").read_text())
+    assert len(joint["outcomes"]) == len(mol["outcomes"]) == 87
+    assert "${BONSAI_" not in yaml.safe_dump(joint)
+    assert "${BONSAI_" not in yaml.safe_dump(mol)
+    assert set(joint["cohorts"]) == {
+        "AMYLOIDOSIS", "BL_LBL", "CLL_SLL", "DLBCL_like", "HCL", "HL",
+        "Indolent_B_NHL", "MCL", "MM", "T_NHL",
+    }

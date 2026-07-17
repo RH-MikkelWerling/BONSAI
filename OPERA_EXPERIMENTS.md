@@ -70,9 +70,8 @@ Event-aware batching uses outcome quotas only when an endpoint has enough
 distinct evidence. Focused batches require at least one unique event and
 (production configs) eight unique eligible patients before an outcome
 receives focused batches — `min_unique_events_for_focus` was lowered from 2
-to 1 across every `event_aware` config (`contrastive.yaml`,
-`contrastive_multicohort.yaml`, `leukemia_contrastive.yaml`,
-`joint_finetune.yaml`): a single observed event still anchors a real KM
+to 1 across every maintained `event_aware` config (`contrastive.yaml`,
+`generated/joint_opera_full_panel.yaml`, `joint_finetune.yaml`): a single observed event still anchors a real KM
 cumulative-mass location, and the quota-drawing code
 (`_draw_events`/`_draw_from_pool` in `stratified_sampling.py`) already caps
 every quota at whatever's actually available, so the old threshold excluded
@@ -140,7 +139,7 @@ population contrastive training uses (via `MultiCohortContrastiveDataModule`),
 and saves the pre-projection embeddings.
 
 Starting values (`dapt_lambda_floor: 0.55`, `dapt_anchor_weight: 0.2` in
-`contrastive.yaml`, `contrastive_multicohort.yaml`, `leukemia_contrastive.yaml`,
+`contrastive.yaml` and `generated/joint_opera_full_panel.yaml`,
 up from the previously-inert `0.3`/`0.0`) are informed, **not validated**.
 The floor was raised specifically because DAPT-embedding outliers are
 disproportionately likely to *be* the rare/unusual patients the rare-outcome
@@ -458,46 +457,13 @@ The minimum-event flags mark unstable real rare-cohort rows as
 `supplement_only`; they do not drop raw result rows.
 Plot helpers save companion `.pdf` files for paper figures.
 
-## Prespecified Rarity and Label-Efficiency Experiments
+## Natural Rarity Analysis
 
-The dedicated rarity runner uses the canonical outcome labels and the temporal
-contract in `opera/configs/manifests/temporal_split.yaml`: training through
-2021, tuning/checkpoint selection in 2022, and a fixed 2023+ test set. Task
-eligibility is based only on prespecified patient/event/censoring counts.
-
-Plan a lightweight run and write nested patient manifests without training:
-
-```bash
-python -m opera.run.rarity_experiments \
-  --config opera/configs/rarity_experiments.yaml \
-  --mode synthetic --dry-run
-```
-
-Run the controlled synthetic analysis and the separate natural analysis:
-
-```bash
-python -m opera.run.rarity_experiments \
-  --config opera/configs/rarity_experiments.yaml \
-  --mode synthetic --execute
-
-python -m opera.run.rarity_experiments \
-  --config opera/configs/rarity_experiments.yaml \
-  --mode natural
-```
-
-Regenerate PNG and PDF plots without loading private source data or retraining:
-
-```bash
-python -m opera.run.rarity_experiments \
-  --config opera/configs/rarity_experiments.yaml \
-  --mode plots
-```
-
-Synthetic samples are unique-patient, outcome/year-stratified, nested within
-seed, and shared by all model variants. The primary configuration retains the
-full 2022 tuning set; set `sampling.downsample_tuning: true` for the prespecified
-development-label scarcity sensitivity analysis. Natural primary,
-aggregate-only, and non-evaluable tiers remain distinct in every output.
+The legacy `rarity_experiments` runner is deliberately disabled until its
+synthetic label-scarcity workflow is rebuilt from the shared-data registry with
+a matched comparator. The current production natural-rarity workflow uses the
+fine-only generated sweeps and `opera/configs/hierarchical_rarity.yaml`; it
+fails closed if grouped or global result artifacts are present.
 
 ## Pretraining-Scale Ablations
 
@@ -564,7 +530,7 @@ running full-model backward passes:
 
 ```bash
 python -m opera.diagnostics.representation_gradient_conflict \
-  --config-name leukemia_contrastive \
+  --config-name generated/joint_opera_full_panel \
   --checkpoints /checkpoints/epoch_01.ckpt /checkpoints/best.ckpt \
   --output-dir /results/gradient_conflict \
   --batches 16 \
@@ -787,7 +753,7 @@ The figure distinguishes uncertainty about the population mean curve from the
 predictive dispersion of a new cohort-outcome cell. Low-event test cells are
 shown as hollow partial-pooling observations rather than silently removed.
 Point color encodes the prespecified outcome family
-(`opera/configs/hierarchical_rarity.yaml:outcome_families`) and point shape
+(`opera/configs/generated/outcome_families.yaml`) and point shape
 encodes the training cohort group, so cohort- and outcome-driven patterns
 stay visually separable in one panel. Point size is not used to encode
 held-out event counts: under the fixed train/val/test split, held-out events
@@ -889,6 +855,12 @@ export BONSAI_OUTCOMES_DIR=/path/to/outcomes
 export BONSAI_CHECKPOINT_ROOT=/path/to/checkpoints
 export BONSAI_RESULTS_ROOT=/path/to/results
 ```
+
+`opera_per_grouped` is intentionally not part of the primary model ladder. A
+separate contrastive encoder per grouped disease family is a useful future
+supplementary ablation (testing broad versus parent-group adaptation), but it
+requires ten additional adaptation runs and should be added only after the
+main full-panel experiment is stable.
 
 For example:
 

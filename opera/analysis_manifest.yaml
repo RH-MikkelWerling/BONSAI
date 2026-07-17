@@ -1,66 +1,90 @@
-# OPERA Leukemia Study — Locked Analysis Manifest
-# Version: 1.0
-# This file encodes the confirmatory analysis plan.
-# Changes require a version bump and a scientific review note.
-version: "1.0"
+# OPERA hematology study — current analysis manifest
+#
+# The canonical cohort and outcome inventory lives in
+# opera/configs/experiment_registry.yaml.  This manifest does not remove
+# small/underpowered fine cohorts from the raw or rarity-gradient analyses;
+# all structurally available cohort–outcome cells remain eligible for them.
+version: "2.0"
 
-# Primary endpoints — outcomes used in confirmatory statistical tests
+# The primary comparison is representation-level: joint OPERA against the
+# strongest upstream alternatives, evaluated independently within cohort_fine.
 primary_endpoints:
-  - mortality_1y
+  - overall_survival
   - treatment_failure
 
-# Exploratory outcomes — reported but not subject to multiplicity correction
+# Every registry outcome is evaluated in the generated sweeps.  These named
+# endpoints are retained as clinically interpretable exploratory summaries;
+# they do not define the full task inventory.
 exploratory_outcomes:
-  - mortality_2y
-  - aki_30d
-  - severe_infection_90d
+  - serious_infection_composite
+  - severe_cytopenia
+  - MACE_composite
+  - hospitalisation
 
-# Model contrasts for primary endpoints (each pair is a pre-specified comparison)
-# Format: [reference_model, comparator_model]
 primary_contrasts:
+  - [no_pretraining, opera]
   - [base_pretrain, opera]
   - [dapt, opera]
-  - [base_pretrain, dapt]
-  - [no_pretraining, opera]
-  - [tabular_ehr, opera]
+  - [multi_outcome, opera]
 
-# Multiplicity correction
 multiplicity:
   method: benjamini_hochberg
   alpha: 0.05
-  family: primary_contrasts_x_primary_endpoints  # corrections applied within this family
+  family: primary_contrasts_x_primary_endpoints
 
-# Minimum event thresholds for a cell to be included in primary analysis
+# Retain every evaluable cell.  Larger-count strata are reported as precision
+# tiers by the downstream analysis rather than filtering cells at manifest
+# level.
 min_events:
-  test: 10         # minimum events in held_out split
-  train: 20        # minimum events in train split for model to be trained
+  test: 1
+  train: 1
 
-# Random seeds (all models trained with each seed; results averaged)
 seeds: [42, 43, 44]
 
-# Confirmatory vs exploratory labelling for cohort-level analysis
 cohort_analysis:
-  confirmatory_grouped:    # grouped cohorts with sufficient events expected
-    - DLBCL_like
-    - CLL_SLL
+  primary_level: fine
+  grouped_role: secondary_pooled_context
+  fine_cohorts:
+    - AMYLOIDOSIS
+    - BL
+    - LBL
+    - CLL
+    - SLL
+    - DLBCL
+    - RT
+    - TRANSFORMED_FL
+    - HCL
+    - HL
+    - BCL
+    - EMZL
+    - FL
+    - LPL
+    - NMZL
+    - SMZL
+    - MCL
     - MM
+    - PCL
+    - SolM
+    - AITL
+    - ALCL
+    - PTCL
+    - TCL
+  grouped_cohorts:
+    - AMYLOIDOSIS
+    - BL_LBL
+    - CLL_SLL
+    - DLBCL_like
+    - HCL
     - HL
     - Indolent_B_NHL
-  exploratory_grouped:     # smaller groups, reported descriptively
+    - MCL
+    - MM
     - T_NHL
-    - BL_LBL
-    - HCL
-    - AMYLOIDOSIS
-    - SoIM
 
-# Fine-cohort analysis: all fine cohorts are exploratory by default unless listed here
-confirmatory_fine_cohorts:
-  - DLBCL
-  - CLL
-  - MM
-  - HL
+# Fine-cohort rarity results are primary as a panel; none are silently omitted
+# from aggregation because of cohort size.
+confirmatory_fine_cohorts: []
 
-# Calibration: assess on held_out predictions only (no apparent calibration)
 calibration:
   set: held_out
   method: logistic_calibration_curve

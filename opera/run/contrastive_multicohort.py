@@ -38,7 +38,7 @@ load_dotenv()
 
 @hydra.main(
     config_path="../configs",
-    config_name="contrastive_multicohort",
+    config_name="generated/joint_opera_full_panel",
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:

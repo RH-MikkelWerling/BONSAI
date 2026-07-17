@@ -70,6 +70,43 @@ def _eligibility_path(data_dir: str, outcome_config: dict):
     return path if os.path.isabs(path) else os.path.join(data_dir, "outcomes", path)
 
 
+def _outcome_path(data_dir: str, outcome_config: dict) -> str:
+    """Resolve a global/absolute outcome parquet or legacy cohort-local file."""
+    raw = outcome_config.get("outcome_path") or outcome_config.get("outcome_file") or outcome_config.get("filename")
+    if raw is None:
+        raise ValueError("Outcome config requires outcome_path or outcome_file.")
+    path = os.path.expandvars(str(raw))
+    return path if os.path.isabs(path) else os.path.join(data_dir, "outcomes", path)
+
+
+def _competing_path(data_dir: str, outcome_config: dict) -> Optional[str]:
+    raw = outcome_config.get("competing_outcome_path") or outcome_config.get("competing_outcome_file")
+    if raw in (None, "", "null"):
+        return None
+    path = os.path.expandvars(str(raw))
+    return path if os.path.isabs(path) else os.path.join(data_dir, "outcomes", path)
+
+
+def _read_population(cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
+    path = cohort_cfg.get("population_file", os.path.join(data_dir, "population_full.csv"))
+    path = os.path.expandvars(str(path))
+    population = pd.read_parquet(path) if path.lower().endswith((".parquet", ".pq")) else pd.read_csv(path)
+    col, value = cohort_cfg.get("cohort_fine_col"), cohort_cfg.get("cohort_fine_value")
+    if bool(col) != bool(value):
+        raise ValueError("cohort_fine_col and cohort_fine_value must be provided together.")
+    if col:
+        if col not in population:
+            raise ValueError(f"Membership column {col!r} is absent from {path}.")
+        population = population[population[col].astype(str) == str(value)].copy()
+    if population.empty:
+        raise ValueError(f"No membership rows remain for configured cohort {cohort_cfg!r}.")
+    return population
+
+
+def _filter_membership(frame: pd.DataFrame, cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
+    return frame[frame["subject_id"].isin(_read_population(cohort_cfg, data_dir)["subject_id"])].copy()
+
+
 def compute_pooled_sorted_event_times(
     cohort_configs: Dict[str, dict],
     outcome_configs: Dict[str, dict],
@@ -87,14 +124,16 @@ def compute_pooled_sorted_event_times(
     for cohort_name, cohort_cfg in cohort_configs.items():
         data_dir = cohort_cfg["data_dir"]
         for name, ocfg in outcome_configs.items():
-            filename = ocfg.get("outcome_file") or ocfg.get("filename")
-            if filename is None:
+            if name in set(cohort_cfg.get("exclude_outcomes", [])):
                 continue
-            path = os.path.join(data_dir, "outcomes", filename)
+            if not (ocfg.get("outcome_path") or ocfg.get("outcome_file") or ocfg.get("filename")):
+                continue
+            path = _outcome_path(data_dir, ocfg)
             if not os.path.exists(path):
                 continue
             try:
                 df = pd.read_parquet(path)
+                df = _filter_membership(df, cohort_cfg, data_dir)
                 df = filter_outcome_eligibility(
                     df,
                     _eligibility_path(data_dir, ocfg),
@@ -120,9 +159,8 @@ def compute_pooled_sorted_event_times(
                 )
                 split_df = df[df["split"] == split].copy()
                 competing_df = None
-                competing_file = ocfg.get("competing_outcome_file")
-                if competing_file:
-                    competing_path = os.path.join(data_dir, "outcomes", competing_file)
+                competing_path = _competing_path(data_dir, ocfg)
+                if competing_path:
                     if os.path.exists(competing_path):
                         competing_df = pd.read_parquet(competing_path)
                 outcomes = binarize_outcomes(
@@ -157,15 +195,16 @@ def compute_pooled_event_time_probability_grids(
     for cohort_name, cohort_cfg in cohort_configs.items():
         data_dir = cohort_cfg["data_dir"]
         for name, ocfg in outcome_configs.items():
-            filename = ocfg.get("outcome_file") or ocfg.get("filename")
-            if filename is None:
+            if name in set(cohort_cfg.get("exclude_outcomes", [])):
+                continue
+            if not (ocfg.get("outcome_path") or ocfg.get("outcome_file") or ocfg.get("filename")):
                 if require_all_configured_cells:
                     raise ValueError(
                         f"Configured outcome {name!r} has no outcome_file for "
                         f"cohort {cohort_name!r}."
                     )
                 continue
-            path = os.path.join(data_dir, "outcomes", filename)
+            path = _outcome_path(data_dir, ocfg)
             if not os.path.exists(path):
                 if require_all_configured_cells:
                     raise FileNotFoundError(
@@ -175,6 +214,7 @@ def compute_pooled_event_time_probability_grids(
                 continue
             try:
                 df = pd.read_parquet(path)
+                df = _filter_membership(df, cohort_cfg, data_dir)
                 df = filter_outcome_eligibility(
                     df,
                     _eligibility_path(data_dir, ocfg),
@@ -191,9 +231,8 @@ def compute_pooled_event_time_probability_grids(
                 )
                 split_df = df[df["split"] == split].copy()
                 competing_df = None
-                competing_file = ocfg.get("competing_outcome_file")
-                if competing_file:
-                    competing_path = os.path.join(data_dir, "outcomes", competing_file)
+                competing_path = _competing_path(data_dir, ocfg)
+                if competing_path:
                     if os.path.exists(competing_path):
                         competing_df = pd.read_parquet(competing_path)
                     elif require_all_configured_cells:
@@ -389,12 +428,13 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         Load all outcome parquets for a single cohort + split.
         Returns an outcome_dict with survival fields where available.
         """
-        outcomes_dir = os.path.join(data_dir, "outcomes")
         outcome_dicts: Dict[str, Dict[int, dict]] = {}
 
         for name, ocfg in self.outcome_configs.items():
-            filename = ocfg.get("outcome_file", ocfg.get("filename", f"{name}.parquet"))
-            path = os.path.join(outcomes_dir, filename)
+            if name in set(cohort_cfg.get("exclude_outcomes", [])):
+                outcome_dicts[name] = {}
+                continue
+            path = _outcome_path(data_dir, ocfg)
             if not os.path.exists(path):
                 if self.require_all_configured_cells:
                     raise FileNotFoundError(
@@ -406,6 +446,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 continue
 
             df = pd.read_parquet(path)
+            df = _filter_membership(df, cohort_cfg, data_dir)
             df = filter_outcome_eligibility(
                 df,
                 _eligibility_path(data_dir, ocfg),
@@ -434,9 +475,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             # Optional competing-event (death) table — annotates non-primary-event
             # patients who died as event=2 rather than event=0 (admin censored).
             competing_df = None
-            competing_file = ocfg.get("competing_outcome_file")
-            if competing_file:
-                competing_path = os.path.join(outcomes_dir, competing_file)
+            competing_path = _competing_path(data_dir, ocfg)
+            if competing_path:
                 if os.path.exists(competing_path):
                     competing_df = pd.read_parquet(competing_path)
                 elif self.require_all_configured_cells:
@@ -486,11 +526,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             print(f"  [{cohort_name}] Missing {split_file}, skipping.")
             return None
 
-        pop_file = cohort_cfg.get(
-            "population_file",
-            os.path.join(data_dir, "population_full.csv"),
-        )
-        population = pd.read_csv(pop_file)
+        population = _read_population(cohort_cfg, data_dir)
 
         subjects = torch.load(split_file, weights_only=False)
         subjects = filter_subject_data(subjects, population["subject_id"])

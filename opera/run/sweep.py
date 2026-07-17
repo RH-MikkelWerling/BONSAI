@@ -644,6 +644,7 @@ def _cfg_for_result_row(
         "evaluation_subset": cfg.get("evaluation_subset", "full"),
         "training_fraction": cfg.get("training_fraction"),
         "checkpoint_path": checkpoint_path,
+        "analysis_level": cfg.get("analysis_level"),
         "labels": {
             "n_hours_end_include": outcome_cfg.get("n_hours_end_include"),
         },

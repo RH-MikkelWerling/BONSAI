@@ -40,11 +40,10 @@ def test_grouped_to_fine_covers_all_fine():
     assert all_fine_via_grouped == set(ALL_FINE)
 
 
-def test_evaluated_fine_excludes_secondary_label():
-    assert EXCLUDED_FINE == frozenset({"EXCLUDE_SECONDARY"})
-    assert set(ALL_EVALUATED_FINE) == set(ALL_FINE) - EXCLUDED_FINE
-    assert len(ALL_FINE) == 26
-    assert len(ALL_EVALUATED_FINE) == 25
+def test_all_production_fine_cohorts_are_evaluated():
+    assert EXCLUDED_FINE == frozenset()
+    assert set(ALL_EVALUATED_FINE) == set(ALL_FINE)
+    assert len(ALL_FINE) == 24
 
 
 def test_fine_to_grouped_round_trip():
@@ -58,7 +57,7 @@ def test_fine_to_grouped_round_trip():
 def test_one_to_one_cohorts_appear_in_both_namespaces():
     """One-to-one cohorts use the same name at both fine and grouped levels."""
     one_to_one = set(ALL_FINE) & set(ALL_GROUPED)
-    expected = {"HL", "HCL", "MM", "AMYLOIDOSIS", "SoIM", "EXCLUDE_SECONDARY"}
+    expected = {"HL", "HCL", "MM", "MCL", "AMYLOIDOSIS"}
     assert one_to_one == expected, (
         f"Unexpected namespace overlap: {one_to_one ^ expected}"
     )
@@ -71,16 +70,15 @@ def test_one_to_one_cohorts_appear_in_both_namespaces():
     "fine, expected_grouped",
     [
         ("DLBCL", "DLBCL_like"),
-        ("BCL", "DLBCL_like"),
+        ("BCL", "Indolent_B_NHL"),
         ("RT", "DLBCL_like"),
-        ("RT_DERIVED", "DLBCL_like"),
+        ("TRANSFORMED_FL", "DLBCL_like"),
         ("FL", "Indolent_B_NHL"),
-        ("MCL", "Indolent_B_NHL"),
+        ("MCL", "MCL"),
         ("LPL", "Indolent_B_NHL"),
         ("EMZL", "Indolent_B_NHL"),
         ("NMZL", "Indolent_B_NHL"),
         ("SMZL", "Indolent_B_NHL"),
-        ("TRANSFORMED_FL", "Indolent_B_NHL"),
         ("AITL", "T_NHL"),
         ("ALCL", "T_NHL"),
         ("PTCL", "T_NHL"),
@@ -94,8 +92,7 @@ def test_one_to_one_cohorts_appear_in_both_namespaces():
         ("HL", "HL"),
         ("HCL", "HCL"),
         ("AMYLOIDOSIS", "AMYLOIDOSIS"),
-        ("SoIM", "SoIM"),
-        ("EXCLUDE_SECONDARY", "EXCLUDE_SECONDARY"),
+        ("SolM", "MM"),
     ],
 )
 def test_known_fine_to_grouped_mapping(fine: str, expected_grouped: str):
@@ -111,12 +108,12 @@ def test_known_grouped_to_fine_t_nhl():
 
 
 def test_known_grouped_to_fine_mm():
-    assert grouped_to_fine("MM") == frozenset({"MM", "PCL"})
+    assert grouped_to_fine("MM") == frozenset({"MM", "PCL", "SolM"})
 
 
 def test_known_grouped_to_fine_indolent():
     assert grouped_to_fine("Indolent_B_NHL") == frozenset(
-        {"FL", "MCL", "LPL", "EMZL", "NMZL", "SMZL", "TRANSFORMED_FL"}
+        {"BCL", "FL", "LPL", "EMZL", "NMZL", "SMZL"}
     )
 
 
@@ -236,13 +233,13 @@ def test_cohort_spec_to_mapping_round_trip():
 # ── Sweep config validation for leukemia_sweep.yaml ─────────────────────────
 
 
-def test_leukemia_sweep_config_structure():
-    """Verify the leukemia_sweep.yaml parses without validation errors."""
+def test_generated_fine_sweep_config_structure():
+    """The registry-generated sweep is the production fine-cohort surface."""
     from pathlib import Path
     import yaml
 
     config_path = (
-        Path(__file__).parents[1] / "opera" / "configs" / "leukemia_sweep.yaml"
+        Path(__file__).parents[1] / "opera" / "configs" / "generated" / "fine_cox.yaml"
     )
     assert config_path.exists(), f"Config not found: {config_path}"
     with open(config_path, encoding="utf-8") as fh:
@@ -253,8 +250,6 @@ def test_leukemia_sweep_config_structure():
     assert "model_variants" in raw
 
     cohorts = raw["cohorts"]
-    # The sweep evaluates the 25 analyzed fine cohorts. EXCLUDE_SECONDARY is
-    # retained in the mapping as an explicit non-analyzed label.
     expected = set(ALL_EVALUATED_FINE)
     assert set(cohorts.keys()) == expected, (
         f"Cohort mismatch: extra={set(cohorts.keys()) - expected}, "
@@ -262,44 +257,31 @@ def test_leukemia_sweep_config_structure():
     )
 
     # Grouped cohorts pointing to the correct training_cohort
-    assert cohorts["DLBCL"]["training_cohort"] == "dlbcl_like"
-    assert cohorts["FL"]["training_cohort"] == "indolent_b_nhl"
-    assert cohorts["CLL"]["training_cohort"] == "cll_sll"
-    assert cohorts["MM"]["training_cohort"] == "mm"
-    assert cohorts["PCL"]["training_cohort"] == "mm"
+    assert cohorts["DLBCL"]["training_cohort"] == "DLBCL_like"
+    assert cohorts["FL"]["training_cohort"] == "Indolent_B_NHL"
+    assert cohorts["CLL"]["training_cohort"] == "CLL_SLL"
+    assert cohorts["MM"]["training_cohort"] == "MM"
+    assert cohorts["PCL"]["training_cohort"] == "MM"
 
     # 1:1 cohorts have no cohort_fine_col (they don't need subsetting)
-    for name in ("HL", "HCL", "AMYLOIDOSIS", "SoIM"):
-        assert cohorts[name].get("cohort_fine_col") is None
+    for name in ("HL", "HCL", "AMYLOIDOSIS", "SolM"):
+        assert cohorts[name]["cohort_fine_col"] == "cohort_fine"
 
 
-def test_leukemia_contrastive_config_structure():
-    """Verify the leukemia_contrastive.yaml parses and has correct grouped cohorts."""
+def test_generated_joint_opera_config_structure():
+    """Joint OPERA uses all registry grouped cohorts through shared data."""
     from pathlib import Path
     import yaml
 
     config_path = (
-        Path(__file__).parents[1] / "opera" / "configs" / "leukemia_contrastive.yaml"
+        Path(__file__).parents[1] / "opera" / "configs" / "generated" / "joint_opera_full_panel.yaml"
     )
     assert config_path.exists()
     with open(config_path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
 
     cohorts = raw["cohorts"]
-    # Must contain all training grouped cohorts (EXCLUDE_SECONDARY excluded)
-    expected_grouped = {
-        "dlbcl_like",
-        "indolent_b_nhl",
-        "t_nhl",
-        "cll_sll",
-        "bl_lbl",
-        "mm",
-        "hl",
-        "hcl",
-        "amyloidosis",
-        "soim",
-    }
-    assert set(cohorts.keys()) == expected_grouped
+    assert set(cohorts) == set(ALL_GROUPED)
 
 
 # ── format_variant_path training_cohort placeholder ─────────────────────────

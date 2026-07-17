@@ -240,7 +240,15 @@ class ContrastiveDataModule(L.LightningDataModule):
         super().__init__()
         self.path_train_data = path_train_data
         self.path_val_data = path_val_data
-        self.population = pd.read_csv(path_population)
+        self.population = (
+            pd.read_parquet(path_population)
+            if str(path_population).lower().endswith((".parquet", ".pq"))
+            else pd.read_csv(path_population)
+        )
+        if "subject_id" not in self.population.columns:
+            raise ValueError("Contrastive population must contain subject_id.")
+        if self.population["subject_id"].duplicated().any():
+            raise ValueError("Contrastive population must have one row per subject_id.")
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
@@ -257,6 +265,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         outcome_dicts = {}
         for name, ocfg in self.outcome_configs.items():
             df = pd.read_parquet(ocfg["path"])
+            df = df[df["subject_id"].isin(self.population["subject_id"])].copy()
             df = filter_outcome_eligibility(
                 df,
                 _eligibility_path(ocfg, ocfg["path"]),

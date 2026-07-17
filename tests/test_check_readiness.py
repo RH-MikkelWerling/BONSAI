@@ -3,6 +3,7 @@ import pytest
 from opera.run.check_readiness import check_manifest_consistency, check_sweep_config
 
 yaml = pytest.importorskip("yaml")
+pd = pytest.importorskip("pandas")
 
 
 def _write_manifest(tmp_path, **overrides):
@@ -236,13 +237,17 @@ def test_check_readiness_validates_configured_eligibility_file(tmp_path):
     assert any("non-empty eligibility_reason" in issue for issue in issues)
 
 
-def test_leukemia_sweep_config_passes_readiness_check():
-    """leukemia_sweep.yaml must parse without validation issues (no path check)."""
+def test_generated_fine_sweep_config_passes_readiness_check():
+    """The primary fine sweep must parse without validation issues (no path check)."""
     from opera.run.check_readiness import check_sweep_config
     from pathlib import Path
 
     config = str(
-        Path(__file__).parents[1] / "opera" / "configs" / "leukemia_sweep.yaml"
+        Path(__file__).parents[1]
+        / "opera"
+        / "configs"
+        / "generated"
+        / "fine_cox.yaml"
     )
     issues = check_sweep_config(config, require_existing_paths=False)
     # Filter out expected unresolved-env-var warnings (these are acceptable in CI)
@@ -316,3 +321,150 @@ def test_manifest_consistency_flags_seed_mismatch(tmp_path):
 
     assert issues
     assert any("seed" in issue.lower() for issue in issues)
+
+
+def _write_shared_data_readiness_config(
+    tmp_path,
+    monkeypatch,
+    *,
+    membership: "pd.DataFrame",
+    outcomes: "pd.DataFrame",
+    membership_suffix: str = ".parquet",
+):
+    """Build a minimal production-style shared-data config and files."""
+    data_dir = tmp_path / "processed"
+    outcomes_dir = tmp_path / "outcomes"
+    checkpoints_dir = tmp_path / "checkpoints"
+    data_dir.mkdir()
+    outcomes_dir.mkdir()
+    checkpoints_dir.mkdir()
+    membership_path = tmp_path / f"cohort_membership{membership_suffix}"
+    if membership_suffix == ".csv":
+        membership.to_csv(membership_path, index=False)
+    else:
+        membership.to_parquet(membership_path, index=False)
+    outcome_path = outcomes_dir / "endpoint.parquet"
+    outcomes.to_parquet(outcome_path, index=False)
+    checkpoint = checkpoints_dir / "encoder.ckpt"
+    checkpoint.write_text("placeholder")
+
+    monkeypatch.setenv("READINESS_DATA", str(data_dir))
+    monkeypatch.setenv("READINESS_MEMBERSHIP", str(membership_path))
+    monkeypatch.setenv("READINESS_OUTCOMES", str(outcomes_dir))
+    monkeypatch.setenv("READINESS_CHECKPOINTS", str(checkpoints_dir))
+    monkeypatch.setenv("READINESS_RESULTS", str(tmp_path / "results"))
+
+    config = {
+        "output_dir": "${READINESS_RESULTS}/fine",
+        "cohorts": {
+            "RARE": {
+                "data_dir": "${READINESS_DATA}",
+                "population_file": "${READINESS_MEMBERSHIP}",
+                "cohort_fine_col": "cohort_fine",
+                "cohort_fine_value": "RARE",
+            }
+        },
+        "outcomes": {
+            "endpoint": {
+                "outcome_file": "${READINESS_OUTCOMES}/endpoint.parquet",
+                "n_hours_end_include": 720,
+            }
+        },
+        "model_variants": {
+            "opera": {
+                "encoder_ckpt": "${READINESS_CHECKPOINTS}/encoder.ckpt",
+                "encoder_source": "contrastive",
+            }
+        },
+    }
+    config_path = tmp_path / "shared_sweep.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    return config_path
+
+
+def test_check_readiness_supports_shared_global_outcomes_and_csv_membership(
+    tmp_path,
+    monkeypatch,
+):
+    """Production shared-data paths expand and count only the selected cohort."""
+    membership = pd.DataFrame(
+        {
+            "subject_id": list(range(1, 11)),
+            "cohort_fine": ["RARE"] * 5 + ["OTHER"] * 5,
+        }
+    )
+    outcomes = pd.DataFrame(
+        {
+            "subject_id": list(range(1, 11)),
+            "split": ["held_out"] * 10,
+            "event": [1] * 5 + [0] * 5,
+        }
+    )
+    config_path = _write_shared_data_readiness_config(
+        tmp_path,
+        monkeypatch,
+        membership=membership,
+        outcomes=outcomes,
+        membership_suffix=".csv",
+    )
+
+    assert check_sweep_config(str(config_path), require_existing_paths=True) == []
+
+
+def test_check_readiness_event_counts_are_filtered_to_fine_membership(
+    tmp_path,
+    monkeypatch,
+):
+    """Whole-population events must not conceal a zero-event fine cohort."""
+    membership = pd.DataFrame(
+        {
+            "subject_id": list(range(1, 11)),
+            "cohort_fine": ["RARE"] * 2 + ["OTHER"] * 8,
+        }
+    )
+    outcomes = pd.DataFrame(
+        {
+            "subject_id": list(range(1, 11)),
+            "split": ["held_out"] * 10,
+            "event": [0, 0] + [1] * 8,
+        }
+    )
+    config_path = _write_shared_data_readiness_config(
+        tmp_path,
+        monkeypatch,
+        membership=membership,
+        outcomes=outcomes,
+    )
+
+    issues = check_sweep_config(str(config_path), require_existing_paths=True)
+
+    assert any(
+        "has only 0 held-out events after membership/eligibility filtering" in issue
+        for issue in issues
+    )
+
+
+def test_check_readiness_rejects_nonunique_shared_membership(tmp_path, monkeypatch):
+    membership = pd.DataFrame(
+        {
+            "subject_id": [1, 1, 2, 3, 4, 5],
+            "cohort_fine": ["RARE"] * 6,
+        }
+    )
+    outcomes = pd.DataFrame(
+        {
+            "subject_id": [1, 2, 3, 4, 5],
+            "split": ["held_out"] * 5,
+            "event": [1] * 5,
+        }
+    )
+    config_path = _write_shared_data_readiness_config(
+        tmp_path,
+        monkeypatch,
+        membership=membership,
+        outcomes=outcomes,
+    )
+
+    issues = check_sweep_config(str(config_path), require_existing_paths=True)
+
+    assert any("duplicate subject_id rows" in issue for issue in issues)

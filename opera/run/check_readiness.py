@@ -7,7 +7,10 @@ rarity configs without a named baseline.
 """
 
 import argparse
+import os
+import re
 from pathlib import Path
+from typing import Any
 
 from opera.config_contracts import (
     ConfigValidationError,
@@ -20,12 +23,23 @@ from opera.evaluation.cohort_flow import (
     load_eligibility_frame,
     validate_eligibility_frame,
 )
-from opera.evaluation.tasks import normalize_outcome_config, outcome_file_path
+from opera.evaluation.tasks import (
+    competing_outcome_file_path,
+    normalize_outcome_config,
+    outcome_file_path,
+)
 from opera.evaluation.split_contract import validate_cross_stage_split_contract
-from opera.functional.outcomes import filter_outcome_eligibility
+from opera.functional.outcomes import (
+    filter_outcome_eligibility,
+    filter_registry_eligible_outcomes,
+    resolve_registry_start_date,
+)
 
 
 PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
+_UNRESOLVED_ENVIRONMENT = re.compile(
+    r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|%[^%]+%"
+)
 
 
 def _looks_like_placeholder(value: str) -> bool:
@@ -33,7 +47,150 @@ def _looks_like_placeholder(value: str) -> bool:
 
 
 def _has_unresolved_environment(value: str) -> bool:
-    return "${" in value
+    """Return whether a path still contains an unexpanded environment token."""
+    return bool(_UNRESOLVED_ENVIRONMENT.search(value))
+
+
+def _expand_path(value: str | Path) -> Path:
+    """Expand conventional environment/home markers before checking a path.
+
+    ``load_sweep_config`` already expands config values.  Keeping this small
+    second expansion here makes the preflight robust when callers construct
+    mappings indirectly or use a platform-native ``%VAR%`` spelling.
+    """
+    return Path(os.path.expandvars(os.path.expanduser(str(value))))
+
+
+def _read_table(path: Path) -> Any:
+    """Read a supported tabular file without assuming parquet everywhere."""
+    import pandas as pd
+
+    if path.suffix.lower() in {".parquet", ".pq"}:
+        return pd.read_parquet(path)
+    if path.suffix.lower() in {".csv", ".txt"}:
+        return pd.read_csv(path)
+    raise ValueError(
+        f"Unsupported tabular file extension {path.suffix!r}; "
+        "expected parquet or CSV."
+    )
+
+
+def _membership_ids_for_cohort(
+    *,
+    cohort: str,
+    cohort_cfg: dict[str, Any],
+    require_existing_paths: bool,
+    membership_cache: dict[Path, Any],
+    issues: list[str],
+) -> tuple[set[Any] | None, Any | None]:
+    """Validate a shared membership table and return its cohort-restricted IDs.
+
+    A shared outcome parquet contains all hematology patients.  The readiness
+    event counts must therefore use precisely the same membership restriction
+    as the train/evaluation commands.  This helper intentionally validates the
+    stronger production invariant of one membership row per ``subject_id``.
+    """
+    raw_path = cohort_cfg.get("population_file")
+    cohort_col = cohort_cfg.get("cohort_fine_col")
+    cohort_value = cohort_cfg.get("cohort_fine_value")
+    has_cohort_filter = bool(cohort_col or cohort_value)
+
+    if raw_path in (None, "", "null"):
+        if has_cohort_filter and require_existing_paths:
+            issues.append(
+                f"Cohort {cohort!r} configures cohort membership filtering but "
+                "has no population_file."
+            )
+        return None, None
+
+    raw_path = str(raw_path)
+    if _has_unresolved_environment(raw_path):
+        issues.append(
+            f"Cohort {cohort!r} population_file contains an unresolved "
+            f"environment variable: {raw_path}"
+        )
+        return None, None
+
+    membership_path = _expand_path(raw_path)
+    if membership_path.suffix.lower() not in {".parquet", ".pq", ".csv", ".txt"}:
+        issues.append(
+            f"Cohort {cohort!r} population_file must be parquet or CSV: "
+            f"{membership_path}"
+        )
+        return None, None
+    if not require_existing_paths:
+        return None, None
+    if not membership_path.exists():
+        issues.append(
+            f"Cohort {cohort!r} population_file does not exist: {membership_path}"
+        )
+        return None, None
+
+    try:
+        membership = membership_cache.get(membership_path)
+        if membership is None:
+            membership = _read_table(membership_path)
+            membership_cache[membership_path] = membership
+    except Exception as exc:
+        issues.append(
+            f"Could not read cohort {cohort!r} population_file "
+            f"{membership_path}: {exc}"
+        )
+        return None, None
+
+    if "subject_id" not in membership.columns:
+        issues.append(
+            f"Cohort {cohort!r} population_file is missing required column "
+            f"'subject_id': {membership_path}"
+        )
+        return None, membership
+    if membership["subject_id"].isna().any():
+        issues.append(
+            f"Cohort {cohort!r} population_file contains missing subject_id values: "
+            f"{membership_path}"
+        )
+        return None, membership
+    duplicate_count = int(membership["subject_id"].duplicated().sum())
+    if duplicate_count:
+        issues.append(
+            f"Cohort {cohort!r} population_file contains {duplicate_count} "
+            f"duplicate subject_id rows: {membership_path}"
+        )
+        return None, membership
+
+    if bool(cohort_col) != bool(cohort_value):
+        # The config contract normally catches this.  Keep the readiness
+        # check defensive for direct callers and future config migrations.
+        issues.append(
+            f"Cohort {cohort!r} must set cohort_fine_col and cohort_fine_value "
+            "together."
+        )
+        return None, membership
+    if cohort_col:
+        if cohort_col not in membership.columns:
+            issues.append(
+                f"Cohort {cohort!r} membership column {cohort_col!r} is not in "
+                f"{membership_path}; columns={list(membership.columns)}"
+            )
+            return None, membership
+        scoped = membership[
+            membership[cohort_col].astype(str) == str(cohort_value)
+        ]
+        if scoped.empty:
+            issues.append(
+                f"Cohort {cohort!r} has no patients after filtering "
+                f"{cohort_col}={cohort_value!r} in {membership_path}."
+            )
+            return set(), membership
+        return set(scoped["subject_id"]), membership
+
+    if membership.empty:
+        issues.append(
+            f"Cohort {cohort!r} population_file contains no patients: "
+            f"{membership_path}"
+        )
+        return set(), membership
+    return set(membership["subject_id"]), membership
 
 
 def check_sweep_config(
@@ -132,6 +289,10 @@ def check_sweep_config(
                         "IPCW-BCE variants require a fixed horizon."
                     )
 
+    # Membership is shared across all production fine/grouped configurations.
+    # Cache it by path so a full 87-outcome preflight does not reread the same
+    # large parquet once per cohort.
+    membership_cache: dict[Path, Any] = {}
     for cohort, cohort_cfg in cfg.get("cohorts", {}).items():
         data_dir = cohort_cfg.get("data_dir")
         cohort_outcome_paths: list[Path] = []
@@ -142,78 +303,78 @@ def check_sweep_config(
                 f"Cohort {cohort!r} data_dir contains an unresolved environment "
                 f"variable: {data_dir}"
             )
-        elif require_existing_paths and not Path(data_dir).exists():
+        elif require_existing_paths and not _expand_path(data_dir).exists():
             issues.append(f"Cohort {cohort!r} data_dir does not exist: {data_dir}")
+
+        membership_ids, membership_frame = _membership_ids_for_cohort(
+            cohort=cohort,
+            cohort_cfg=cohort_cfg,
+            require_existing_paths=require_existing_paths,
+            membership_cache=membership_cache,
+            issues=issues,
+        )
+        membership_required = (
+            cohort_cfg.get("population_file") not in (None, "", "null")
+            or cohort_cfg.get("cohort_fine_col") not in (None, "", "null")
+            or cohort_cfg.get("cohort_fine_value") not in (None, "", "null")
+        )
         if cohort_cfg.get("registry_start_date") in (None, "", "null"):
             print(
                 f"Cohort {cohort!r} has no registry_start_date; supervised "
                 "analyses will include all prediction dates for now."
             )
-        if require_existing_paths and data_dir:
+        if (
+            require_existing_paths
+            and data_dir
+            and not _has_unresolved_environment(str(data_dir))
+        ):
             for outcome_name, outcome_cfg in normalized_outcomes.items():
-                outcome_path = Path(
+                outcome_path = _expand_path(
                     outcome_file_path(data_dir, outcome_name, outcome_cfg)
                 )
-                if not outcome_path.exists():
+                outcome_df = None
+                if _has_unresolved_environment(str(outcome_path)):
+                    issues.append(
+                        f"Cohort {cohort!r} outcome {outcome_name!r} file contains "
+                        f"an unresolved environment variable: {outcome_path}"
+                    )
+                elif not outcome_path.exists():
                     issues.append(
                         f"Cohort {cohort!r} outcome {outcome_name!r} file "
                         f"does not exist: {outcome_path}"
                     )
                 else:
-                    cohort_outcome_paths.append(outcome_path)
-                    outcome_df = None
+                    if outcome_path not in cohort_outcome_paths:
+                        cohort_outcome_paths.append(outcome_path)
                     try:
-                        import pandas as pd
-
-                        outcome_df = pd.read_parquet(outcome_path)
-                        test_df = outcome_df[outcome_df.get("split") == "held_out"]
-                        if "event" in test_df.columns:
-                            n_events = int((test_df["event"] == 1).sum())
-                            if n_events < 5:
-                                issues.append(
-                                    f"Cohort {cohort!r} outcome {outcome_name!r} "
-                                    f"has only {n_events} held-out events."
-                                )
-                            if int((test_df["event"] == 2).sum()) > 0:
-                                issues.append(
-                                    f"Cohort {cohort!r} outcome {outcome_name!r} "
-                                    "contains competing events (event == 2)."
-                                )
-                        ipi_col = cohort_cfg.get("ipi_score_col")
-                        pop_path = Path(
-                            cohort_cfg.get(
-                                "population_file",
-                                str(Path(data_dir) / "population_full.csv"),
-                            )
+                        outcome_df = _read_table(outcome_path)
+                        missing_columns = {"subject_id", "split"} - set(
+                            outcome_df.columns
                         )
-                        if (
-                            ipi_col
-                            and pop_path.exists()
-                            and "subject_id" in test_df.columns
-                        ):
-                            population = pd.read_csv(
-                                pop_path, usecols=["subject_id", ipi_col]
+                        if missing_columns:
+                            issues.append(
+                                f"Cohort {cohort!r} outcome {outcome_name!r} is "
+                                f"missing required columns: {sorted(missing_columns)}"
                             )
-                            merged = test_df[["subject_id"]].merge(
-                                population,
-                                on="subject_id",
-                                how="left",
+                            outcome_df = None
+                        elif membership_required and membership_ids is None:
+                            # Do not accidentally report whole-population counts as
+                            # fine/grouped-cohort counts if membership validation
+                            # already failed above.
+                            print(
+                                f"Skipping event-count audit for {cohort!r}/"
+                                f"{outcome_name!r}: cohort membership could not be "
+                                "resolved."
                             )
-                            coverage = float(merged[ipi_col].notna().mean())
-                            if coverage < 0.5:
+                            outcome_df = None
+                        elif membership_ids is not None:
+                            outcome_df = outcome_df[
+                                outcome_df["subject_id"].isin(membership_ids)
+                            ].copy()
+                            if outcome_df.empty:
                                 issues.append(
-                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
-                                    f"is {coverage:.0%}; IPI rows will be skipped."
-                                )
-                            elif coverage < 0.8:
-                                issues.append(
-                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
-                                    f"is {coverage:.0%}; usable with caveats."
-                                )
-                            else:
-                                print(
-                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
-                                    f"is {coverage:.0%}; usable."
+                                    f"Cohort {cohort!r} outcome {outcome_name!r} "
+                                    "has no rows after membership filtering."
                                 )
                     except Exception as exc:
                         print(
@@ -231,11 +392,23 @@ def check_sweep_config(
                         f"Cohort {cohort!r} outcome {outcome_name!r} has no "
                         "eligibility_file; cohort-flow denominators cannot be audited."
                     )
+                    eligibility = None
+                    eligibility_issues: list[str] = []
+                elif _has_unresolved_environment(str(eligibility_path)):
+                    issues.append(
+                        f"Cohort {cohort!r} outcome {outcome_name!r} eligibility "
+                        f"file contains an unresolved environment variable: "
+                        f"{eligibility_path}"
+                    )
+                    eligibility = None
+                    eligibility_issues = ["unresolved path"]
                 elif not eligibility_path.exists():
                     issues.append(
                         f"Cohort {cohort!r} outcome {outcome_name!r} eligibility "
                         f"file does not exist: {eligibility_path}"
                     )
+                    eligibility = None
+                    eligibility_issues = ["missing path"]
                 else:
                     try:
                         eligibility = load_eligibility_frame(eligibility_path)
@@ -245,23 +418,103 @@ def check_sweep_config(
                             f"eligibility file {issue}."
                             for issue in eligibility_issues
                         )
-                        if outcome_df is not None and not eligibility_issues:
-                            filter_outcome_eligibility(
-                                outcome_df,
-                                eligibility,
-                                cohort=cohort,
-                                outcome_name=outcome_name,
-                            )
                     except Exception as exc:
                         issues.append(
                             f"Could not inspect eligibility file for "
                             f"{cohort!r}/{outcome_name!r}: {exc}"
                         )
-                competing_path = outcome_cfg.get("competing_outcome_path")
-                competing_file = outcome_cfg.get("competing_outcome_file")
-                if competing_file and not competing_path:
-                    competing_path = str(Path(data_dir) / "outcomes" / competing_file)
-                if competing_path and not Path(competing_path).exists():
+                        eligibility = None
+                        eligibility_issues = ["unreadable"]
+
+                # Count events on the exact supervised cohort: shared outcome
+                # table -> membership restriction -> eligibility -> registry
+                # coverage -> held-out split.  This prevents a large parent
+                # cohort from masking an underpowered fine cohort at preflight.
+                if outcome_df is not None:
+                    try:
+                        if eligibility is not None and not eligibility_issues:
+                            outcome_df = filter_outcome_eligibility(
+                                outcome_df,
+                                eligibility,
+                                cohort=cohort,
+                                outcome_name=outcome_name,
+                            )
+                        registry_start_date = resolve_registry_start_date(
+                            cohort_cfg,
+                            outcome_cfg,
+                        )
+                        outcome_df = filter_registry_eligible_outcomes(
+                            outcome_df,
+                            registry_start_date,
+                            cohort=cohort,
+                            outcome_name=outcome_name,
+                        )
+                        test_df = outcome_df[
+                            outcome_df["split"] == cfg.get("test_key", "held_out")
+                        ].copy()
+                        if "event" in test_df.columns:
+                            n_events = int((test_df["event"] == 1).sum())
+                            if n_events < 5:
+                                issues.append(
+                                    f"Cohort {cohort!r} outcome {outcome_name!r} "
+                                    f"has only {n_events} held-out events after "
+                                    "membership/eligibility filtering."
+                                )
+                            if int((test_df["event"] == 2).sum()) > 0:
+                                issues.append(
+                                    f"Cohort {cohort!r} outcome {outcome_name!r} "
+                                    "contains competing events (event == 2)."
+                                )
+
+                        ipi_col = cohort_cfg.get("ipi_score_col")
+                        if (
+                            ipi_col
+                            and membership_frame is not None
+                            and ipi_col in membership_frame.columns
+                            and not test_df.empty
+                        ):
+                            population = membership_frame[["subject_id", ipi_col]]
+                            merged = test_df[["subject_id"]].merge(
+                                population,
+                                on="subject_id",
+                                how="left",
+                                validate="many_to_one",
+                            )
+                            coverage = float(merged[ipi_col].notna().mean())
+                            if coverage < 0.5:
+                                issues.append(
+                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
+                                    f"is {coverage:.0%}; IPI rows will be skipped."
+                                )
+                            elif coverage < 0.8:
+                                issues.append(
+                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
+                                    f"is {coverage:.0%}; usable with caveats."
+                                )
+                            else:
+                                print(
+                                    f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
+                                    f"is {coverage:.0%}; usable."
+                                )
+                        elif ipi_col and membership_frame is not None and ipi_col not in membership_frame.columns:
+                            issues.append(
+                                f"Cohort {cohort!r} IPI column {ipi_col!r} is not in "
+                                "population_file."
+                            )
+                    except Exception as exc:
+                        print(
+                            f"Could not inspect filtered outcome data for {cohort!r}/"
+                            f"{outcome_name!r}: {exc}"
+                        )
+
+                competing_path = competing_outcome_file_path(data_dir, outcome_cfg)
+                if competing_path and _has_unresolved_environment(str(competing_path)):
+                    issues.append(
+                        f"Cohort {cohort!r} outcome {outcome_name!r} competing "
+                        f"outcome path contains an unresolved environment variable: "
+                        f"{competing_path}"
+                    )
+                elif competing_path and not _expand_path(competing_path).exists():
                     issues.append(
                         f"Cohort {cohort!r} outcome {outcome_name!r} competing "
                         f"outcome file does not exist: {competing_path}"

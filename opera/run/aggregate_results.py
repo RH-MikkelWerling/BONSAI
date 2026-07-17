@@ -41,6 +41,7 @@ def _seed_stability(results, metrics):
         col
         for col in (
             "cohort",
+            "analysis_level",
             "outcome",
             "outcome_window_hours",
             "model_family",

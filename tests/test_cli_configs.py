@@ -21,9 +21,10 @@ OPERA_CONFIGS = [
     "hematology_pretrain",
     "hybrid",
     "joint_finetune",
-    "leukemia_contrastive",
     "mol",
     "survival_finetune",
+    "generated/joint_opera_full_panel",
+    "generated/multi_outcome_full_panel",
 ]
 
 

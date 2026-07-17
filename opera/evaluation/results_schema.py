@@ -13,6 +13,7 @@ REQUIRED_RESULT_FIELDS = [
     "model_family",
     "training_stage",
     "cohort",
+    "analysis_level",
     "outcome",
     "outcome_window_hours",
     "split",
@@ -237,6 +238,7 @@ def build_result_row(
             training_stage or cfg.get("training_stage", "evaluation")
         ),
         "cohort": cfg.get("dataset", cfg.get("cohort", "unknown")),
+        "analysis_level": cfg.get("analysis_level"),
         "outcome": cfg.get("outcome", cfg.get("outcome_name", "unknown")),
         "outcome_window_hours": labels_cfg.get("n_hours_end_include"),
         "split": split,

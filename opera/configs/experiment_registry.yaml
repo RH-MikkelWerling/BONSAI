@@ -261,9 +261,9 @@ model_variants:
   dapt:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
+  multi_outcome:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/multi_outcome/best.ckpt
+    encoder_source: mol
   opera:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive/best.ckpt
-    encoder_source: contrastive
-  opera_per_grouped:
-    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive_per_group/{training_cohort}/best.ckpt
     encoder_source: contrastive

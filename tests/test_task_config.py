@@ -141,21 +141,15 @@ def test_variant_outcome_filter_is_explicit_and_validated():
     assert not variant_applies_to_outcome(variant, "treatment_failure")
 
 
-def test_leukemia_sweep_has_explicit_fixed_and_survival_tabular_regimes():
+def test_generated_primary_sweep_has_only_current_model_ladder():
     import yaml
 
     raw = yaml.safe_load(
-        Path("opera/configs/leukemia_sweep.yaml").read_text(encoding="utf-8")
+        Path("opera/configs/generated/fine_cox.yaml").read_text(encoding="utf-8")
     )
     config = SweepConfig.from_mapping(raw).to_mapping()
     variants = config["model_variants"]
 
-    assert variants["tabular_ehr_logistic"]["evaluation_regime"] == "fixed_horizon"
-    assert variants["tabular_ehr_xgboost"]["evaluation_regime"] == "fixed_horizon"
-    assert variants["tabular_ehr_tabpfn"]["evaluation_regime"] == "fixed_horizon"
-    assert (
-        variants["tabular_ehr_logistic_ipcw_bce"]["evaluation_regime"]
-        == "fixed_horizon"
-    )
-    assert variants["tabular_ehr_cox"]["evaluation_regime"] == "survival"
-    assert variants["tabular_ehr_xgboost_aft"]["evaluation_regime"] == "survival"
+    assert variants["opera"]["training_mode"] == "cox"
+    assert variants["multi_outcome"]["training_mode"] == "cox"
+    assert "opera_per_grouped" not in variants

@@ -440,6 +440,7 @@ class SweepConfig:
     subgroups: Mapping[str, Any] = field(default_factory=dict)
     test_key: str = "held_out"
     run_id: Optional[str] = None
+    analysis_level: Optional[str] = None
 
     @classmethod
     def from_mapping(cls, raw: Any) -> "SweepConfig":
@@ -462,6 +463,7 @@ class SweepConfig:
                 "subgroups",
                 "test_key",
                 "run_id",
+                "analysis_level",
             },
             "config",
             issues,
@@ -605,6 +607,9 @@ class SweepConfig:
             issues,
         )
         run_id = _optional_string(value.get("run_id"), "config.run_id", issues)
+        analysis_level = _optional_string(value.get("analysis_level"), "config.analysis_level", issues)
+        if analysis_level is not None and analysis_level not in {"fine", "grouped", "global"}:
+            issues.append("config.analysis_level must be fine, grouped, or global.")
 
         if issues:
             raise ConfigValidationError(issues)
@@ -622,6 +627,7 @@ class SweepConfig:
             subgroups=subgroups,
             test_key=test_key,
             run_id=run_id,
+            analysis_level=analysis_level,
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -646,6 +652,8 @@ class SweepConfig:
             result["baseline_model"] = self.baseline_model
         if self.run_id is not None:
             result["run_id"] = self.run_id
+        if self.analysis_level is not None:
+            result["analysis_level"] = self.analysis_level
         return result
 
 

@@ -528,21 +528,25 @@ def test_selected_labels_prioritizes_exact_clinical_cells():
     assert first["label_category"] == "Clinical anchor"
 
 
-def test_outcome_family_mapping_is_deduplicated_and_manageable():
+def test_outcome_family_mapping_is_deduplicated_and_manageable(monkeypatch, tmp_path):
+    from opera.run.hierarchical_rarity import _load_config
+
+    monkeypatch.setenv("BONSAI_RESULTS_ROOT", str(tmp_path / "results"))
+
     config_path = (
         Path(__file__).resolve().parents[1]
         / "opera"
         / "configs"
         / "hierarchical_rarity.yaml"
     )
-    config = yaml.safe_load(config_path.read_text())
+    config = _load_config(config_path)
     mapping = config["outcome_families"]
     assert len(mapping) == len(set(mapping))
     families = set(mapping.values())
     # A handful of clinically coherent families, not one row per outcome and
     # not an undifferentiated "lab values" catch-all.
-    assert 1 < len(families) <= 8
-    assert "mortality_1y" in mapping and "treatment_failure" in mapping
+    assert 1 < len(families) <= 12
+    assert "overall_survival" in mapping and "treatment_failure" in mapping
     assert "Organ & metabolic toxicity" not in families
 
 

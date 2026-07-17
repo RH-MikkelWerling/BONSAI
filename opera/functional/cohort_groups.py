@@ -1,9 +1,9 @@
 """Hematology registry cohort grouping definitions.
 
-Training uses ``cohort_grouped`` (11 broad disease groups) to maximise
-cross-disease learning signal in contrastive, MOL, and joint finetune runs.
-Evaluation breaks results out by ``cohort_fine`` for 25 analyzed granular
-diagnoses; ``EXCLUDE_SECONDARY`` is retained as an explicit non-analyzed label.
+Training uses the 10 ``cohort_grouped`` groups defined in the production
+experiment registry. Evaluation breaks results out by the 24 ``cohort_fine``
+diagnoses. This module mirrors ``opera/configs/experiment_registry.yaml`` and
+is guarded by regression tests so stale cohort labels cannot re-enter runs.
 
 The mapping is derived from the RKKP/hematology registry classification and
 the patient counts confirmed by the study team.  See OPERA_EXPERIMENTS.md for
@@ -19,17 +19,16 @@ from typing import Dict, FrozenSet, Optional
 FINE_TO_GROUPED: Dict[str, str] = {
     # DLBCL-like (large B-cell and transformation)
     "DLBCL": "DLBCL_like",
-    "BCL": "DLBCL_like",
     "RT": "DLBCL_like",
-    "RT_DERIVED": "DLBCL_like",
+    "TRANSFORMED_FL": "DLBCL_like",
     # Indolent B-cell NHL
     "FL": "Indolent_B_NHL",
-    "MCL": "Indolent_B_NHL",
+    "BCL": "Indolent_B_NHL",
     "LPL": "Indolent_B_NHL",
     "EMZL": "Indolent_B_NHL",
     "NMZL": "Indolent_B_NHL",
     "SMZL": "Indolent_B_NHL",
-    "TRANSFORMED_FL": "Indolent_B_NHL",
+    "MCL": "MCL",
     # T-cell NHL
     "AITL": "T_NHL",
     "ALCL": "T_NHL",
@@ -48,8 +47,7 @@ FINE_TO_GROUPED: Dict[str, str] = {
     "HL": "HL",
     "HCL": "HCL",
     "AMYLOIDOSIS": "AMYLOIDOSIS",
-    "SoIM": "SoIM",
-    "EXCLUDE_SECONDARY": "EXCLUDE_SECONDARY",
+    "SolM": "MM",
 }
 
 # ── Inverse mapping: grouped cohort → frozenset of fine diagnoses ────────────
@@ -71,8 +69,7 @@ ALL_GROUPED: tuple[str, ...] = (
     "HL",
     "HCL",
     "AMYLOIDOSIS",
-    "SoIM",
-    "EXCLUDE_SECONDARY",
+    "MCL",
 )
 
 ALL_FINE: tuple[str, ...] = (
@@ -84,7 +81,6 @@ ALL_FINE: tuple[str, ...] = (
     "CLL",
     "DLBCL",
     "EMZL",
-    "EXCLUDE_SECONDARY",
     "FL",
     "HCL",
     "HL",
@@ -96,18 +92,15 @@ ALL_FINE: tuple[str, ...] = (
     "PCL",
     "PTCL",
     "RT",
-    "RT_DERIVED",
     "SLL",
     "SMZL",
-    "SoIM",
+    "SolM",
     "TCL",
     "TRANSFORMED_FL",
 )
 
-EXCLUDED_FINE: FrozenSet[str] = frozenset({"EXCLUDE_SECONDARY"})
-ALL_EVALUATED_FINE: tuple[str, ...] = tuple(
-    fine for fine in ALL_FINE if fine not in EXCLUDED_FINE
-)
+EXCLUDED_FINE: FrozenSet[str] = frozenset()
+ALL_EVALUATED_FINE: tuple[str, ...] = ALL_FINE
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────

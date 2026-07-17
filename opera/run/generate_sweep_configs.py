@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any
+import re
 
 import yaml
 
@@ -18,6 +19,17 @@ class _NoAliasDumper(yaml.SafeDumper):
 
     def ignore_aliases(self, data: object) -> bool:
         return True
+
+
+def _hydra_environment(value: Any) -> Any:
+    """Translate shell-style registry variables for Hydra-composed configs."""
+    if isinstance(value, str):
+        return re.sub(r"\$\{([A-Z][A-Z0-9_]*)\}", r"${oc.env:\1}", value)
+    if isinstance(value, dict):
+        return {key: _hydra_environment(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_hydra_environment(item) for item in value]
+    return value
 
 
 def load_registry(path: str | Path) -> dict[str, Any]:
@@ -171,17 +183,53 @@ def build_sweep_config(
         for name, config in registry["model_variants"].items()
     }
     return {
+        "analysis_level": level,
         "output_dir": f"{registry['paths']['output_root']}/{level}/{objective}",
         "finetune_base_config": "opera/configs/survival_finetune.yaml",
         "seeds": list(registry["seeds"]),
-        "rarity_mode": "real",
+        "rarity_mode": "none",
         "cohorts": _cohorts(registry, level),
-        "outcomes": _outcomes(
-            registry,
-            training_mode=training_mode,
-            horizon_days=horizon_days,
-        ),
+        "outcomes": _outcomes(registry, training_mode=training_mode, horizon_days=horizon_days),
         "model_variants": variants,
+    }
+
+
+def _adaptation_outcomes(registry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Full survival endpoint panel shared by OPERA and MOL adaptation."""
+    return _outcomes(registry, training_mode="cox", horizon_days=None)
+
+
+def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
+    """Shared-data multi-cohort OPERA configuration generated from the registry."""
+    cohorts = _cohorts(registry, "grouped")
+    return {
+        "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
+        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
+        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
+        "dataset": "hematology_joint_opera",
+        "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
+        "dapt_embedding_store": None,
+        "paths": {"vocabulary": "${oc.env:BONSAI_PROCESSED_DATA}/vocabulary.pt"},
+        "cohorts": cohorts,
+        "outcomes": _adaptation_outcomes(registry),
+        "model": {"projection_hidden_dim": 256, "projection_dim": 128, "temperature": 0.07, "km_time_scale": 0.25, "competing_event_handling": "hard_negative", "competing_event_weight": 0.0, "effective_pair_normalization": True, "freeze_encoder": False, "pooling": "cls_last"},
+        "cross_outcome": {"weighter": "uniform", "aggregation": "macro", "class_balanced": False},
+        "training": {"require_all_configured_cells": True, "require_min_followup_train": False, "batch_size": 128, "accumulate_grad_batches": 2, "epochs": 20, "learning_rate": 5e-5, "encoder_lr_multiplier": 0.1, "optimizer_epsilon": 1e-6, "scheduler_warmup_epochs": 2, "limit_val_batches": 1.0, "limit_train_batches": 1.0},
+    }
+
+
+def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
+    """Shared-data full-panel direct multi-outcome ablation configuration."""
+    return {
+        "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
+        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
+        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
+        "dataset": "hematology_multi_outcome",
+        "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
+        "paths": {"dir": "${oc.env:BONSAI_PROCESSED_DATA}", "train_split": "${paths.dir}/subject_data_train.pt", "val_split": "${paths.dir}/subject_data_tuning.pt", "vocabulary": "${paths.dir}/vocabulary.pt", "population": "${oc.env:BONSAI_COHORT_MEMBERSHIP}"},
+        "outcomes": {name: {**cfg, "path": cfg.pop("outcome_file")} for name, cfg in _adaptation_outcomes(registry).items()},
+        "model": {"head_hidden_dim": 128, "head_dropout": 0.1, "freeze_encoder": False, "pooling": "cls_last", "weighting": "equal"},
+        "training": {"batch_size": 64, "accumulate_grad_batches": 2, "epochs": 20, "learning_rate": 5e-5, "encoder_lr_multiplier": 0.1, "optimizer_epsilon": 1e-6, "scheduler_warmup_epochs": 2, "early_stopping_patience": 5, "limit_val_batches": 1.0, "limit_train_batches": 1.0},
     }
 
 
@@ -228,6 +276,16 @@ def generate_configs(
         encoding="utf-8",
     )
     written.append(family_path)
+    for name, config in {
+        "joint_opera_full_panel.yaml": build_joint_opera_config(registry),
+        "multi_outcome_full_panel.yaml": build_multi_outcome_config(registry),
+    }.items():
+        path = output / name
+        path.write_text(
+            yaml.dump(_hydra_environment(config), Dumper=_NoAliasDumper, sort_keys=False),
+            encoding="utf-8",
+        )
+        written.append(path)
     return written
 
 

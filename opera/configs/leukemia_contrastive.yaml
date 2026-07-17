@@ -1,176 +1,19 @@
-# ══════════════════════════════════════════════════════════════════════
-# OPERA Multi-Cohort Contrastive Training — Leukemia Registry
-# ══════════════════════════════════════════════════════════════════════
+# DEPRECATED — retained only to make the old configuration name fail closed.
 #
-# Training uses `cohort_grouped` (11 broad disease groups) to maximise
-# cross-disease contrastive signal.  Evaluation then breaks out by
-# `cohort_fine` (25 analyzed diagnoses; EXCLUDE_SECONDARY is an explicit
-# non-analyzed label) via the leukemia_sweep config.
+# This file described the retired per-grouped-folder leukemia setup (including
+# obsolete cohort mappings and a five-outcome panel).  It must not be used for
+# training, evaluation, or DAPT embedding-store construction.
 #
-# Disease groups and their fine sub-diagnoses:
-#   DLBCL_like      : DLBCL, BCL, RT, RT_DERIVED
-#   Indolent_B_NHL  : FL, MCL, LPL, EMZL, NMZL, SMZL, TRANSFORMED_FL
-#   T_NHL           : AITL, ALCL, PTCL, TCL
-#   CLL_SLL         : CLL, SLL
-#   BL_LBL          : BL, LBL
-#   MM              : MM, PCL
-#   HL, HCL, AMYLOIDOSIS, SoIM, EXCLUDE_SECONDARY  (1:1)
-#
-# Usage:
+# Production replacement:
 #   python -m opera.run.contrastive_multicohort \
-#       --config-name leukemia_contrastive \
-#       dapt_ckpt=/path/to/dapt/best.ckpt
-# ══════════════════════════════════════════════════════════════════════
-
-defaults:
-  - /core/base_train@
-  - /hardware/1gpu6cpu@hardware
-  - _self_
-
-hydra:
-  searchpath:
-    - file://${oc.env:BONSAI_CONFIG_PATH}
-
-dataset: leukemia_multicohort   # used by base_train.yaml hydra.run.dir interpolation
-
-dapt_ckpt: ???
-dapt_embedding_store: null    # path to pre-computed DAPT .pt store, or null
-output_path: null    # used only by opera.run.build_dapt_embedding_store
-
-paths:
-  # Override vocab_cohort on the CLI if this cohort directory is absent.
-  vocab_cohort: dlbcl_like
-  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/${paths.vocab_cohort}/vocabulary.pt
-
-cohort_scope:
-  name: null
-  general_pretraining: frozen
-  adaptation_cohorts: []
-  finetune_cohort: null
-
-# ── Disease cohorts (grouped level for training) ─────────────────────
-# Each cohort needs subject_data_train.pt / subject_data_tuning.pt
-# and an outcomes/ subdirectory.
+#       --config-name generated/joint_opera_full_panel
 #
-# BONSAI_PROCESSED_DATA is expected to be organised as:
-#   ${BONSAI_PROCESSED_DATA}/dlbcl_like/   ← DLBCL_like grouped data
-#   ${BONSAI_PROCESSED_DATA}/indolent_b_nhl/
-#   … etc.
-cohorts:
-  dlbcl_like:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/dlbcl_like
-    registry_start_date: null
-  indolent_b_nhl:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/indolent_b_nhl
-    registry_start_date: null
-  t_nhl:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/t_nhl
-    registry_start_date: null
-  cll_sll:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/cll_sll
-    registry_start_date: null
-  bl_lbl:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/bl_lbl
-    registry_start_date: null
-  mm:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/mm
-    registry_start_date: null
-  hl:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/hl
-    registry_start_date: null
-  hcl:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/hcl
-    registry_start_date: null
-  amyloidosis:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/amyloidosis
-    registry_start_date: null
-  soim:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/soim
-    registry_start_date: null
-  # EXCLUDE_SECONDARY is intentionally omitted from contrastive training
-  # as its label meaning (secondary malignancy) differs from the primary
-  # disease cohorts used for outcome-guided learning.
-
-# ── Outcomes (shared across cohorts where parquet exists) ───────────
-# outcome_file: source event-time parquet inside each cohort's outcomes/ dir.
-outcomes:
-  mortality_1y:
-    outcome_file: mortality.parquet
-    eligibility_file: mortality__audit.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: 8760
-  mortality_2y:
-    outcome_file: mortality.parquet
-    eligibility_file: mortality__audit.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: 17520
-  treatment_failure:
-    outcome_file: treatment_failure.parquet
-    eligibility_file: treatment_failure__audit.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: null
-  aki_30d:
-    outcome_file: aki_first_documented.parquet
-    eligibility_file: aki_first_documented__audit.parquet
-    competing_outcome_file: mortality.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: 720
-  severe_infection_90d:
-    outcome_file: severe_infection.parquet
-    eligibility_file: severe_infection__audit.parquet
-    competing_outcome_file: mortality.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: 2160
-
-model:
-  projection_hidden_dim: 256
-  projection_dim: 128
-  temperature: 0.07
-  km_time_scale: 0.25      # quantile-space kernel bandwidth: exp(-|q_i-q_j|/scale)
-  # Both DAPT-prior mechanisms require dapt_embedding_store to be populated
-  # (see opera.run.build_dapt_embedding_store) — with it null, these are no-ops.
-  # 0.55/0.2 are informed starting points, NOT validated values: chosen to
-  # limit how much clinical-similarity gating can discount rare/unusual
-  # (DAPT-embedding-outlier) patients' pair weight, pending the ablation
-  # documented in OPERA_EXPERIMENTS.md.
-  dapt_lambda_floor: 0.55
-  dapt_anchor_weight: 0.2
-  competing_event_handling: hard_negative
-  competing_event_weight: 0.0
-  effective_pair_normalization: true
-  freeze_encoder: false
-  pooling: cls_last
-
-cross_outcome:
-  # Uniform is the primary setting for the full adverse-event panel.
-  weighter: uniform
-  aggregation: macro
-  class_balanced: false
-  class_balanced_cap: 50.0
-  class_balanced_beta: 0.9999
-  class_counts: {}
-
-training:
-  require_all_configured_cells: true
-  # Intentionally False: including short-follow-up censored patients retains
-  # sample size for rare outcomes (aki_30d, severe_infection_90d).  These
-  # patients contribute broad tail distributions in the contrastive loss
-  # rather than point mass, which dilutes but does not bias gradient direction.
-  # Set true to restrict training to patients with outcome-specific min follow-up
-  # if signal quality is more important than sample size.
-  require_min_followup_train: false
-  batch_size: 128
-  batch_sampling:
-    type: event_aware
-    min_events_per_batch: 4
-    min_valid_per_batch: 32
-    n_quantiles: 4
-    seed: 0
-  accumulate_grad_batches: 2
-  epochs: 20
-  learning_rate: 5e-5
-  encoder_lr_multiplier: 0.1
-  optimizer_epsilon: 1e-6
-  scheduler_warmup_epochs: 2
-  limit_val_batches: 1.0
-  limit_train_batches: 1.0
+# The replacement is generated from experiment_registry.yaml and uses the one
+# shared subject-data root, cohort_membership.parquet, global outcome files,
+# the canonical 10 grouped cohorts, and all 87 outcomes.
+deprecated:
+  replacement_config: opera/configs/generated/joint_opera_full_panel.yaml
+  replacement_command: >-
+    python -m opera.run.contrastive_multicohort
+    --config-name generated/joint_opera_full_panel
+  reason: retired_per_grouped_folder_leukemia_setup

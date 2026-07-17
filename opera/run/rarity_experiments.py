@@ -51,6 +51,15 @@ def _load_config(path: str | Path) -> dict[str, Any]:
     payload = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
     if not isinstance(payload, dict):
         raise ValueError("Rarity configuration must be a mapping.")
+    if payload.get("deprecated"):
+        replacement = payload["deprecated"].get(
+            "replacement_config", "the current generated sweep workflow"
+        )
+        raise ValueError(
+            f"{path} is a deprecated rarity configuration and cannot be run. "
+            f"Use {replacement}; create a registry-generated matched-comparator "
+            "config before re-enabling this runner."
+        )
     return payload
 
 

@@ -45,7 +45,8 @@ from opera.visualization.hierarchical_rarity_plots import (
 
 
 def _load_config(path: str | Path) -> dict[str, Any]:
-    config = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    config_path = Path(path)
+    config = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
     if not isinstance(config, dict):
         raise ValueError("Hierarchical rarity config must be a mapping.")
 
@@ -58,7 +59,37 @@ def _load_config(path: str | Path) -> dict[str, Any]:
             return [expand(item) for item in value]
         return value
 
-    return expand(config)
+    config = expand(config)
+    family_file = config.pop("outcome_families_file", None)
+    if family_file:
+        source = Path(str(family_file))
+        if not source.is_absolute():
+            source = config_path.parent / source
+        payload = OmegaConf.to_container(OmegaConf.load(source), resolve=True)
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("outcome_families"), dict
+        ):
+            raise ValueError(
+                f"Outcome-family file {source} must contain an outcome_families mapping."
+            )
+        if config.get("outcome_families"):
+            raise ValueError(
+                "Specify outcome_families_file or outcome_families, not both."
+            )
+        inverse: dict[str, str] = {}
+        for family, outcomes in payload["outcome_families"].items():
+            if not isinstance(outcomes, list):
+                raise ValueError(
+                    f"Outcome family {family!r} in {source} must list outcomes."
+                )
+            for outcome in outcomes:
+                if outcome in inverse:
+                    raise ValueError(
+                        f"Outcome {outcome!r} appears in multiple families in {source}."
+                    )
+                inverse[str(outcome)] = str(family)
+        config["outcome_families"] = inverse
+    return config
 
 
 def _write_frame(frame: pd.DataFrame, stem: Path) -> None:
@@ -86,6 +117,25 @@ def assemble(config: dict[str, Any]) -> dict[str, Path]:
         config["results_root"],
         evaluation_subset=analysis.get("evaluation_subset", "full"),
     )
+    analysis_level = analysis.get("analysis_level")
+    if analysis_level is not None:
+        if analysis_level != "fine":
+            raise ValueError(
+                "The primary hierarchical rarity workflow only accepts "
+                "analysis_level='fine'."
+            )
+        if "analysis_level" not in artifacts.columns:
+            raise ValueError(
+                "Discovered result artifacts lack analysis_level metadata; "
+                "cannot prove that grouped/global cells are excluded."
+            )
+        observed_levels = artifacts["analysis_level"].fillna("").astype(str)
+        wrong_levels = sorted(set(observed_levels) - {"fine"})
+        if wrong_levels:
+            raise ValueError(
+                "Primary rarity analysis refuses non-fine artifacts: "
+                f"{wrong_levels}."
+            )
 
     task_metadata_path = config.get("task_metadata")
     if task_metadata_path:

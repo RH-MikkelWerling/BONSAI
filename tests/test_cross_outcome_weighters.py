@@ -247,7 +247,7 @@ def test_production_contrastive_configs_use_uniform_macro():
     for path in (
         "opera/configs/contrastive.yaml",
         "opera/configs/contrastive_multicohort.yaml",
-        "opera/configs/leukemia_contrastive.yaml",
+        "opera/configs/generated/joint_opera_full_panel.yaml",
     ):
         config = OmegaConf.load(path)
         assert config.cross_outcome.weighter == "uniform"
