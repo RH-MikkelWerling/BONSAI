@@ -1,0 +1,269 @@
+# Canonical cohort/outcome inventory for production OPERA sweeps.
+# Generate executable sweep YAMLs with:
+#   python -m opera.run.generate_sweep_configs
+
+version: 1
+seeds: [42, 43, 44]
+horizons_days: [30, 90, 180, 365, 730]
+death_outcome: overall_survival
+
+paths:
+  # One shared subject-data store. Cohort membership and outcomes are joined by
+  # subject_id at runtime; no subject data are copied into cohort folders.
+  shared_data_dir: ${BONSAI_PROCESSED_DATA}
+  cohort_membership_file: ${BONSAI_COHORT_MEMBERSHIP}
+  outcomes_dir: ${BONSAI_OUTCOMES_DIR}
+  output_root: ${BONSAI_RESULTS_ROOT}/production_sweeps
+
+cohort_columns:
+  grouped: cohort_grouped
+  fine: cohort_fine
+
+cohort_groups:
+  AMYLOIDOSIS:
+    slug: amyloidosis
+    fine: {AMYLOIDOSIS: 47}
+  BL_LBL:
+    slug: bl_lbl
+    fine: {BL: 308, LBL: 1106}
+  CLL_SLL:
+    slug: cll_sll
+    fine: {CLL: 4170, SLL: 1107}
+  DLBCL_like:
+    slug: dlbcl_like
+    fine: {DLBCL: 10338, RT: 181, TRANSFORMED_FL: 248}
+  HCL:
+    slug: hcl
+    fine: {HCL: 530}
+  HL:
+    slug: hl
+    fine: {HL: 2848}
+  Indolent_B_NHL:
+    slug: indolent_b_nhl
+    fine: {BCL: 268, EMZL: 508, FL: 3096, LPL: 1640, NMZL: 26, SMZL: 141}
+  MCL:
+    slug: mcl
+    fine: {MCL: 1504}
+  MM:
+    slug: mm
+    fine: {MM: 8748, PCL: 203, SolM: 124}
+  T_NHL:
+    slug: t_nhl
+    fine: {AITL: 514, ALCL: 436, PTCL: 555, TCL: 259}
+
+availability_rules:
+  second_line:
+    outcomes:
+      - second_line_treatment
+      - treatment_failure
+      - treatment_failure_transformation
+    excluded_grouped: [BL_LBL, HCL]
+
+outcomes:
+  - aki_first_documented
+  - ALP_increased_g2plus
+  - ALP_increased_g3plus
+  - ALT_increased_g2plus
+  - ALT_increased_g3plus
+  - anemia_g2plus
+  - anemia_g3plus
+  - antibiotics
+  - any_transfusion
+  - AST_increased_g2plus
+  - AST_increased_g3plus
+  - atrial_fibrillation
+  - bilirubin_increased_g2plus
+  - bilirubin_increased_g3plus
+  - bone_fracture
+  - creatinine_increased_g2plus
+  - creatinine_increased_g3plus
+  - dialysis
+  - dic_like_coagulopathy
+  - emergency_stay
+  - eosinophilia
+  - haptoglobin_decreased
+  - heart_failure
+  - hepatotoxicity
+  - herpes_zoster
+  - hospitalisation
+  - hypercalcemia_g2plus
+  - hypercalcemia_g3plus
+  - hyperkalemia_g2plus
+  - hyperkalemia_g3plus
+  - hypermagnesemia_g3plus
+  - hypernatremia_g2plus
+  - hypernatremia_g3plus
+  - hyperphosphatemia
+  - hypertriglyceridemia_g2plus
+  - hypertriglyceridemia_g3plus
+  - hyperuricemia
+  - hypoalbuminemia_g2plus
+  - hypoalbuminemia_g3plus
+  - hypocalcemia_g2plus
+  - hypocalcemia_g3plus
+  - hypofibrinogenemia_g2plus
+  - hypofibrinogenemia_g3plus
+  - hypoglycemia_g2plus
+  - hypoglycemia_g3plus
+  - hypokalemia_g2plus
+  - hypokalemia_g3plus
+  - hypomagnesemia_g2plus
+  - hypomagnesemia_g3plus
+  - hyponatremia_g2plus
+  - hyponatremia_g3plus
+  - hys_law_dili
+  - infections_all_definitions
+  - infections_IV_based
+  - infections_prescription_based
+  - INR_increased_g2plus
+  - INR_increased_g3plus
+  - invasive_fungal
+  - LDH_increased
+  - leukocytosis_g2plus
+  - lymphocytosis_g2plus
+  - lymphocytosis_g3plus
+  - lymphopenia_g2plus
+  - lymphopenia_g3plus
+  - MACE_composite
+  - myocardial_infarction
+  - neutropenia_g2plus
+  - neutropenia_g3plus
+  - next_hematological_malignancy
+  - next_malignancy
+  - overall_survival
+  - platelet_transfusion
+  - RBC_transfusion
+  - respiratory_support
+  - second_line_treatment
+  - sepsis
+  - serious_infection_composite
+  - severe_cytopenia
+  - stroke_TIA
+  - thrombocytopenia_g2plus
+  - thrombocytopenia_g3plus
+  - treatment_failure_transformation
+  - treatment_failure
+  - tumor_lysis_syndrome
+  - VTE
+  - WBC_decreased_g2plus
+  - WBC_decreased_g3plus
+
+# Every endpoint must occur exactly once. The generator validates coverage.
+outcome_families:
+  Disease control & survival:
+    - overall_survival
+    - treatment_failure
+    - treatment_failure_transformation
+  Treatment trajectory:
+    - second_line_treatment
+  Infection:
+    - antibiotics
+    - herpes_zoster
+    - infections_all_definitions
+    - infections_IV_based
+    - infections_prescription_based
+    - invasive_fungal
+    - sepsis
+    - serious_infection_composite
+  Hematologic toxicity & support:
+    - anemia_g2plus
+    - anemia_g3plus
+    - any_transfusion
+    - eosinophilia
+    - haptoglobin_decreased
+    - leukocytosis_g2plus
+    - lymphocytosis_g2plus
+    - lymphocytosis_g3plus
+    - lymphopenia_g2plus
+    - lymphopenia_g3plus
+    - neutropenia_g2plus
+    - neutropenia_g3plus
+    - platelet_transfusion
+    - RBC_transfusion
+    - severe_cytopenia
+    - thrombocytopenia_g2plus
+    - thrombocytopenia_g3plus
+    - WBC_decreased_g2plus
+    - WBC_decreased_g3plus
+  Renal toxicity:
+    - aki_first_documented
+    - creatinine_increased_g2plus
+    - creatinine_increased_g3plus
+    - dialysis
+  Hepatic & coagulation toxicity:
+    - ALP_increased_g2plus
+    - ALP_increased_g3plus
+    - ALT_increased_g2plus
+    - ALT_increased_g3plus
+    - AST_increased_g2plus
+    - AST_increased_g3plus
+    - bilirubin_increased_g2plus
+    - bilirubin_increased_g3plus
+    - dic_like_coagulopathy
+    - hepatotoxicity
+    - hypofibrinogenemia_g2plus
+    - hypofibrinogenemia_g3plus
+    - hys_law_dili
+    - INR_increased_g2plus
+    - INR_increased_g3plus
+  Electrolyte & metabolic toxicity:
+    - hypercalcemia_g2plus
+    - hypercalcemia_g3plus
+    - hyperkalemia_g2plus
+    - hyperkalemia_g3plus
+    - hypermagnesemia_g3plus
+    - hypernatremia_g2plus
+    - hypernatremia_g3plus
+    - hyperphosphatemia
+    - hypertriglyceridemia_g2plus
+    - hypertriglyceridemia_g3plus
+    - hyperuricemia
+    - hypoalbuminemia_g2plus
+    - hypoalbuminemia_g3plus
+    - hypocalcemia_g2plus
+    - hypocalcemia_g3plus
+    - hypoglycemia_g2plus
+    - hypoglycemia_g3plus
+    - hypokalemia_g2plus
+    - hypokalemia_g3plus
+    - hypomagnesemia_g2plus
+    - hypomagnesemia_g3plus
+    - hyponatremia_g2plus
+    - hyponatremia_g3plus
+    - LDH_increased
+    - tumor_lysis_syndrome
+  Cardiovascular & thrombotic:
+    - atrial_fibrillation
+    - heart_failure
+    - MACE_composite
+    - myocardial_infarction
+    - stroke_TIA
+    - VTE
+  Acute care utilization:
+    - emergency_stay
+    - hospitalisation
+    - respiratory_support
+  Subsequent malignancy:
+    - next_hematological_malignancy
+    - next_malignancy
+  Skeletal complications:
+    - bone_fracture
+
+model_variants:
+  no_pretraining:
+    encoder_source: random_init
+  base_pretrain:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
+    encoder_source: pretrain
+  hematology_only_pretrain:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
+    encoder_source: pretrain
+  dapt:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
+    encoder_source: dapt
+  opera:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive/best.ckpt
+    encoder_source: contrastive
+  opera_per_grouped:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive_per_group/{training_cohort}/best.ckpt
+    encoder_source: contrastive

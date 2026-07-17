@@ -858,3 +858,41 @@ Experiment manifests live under `opera/configs/manifests/`:
 
 They document the intended paper stages and expected artifacts. They are
 descriptive manifests, not yet a job scheduler.
+# Production outcome/cohort sweep registry
+
+The locked production inventory lives in
+`opera/configs/experiment_registry.yaml`. It is the single source of truth for
+the 10 grouped cohorts, 24 fine cohorts, 87 outcomes, five IPCW horizons,
+outcome families, seeds, checkpoint variants, and structural availability
+rules. In particular, the three second-line-dependent outcomes are excluded
+for `BL_LBL` and `HCL` (and therefore their fine cohorts); low sample size does
+not otherwise remove a cohort/outcome cell.
+
+Regenerate the executable configs after changing the registry:
+
+```bash
+python -m opera.run.generate_sweep_configs
+```
+
+This writes grouped and fine Cox configs plus grouped and fine IPCW-BCE configs
+for 30, 90, 180, 365, and 730 days under `opera/configs/generated/`. Cox is the
+primary survival analysis; IPCW-BCE provides the horizon-specific binary
+analyses. Every non-death endpoint uses `overall_survival.parquet` as the
+competing event, while overall survival itself does not.
+
+The generated paths use three server environment variables:
+
+```bash
+export BONSAI_PROCESSED_DATA=/path/to/processed/subject_data
+export BONSAI_COHORT_MEMBERSHIP=/path/to/cohort_membership.parquet
+export BONSAI_OUTCOMES_DIR=/path/to/outcomes
+export BONSAI_CHECKPOINT_ROOT=/path/to/checkpoints
+export BONSAI_RESULTS_ROOT=/path/to/results
+```
+
+For example:
+
+```bash
+python -m opera.run.sweep --config opera/configs/generated/grouped_cox.yaml
+python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_365d.yaml
+```

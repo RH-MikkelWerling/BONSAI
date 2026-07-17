@@ -61,6 +61,7 @@ output_dir: /results/sweep
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -90,9 +91,11 @@ from opera.run.sweep_types import StatusTracker
 def competing_outcome_path(data_dir: str, outcome_cfg: Dict) -> Optional[str]:
     """Resolve optional competing-event parquet from sweep outcome config."""
     if outcome_cfg.get("competing_outcome_path"):
-        return outcome_cfg["competing_outcome_path"]
+        return os.path.expandvars(outcome_cfg["competing_outcome_path"])
     if outcome_cfg.get("competing_outcome_file"):
-        return str(Path(data_dir) / "outcomes" / outcome_cfg["competing_outcome_file"])
+        raw = os.path.expandvars(outcome_cfg["competing_outcome_file"])
+        path = Path(raw)
+        return str(path if path.is_absolute() else Path(data_dir) / "outcomes" / path)
     return None
 
 
@@ -446,6 +449,9 @@ def run_finetune(
     eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     training_mode: Optional[str] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
     extra_overrides: Optional[List[str]] = None,
     log_dir: Optional[Path] = None,
 ) -> Optional[Path]:
@@ -469,6 +475,9 @@ def run_finetune(
         eligibility_path=eligibility_path,
         registry_start_date=registry_start_date,
         training_mode=training_mode,
+        population_path=population_path,
+        cohort_fine_col=cohort_fine_col,
+        cohort_fine_value=cohort_fine_value,
         extra_overrides=extra_overrides,
     )
 
@@ -1414,6 +1423,9 @@ def _run_variant_cell(
             eligibility_path=eligibility,
             registry_start_date=registry_start_date,
             training_mode=training_mode,
+            population_path=pop_file,
+            cohort_fine_col=cohort_fine_col,
+            cohort_fine_value=cohort_fine_value,
             extra_overrides=[
                 *(variant_cfg.get("extra_overrides") or []),
                 f"seed={seed}",
@@ -1567,6 +1579,19 @@ def run_sweep(
     fail_fast: bool = False,
 ):
     cfg = load_sweep_config(config_path).to_mapping()
+    # Sweep YAMLs may use server environment variables for shared data,
+    # outcome, checkpoint, and result roots.  Expand them before paths are
+    # handed to subprocesses (which are deliberately invoked without a shell).
+    def expand_env(value):
+        if isinstance(value, str):
+            return os.path.expandvars(value)
+        if isinstance(value, list):
+            return [expand_env(item) for item in value]
+        if isinstance(value, dict):
+            return {key: expand_env(item) for key, item in value.items()}
+        return value
+
+    cfg = expand_env(cfg)
 
     output_dir = Path(cfg.get("output_dir", "./sweep_results"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1627,9 +1652,15 @@ def run_sweep(
         # grouped cohort whose checkpoint to use.  Falls back to cohort_name so
         # ordinary sweeps are unaffected.
         training_cohort = cohort_cfg.get("training_cohort", cohort_name)
+        excluded_cohort_outcomes = set(cohort_cfg.get("exclude_outcomes", []))
+        cohort_outcomes = {
+            name: outcome
+            for name, outcome in outcomes.items()
+            if name not in excluded_cohort_outcomes
+        }
 
         # ── IPI baseline (one per cohort × outcome, not per variant) ──
-        for outcome_name, outcome_cfg in outcomes.items():
+        for outcome_name, outcome_cfg in cohort_outcomes.items():
             results = _run_ipi_baseline_cell(
                 cohort_name=cohort_name,
                 outcome_name=outcome_name,
@@ -1656,7 +1687,7 @@ def run_sweep(
         for variant_name, variant_cfg in model_variants.items():
             result_variant = variant_cfg.get("model_family", variant_name)
             seed = variant_cfg.get("seed", cfg.get("seed", 42))
-            for outcome_name, outcome_cfg in outcomes.items():
+            for outcome_name, outcome_cfg in cohort_outcomes.items():
                 if not variant_applies_to_outcome(variant_cfg, outcome_name):
                     continue
                 cell_idx += 1

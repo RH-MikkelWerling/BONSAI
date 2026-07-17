@@ -35,6 +35,7 @@ from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
 )
 from opera.run.finetune import load_encoder_state_dict
+from opera.evaluation.cohorts import population_subject_ids
 
 LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +119,15 @@ def main(cfg: DictConfig) -> None:
         cohort=cfg.dataset,
         outcome_name=cfg.outcome,
     )
+    membership_ids = population_subject_ids(
+        cfg.paths.population,
+        cohort_fine_col=cfg.get("cohort_fine_col"),
+        cohort_fine_value=cfg.get("cohort_fine_value"),
+    )
+    if membership_ids is not None:
+        outcomes = outcomes[outcomes["subject_id"].isin(membership_ids)].copy()
+    if outcomes.empty:
+        raise ValueError("No eligible outcome rows remain after cohort membership filtering.")
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")

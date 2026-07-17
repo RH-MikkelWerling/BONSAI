@@ -33,6 +33,9 @@ def build_finetune_cmd(
     eligibility_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     training_mode: Optional[str] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
     extra_overrides: Optional[list[str]] = None,
 ) -> list[str]:
     """Return the argv list for a finetune subprocess call."""
@@ -52,6 +55,14 @@ def build_finetune_cmd(
         overrides.append(f"paths.competing_outcome={competing_outcome_path}")
     if eligibility_path:
         overrides.append(f"paths.eligibility={eligibility_path}")
+    if population_path:
+        overrides.append(f"paths.population={population_path}")
+    if cohort_fine_col and cohort_fine_value:
+        # The historic option name is retained for CLI compatibility.  It is a
+        # general membership filter and may name either cohort_fine or
+        # cohort_grouped.
+        overrides.append(f"+cohort_fine_col={cohort_fine_col}")
+        overrides.append(f"+cohort_fine_value={cohort_fine_value}")
     if training_mode is not None:
         overrides.append(f"training_mode={training_mode}")
     if extra_overrides:

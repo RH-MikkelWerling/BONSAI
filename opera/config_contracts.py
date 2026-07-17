@@ -106,6 +106,7 @@ class CohortSpec:
     training_cohort: Optional[str] = None
     cohort_fine_col: Optional[str] = None
     cohort_fine_value: Optional[str] = None
+    exclude_outcomes: tuple[str, ...] = ()
 
     @classmethod
     def from_mapping(
@@ -126,6 +127,7 @@ class CohortSpec:
                 "training_cohort",
                 "cohort_fine_col",
                 "cohort_fine_value",
+                "exclude_outcomes",
             },
             path,
             issues,
@@ -154,6 +156,12 @@ class CohortSpec:
                 f"{path}: cohort_fine_col and cohort_fine_value must both be "
                 "set or both be absent."
             )
+        exclude_outcomes = value.get("exclude_outcomes", [])
+        if not isinstance(exclude_outcomes, list) or any(
+            not isinstance(item, str) for item in exclude_outcomes
+        ):
+            issues.append(f"{path}.exclude_outcomes must be a list of strings.")
+            exclude_outcomes = []
         return cls(
             name=name,
             data_dir=data_dir,
@@ -175,6 +183,7 @@ class CohortSpec:
             training_cohort=training_cohort,
             cohort_fine_col=cohort_fine_col,
             cohort_fine_value=cohort_fine_value,
+            exclude_outcomes=tuple(exclude_outcomes),
         )
 
     def to_mapping(self) -> dict[str, Any]:
@@ -191,6 +200,8 @@ class CohortSpec:
             result["cohort_fine_col"] = self.cohort_fine_col
         if self.cohort_fine_value is not None:
             result["cohort_fine_value"] = self.cohort_fine_value
+        if self.exclude_outcomes:
+            result["exclude_outcomes"] = list(self.exclude_outcomes)
         return result
 
 
@@ -482,11 +493,18 @@ class SweepConfig:
             str(name): OutcomeSpec.from_mapping(str(name), item, issues)
             for name, item in raw_outcomes.items()
         }
+        outcome_names = set(outcomes)
+        for name, cohort in cohorts.items():
+            unknown = sorted(set(cohort.exclude_outcomes) - outcome_names)
+            if unknown:
+                issues.append(
+                    f"cohorts.{name}.exclude_outcomes references unknown "
+                    f"outcomes: {unknown}"
+                )
         variants = {
             str(name): VariantSpec.from_mapping(str(name), item, issues)
             for name, item in raw_variants.items()
         }
-        outcome_names = set(outcomes)
         for name, variant in variants.items():
             for key in ("include_outcomes", "exclude_outcomes"):
                 configured = set(variant.values.get(key) or [])
