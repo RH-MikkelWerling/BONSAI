@@ -71,9 +71,14 @@ def create_combined_binning_value_tokens(df: pl.DataFrame) -> pl.DataFrame:
             f"found {invalid.height} invalid rows."
         )
 
-    # Use a private, shard-local event order. Existing row identifiers remain
-    # available for provenance; row_idx is the sequence tie-breaker downstream.
-    df = df.with_row_index("_combined_event_order")
+    # Establish a deterministic source-event order before assigning adjacent
+    # positions. Prefer upstream row_idx/row_id for same-time ties; if neither
+    # exists, Parquet row order is retained by Polars' stable sort.
+    source_order = ["subject_id", "time"]
+    source_order.extend(column for column in ORDER_COLUMNS if column in df.columns)
+    df = df.sort(source_order, maintain_order=True).with_row_index(
+        "_combined_event_order"
+    )
     base = df.with_columns(
         row_idx=(pl.col("_combined_event_order") * 2).cast(pl.Int64),
         value_bin=pl.lit(None, dtype=pl.Int64),

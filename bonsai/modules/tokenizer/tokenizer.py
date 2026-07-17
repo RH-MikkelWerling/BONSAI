@@ -57,13 +57,39 @@ class EHRTokenizer:
 
     def add_sep_tokens(self, df: pl.DataFrame) -> pl.DataFrame:
         """Add [SEP] tokens at segment changes within the same subject_id"""
+        order_columns = ["subject_id", "abspos"]
+        order_columns.extend(
+            column for column in ("row_idx", "row_id") if column in df.columns
+        )
+        df = df.sort(order_columns, maintain_order=True).with_row_index(
+            "_token_order"
+        )
+        # row_idx is the canonical post-tokenization tie-breaker. Re-numbering
+        # here leaves room for [SEP] immediately after its owning position and
+        # survives the later Parquet/subject-data sorting steps.
+        df = df.with_columns(
+            row_idx=(pl.col("_token_order") * 2).cast(pl.Int64)
+        )
+        sep_updates = [
+            pl.lit("[SEP]").alias("code"),
+            (pl.col("_token_order") * 2 + 1).cast(pl.Int64).alias("row_idx"),
+            (pl.col("_token_order").cast(pl.Float64) + 0.5).alias("_token_order"),
+        ]
+        for column in ("value_bin", "value_normalized"):
+            if column in df.columns:
+                sep_updates.append(
+                    pl.lit(None).cast(df.schema[column]).alias(column)
+                )
+        if "value_present" in df.columns:
+            sep_updates.append(pl.lit(False).alias("value_present"))
         sep_rows = df.filter(
             (pl.col("segment") != pl.col("segment").shift(-1))
             & (pl.col("subject_id") == pl.col("subject_id").shift(-1))
-        ).with_columns(code=pl.lit("[SEP]"))
-        df = pl.concat([df, sep_rows])
-        df = df.sort(["subject_id", "abspos"])
-        return df
+        ).with_columns(sep_updates)
+        df = df.with_columns(pl.col("_token_order").cast(pl.Float64))
+        return pl.concat([df, sep_rows]).sort(
+            ["subject_id", "abspos", "_token_order"], maintain_order=True
+        ).drop("_token_order")
 
     def tokenize(self, codes: pl.Expr) -> pl.Expr:
         """Map self.vocabulary onto codes, mapping unknown codes to [UNK] token"""
