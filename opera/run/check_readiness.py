@@ -526,13 +526,11 @@ def check_sweep_config(
                         and "{" in str(checkpoint_template)
                         and not _has_unresolved_environment(str(checkpoint_template))
                     ):
-                        cohort_training = cohort_cfg.get("training_cohort", cohort)
                         checkpoint_path = Path(
                             str(checkpoint_template).format(
                                 cohort=cohort,
                                 outcome=outcome_name,
                                 seed=cfg.get("seeds", [42])[0],
-                                training_cohort=cohort_training,
                             )
                         )
                         if not checkpoint_path.exists():
@@ -543,12 +541,10 @@ def check_sweep_config(
                     template = variant.get("predictions_file")
                     if not template:
                         continue
-                    cohort_training = cohort_cfg.get("training_cohort", cohort)
                     pred_path = Path(
                         str(template).format(
                             cohort=cohort,
                             outcome=outcome_name,
-                            training_cohort=cohort_training,
                         )
                     )
                     if not pred_path.exists():

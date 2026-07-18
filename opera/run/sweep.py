@@ -104,19 +104,15 @@ def format_variant_path(
     cohort: str,
     outcome: str,
     seed: int,
-    training_cohort: Optional[str] = None,
 ) -> str:
     """Expand sweep placeholders in model artifact paths.
 
-    Supported placeholders: ``{cohort}``, ``{outcome}``, ``{seed}``, and
-    ``{training_cohort}`` (the grouped training cohort for train-on-grouped /
-    eval-on-fine sweeps; falls back to ``cohort`` when not set).
+    Supported placeholders: ``{cohort}``, ``{outcome}``, ``{seed}``.
     """
     return value.format(
         cohort=cohort,
         outcome=outcome,
         seed=seed,
-        training_cohort=training_cohort if training_cohort is not None else cohort,
     )
 
 
@@ -1018,7 +1014,6 @@ def _run_variant_cell(
     variant_cfg: Dict,
     result_variant: str,
     seed: int,
-    training_cohort: str,
     cohort_fine_col: Optional[str],
     cohort_fine_value: Optional[str],
     data_dir: str,
@@ -1064,7 +1059,6 @@ def _run_variant_cell(
             cohort_name,
             outcome_name,
             seed,
-            training_cohort=training_cohort,
         )
         print(
             "  Warning: results_file bypasses shared prediction "
@@ -1136,7 +1130,6 @@ def _run_variant_cell(
             cohort_name,
             outcome_name,
             seed,
-            training_cohort=training_cohort,
         )
         if dry_run:
             print(f"  [DRY RUN] Would evaluate prediction file: {predictions_path}")
@@ -1399,7 +1392,6 @@ def _run_variant_cell(
             cohort_name,
             outcome_name,
             seed,
-            training_cohort=training_cohort,
         )
         if encoder_ckpt_template is not None
         else "null"
@@ -1647,12 +1639,14 @@ def run_sweep(
         pop_file = cohort_cfg.get(
             "population_file", str(Path(data_dir) / "population_full.csv")
         )
+        # cohort_fine_col/cohort_fine_value are the sole population-membership
+        # filter: they gate training, validation, evaluation, and checkpoint
+        # selection alike (see opera.run.survival_finetune). cohort_cfg may
+        # also carry a display-only "clinical_group" (e.g. "DLBCL_like" for
+        # cohort "RT") used purely for plot/legend grouping in the
+        # natural-rarity figure — it never affects population selection.
         cohort_fine_col = cohort_cfg.get("cohort_fine_col")
         cohort_fine_value = cohort_cfg.get("cohort_fine_value")
-        # For train-on-grouped / eval-on-fine sweeps, training_cohort names the
-        # grouped cohort whose checkpoint to use.  Falls back to cohort_name so
-        # ordinary sweeps are unaffected.
-        training_cohort = cohort_cfg.get("training_cohort", cohort_name)
         excluded_cohort_outcomes = set(cohort_cfg.get("exclude_outcomes", []))
         cohort_outcomes = {
             name: outcome
@@ -1708,7 +1702,6 @@ def run_sweep(
                     variant_cfg=variant_cfg,
                     result_variant=result_variant,
                     seed=seed,
-                    training_cohort=training_cohort,
                     cohort_fine_col=cohort_fine_col,
                     cohort_fine_value=cohort_fine_value,
                     data_dir=data_dir,

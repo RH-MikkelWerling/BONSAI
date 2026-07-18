@@ -90,12 +90,13 @@ def _integer(value: Any, path: str, issues: list[str]) -> Optional[int]:
 class CohortSpec:
     """One disease cohort participating in a sweep.
 
-    ``training_cohort`` is optional and names the grouped disease cohort whose
-    pre-trained checkpoint should be used when finetuning on this (possibly
-    fine-grained) cohort.  When absent the cohort name itself is used as the
-    training cohort key.  This supports the train-on-grouped / eval-on-fine
-    paradigm where models are trained on, e.g., ``DLBCL_like`` and then
-    evaluated separately on ``DLBCL``, ``BCL``, ``RT``, and ``RT_DERIVED``.
+    ``clinical_group`` is optional display metadata only: the parent
+    disease-group label (e.g. ``DLBCL_like`` for the ``RT`` cohort) used
+    solely for plot/legend grouping in the natural-rarity figure. It has no
+    effect on which subjects are used for training, validation, evaluation,
+    or checkpoint selection — that population is controlled exclusively by
+    ``cohort_fine_col``/``cohort_fine_value``, applied before the train/val/
+    test split in ``opera.run.survival_finetune``.
     """
 
     name: str
@@ -103,7 +104,7 @@ class CohortSpec:
     ipi_score_col: Optional[str] = None
     registry_start_date: Optional[str] = None
     population_file: Optional[str] = None
-    training_cohort: Optional[str] = None
+    clinical_group: Optional[str] = None
     cohort_fine_col: Optional[str] = None
     cohort_fine_value: Optional[str] = None
     exclude_outcomes: tuple[str, ...] = ()
@@ -124,7 +125,7 @@ class CohortSpec:
                 "ipi_score_col",
                 "registry_start_date",
                 "population_file",
-                "training_cohort",
+                "clinical_group",
                 "cohort_fine_col",
                 "cohort_fine_value",
                 "exclude_outcomes",
@@ -136,9 +137,9 @@ class CohortSpec:
         if not isinstance(data_dir, str) or not data_dir:
             issues.append(f"{path}.data_dir must be a non-empty string.")
             data_dir = ""
-        training_cohort = _optional_string(
-            value.get("training_cohort"),
-            f"{path}.training_cohort",
+        clinical_group = _optional_string(
+            value.get("clinical_group"),
+            f"{path}.clinical_group",
             issues,
         )
         cohort_fine_col = _optional_string(
@@ -180,7 +181,7 @@ class CohortSpec:
                 f"{path}.population_file",
                 issues,
             ),
-            training_cohort=training_cohort,
+            clinical_group=clinical_group,
             cohort_fine_col=cohort_fine_col,
             cohort_fine_value=cohort_fine_value,
             exclude_outcomes=tuple(exclude_outcomes),
@@ -194,8 +195,8 @@ class CohortSpec:
         }
         if self.population_file is not None:
             result["population_file"] = self.population_file
-        if self.training_cohort is not None:
-            result["training_cohort"] = self.training_cohort
+        if self.clinical_group is not None:
+            result["clinical_group"] = self.clinical_group
         if self.cohort_fine_col is not None:
             result["cohort_fine_col"] = self.cohort_fine_col
         if self.cohort_fine_value is not None:

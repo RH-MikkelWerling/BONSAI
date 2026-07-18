@@ -148,12 +148,6 @@ outcomes:
     n_hours_end_include: null
     registry_start_date: null
     competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
-  any_transfusion:
-    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/any_transfusion.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: null
-    registry_start_date: null
-    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
   AST_increased_g2plus:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/AST_increased_g2plus.parquet
     n_hours_start_include: 1
@@ -525,18 +519,6 @@ outcomes:
     n_hours_start_include: 1
     n_hours_end_include: null
     registry_start_date: null
-  platelet_transfusion:
-    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/platelet_transfusion.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: null
-    registry_start_date: null
-    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
-  RBC_transfusion:
-    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/RBC_transfusion.parquet
-    n_hours_start_include: 1
-    n_hours_end_include: null
-    registry_start_date: null
-    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
   respiratory_support:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/respiratory_support.parquet
     n_hours_start_include: 1
@@ -647,3 +629,440 @@ training:
   scheduler_warmup_epochs: 2
   limit_val_batches: 1.0
   limit_train_batches: 1.0
+transfer_analysis: true
+transfer_condition: opera_no_transfusion_signal
+transfer_level: related_outcome_transfer
+seed: 42
+transfer_seeds:
+- 42
+- 43
+- 44
+training_outcomes:
+- aki_first_documented
+- ALP_increased_g2plus
+- ALP_increased_g3plus
+- ALT_increased_g2plus
+- ALT_increased_g3plus
+- anemia_g2plus
+- anemia_g3plus
+- antibiotics
+- AST_increased_g2plus
+- AST_increased_g3plus
+- atrial_fibrillation
+- bilirubin_increased_g2plus
+- bilirubin_increased_g3plus
+- bone_fracture
+- creatinine_increased_g2plus
+- creatinine_increased_g3plus
+- dialysis
+- dic_like_coagulopathy
+- emergency_stay
+- eosinophilia
+- haptoglobin_decreased
+- heart_failure
+- hepatotoxicity
+- herpes_zoster
+- hospitalisation
+- hypercalcemia_g2plus
+- hypercalcemia_g3plus
+- hyperkalemia_g2plus
+- hyperkalemia_g3plus
+- hypermagnesemia_g3plus
+- hypernatremia_g2plus
+- hypernatremia_g3plus
+- hyperphosphatemia
+- hypertriglyceridemia_g2plus
+- hypertriglyceridemia_g3plus
+- hyperuricemia
+- hypoalbuminemia_g2plus
+- hypoalbuminemia_g3plus
+- hypocalcemia_g2plus
+- hypocalcemia_g3plus
+- hypofibrinogenemia_g2plus
+- hypofibrinogenemia_g3plus
+- hypoglycemia_g2plus
+- hypoglycemia_g3plus
+- hypokalemia_g2plus
+- hypokalemia_g3plus
+- hypomagnesemia_g2plus
+- hypomagnesemia_g3plus
+- hyponatremia_g2plus
+- hyponatremia_g3plus
+- hys_law_dili
+- infections_all_definitions
+- infections_IV_based
+- infections_prescription_based
+- INR_increased_g2plus
+- INR_increased_g3plus
+- invasive_fungal
+- LDH_increased
+- leukocytosis_g2plus
+- lymphocytosis_g2plus
+- lymphocytosis_g3plus
+- lymphopenia_g2plus
+- lymphopenia_g3plus
+- MACE_composite
+- myocardial_infarction
+- neutropenia_g2plus
+- neutropenia_g3plus
+- next_hematological_malignancy
+- next_malignancy
+- overall_survival
+- respiratory_support
+- second_line_treatment
+- sepsis
+- serious_infection_composite
+- severe_cytopenia
+- stroke_TIA
+- thrombocytopenia_g2plus
+- thrombocytopenia_g3plus
+- treatment_failure_transformation
+- treatment_failure
+- tumor_lysis_syndrome
+- VTE
+- WBC_decreased_g2plus
+- WBC_decreased_g3plus
+training_excluded_outcomes:
+- any_transfusion
+- platelet_transfusion
+- RBC_transfusion
+evaluation_outcomes:
+- any_transfusion
+primary_evaluation_outcomes:
+- any_transfusion
+secondary_evaluation_outcomes: []
+related_retained_outcomes:
+- anemia_g2plus
+- anemia_g3plus
+- eosinophilia
+- haptoglobin_decreased
+- leukocytosis_g2plus
+- lymphocytosis_g2plus
+- lymphocytosis_g3plus
+- lymphopenia_g2plus
+- lymphopenia_g3plus
+- neutropenia_g2plus
+- neutropenia_g3plus
+- severe_cytopenia
+- thrombocytopenia_g2plus
+- thrombocytopenia_g3plus
+- WBC_decreased_g2plus
+- WBC_decreased_g3plus
+direct_dependencies_excluded: []
+structural_cohort_exclusions:
+  BL_LBL:
+  - second_line_treatment
+  - treatment_failure_transformation
+  - treatment_failure
+  HCL:
+  - second_line_treatment
+  - treatment_failure_transformation
+  - treatment_failure
+dependency_resolution_status: not_applicable
+dependency_provenance: null
+launch_blocked: false
+launch_blocked_reason: null
+registry_hash: 03c74a70a534ffcf1356a67ce05a693d4b699ec198678d30987a19a3893796e5
+manifest_hash: f8a331153269fe12333470c546c7980fd2c17d72e484e2bfc30bb416a942c867
+base_contrastive_config_hash: 9afe45845bf1133d8d1e20e1d9d431300289bd73d830a6e16dfd3faeef9a644f
+split_contract: opera/configs/manifests/temporal_split.yaml
+split_contract_hash: d22903d7fa7a07b2ed0ae0664ca6f8ae79572ccaa8b14bbcdea3d5545eea9624
+selection_outcomes:
+- aki_first_documented
+- ALP_increased_g2plus
+- ALP_increased_g3plus
+- ALT_increased_g2plus
+- ALT_increased_g3plus
+- anemia_g2plus
+- anemia_g3plus
+- antibiotics
+- AST_increased_g2plus
+- AST_increased_g3plus
+- atrial_fibrillation
+- bilirubin_increased_g2plus
+- bilirubin_increased_g3plus
+- bone_fracture
+- creatinine_increased_g2plus
+- creatinine_increased_g3plus
+- dialysis
+- dic_like_coagulopathy
+- emergency_stay
+- eosinophilia
+- haptoglobin_decreased
+- heart_failure
+- hepatotoxicity
+- herpes_zoster
+- hospitalisation
+- hypercalcemia_g2plus
+- hypercalcemia_g3plus
+- hyperkalemia_g2plus
+- hyperkalemia_g3plus
+- hypermagnesemia_g3plus
+- hypernatremia_g2plus
+- hypernatremia_g3plus
+- hyperphosphatemia
+- hypertriglyceridemia_g2plus
+- hypertriglyceridemia_g3plus
+- hyperuricemia
+- hypoalbuminemia_g2plus
+- hypoalbuminemia_g3plus
+- hypocalcemia_g2plus
+- hypocalcemia_g3plus
+- hypofibrinogenemia_g2plus
+- hypofibrinogenemia_g3plus
+- hypoglycemia_g2plus
+- hypoglycemia_g3plus
+- hypokalemia_g2plus
+- hypokalemia_g3plus
+- hypomagnesemia_g2plus
+- hypomagnesemia_g3plus
+- hyponatremia_g2plus
+- hyponatremia_g3plus
+- hys_law_dili
+- infections_all_definitions
+- infections_IV_based
+- infections_prescription_based
+- INR_increased_g2plus
+- INR_increased_g3plus
+- invasive_fungal
+- LDH_increased
+- leukocytosis_g2plus
+- lymphocytosis_g2plus
+- lymphocytosis_g3plus
+- lymphopenia_g2plus
+- lymphopenia_g3plus
+- MACE_composite
+- myocardial_infarction
+- neutropenia_g2plus
+- neutropenia_g3plus
+- next_hematological_malignancy
+- next_malignancy
+- overall_survival
+- respiratory_support
+- second_line_treatment
+- sepsis
+- serious_infection_composite
+- severe_cytopenia
+- stroke_TIA
+- thrombocytopenia_g2plus
+- thrombocytopenia_g3plus
+- treatment_failure_transformation
+- treatment_failure
+- tumor_lysis_syndrome
+- VTE
+- WBC_decreased_g2plus
+- WBC_decreased_g3plus
+transfer_checkpoint_metadata:
+  condition: opera_no_transfusion_signal
+  transfer_level: related_outcome_transfer
+  seed: 42
+  included_outcomes:
+  - aki_first_documented
+  - ALP_increased_g2plus
+  - ALP_increased_g3plus
+  - ALT_increased_g2plus
+  - ALT_increased_g3plus
+  - anemia_g2plus
+  - anemia_g3plus
+  - antibiotics
+  - AST_increased_g2plus
+  - AST_increased_g3plus
+  - atrial_fibrillation
+  - bilirubin_increased_g2plus
+  - bilirubin_increased_g3plus
+  - bone_fracture
+  - creatinine_increased_g2plus
+  - creatinine_increased_g3plus
+  - dialysis
+  - dic_like_coagulopathy
+  - emergency_stay
+  - eosinophilia
+  - haptoglobin_decreased
+  - heart_failure
+  - hepatotoxicity
+  - herpes_zoster
+  - hospitalisation
+  - hypercalcemia_g2plus
+  - hypercalcemia_g3plus
+  - hyperkalemia_g2plus
+  - hyperkalemia_g3plus
+  - hypermagnesemia_g3plus
+  - hypernatremia_g2plus
+  - hypernatremia_g3plus
+  - hyperphosphatemia
+  - hypertriglyceridemia_g2plus
+  - hypertriglyceridemia_g3plus
+  - hyperuricemia
+  - hypoalbuminemia_g2plus
+  - hypoalbuminemia_g3plus
+  - hypocalcemia_g2plus
+  - hypocalcemia_g3plus
+  - hypofibrinogenemia_g2plus
+  - hypofibrinogenemia_g3plus
+  - hypoglycemia_g2plus
+  - hypoglycemia_g3plus
+  - hypokalemia_g2plus
+  - hypokalemia_g3plus
+  - hypomagnesemia_g2plus
+  - hypomagnesemia_g3plus
+  - hyponatremia_g2plus
+  - hyponatremia_g3plus
+  - hys_law_dili
+  - infections_all_definitions
+  - infections_IV_based
+  - infections_prescription_based
+  - INR_increased_g2plus
+  - INR_increased_g3plus
+  - invasive_fungal
+  - LDH_increased
+  - leukocytosis_g2plus
+  - lymphocytosis_g2plus
+  - lymphocytosis_g3plus
+  - lymphopenia_g2plus
+  - lymphopenia_g3plus
+  - MACE_composite
+  - myocardial_infarction
+  - neutropenia_g2plus
+  - neutropenia_g3plus
+  - next_hematological_malignancy
+  - next_malignancy
+  - overall_survival
+  - respiratory_support
+  - second_line_treatment
+  - sepsis
+  - serious_infection_composite
+  - severe_cytopenia
+  - stroke_TIA
+  - thrombocytopenia_g2plus
+  - thrombocytopenia_g3plus
+  - treatment_failure_transformation
+  - treatment_failure
+  - tumor_lysis_syndrome
+  - VTE
+  - WBC_decreased_g2plus
+  - WBC_decreased_g3plus
+  excluded_outcomes:
+  - any_transfusion
+  - platelet_transfusion
+  - RBC_transfusion
+  evaluation_outcomes:
+  - any_transfusion
+  related_retained_outcomes:
+  - anemia_g2plus
+  - anemia_g3plus
+  - eosinophilia
+  - haptoglobin_decreased
+  - leukocytosis_g2plus
+  - lymphocytosis_g2plus
+  - lymphocytosis_g3plus
+  - lymphopenia_g2plus
+  - lymphopenia_g3plus
+  - neutropenia_g2plus
+  - neutropenia_g3plus
+  - severe_cytopenia
+  - thrombocytopenia_g2plus
+  - thrombocytopenia_g3plus
+  - WBC_decreased_g2plus
+  - WBC_decreased_g3plus
+  direct_dependencies_excluded: []
+  structural_cohort_exclusions:
+    BL_LBL:
+    - second_line_treatment
+    - treatment_failure_transformation
+    - treatment_failure
+    HCL:
+    - second_line_treatment
+    - treatment_failure_transformation
+    - treatment_failure
+  registry_hash: 03c74a70a534ffcf1356a67ce05a693d4b699ec198678d30987a19a3893796e5
+  manifest_hash: f8a331153269fe12333470c546c7980fd2c17d72e484e2bfc30bb416a942c867
+  base_contrastive_config_hash: 9afe45845bf1133d8d1e20e1d9d431300289bd73d830a6e16dfd3faeef9a644f
+  split_contract: opera/configs/manifests/temporal_split.yaml
+  split_contract_hash: d22903d7fa7a07b2ed0ae0664ca6f8ae79572ccaa8b14bbcdea3d5545eea9624
+  source_dapt_checkpoint: ${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
+  selection_outcomes:
+  - aki_first_documented
+  - ALP_increased_g2plus
+  - ALP_increased_g3plus
+  - ALT_increased_g2plus
+  - ALT_increased_g3plus
+  - anemia_g2plus
+  - anemia_g3plus
+  - antibiotics
+  - AST_increased_g2plus
+  - AST_increased_g3plus
+  - atrial_fibrillation
+  - bilirubin_increased_g2plus
+  - bilirubin_increased_g3plus
+  - bone_fracture
+  - creatinine_increased_g2plus
+  - creatinine_increased_g3plus
+  - dialysis
+  - dic_like_coagulopathy
+  - emergency_stay
+  - eosinophilia
+  - haptoglobin_decreased
+  - heart_failure
+  - hepatotoxicity
+  - herpes_zoster
+  - hospitalisation
+  - hypercalcemia_g2plus
+  - hypercalcemia_g3plus
+  - hyperkalemia_g2plus
+  - hyperkalemia_g3plus
+  - hypermagnesemia_g3plus
+  - hypernatremia_g2plus
+  - hypernatremia_g3plus
+  - hyperphosphatemia
+  - hypertriglyceridemia_g2plus
+  - hypertriglyceridemia_g3plus
+  - hyperuricemia
+  - hypoalbuminemia_g2plus
+  - hypoalbuminemia_g3plus
+  - hypocalcemia_g2plus
+  - hypocalcemia_g3plus
+  - hypofibrinogenemia_g2plus
+  - hypofibrinogenemia_g3plus
+  - hypoglycemia_g2plus
+  - hypoglycemia_g3plus
+  - hypokalemia_g2plus
+  - hypokalemia_g3plus
+  - hypomagnesemia_g2plus
+  - hypomagnesemia_g3plus
+  - hyponatremia_g2plus
+  - hyponatremia_g3plus
+  - hys_law_dili
+  - infections_all_definitions
+  - infections_IV_based
+  - infections_prescription_based
+  - INR_increased_g2plus
+  - INR_increased_g3plus
+  - invasive_fungal
+  - LDH_increased
+  - leukocytosis_g2plus
+  - lymphocytosis_g2plus
+  - lymphocytosis_g3plus
+  - lymphopenia_g2plus
+  - lymphopenia_g3plus
+  - MACE_composite
+  - myocardial_infarction
+  - neutropenia_g2plus
+  - neutropenia_g3plus
+  - next_hematological_malignancy
+  - next_malignancy
+  - overall_survival
+  - respiratory_support
+  - second_line_treatment
+  - sepsis
+  - serious_infection_composite
+  - severe_cytopenia
+  - stroke_TIA
+  - thrombocytopenia_g2plus
+  - thrombocytopenia_g3plus
+  - treatment_failure_transformation
+  - treatment_failure
+  - tumor_lysis_syndrome
+  - VTE
+  - WBC_decreased_g2plus
+  - WBC_decreased_g3plus
+checkpoint_reuse_policy: new_contrastive_training_required

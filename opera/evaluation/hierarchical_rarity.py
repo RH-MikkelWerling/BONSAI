@@ -579,7 +579,7 @@ def build_task_size_metadata(sweep_config: str | Path) -> pd.DataFrame:
             rows.append(
                 {
                     "cohort": cohort_name,
-                    "cohort_group": cohort_cfg.get("training_cohort", cohort_name),
+                    "cohort_group": cohort_cfg.get("clinical_group", cohort_name),
                     "outcome": outcome_name,
                     "outcome_window_hours": outcome_cfg.get("n_hours_end_include"),
                     **sizes,

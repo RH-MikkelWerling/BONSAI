@@ -126,7 +126,10 @@ def _cohorts(registry: dict[str, Any], level: str) -> dict[str, dict[str, Any]]:
         common = {
             "data_dir": data_dir,
             "population_file": population_file,
-            "training_cohort": grouped,
+            # Display-only metadata for plot/legend grouping (natural-rarity
+            # figure). Never affects training/eval population or checkpoint
+            # selection — that's cohort_fine_col/cohort_fine_value below.
+            "clinical_group": grouped,
             "ipi_score_col": None,
             "registry_start_date": None,
         }

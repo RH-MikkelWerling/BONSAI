@@ -15,7 +15,6 @@ from opera.functional.cohort_groups import (
     grouped_to_fine,
     is_valid_fine,
     is_valid_grouped,
-    resolve_training_cohort,
 )
 
 
@@ -142,35 +141,10 @@ def test_grouped_to_fine_unknown_returns_empty():
     assert grouped_to_fine("UNKNOWN") == frozenset()
 
 
-# ── resolve_training_cohort ───────────────────────────────────────────────────
+# ── CohortSpec clinical_group and cohort_fine fields ─────────────────────────
 
 
-def test_resolve_training_cohort_fine_name():
-    assert resolve_training_cohort("DLBCL") == "DLBCL_like"
-    assert resolve_training_cohort("CLL") == "CLL_SLL"
-    assert resolve_training_cohort("PCL") == "MM"
-
-
-def test_resolve_training_cohort_grouped_name():
-    assert resolve_training_cohort("DLBCL_like") == "DLBCL_like"
-    assert resolve_training_cohort("MM") == "MM"
-
-
-def test_resolve_training_cohort_override():
-    assert (
-        resolve_training_cohort("DLBCL", training_cohort_override="custom") == "custom"
-    )
-
-
-def test_resolve_training_cohort_unknown_raises():
-    with pytest.raises(KeyError, match="UNKNOWN_COHORT"):
-        resolve_training_cohort("UNKNOWN_COHORT")
-
-
-# ── CohortSpec training_cohort and cohort_fine fields ────────────────────────
-
-
-def test_cohort_spec_accepts_training_cohort():
+def test_cohort_spec_accepts_clinical_group():
     from opera.config_contracts import CohortSpec
 
     issues: list[str] = []
@@ -178,14 +152,14 @@ def test_cohort_spec_accepts_training_cohort():
         "DLBCL",
         {
             "data_dir": "/data/dlbcl_like",
-            "training_cohort": "dlbcl_like",
+            "clinical_group": "dlbcl_like",
             "cohort_fine_col": "cohort_fine",
             "cohort_fine_value": "DLBCL",
         },
         issues,
     )
     assert not issues
-    assert spec.training_cohort == "dlbcl_like"
+    assert spec.clinical_group == "dlbcl_like"
     assert spec.cohort_fine_col == "cohort_fine"
     assert spec.cohort_fine_value == "DLBCL"
 
@@ -215,7 +189,7 @@ def test_cohort_spec_to_mapping_round_trip():
         "FL",
         {
             "data_dir": "/data/indolent_b_nhl",
-            "training_cohort": "indolent_b_nhl",
+            "clinical_group": "indolent_b_nhl",
             "cohort_fine_col": "cohort_fine",
             "cohort_fine_value": "FL",
             "ipi_score_col": "flipi2",
@@ -224,7 +198,7 @@ def test_cohort_spec_to_mapping_round_trip():
     )
     assert not issues
     mapping = spec.to_mapping()
-    assert mapping["training_cohort"] == "indolent_b_nhl"
+    assert mapping["clinical_group"] == "indolent_b_nhl"
     assert mapping["cohort_fine_col"] == "cohort_fine"
     assert mapping["cohort_fine_value"] == "FL"
     assert mapping["ipi_score_col"] == "flipi2"
@@ -256,12 +230,13 @@ def test_generated_fine_sweep_config_structure():
         f"missing={expected - set(cohorts.keys())}"
     )
 
-    # Grouped cohorts pointing to the correct training_cohort
-    assert cohorts["DLBCL"]["training_cohort"] == "DLBCL_like"
-    assert cohorts["FL"]["training_cohort"] == "Indolent_B_NHL"
-    assert cohorts["CLL"]["training_cohort"] == "CLL_SLL"
-    assert cohorts["MM"]["training_cohort"] == "MM"
-    assert cohorts["PCL"]["training_cohort"] == "MM"
+    # Fine cohorts carry the correct clinical_group display metadata
+    # (never used to select training/eval population or checkpoints).
+    assert cohorts["DLBCL"]["clinical_group"] == "DLBCL_like"
+    assert cohorts["FL"]["clinical_group"] == "Indolent_B_NHL"
+    assert cohorts["CLL"]["clinical_group"] == "CLL_SLL"
+    assert cohorts["MM"]["clinical_group"] == "MM"
+    assert cohorts["PCL"]["clinical_group"] == "MM"
 
     # 1:1 cohorts have no cohort_fine_col (they don't need subsetting)
     for name in ("HL", "HCL", "AMYLOIDOSIS", "SolM"):
@@ -282,38 +257,6 @@ def test_generated_joint_opera_config_structure():
 
     cohorts = raw["cohorts"]
     assert set(cohorts) == set(ALL_GROUPED)
-
-
-# ── format_variant_path training_cohort placeholder ─────────────────────────
-
-
-def test_format_variant_path_training_cohort_substitution():
-    """format_variant_path must expand {training_cohort} without KeyError."""
-    from opera.run.sweep import format_variant_path
-
-    template = "/ckpts/{training_cohort}/best.ckpt"
-    result = format_variant_path(
-        template,
-        cohort="DLBCL",
-        outcome="mortality_1y",
-        seed=42,
-        training_cohort="dlbcl_like",
-    )
-    assert result == "/ckpts/dlbcl_like/best.ckpt"
-
-
-def test_format_variant_path_training_cohort_fallback():
-    """Without training_cohort, {training_cohort} falls back to cohort name."""
-    from opera.run.sweep import format_variant_path
-
-    template = "/ckpts/{training_cohort}/best.ckpt"
-    result = format_variant_path(
-        template,
-        cohort="HL",
-        outcome="mortality_1y",
-        seed=42,
-    )
-    assert result == "/ckpts/HL/best.ckpt"
 
 
 def test_format_variant_path_ordinary_placeholders():

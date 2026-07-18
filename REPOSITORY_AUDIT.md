@@ -260,3 +260,39 @@ As of 2026-06-12 (paper-artifact harness pass), the local baseline is **354
 passing tests**, clean Ruff lint/format, and successful bytecode compilation.
 `run_sweep()` is 163 lines (was 857). Three remaining items are blocked
 (leukemia data, wheel packaging, and valid FAMO training support).
+
+## Correction (2026-07-18)
+
+Entry 16's claim that "the train-on-grouped / eval-on-fine paradigm is fully
+wired" was inaccurate for the supervised finetuning/sweep stage. Tracing the
+actual runtime path (`opera/run/sweep.py`'s `_run_variant_cell` finetune
+branch through to `opera/run/survival_finetune.py`) confirmed the sweep
+always trains and evaluates strictly on `cohort_fine_col`/`cohort_fine_value`
+— the fine diagnosis alone — for every fine-level cell. The grouped-parent
+field (`training_cohort`) never reached the training population; its only
+live effect was optional `{training_cohort}` path-template expansion in
+`format_variant_path`/`check_readiness.py`, which no configured template
+actually used. "Train-on-grouped" only ever describes the *upstream
+self-supervised* contrastive/DAPT/pretrain encoder pretraining population
+(`opera.run.contrastive_multicohort`, built once from `cohort_grouped`,
+before any outcome labels exist) — unchanged and still legitimate.
+
+Follow-up cleanup:
+- `training_cohort` renamed to `clinical_group` everywhere (`CohortSpec`,
+  the sweep-config generator, `sweep.py`, `check_readiness.py`,
+  `hierarchical_rarity.py`), documented explicitly as display-only metadata
+  for plot/legend grouping — never a population or checkpoint selector.
+- The dead `{training_cohort}` template-placeholder capability was removed
+  from `format_variant_path` and `check_readiness.py` rather than renamed,
+  since nothing used it and keeping an inert placeholder preserves the same
+  hazard.
+- `resolve_training_cohort()` was removed from `opera/functional/cohort_groups.py`
+  as dead code (zero production callers).
+- `opera/run/rarity_experiments.py` (already disabled, per the Natural Rarity
+  Analysis section of `OPERA_EXPERIMENTS.md`) got a mechanical key rename
+  only, plus comments flagging that its own disabled logic — unlike the live
+  sweep — does conflate clinical group with training population; this is a
+  known, separate issue left for its documented future rebuild, not fixed
+  here.
+- All `opera/configs/generated/**/*.yaml` artifacts (including the
+  outcome-transfer configs) were regenerated from the updated generators.

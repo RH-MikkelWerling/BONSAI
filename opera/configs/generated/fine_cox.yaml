@@ -10,7 +10,7 @@ cohorts:
   AMYLOIDOSIS:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: AMYLOIDOSIS
+    clinical_group: AMYLOIDOSIS
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -18,7 +18,7 @@ cohorts:
   BL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: BL_LBL
+    clinical_group: BL_LBL
     ipi_score_col: null
     registry_start_date: null
     exclude_outcomes:
@@ -30,7 +30,7 @@ cohorts:
   LBL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: BL_LBL
+    clinical_group: BL_LBL
     ipi_score_col: null
     registry_start_date: null
     exclude_outcomes:
@@ -42,7 +42,7 @@ cohorts:
   CLL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: CLL_SLL
+    clinical_group: CLL_SLL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -50,7 +50,7 @@ cohorts:
   SLL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: CLL_SLL
+    clinical_group: CLL_SLL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -58,7 +58,7 @@ cohorts:
   DLBCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: DLBCL_like
+    clinical_group: DLBCL_like
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -66,7 +66,7 @@ cohorts:
   RT:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: DLBCL_like
+    clinical_group: DLBCL_like
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -74,7 +74,7 @@ cohorts:
   TRANSFORMED_FL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: DLBCL_like
+    clinical_group: DLBCL_like
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -82,7 +82,7 @@ cohorts:
   HCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: HCL
+    clinical_group: HCL
     ipi_score_col: null
     registry_start_date: null
     exclude_outcomes:
@@ -94,7 +94,7 @@ cohorts:
   HL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: HL
+    clinical_group: HL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -102,7 +102,7 @@ cohorts:
   BCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -110,7 +110,7 @@ cohorts:
   EMZL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -118,7 +118,7 @@ cohorts:
   FL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -126,7 +126,7 @@ cohorts:
   LPL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -134,7 +134,7 @@ cohorts:
   NMZL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -142,7 +142,7 @@ cohorts:
   SMZL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: Indolent_B_NHL
+    clinical_group: Indolent_B_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -150,7 +150,7 @@ cohorts:
   MCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: MCL
+    clinical_group: MCL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -158,7 +158,7 @@ cohorts:
   MM:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: MM
+    clinical_group: MM
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -166,7 +166,7 @@ cohorts:
   PCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: MM
+    clinical_group: MM
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -174,7 +174,7 @@ cohorts:
   SolM:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: MM
+    clinical_group: MM
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -182,7 +182,7 @@ cohorts:
   AITL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: T_NHL
+    clinical_group: T_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -190,7 +190,7 @@ cohorts:
   ALCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: T_NHL
+    clinical_group: T_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -198,7 +198,7 @@ cohorts:
   PTCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: T_NHL
+    clinical_group: T_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine
@@ -206,7 +206,7 @@ cohorts:
   TCL:
     data_dir: ${BONSAI_PROCESSED_DATA}
     population_file: ${BONSAI_COHORT_MEMBERSHIP}
-    training_cohort: T_NHL
+    clinical_group: T_NHL
     ipi_score_col: null
     registry_start_date: null
     cohort_fine_col: cohort_fine

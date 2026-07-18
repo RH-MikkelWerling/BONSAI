@@ -1,0 +1,25 @@
+# Archival evidence for the hospitalisation direct-signal decision in the
+# focused outcome-transfer experiment.  This file is deliberately checked in:
+# server execution does not depend on the original local R workspace.
+name: outcome_transfer_hospitalisation_dependency_review
+version: 1
+
+inspected_source:
+  filename: calculate_adverse_events_update.R
+  original_location_at_review: C:\Users\MWER0040\Documents\utils\calculate_adverse_events_update.R
+  sha256: E7B2D4D33C9D7C03EFF927D8FEF239AF147D0643B4BDCC29226124437A0063BE
+
+hospitalisation:
+  inspected_lines: "1627-1776"
+  construction: >-
+    Defined directly from raw LPR2/LPR3 acute-contact episodes. No other
+    registered OPERA outcome is used as a direct definitional component.
+  direct_registered_outcomes: []
+
+independent_related_outcomes:
+  emergency_stay:
+    inspected_lines: "1915-1925"
+    construction: "Defined independently from NAB procedure codes."
+  respiratory_support:
+    inspected_lines: "1887-1896"
+    construction: "Defined independently from BGDA procedure codes."

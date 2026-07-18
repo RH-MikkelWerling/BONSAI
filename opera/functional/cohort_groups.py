@@ -1,9 +1,21 @@
 """Hematology registry cohort grouping definitions.
 
-Training uses the 10 ``cohort_grouped`` groups defined in the production
-experiment registry. Evaluation breaks results out by the 24 ``cohort_fine``
-diagnoses. This module mirrors ``opera/configs/experiment_registry.yaml`` and
-is guarded by regression tests so stale cohort labels cannot re-enter runs.
+Two disease-taxonomy levels are used by different pipeline stages:
+
+- ``cohort_grouped`` (10 groups) gates the *upstream self-supervised*
+  contrastive/DAPT/pretrain encoder pretraining population (built once via
+  ``opera.run.contrastive_multicohort``, before any outcome labels exist).
+  Pooling broadly there is legitimate and unchanged — it's the foundation-
+  model backbone.
+- ``cohort_fine`` (24 diagnoses) gates the *supervised finetuning* (train/
+  val/test split) and evaluation population for the sweep, via
+  ``cohort_fine_col``/``cohort_fine_value`` applied in
+  ``opera.run.survival_finetune`` before any split happens. Fine-level sweep
+  cells train and evaluate strictly on their own fine diagnosis — never the
+  pooled grouped parent.
+
+This module mirrors ``opera/configs/experiment_registry.yaml`` and is guarded
+by regression tests so stale cohort labels cannot re-enter runs.
 
 The mapping is derived from the RKKP/hematology registry classification and
 the patient counts confirmed by the study team.  See OPERA_EXPERIMENTS.md for
@@ -124,27 +136,3 @@ def is_valid_fine(cohort_fine: str) -> bool:
 def is_valid_grouped(cohort_grouped: str) -> bool:
     """Return True if the string names a known grouped cohort."""
     return cohort_grouped in GROUPED_TO_FINE
-
-
-def resolve_training_cohort(
-    cohort_name: str,
-    *,
-    training_cohort_override: Optional[str] = None,
-) -> str:
-    """Return the grouped training cohort for a (possibly fine) cohort name.
-
-    If ``training_cohort_override`` is given it is returned as-is.  Otherwise:
-    - a fine cohort name is mapped to its grouped parent;
-    - a grouped cohort name is returned unchanged;
-    - an unknown name raises ``KeyError``.
-    """
-    if training_cohort_override is not None:
-        return training_cohort_override
-    if cohort_name in GROUPED_TO_FINE:
-        return cohort_name
-    if cohort_name in FINE_TO_GROUPED:
-        return FINE_TO_GROUPED[cohort_name]
-    raise KeyError(
-        f"Unknown cohort name {cohort_name!r}.  "
-        "Must be a known fine diagnosis or grouped cohort."
-    )

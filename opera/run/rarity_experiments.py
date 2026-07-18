@@ -154,8 +154,8 @@ def _task_contexts(config: dict, *, dry_run: bool) -> list[dict]:
             contexts.append(
                 {
                     "cohort_fine": cohort_fine,
-                    "cohort_grouped": labels["cohort_grouped"].dropna().iloc[0] if not labels.empty else cohort_cfg.get("training_cohort"),
-                    "training_cohort": cohort_cfg.get("training_cohort", cohort_fine),
+                    "cohort_grouped": labels["cohort_grouped"].dropna().iloc[0] if not labels.empty else cohort_cfg.get("clinical_group"),
+                    "clinical_group": cohort_cfg.get("clinical_group", cohort_fine),
                     "cohort_cfg": cohort_cfg,
                     "outcome": outcome,
                     "outcome_cfg": outcome_cfg,
@@ -233,12 +233,17 @@ def _run_neural_cell(model_name: str, model_cfg: dict, context: dict, outcome_pa
         return prediction_path
     checkpoint = _format(
         model_cfg["encoder_ckpt"], cohort=context["cohort_fine"],
-        training_cohort=context["training_cohort"], outcome=context["outcome"], seed=seed,
+        clinical_group=context["clinical_group"], outcome=context["outcome"], seed=seed,
     )
+    # NOTE: unlike the live sweep (opera/run/sweep.py), this disabled legacy
+    # runner uses the clinical-group label as the actual finetune population
+    # selector — a known conflation, intentionally not fixed here since this
+    # runner is disabled pending a rebuild (see OPERA_EXPERIMENTS.md). Do not
+    # replicate this pattern in the live sweep.
     finetune = build_finetune_cmd(
         encoder_ckpt=checkpoint,
         encoder_source=model_cfg.get("encoder_source", "contrastive"),
-        cohort=context["training_cohort"],
+        cohort=context["clinical_group"],
         cohort_data_dir=context["data_dir"],
         outcome_name=context["outcome"], outcome_path=str(outcome_path),
         output_dir=cell, base_config=model_cfg.get("base_config", "opera/configs/finetune.yaml"),
@@ -252,8 +257,9 @@ def _run_neural_cell(model_name: str, model_cfg: dict, context: dict, outcome_pa
         return None
     _run(finetune, cell / "logs", "finetune")
     best = _find_best_checkpoint(cell)
+    # NOTE: same known clinical-group/population conflation as above.
     evaluate = build_evaluate_cmd(
-        ckpt_path=best, cohort=context["training_cohort"], cohort_data_dir=context["data_dir"],
+        ckpt_path=best, cohort=context["clinical_group"], cohort_data_dir=context["data_dir"],
         outcome_name=context["outcome"], outcome_path=str(outcome_path), output_dir=cell / "eval",
         encoder_source=model_cfg.get("encoder_source", "contrastive"),
         n_hours_start_include=context["outcome_cfg"].get("n_hours_start_include", 1),
@@ -272,7 +278,7 @@ def _run_tabular_cell(model_name: str, model_cfg: dict, context: dict, outcome_p
         return prediction_npz
     features = _format(
         model_cfg["features"], cohort=context["cohort_fine"],
-        training_cohort=context["training_cohort"], outcome=context["outcome"], seed=seed,
+        clinical_group=context["clinical_group"], outcome=context["outcome"], seed=seed,
     )
     train_cmd = build_tabular_fraction_cmd(
         features_path=features, outcome_parquet=str(outcome_path), output_dir=cell / "train",
@@ -436,7 +442,7 @@ def run_natural(config: dict, contexts: list[dict], eligibility: pd.DataFrame, *
                 template = model_cfg.get("natural_predictions")
                 if not template:
                     continue
-                path = Path(_format(template, cohort=context["cohort_fine"], training_cohort=context["training_cohort"], outcome=context["outcome"], model=model_name, seed=seed))
+                path = Path(_format(template, cohort=context["cohort_fine"], clinical_group=context["clinical_group"], outcome=context["outcome"], model=model_name, seed=seed))
                 if not path.exists():
                     print(f"Natural prediction missing: {path}")
                     continue

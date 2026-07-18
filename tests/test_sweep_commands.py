@@ -636,7 +636,6 @@ def _variant_cell_kwargs(tmp_path, variant_cfg, **overrides):
         variant_cfg=variant_cfg,
         result_variant=variant_cfg.get("model_family", "tabular_ehr"),
         seed=42,
-        training_cohort="dlbcl",
         cohort_fine_col=None,
         cohort_fine_value=None,
         data_dir=str(tmp_path / "data"),
@@ -728,3 +727,44 @@ def test_run_variant_cell_invalid_training_mode_records_failure(tmp_path):
     assert tracker.records[0].status == "failed"
     assert tracker.records[0].stage == "configuration"
     assert "invalid_mode" in tracker.records[0].reason
+
+
+def test_run_variant_cell_finetune_population_is_fine_cohort_only(tmp_path, monkeypatch):
+    """A fine-level sweep cell must finetune on the fine cohort alone.
+
+    ``_run_variant_cell`` has no clinical-group/grouped-parent parameter at
+    all (it was removed because it never affected population selection), so
+    this test locks in the actual wiring: the population-selecting arguments
+    reaching ``run_finetune`` are exactly ``cohort_name``/``cohort_fine_value``
+    for this cell — never a grouped parent name.
+    """
+    import opera.run.sweep as sweep_module
+
+    captured = {}
+
+    def fake_run_finetune(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(sweep_module, "run_finetune", fake_run_finetune)
+
+    tracker = StatusTracker()
+    result = _run_variant_cell(
+        tracker=tracker,
+        **_variant_cell_kwargs(
+            tmp_path,
+            variant_cfg={"encoder_ckpt": "/ckpt/best.ckpt", "training_mode": "cox"},
+            variant_name="opera",
+            result_variant="opera",
+            cohort_name="RT",
+            cohort_fine_col="cohort_fine",
+            cohort_fine_value="RT",
+            dry_run=False,
+            fail_fast=False,
+        ),
+    )
+
+    assert result is None  # fake run_finetune reports no checkpoint produced
+    assert captured["cohort"] == "RT"
+    assert captured["cohort_fine_value"] == "RT"
+    assert "DLBCL_like" not in captured.values()

@@ -36,12 +36,182 @@ from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
 load_dotenv()
 
 
+# These are deliberately kept in the contrastive entry point rather than only
+# in the config generator.  A generated YAML file is easy to edit by hand;
+# this guard makes it impossible to accidentally route a held-out transfer
+# target back into the loss, validation data module, or checkpoint selection.
+_TRANSFER_METADATA_FIELDS = (
+    "condition",
+    "transfer_level",
+    "seed",
+    "included_outcomes",
+    "excluded_outcomes",
+    "evaluation_outcomes",
+    "related_retained_outcomes",
+    "direct_dependencies_excluded",
+    "registry_hash",
+    "manifest_hash",
+    "base_contrastive_config_hash",
+    "split_contract",
+    "split_contract_hash",
+    "source_dapt_checkpoint",
+    "selection_outcomes",
+)
+
+
+def _validate_transfer_config(cfg: DictConfig, outcome_names: list[str]) -> dict | None:
+    """Validate the narrow outcome-transfer training contract at launch.
+
+    The outcome mapping is the only source passed into the contrastive data
+    module below.  For transfer ablations, require it to be exactly the
+    explicit included panel and require checkpoint selection to use that same
+    panel.  Evaluation labels are intentionally *not* loaded in this process;
+    they are consumed later by the frozen-probe evaluator.
+    """
+    if not bool(cfg.get("transfer_analysis", False)):
+        return None
+
+    if bool(cfg.get("launch_blocked", False)):
+        raise ValueError(
+            "This outcome-transfer condition is blocked: "
+            f"{cfg.get('launch_blocked_reason', 'no reason recorded')}"
+        )
+
+    condition = cfg.get("transfer_condition")
+    if not isinstance(condition, str) or not condition:
+        raise ValueError("Transfer config requires a non-empty transfer_condition.")
+
+    included = list(cfg.get("training_outcomes", []))
+    excluded = list(cfg.get("training_excluded_outcomes", []))
+    selection = list(cfg.get("selection_outcomes", []))
+    if not included:
+        raise ValueError("Transfer config requires non-empty training_outcomes.")
+    overlap = sorted(set(excluded) & set(outcome_names))
+    if overlap:
+        raise ValueError(
+            "Held-out transfer labels cannot enter contrastive adaptation: "
+            f"{overlap}."
+        )
+    # The existing contrastive model sorts its internal head names while the
+    # generated YAML preserves canonical registry order.  The leakage
+    # contract is membership-based, not an incidental dict-order contract.
+    if set(outcome_names) != set(included) or len(outcome_names) != len(included):
+        raise ValueError(
+            "Transfer config outcome mapping must contain exactly training_outcomes; "
+            f"mapping={outcome_names}, training_outcomes={included}."
+        )
+    if selection != included:
+        raise ValueError(
+            "Transfer checkpoint selection must use exactly training_outcomes; "
+            f"selection_outcomes={selection}, training_outcomes={included}."
+        )
+    if len(set(included)) != len(included) or len(set(excluded)) != len(excluded):
+        raise ValueError("Transfer outcome lists cannot contain duplicates.")
+
+    seed = cfg.get("seed")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("Transfer contrastive runs require an integer top-level seed.")
+    permitted_seeds = list(cfg.get("transfer_seeds", []))
+    if permitted_seeds and seed not in permitted_seeds:
+        raise ValueError(
+            f"Seed {seed} is not declared by transfer_seeds={permitted_seeds}."
+        )
+
+    declared = OmegaConf.to_container(
+        # Do not resolve unrelated environment interpolations here.  This
+        # guard executes before DAPT I/O and should report an outcome-panel
+        # breach even in a config-only dry run without server paths exported.
+        cfg.get("transfer_checkpoint_metadata", {}), resolve=False
+    )
+    if not isinstance(declared, dict):
+        raise ValueError("transfer_checkpoint_metadata must be a mapping.")
+    missing = [field for field in _TRANSFER_METADATA_FIELDS if field not in declared]
+    # ``seed`` is populated at runtime below, so it is the one allowed omission
+    # in the deterministic condition-level YAML.
+    missing = [field for field in missing if field != "seed"]
+    if missing:
+        raise ValueError(
+            "Transfer checkpoint metadata is incomplete; missing "
+            f"{sorted(missing)}."
+        )
+    for key, expected in {
+        "condition": condition,
+        "included_outcomes": included,
+        "excluded_outcomes": excluded,
+        "selection_outcomes": included,
+        "base_contrastive_config_hash": cfg.get("base_contrastive_config_hash"),
+        "split_contract_hash": cfg.get("split_contract_hash"),
+    }.items():
+        if key in declared and declared[key] != expected:
+            raise ValueError(
+                f"Transfer metadata field {key!r} disagrees with launch config."
+            )
+    return declared
+
+
+def _checkpoint_metadata(
+    cfg: DictConfig,
+    outcome_names: list[str],
+    transfer_metadata: dict | None,
+) -> dict:
+    """Build inspectable checkpoint provenance for standard and transfer runs."""
+    metadata = {
+        "training_stage": "opera_contrastive_adaptation",
+        "source_checkpoint": str(cfg.dapt_ckpt),
+        "cohort_set": sorted(cfg.cohorts.keys()),
+        "outcome_set": outcome_names,
+    }
+    if transfer_metadata is None:
+        return metadata
+    # Copy the condition-level metadata and add the actual runtime seed.  This
+    # makes the sidecar and Lightning checkpoint self-describing even when the
+    # launcher supplied ``seed=...`` as a Hydra override.
+    metadata.update(transfer_metadata)
+    metadata.update(
+        {
+            "condition": str(cfg.transfer_condition),
+            "transfer_level": str(cfg.transfer_level),
+            "seed": int(cfg.seed),
+            "included_outcomes": list(cfg.training_outcomes),
+            "excluded_outcomes": list(cfg.training_excluded_outcomes),
+            "evaluation_outcomes": list(cfg.evaluation_outcomes),
+            "related_retained_outcomes": list(cfg.related_retained_outcomes),
+            "direct_dependencies_excluded": list(cfg.direct_dependencies_excluded),
+            "registry_hash": str(cfg.registry_hash),
+            "manifest_hash": str(cfg.manifest_hash),
+            "base_contrastive_config_hash": str(
+                cfg.base_contrastive_config_hash
+            ),
+            "split_contract": str(cfg.split_contract),
+            "split_contract_hash": str(cfg.split_contract_hash),
+            "source_dapt_checkpoint": str(cfg.dapt_ckpt),
+            "selection_outcomes": list(cfg.selection_outcomes),
+        }
+    )
+    return metadata
+
+
 @hydra.main(
     config_path="../configs",
     config_name="generated/joint_opera_full_panel",
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
+    # Transfer conditions are run once per declared seed.  Existing production
+    # configs have no top-level seed, so leave their stochastic behaviour
+    # unchanged unless a seed was explicitly supplied.
+    if cfg.get("seed") is not None:
+        L.seed_everything(int(cfg.seed), workers=True)
+
+    # Validate the outcome panel before creating a logger, opening a DAPT
+    # checkpoint, calculating event-time grids, or constructing a data module.
+    # This is deliberately the earliest point at which transfer config fields
+    # can be inspected, so a hand-edited YAML cannot make a held-out label
+    # influence any training or checkpoint-selection operation.
+    outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
+    outcome_names = sorted(outcome_configs.keys())
+    transfer_metadata = _validate_transfer_config(cfg, outcome_names)
+
     logger = CSVLogger(
         get_experiment_output_path(), name="contrastive_multicohort_runs"
     )
@@ -66,9 +236,6 @@ def main(cfg: DictConfig) -> None:
         print(f"  Loaded {len(dapt_embedding_store)} patient embeddings.")
 
     # ── Build model ────────────────────────────────────────────────────
-    outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
-    outcome_names = sorted(outcome_configs.keys())
-
     cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
     require_all_configured_cells = cfg.training.get(
         "require_all_configured_cells", True
@@ -139,12 +306,11 @@ def main(cfg: DictConfig) -> None:
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
-        checkpoint_metadata={
-            "training_stage": "opera_contrastive_adaptation",
-            "source_checkpoint": cfg.dapt_ckpt,
-            "cohort_set": sorted(cfg.cohorts.keys()),
-            "outcome_set": outcome_names,
-        },
+        checkpoint_metadata=_checkpoint_metadata(
+            cfg,
+            outcome_names,
+            transfer_metadata,
+        ),
     )
 
     ckpt_callback = ModelCheckpoint(

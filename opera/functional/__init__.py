@@ -11,7 +11,6 @@ from opera.functional.cohort_groups import (
     grouped_to_fine,
     is_valid_fine,
     is_valid_grouped,
-    resolve_training_cohort,
 )
 from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
 from opera.functional.outcomes import (
@@ -36,5 +35,4 @@ __all__ = [
     "grouped_to_fine",
     "is_valid_fine",
     "is_valid_grouped",
-    "resolve_training_cohort",
 ]

@@ -1,0 +1,116 @@
+# Focused outcome-transfer experiment for OPERA.
+#
+# This manifest deliberately changes only the outcome panel supplied to the
+# canonical joint OPERA contrastive configuration.  It is not part of the
+# broad production or rarity sweeps.
+name: outcome_transfer
+version: 1
+
+registry: opera/configs/experiment_registry.yaml
+base_contrastive_config: opera/configs/generated/joint_opera_full_panel.yaml
+split_contract: opera/configs/manifests/temporal_split.yaml
+generated_config_dir: opera/configs/generated/outcome_transfer
+
+seeds: [42, 43, 44]
+
+# `opera_full` can reuse an existing checkpoint only after the transfer
+# resolver has verified the checkpoint metadata against this manifest and the
+# canonical full-panel configuration.  DAPT is an existing baseline and is
+# never a contrastive-training slot in this manifest.
+checkpoint_reuse:
+  opera_full: compatible_existing_checkpoint
+  dapt: existing_baseline_no_training_slot
+
+conditions:
+  opera_full:
+    transfer_level: direct_supervision
+    primary_horizon_days: 90
+
+  opera_no_g3:
+    transfer_level: severity_transfer
+    exclude:
+      type: suffix
+      value: _g3plus
+    primary_horizon_days: 90
+
+  opera_no_transfusion_signal:
+    transfer_level: related_outcome_transfer
+    exclude:
+      type: exact
+      outcomes:
+        - any_transfusion
+        - RBC_transfusion
+        - platelet_transfusion
+    evaluation_outcomes:
+      - any_transfusion
+    # The resolver expands this from the canonical registry family rather
+    # than duplicating a hematologic-toxicity list in Python.
+    related_retained_families:
+      - Hematologic toxicity & support
+    primary_horizon_days: 90
+
+  opera_no_hospitalisation_signal:
+    transfer_level: related_outcome_transfer
+    exclude:
+      type: outcome_with_direct_dependencies
+      outcome: hospitalisation
+      # There are no other registered direct components.  Hospitalisation is
+      # built from raw LPR2/LPR3 contact episodes rather than from another
+      # registered outcome.  The resolver always adds the target itself to
+      # the direct-signal exclusion closure.
+      direct_dependencies: []
+      dependency_provenance:
+        # A portable, checked-in archival inspection record. The original R
+        # source is intentionally not required to exist on the training
+        # server; both its reviewed SHA-256 and this evidence file's hash are
+        # validated when the transfer manifest is resolved.
+        evidence_file: opera/configs/manifests/outcome_transfer_hospitalisation_evidence.yaml
+        evidence_sha256: 55C27840842A7D9440682F97C4FA8C7F58C8EB81F5497F8E353F6CB8F8C658F9
+        source: C:\Users\MWER0040\Documents\utils\calculate_adverse_events_update.R
+        source_sha256: E7B2D4D33C9D7C03EFF927D8FEF239AF147D0643B4BDCC29226124437A0063BE
+        inspected_lines: "1627-1776"
+        finding: >-
+          Hospitalisation is defined directly from LPR2/LPR3 acute-contact
+          episodes; no other registered outcome enters its construction.
+        independent_related_outcomes:
+          emergency_stay:
+            inspected_lines: "1915-1925"
+            finding: "Defined independently from NAB procedure codes."
+          respiratory_support:
+            inspected_lines: "1887-1896"
+            finding: "Defined independently from BGDA procedure codes."
+    evaluation_outcomes:
+      - hospitalisation
+    # All listed families are resolved from experiment_registry.yaml.  This
+    # makes retained proxy supervision explicit while allowing independent
+    # acute-care outcomes to remain unless verified as direct components.
+    related_retained_families:
+      - Acute care utilization
+      - Infection
+      - Hematologic toxicity & support
+      - Renal toxicity
+      - Hepatic & coagulation toxicity
+      - Electrolyte & metabolic toxicity
+      - Cardiovascular & thrombotic
+    primary_horizon_days: 90
+
+  opera_no_infection_family:
+    transfer_level: family_transfer
+    exclude:
+      type: family
+      family: Infection
+    primary_horizon_days: 90
+
+  opera_no_renal_family:
+    transfer_level: family_transfer
+    exclude:
+      type: family
+      family: Renal toxicity
+    primary_horizon_days: 90
+
+  opera_no_cardiovascular_family:
+    transfer_level: family_transfer
+    exclude:
+      type: family
+      family: Cardiovascular & thrombotic
+    primary_horizon_days: 365
