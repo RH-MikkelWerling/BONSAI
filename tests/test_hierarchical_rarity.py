@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-import yaml
 
 from opera.analysis.bayesian_rarity import (
     fit_hierarchical_rarity_model,

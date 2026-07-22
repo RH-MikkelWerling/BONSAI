@@ -55,7 +55,10 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert grouped["outcomes"]["sepsis"]["n_hours_end_include"] is None
 
     fine = yaml.safe_load((tmp_path / "fine_ipcw_30d.yaml").read_text())
-    assert fine["cohorts"]["TRANSFORMED_FL"]["data_dir"] == "${BONSAI_PROCESSED_DATA}"
+    assert (
+        fine["cohorts"]["TRANSFORMED_FL"]["data_dir"]
+        == "${BONSAI_PROCESSED_DATA}/hematology_all"
+    )
     assert fine["cohorts"]["MCL"]["population_file"] == "${BONSAI_COHORT_MEMBERSHIP}"
     assert fine["cohorts"]["SolM"]["cohort_fine_value"] == "SolM"
     assert set(fine["cohorts"]["BL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES

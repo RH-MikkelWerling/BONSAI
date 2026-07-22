@@ -577,9 +577,10 @@ def check_sweep_config(
                     split_report = validate_cross_stage_split_contract(
                         outcome_paths=cohort_outcome_paths,
                         subject_data_paths={
-                            "train": str(Path(data_dir) / "subject_data_train.pt"),
-                            "tuning": str(Path(data_dir) / "subject_data_tuning.pt"),
-                            "held_out": str(Path(data_dir) / "subject_data_held_out.pt"),
+                            "ssl_train": str(Path(data_dir) / "subject_data_train.pt"),
+                            "ssl_validation": str(
+                                Path(data_dir) / "subject_data_tuning.pt"
+                            ),
                         },
                         contract_path=split_contract_path,
                     )

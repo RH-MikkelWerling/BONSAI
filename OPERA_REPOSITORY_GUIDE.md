@@ -80,10 +80,14 @@ prospective_split:
   contract: opera/configs/manifests/temporal_split.yaml
 ```
 
-The contract defines train as index year <= 2020, tuning as 2021, and held-out
-test as index year >= 2022. Validation is the tuning/model-selection split; the
+The contract defines train through 2021, tuning as 2022-2023, and held-out test
+from 2024 onward. Validation is the tuning/model-selection split; the
 split validator is the source of truth for checking that no subject/index date
 is assigned to more than one split.
+
+These labels are independent of ehr2meds' physical 90/10 SSL partition. OPERA
+pools the physical subject-data files before selecting prospective subjects
+from the outcome parquet; file names never define downstream membership.
 
 Validate generated splits:
 
@@ -100,11 +104,10 @@ finetuning:
 ```bash
 python -m opera.run.validate_split_contract \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --subject_data train=/data/dlbcl/subject_data_train.pt \
-  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
-  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
-  --dapt_subject_data train=/data/dlbcl/subject_data_train.pt \
-  --dapt_subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --subject_data ssl_train=/data/dlbcl/subject_data_train.pt \
+  --subject_data ssl_validation=/data/dlbcl/subject_data_tuning.pt \
+  --dapt_subject_data ssl_train=/data/dlbcl/subject_data_train.pt \
+  --dapt_subject_data ssl_validation=/data/dlbcl/subject_data_tuning.pt \
   --embedding_store /results/dapt_embeddings.pt \
   --fail_on_error
 ```

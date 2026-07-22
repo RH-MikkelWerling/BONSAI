@@ -1,4 +1,5 @@
 from omegaconf import OmegaConf
+import torch
 
 from opera.run.finetune import build_finetune_data_module
 from opera.run.survival_finetune import build_survival_finetune_data_module
@@ -86,3 +87,52 @@ def test_hybrid_datamodule_uses_explicit_encoder_sequence_limit(tmp_path):
     )
 
     assert datamodule.max_len == 37
+
+
+def test_outcome_splits_are_selected_after_pooling_physical_ssl_splits(tmp_path):
+    cfg = _base_cfg(tmp_path, max_len=17)
+    (tmp_path / "population_full.csv").write_text(
+        "subject_id\n1\n2\n3\n", encoding="utf-8"
+    )
+    held_out_path = tmp_path / "subject_data_held_out.pt"
+    cfg.paths.test_split = str(held_out_path)
+    cfg.paths.subject_data_paths = [
+        cfg.paths.train_split,
+        cfg.paths.val_split,
+        cfg.paths.test_split,
+    ]
+
+    def subject(subject_id):
+        return {
+            "subject_id": subject_id,
+            "code": torch.tensor([1, 2]),
+            "age": torch.tensor([1.0, 2.0]),
+            "abspos": torch.tensor([1.0, 2.0]),
+            "segment": torch.tensor([0, 1]),
+        }
+
+    # Deliberately place every patient in a physical file whose name does not
+    # match the prospective outcome split.
+    torch.save([subject(3)], cfg.paths.train_split)
+    torch.save([subject(1)], cfg.paths.val_split)
+    torch.save([subject(2)], cfg.paths.test_split)
+    outcomes = {
+        1: {"label": 0, "censor_abspos": 2.0},
+        2: {"label": 1, "censor_abspos": 2.0},
+        3: {"label": 0, "censor_abspos": 2.0},
+    }
+
+    datamodule = build_finetune_data_module(
+        cfg,
+        {"[CLS]": 1},
+        {1: outcomes[1]},
+        {2: outcomes[2]},
+        {3: outcomes[3]},
+        [0],
+    )
+    datamodule.setup("fit")
+    datamodule.setup("predict")
+
+    assert [item["subject_id"] for item in datamodule.train_dataset.subjects] == [1]
+    assert [item["subject_id"] for item in datamodule.val_dataset.subjects] == [2]
+    assert [item["subject_id"] for item in datamodule.predict_dataset.subjects] == [3]

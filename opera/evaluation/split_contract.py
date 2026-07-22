@@ -110,35 +110,41 @@ def validate_cross_stage_split_contract(
     test_key = contract.get("test_key", "held_out")
     held_out_ids = subjects_by_split.get(test_key, set())
     train_val_ids = subjects_by_split.get(train_key, set()) | subjects_by_split.get(
-        val_key,
-        set(),
+        val_key, set()
     )
+    all_outcome_ids = held_out_ids | train_val_ids
 
     def check_subject_data(paths: Mapping[str, str | Path], label: str) -> None:
         details.setdefault(label, {})
+        ids_by_path = {}
         for split_name, path in paths.items():
             ids = _load_subject_ids(path)
+            ids_by_path[str(path)] = ids
             details[label][str(path)] = {
-                "split": split_name,
+                "physical_partition": split_name,
                 "n_subjects": len(ids),
-                "n_unlabelled_or_unseen": len(
-                    ids - held_out_ids - train_val_ids
-                ),
+                "n_unlabelled_or_unseen": len(ids - all_outcome_ids),
             }
-            if split_name in {train_key, "train", val_key, "tuning"}:
-                leaked = ids & held_out_ids
-                if leaked:
+        path_items = list(ids_by_path.items())
+        for idx, (left_path, left_ids) in enumerate(path_items):
+            for right_path, right_ids in path_items[idx + 1 :]:
+                overlap = left_ids & right_ids
+                if overlap:
                     issues.append(
-                        f"{label} {path} contains held-out subjects: "
-                        f"{sorted(leaked)[:10]}"
+                        f"{label} physical partitions overlap ({left_path}, "
+                        f"{right_path}): {sorted(overlap)[:10]}"
                     )
-            if split_name in {test_key, "held_out"}:
-                leaked = ids & train_val_ids
-                if leaked:
-                    issues.append(
-                        f"{label} {path} contains train/tuning subjects: "
-                        f"{sorted(leaked)[:10]}"
-                    )
+        pooled_ids = set().union(*ids_by_path.values()) if ids_by_path else set()
+        missing = all_outcome_ids - pooled_ids
+        if missing:
+            issues.append(
+                f"{label} pooled files are missing {len(missing)} outcome subjects: "
+                f"{sorted(missing)[:10]}"
+            )
+        details[label]["pooled"] = {
+            "n_subjects": len(pooled_ids),
+            "n_outcome_subjects_missing": len(missing),
+        }
 
     if subject_data_paths:
         check_subject_data(subject_data_paths, "subject_data")
@@ -148,17 +154,11 @@ def validate_cross_stage_split_contract(
     details["embedding_stores"] = {}
     for path in embedding_store_paths or []:
         ids = _load_embedding_store_ids(path)
-        leaked = ids & held_out_ids
         details["embedding_stores"][str(path)] = {
             "n_subjects": len(ids),
-            "n_held_out_subjects": len(leaked),
-            "n_unlabelled_or_unseen": len(ids - held_out_ids - train_val_ids),
+            "n_held_out_subjects": len(ids & held_out_ids),
+            "n_unlabelled_or_unseen": len(ids - all_outcome_ids),
         }
-        if leaked:
-            issues.append(
-                f"Embedding store {path} contains held-out subjects: "
-                f"{sorted(leaked)[:10]}"
-            )
 
     return {
         "ok": not issues,

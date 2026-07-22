@@ -77,6 +77,7 @@ def build_survival_finetune_data_module(
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
         path_predict_data=cfg.paths.get("test_split"),
+        subject_data_paths=cfg.paths.get("subject_data_paths"),
         path_population=cfg.paths.population,
         train_outcomes=train_outcomes,
         val_outcomes=val_outcomes,
@@ -127,7 +128,9 @@ def main(cfg: DictConfig) -> None:
     if membership_ids is not None:
         outcomes = outcomes[outcomes["subject_id"].isin(membership_ids)].copy()
     if outcomes.empty:
-        raise ValueError("No eligible outcome rows remain after cohort membership filtering.")
+        raise ValueError(
+            "No eligible outcome rows remain after cohort membership filtering."
+        )
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")

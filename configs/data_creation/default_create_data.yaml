@@ -5,19 +5,25 @@ defaults:
 splits: 
   - train
   - tuning
-  - held_out
 
 dataset: 
 
 paths: 
+  # Accepts an ehr2meds MEDS cohort root (data/<split>, metadata/) or the
+  # legacy BONSAI layout with <split> directly below this path.
   input_dir: example_data/${dataset}
   output_dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
 
 exclude_regex: 
 
-# Paper-aligned sequence construction: numeric event -> event, [VAL].
-# Has no effect when the ehr2meds numeric columns are absent.
-numeric_value_mode: combined_binning
+# Primary production representation: ehr2meds has already rewritten valid
+# numeric events as LAB_CODE//bin_k. BONSAI consumes those as ordinary codes.
+numeric_value_mode: legacy
+
+# Fit the hot vocabulary only from events strictly before this boundary. The
+# full sequences are still written and post-cutoff unseen codes map to [UNK].
+vocabulary_cutoff_date: null
+# vocabulary_cutoff_date: {year: 2022, month: 1, day: 1}
 
 tokenizer:
   vocabulary:

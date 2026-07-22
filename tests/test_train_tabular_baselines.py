@@ -1,14 +1,62 @@
 import pandas as pd
 
 from opera.run.train_tabular_baselines import (
+    TUNING_GRIDS,
+    build_arg_parser,
+    high_dimensional_diagnostics,
     infer_feature_columns,
     missingness_report,
     outcome_labels,
     parse_columns,
     select_tabpfn_feature_columns,
     train_one_model,
+    tune_estimator_params,
     validate_feature_matrix,
 )
+
+
+def test_tabular_tuning_is_default_but_can_be_explicitly_disabled():
+    parser = build_arg_parser()
+    required = [
+        "--features",
+        "features.parquet",
+        "--outcome",
+        "outcome.parquet",
+        "--output_dir",
+        "results",
+        "--cohort",
+        "dlbcl",
+        "--outcome_name",
+        "mortality",
+    ]
+    assert parser.parse_args(required).tune is True
+    assert parser.parse_args([*required, "--no-tune"]).tune is False
+
+
+def test_high_dimensional_diagnostics_flags_wide_training_cells():
+    train = pd.DataFrame({"label": [0, 1] * 5})
+    report = high_dimensional_diagnostics(train, [f"x{i}" for i in range(50)])
+    assert report["low_n_high_p"] is True
+    assert report["severe_low_n_high_p"] is True
+    assert report["features_per_row"] == 5.0
+
+
+def test_tuner_uses_real_preprocessing_for_missing_and_categorical_features():
+    train = pd.DataFrame(
+        {
+            "numeric": [0.0, 1.0, None, 2.0] * 5,
+            "category": ["a", "b", "a", None] * 5,
+            "label": [0, 1, 0, 1] * 5,
+        }
+    )
+    params = tune_estimator_params(
+        "logistic",
+        train,
+        train.copy(),
+        ["numeric", "category"],
+        categorical_columns=["category"],
+    )
+    assert params in TUNING_GRIDS["logistic"]
 
 
 def test_infer_feature_columns_excludes_reserved_and_explicit_columns():
@@ -145,9 +193,7 @@ def test_plain_fixed_labels_drop_early_censoring_while_survival_keeps_it(tmp_pat
             "split": ["train"] * 3,
             "index_date": pd.to_datetime(["2020-01-01"] * 3),
             "outcome_date": pd.to_datetime(["2020-01-10", None, None]),
-            "censor_date": pd.to_datetime(
-                ["2020-03-01", "2020-03-01", "2020-01-15"]
-            ),
+            "censor_date": pd.to_datetime(["2020-03-01", "2020-03-01", "2020-01-15"]),
         }
     ).to_parquet(outcome_path)
 

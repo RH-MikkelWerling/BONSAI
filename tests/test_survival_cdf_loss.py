@@ -463,8 +463,12 @@ def test_compute_pooled_sorted_event_times_returns_sorted_float32(tmp_path):
     for cohort, times in {"a": [20.0, 5.0], "b": [10.0]}.items():
         outcome_dir = tmp_path / cohort / "outcomes"
         outcome_dir.mkdir(parents=True)
+        pd.DataFrame({"subject_id": list(range(len(times)))}).to_csv(
+            tmp_path / cohort / "population_full.csv", index=False
+        )
         pd.DataFrame(
             {
+                "subject_id": list(range(len(times))),
                 "split": ["train"] * len(times),
                 "event": [1] * len(times),
                 "time_days": times,

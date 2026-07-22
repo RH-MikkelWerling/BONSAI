@@ -15,8 +15,6 @@ OPTIONAL_TOKEN_COLUMNS = (
     "numeric_value_binned",
     "numeric_value_present",
 )
-ORDER_COLUMNS = ("row_idx", "row_id")
-
 NUMERIC_COLUMN_ALIASES = {
     "numeric_value_normalized": "value_normalized",
     "numeric_value_bin": "value_bin",
@@ -71,14 +69,7 @@ def create_combined_binning_value_tokens(df: pl.DataFrame) -> pl.DataFrame:
             f"found {invalid.height} invalid rows."
         )
 
-    # Establish a deterministic source-event order before assigning adjacent
-    # positions. Prefer upstream row_idx/row_id for same-time ties; if neither
-    # exists, Parquet row order is retained by Polars' stable sort.
-    source_order = ["subject_id", "time"]
-    source_order.extend(column for column in ORDER_COLUMNS if column in df.columns)
-    df = df.sort(source_order, maintain_order=True).with_row_index(
-        "_combined_event_order"
-    )
+    df = df.with_row_index("_combined_event_order")
     base = df.with_columns(
         row_idx=(pl.col("_combined_event_order") * 2).cast(pl.Int64),
         value_bin=pl.lit(None, dtype=pl.Int64),
@@ -92,8 +83,10 @@ def create_combined_binning_value_tokens(df: pl.DataFrame) -> pl.DataFrame:
         value_normalized=pl.col("value_normalized").cast(pl.Float64),
         value_present=pl.lit(True),
     )
-    return pl.concat([base, value_rows], how="diagonal_relaxed").drop(
-        "_combined_event_order"
+    return (
+        pl.concat([base, value_rows], how="diagonal_relaxed")
+        .sort("row_idx")
+        .drop("_combined_event_order")
     )
 
 
@@ -156,12 +149,6 @@ def process_split(
 
         # Tokenize
         tokenized = tokenizer(features)
-        sort_columns = ["subject_id", "abspos"]
-        sort_columns.extend(
-            column for column in ORDER_COLUMNS if column in tokenized.columns
-        )
-        tokenized = tokenized.sort(sort_columns)
-
         if "value_present" not in tokenized.columns and (
             "value_normalized" in tokenized.columns or "value_bin" in tokenized.columns
         ):

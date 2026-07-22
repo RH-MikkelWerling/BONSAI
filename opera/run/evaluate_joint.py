@@ -33,6 +33,7 @@ from opera.compat.bonsai import (
     filter_subject_data,
 )
 from bonsai.functional.checkpointing import load_joint_model_from_checkpoint
+from opera.modules.datamodules.OutcomeFinetuneDataModule import load_subject_pool
 
 from opera.evaluation.cohorts import (
     assert_cohort_parity,
@@ -141,7 +142,7 @@ def main(cfg: DictConfig) -> None:
     full_fu_sids = evaluation_cohorts.fixed_horizon.subject_ids
 
     # Build dataset / loader over ALL test patients
-    test_data = torch.load(cfg.paths.test_split, weights_only=False)
+    test_data = load_subject_pool(cfg.paths.subject_data_paths)
     if cohort_fine_col and cohort_fine_value:
         print(
             f"cohort_fine filter: {cohort_fine_col}={cohort_fine_value!r} "
@@ -152,7 +153,7 @@ def main(cfg: DictConfig) -> None:
     if not test_data:
         raise ValueError(
             "No test subjects remain after filtering to outcome labels and "
-            "population membership. Check paths.test_split, paths.population, "
+            "population membership. Check paths.subject_data_paths, paths.population, "
             f"paths.outcome={cfg.paths.outcome}, and test_key={test_key!r}."
         )
 

@@ -8,6 +8,7 @@ class EHRTokenizer:
         vocabulary=None,
         cutoffs: Optional[Dict[str, int]] = None,
         sep_tokens: bool = True,
+        vocabulary_cutoff_abspos: Optional[float] = None,
     ):
         self.hot_vocab = vocabulary is None
         if vocabulary is None:
@@ -22,10 +23,11 @@ class EHRTokenizer:
 
         self.cutoffs = cutoffs
         self.sep_tokens = sep_tokens
+        self.vocabulary_cutoff_abspos = vocabulary_cutoff_abspos
 
     def __call__(self, features: pl.DataFrame) -> pl.DataFrame:
         """
-        !We assume that features are sorted by subject_id and abspos.
+        Features must retain the canonical MEDS order produced by ehr2meds.
         """
         # Apply cutoffs if needed before updating vocabulary
         if self.cutoffs is not None:
@@ -33,7 +35,12 @@ class EHRTokenizer:
 
         # Update vocabulary if vocabulary is `hot`
         if self.hot_vocab:
-            self.update_vocabulary(features["code"])
+            vocabulary_features = features
+            if self.vocabulary_cutoff_abspos is not None:
+                vocabulary_features = features.filter(
+                    pl.col("abspos") < self.vocabulary_cutoff_abspos
+                )
+            self.update_vocabulary(vocabulary_features["code"])
 
         if self.sep_tokens:
             features = self.add_sep_tokens(features)
@@ -56,40 +63,51 @@ class EHRTokenizer:
             self.vocabulary.update(dict(zip(new_codes, new_indices)))
 
     def add_sep_tokens(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Add [SEP] tokens at segment changes within the same subject_id"""
-        order_columns = ["subject_id", "abspos"]
-        order_columns.extend(
-            column for column in ("row_idx", "row_id") if column in df.columns
+        """Insert ``[SEP]`` after each non-final segment without re-sorting.
+
+        ehr2meds owns the canonical event order. Each input row therefore emits
+        either itself or ``[event, SEP]``; exploding those small lists preserves
+        source-row order and the position of simultaneous events.
+        """
+        df = df.with_row_index("_token_order").with_columns(
+            _insert_sep=(
+                (pl.col("segment") != pl.col("segment").shift(-1))
+                & (pl.col("subject_id") == pl.col("subject_id").shift(-1))
+            )
         )
-        df = df.sort(order_columns, maintain_order=True).with_row_index(
-            "_token_order"
-        )
-        # row_idx is the canonical post-tokenization tie-breaker. Re-numbering
-        # here leaves room for [SEP] immediately after its owning position and
-        # survives the later Parquet/subject-data sorting steps.
         df = df.with_columns(
-            row_idx=(pl.col("_token_order") * 2).cast(pl.Int64)
-        )
+            pl.int_ranges(
+                pl.lit(0),
+                pl.lit(1) + pl.col("_insert_sep").cast(pl.Int64),
+            ).alias("_sep_offset")
+        ).explode("_sep_offset")
         sep_updates = [
-            pl.lit("[SEP]").alias("code"),
-            (pl.col("_token_order") * 2 + 1).cast(pl.Int64).alias("row_idx"),
-            (pl.col("_token_order").cast(pl.Float64) + 0.5).alias("_token_order"),
+            pl.when(pl.col("_sep_offset") == 1)
+            .then(pl.lit("[SEP]"))
+            .otherwise(pl.col("code"))
+            .alias("code"),
+            (pl.col("_token_order") * 2 + pl.col("_sep_offset"))
+            .cast(pl.Int64)
+            .alias("row_idx"),
         ]
         for column in ("value_bin", "value_normalized"):
             if column in df.columns:
                 sep_updates.append(
-                    pl.lit(None).cast(df.schema[column]).alias(column)
+                    pl.when(pl.col("_sep_offset") == 1)
+                    .then(pl.lit(None).cast(df.schema[column]))
+                    .otherwise(pl.col(column))
+                    .alias(column)
                 )
         if "value_present" in df.columns:
-            sep_updates.append(pl.lit(False).alias("value_present"))
-        sep_rows = df.filter(
-            (pl.col("segment") != pl.col("segment").shift(-1))
-            & (pl.col("subject_id") == pl.col("subject_id").shift(-1))
-        ).with_columns(sep_updates)
-        df = df.with_columns(pl.col("_token_order").cast(pl.Float64))
-        return pl.concat([df, sep_rows]).sort(
-            ["subject_id", "abspos", "_token_order"], maintain_order=True
-        ).drop("_token_order")
+            sep_updates.append(
+                pl.when(pl.col("_sep_offset") == 1)
+                .then(pl.lit(False))
+                .otherwise(pl.col("value_present"))
+                .alias("value_present")
+            )
+        return df.with_columns(sep_updates).drop(
+            "_token_order", "_insert_sep", "_sep_offset"
+        )
 
     def tokenize(self, codes: pl.Expr) -> pl.Expr:
         """Map self.vocabulary onto codes, mapping unknown codes to [UNK] token"""

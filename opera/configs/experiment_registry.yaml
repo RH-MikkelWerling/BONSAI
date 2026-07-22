@@ -10,7 +10,7 @@ death_outcome: overall_survival
 paths:
   # One shared subject-data store. Cohort membership and outcomes are joined by
   # subject_id at runtime; no subject data are copied into cohort folders.
-  shared_data_dir: ${BONSAI_PROCESSED_DATA}
+  shared_data_dir: ${BONSAI_PROCESSED_DATA}/hematology_all
   cohort_membership_file: ${BONSAI_COHORT_MEMBERSHIP}
   outcomes_dir: ${BONSAI_OUTCOMES_DIR}
   output_root: ${BONSAI_RESULTS_ROOT}/production_sweeps

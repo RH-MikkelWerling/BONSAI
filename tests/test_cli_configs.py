@@ -54,6 +54,9 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
     if config_name == "pretrain":
         assert cfg.paths.dataset_class.endswith("ARPretrainDataset")
         assert cfg.model.causal is True
+        assert cfg.model.value_bin_vocab_size == 0
+        assert cfg.model.value_embedding_mode == "legacy"
+        assert cfg.training.value_regression_loss_weight == 0.0
 
 
 @pytest.mark.parametrize("config_name", OPERA_CONFIGS)

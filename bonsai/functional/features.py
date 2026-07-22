@@ -13,7 +13,6 @@ OPTIONAL_FEATURE_COLUMNS = (
     "value_bin",
     "value_present",
 )
-ORDER_COLUMNS = ("row_idx", "row_id")
 
 
 def create_features(df: pl.DataFrame) -> pl.DataFrame:
@@ -44,11 +43,7 @@ def create_features(df: pl.DataFrame) -> pl.DataFrame:
 
     features = features.with_columns(abspos=compute_abspos(pl.col("time")))
 
-    sort_columns = ["subject_id", "time"]
-    sort_columns.extend(
-        column for column in ORDER_COLUMNS if column in features.columns
-    )
-    features = features.sort(sort_columns).with_columns(
+    features = features.with_columns(
         segment=compute_segments(
             time=pl.col("time"),
             subject_id=pl.col("subject_id"),

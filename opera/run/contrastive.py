@@ -117,6 +117,7 @@ def main(cfg: DictConfig) -> None:
         num_workers=cfg.hardware.num_workers,
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
+        subject_data_paths=cfg.paths.get("subject_data_paths"),
     )
 
     # ── Lightning ────────────────────────────────────────────────────

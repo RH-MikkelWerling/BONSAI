@@ -6,7 +6,9 @@ corebehrt.egg-info/
 .coverage
 coverage.xml
 .pytest_cache/
+.pytest_bayes/
 .ruff_cache/
+.claude/settings*.json
 *_pytest_out.txt
 .azure
 azure_job_config.yaml
@@ -18,6 +20,10 @@ corebehrt/sandbox
 /tmp
 corebehrt/main/create_data_profiling.py
 **tmp**
+test_tmp_*/
+# Large outcome-transfer configs and resolved plans are reproducibly generated
+# from the maintained manifest and experiment registry.
+opera/configs/generated/outcome_transfer/
 linux_install/
 .DS_Store
 *.egg-info/

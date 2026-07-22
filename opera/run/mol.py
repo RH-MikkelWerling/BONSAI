@@ -90,6 +90,7 @@ def main(cfg: DictConfig) -> None:
         require_min_followup_train=True,
         require_min_followup_val=True,
         max_len=encoder_hparams(encoder)["max_seqlen"],
+        subject_data_paths=cfg.paths.get("subject_data_paths"),
     )
 
     # ── Lightning module ─────────────────────────────────────────────

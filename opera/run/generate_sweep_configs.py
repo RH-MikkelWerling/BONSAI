@@ -68,8 +68,7 @@ def validate_registry(registry: dict[str, Any]) -> None:
     )
     if duplicate_family_members:
         raise ValueError(
-            "Outcomes occur in multiple families: "
-            f"{duplicate_family_members}"
+            f"Outcomes occur in multiple families: {duplicate_family_members}"
         )
     missing_families = sorted(set(outcomes) - set(family_members))
     unknown_family_members = sorted(set(family_members) - set(outcomes))
@@ -163,6 +162,9 @@ def _outcomes(
     for outcome in registry["outcomes"]:
         config: dict[str, Any] = {
             "outcome_file": f"{registry['paths']['outcomes_dir']}/{outcome}.parquet",
+            "eligibility_file": (
+                f"{registry['paths']['outcomes_dir']}/{outcome}__audit.parquet"
+            ),
             "n_hours_start_include": 1,
             "n_hours_end_include": (
                 None if horizon_days is None else int(horizon_days) * 24
@@ -178,7 +180,11 @@ def _outcomes(
 
 
 def build_sweep_config(
-    registry: dict[str, Any], *, level: str, training_mode: str, horizon_days: int | None
+    registry: dict[str, Any],
+    *,
+    level: str,
+    training_mode: str,
+    horizon_days: int | None,
 ) -> dict[str, Any]:
     objective = "cox" if training_mode == "cox" else f"ipcw_{horizon_days}d"
     variants = {
@@ -192,7 +198,9 @@ def build_sweep_config(
         "seeds": list(registry["seeds"]),
         "rarity_mode": "none",
         "cohorts": _cohorts(registry, level),
-        "outcomes": _outcomes(registry, training_mode=training_mode, horizon_days=horizon_days),
+        "outcomes": _outcomes(
+            registry, training_mode=training_mode, horizon_days=horizon_days
+        ),
         "model_variants": variants,
     }
 
@@ -208,16 +216,43 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
     return {
         "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
         "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
-        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
         "dataset": "hematology_joint_opera",
         "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
         "dapt_embedding_store": None,
-        "paths": {"vocabulary": "${oc.env:BONSAI_PROCESSED_DATA}/vocabulary.pt"},
+        "paths": {
+            "vocabulary": f"{registry['paths']['shared_data_dir']}/vocabulary.pt"
+        },
         "cohorts": cohorts,
         "outcomes": _adaptation_outcomes(registry),
-        "model": {"projection_hidden_dim": 256, "projection_dim": 128, "temperature": 0.07, "km_time_scale": 0.25, "competing_event_handling": "hard_negative", "competing_event_weight": 0.0, "effective_pair_normalization": True, "freeze_encoder": False, "pooling": "cls_last"},
-        "cross_outcome": {"weighter": "uniform", "aggregation": "macro", "class_balanced": False},
-        "training": {"require_all_configured_cells": True, "require_min_followup_train": False, "batch_size": 128, "accumulate_grad_batches": 2, "epochs": 20, "learning_rate": 5e-5, "encoder_lr_multiplier": 0.1, "optimizer_epsilon": 1e-6, "scheduler_warmup_epochs": 2, "limit_val_batches": 1.0, "limit_train_batches": 1.0},
+        "model": {
+            "projection_hidden_dim": 256,
+            "projection_dim": 128,
+            "temperature": 0.07,
+            "km_time_scale": 0.25,
+            "competing_event_handling": "hard_negative",
+            "competing_event_weight": 0.0,
+            "effective_pair_normalization": True,
+            "freeze_encoder": False,
+            "pooling": "cls_last",
+        },
+        "cross_outcome": {
+            "weighter": "uniform",
+            "aggregation": "macro",
+            "class_balanced": False,
+        },
+        "training": {
+            "require_all_configured_cells": True,
+            "require_min_followup_train": False,
+            "batch_size": 128,
+            "accumulate_grad_batches": 2,
+            "epochs": 20,
+            "learning_rate": 5e-5,
+            "encoder_lr_multiplier": 0.1,
+            "optimizer_epsilon": 1e-6,
+            "scheduler_warmup_epochs": 2,
+            "limit_val_batches": 1.0,
+            "limit_train_batches": 1.0,
+        },
     }
 
 
@@ -226,13 +261,38 @@ def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
     return {
         "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
         "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
-        "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
         "dataset": "hematology_multi_outcome",
         "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
-        "paths": {"dir": "${oc.env:BONSAI_PROCESSED_DATA}", "train_split": "${paths.dir}/subject_data_train.pt", "val_split": "${paths.dir}/subject_data_tuning.pt", "vocabulary": "${paths.dir}/vocabulary.pt", "population": "${oc.env:BONSAI_COHORT_MEMBERSHIP}"},
-        "outcomes": {name: {**cfg, "path": cfg.pop("outcome_file")} for name, cfg in _adaptation_outcomes(registry).items()},
-        "model": {"head_hidden_dim": 128, "head_dropout": 0.1, "freeze_encoder": False, "pooling": "cls_last", "weighting": "equal"},
-        "training": {"batch_size": 64, "accumulate_grad_batches": 2, "epochs": 20, "learning_rate": 5e-5, "encoder_lr_multiplier": 0.1, "optimizer_epsilon": 1e-6, "scheduler_warmup_epochs": 2, "early_stopping_patience": 5, "limit_val_batches": 1.0, "limit_train_batches": 1.0},
+        "paths": {
+            "dir": registry["paths"]["shared_data_dir"],
+            "train_split": "${paths.dir}/subject_data_train.pt",
+            "val_split": "${paths.dir}/subject_data_tuning.pt",
+            "vocabulary": "${paths.dir}/vocabulary.pt",
+            "population": "${oc.env:BONSAI_COHORT_MEMBERSHIP}",
+        },
+        "outcomes": {
+            name: {**cfg, "path": cfg.pop("outcome_file")}
+            for name, cfg in _adaptation_outcomes(registry).items()
+        },
+        "model": {
+            "head_hidden_dim": 128,
+            "head_dropout": 0.1,
+            "freeze_encoder": False,
+            "pooling": "cls_last",
+            "weighting": "equal",
+        },
+        "training": {
+            "batch_size": 64,
+            "accumulate_grad_batches": 2,
+            "epochs": 20,
+            "learning_rate": 5e-5,
+            "encoder_lr_multiplier": 0.1,
+            "optimizer_epsilon": 1e-6,
+            "scheduler_warmup_epochs": 2,
+            "early_stopping_patience": 5,
+            "limit_val_batches": 1.0,
+            "limit_train_batches": 1.0,
+        },
     }
 
 
@@ -285,7 +345,9 @@ def generate_configs(
     }.items():
         path = output / name
         path.write_text(
-            yaml.dump(_hydra_environment(config), Dumper=_NoAliasDumper, sort_keys=False),
+            yaml.dump(
+                _hydra_environment(config), Dumper=_NoAliasDumper, sort_keys=False
+            ),
             encoding="utf-8",
         )
         written.append(path)

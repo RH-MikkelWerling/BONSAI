@@ -1,4 +1,4 @@
-name: opera_through2021_2022_2023plus
+name: opera_through2021_2022to2023_2024plus
 description: Canonical OPERA paper split contract.
 type: prospective
 date_col: index_date
@@ -7,8 +7,8 @@ val_key: tuning
 test_key: held_out
 train_end: "2021-12-31"
 val_start: "2022-01-01"
-val_end: "2022-12-31"
-test_start: "2023-01-01"
+val_end: "2023-12-31"
+test_start: "2024-01-01"
 test_end: null
 patient_level: true
 truncation_policy:

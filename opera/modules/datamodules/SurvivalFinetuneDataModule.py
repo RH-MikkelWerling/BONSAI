@@ -6,8 +6,10 @@ from typing import Optional, Literal
 import torch
 from torch.utils.data import DataLoader
 
-from opera.compat.bonsai import dynamic_padding, filter_subject_data
-from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
+from opera.compat.bonsai import dynamic_padding
+from opera.modules.datamodules.OutcomeFinetuneDataModule import (
+    OutcomeFinetuneDataModule,
+)
 from opera.functional.stratified_sampling import (
     build_coverage_balanced_survival_batch_sampler,
     build_event_aware_batch_sampler,
@@ -40,7 +42,7 @@ def survival_finetune_collate(batch: list[dict]) -> dict:
     return output
 
 
-class SurvivalFinetuneDataModule(FinetuneDataModule):
+class SurvivalFinetuneDataModule(OutcomeFinetuneDataModule):
     """Use ``SurvivalFinetuneDataset`` while preserving BONSAI loaders."""
 
     def __init__(
@@ -61,16 +63,8 @@ class SurvivalFinetuneDataModule(FinetuneDataModule):
         if stage != "fit":
             return super().setup(stage)
 
-        train_data = torch.load(self.path_train_data)
-        val_data = torch.load(self.path_val_data)
-
-        train_data = [
-            sub for sub in train_data if sub["subject_id"] in self.train_outcomes
-        ]
-        val_data = [sub for sub in val_data if sub["subject_id"] in self.val_outcomes]
-
-        train_data = filter_subject_data(train_data, self.population["subject_id"])
-        val_data = filter_subject_data(val_data, self.population["subject_id"])
+        train_data = self._select(self.train_outcomes, "train")
+        val_data = self._select(self.val_outcomes, "tuning")
 
         if not train_data:
             raise ValueError(

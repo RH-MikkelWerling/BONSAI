@@ -46,7 +46,10 @@ from opera.evaluation.outcome_transfer_evaluation import (
     resolve_registry,
 )
 from opera.functional.outcomes import attach_prediction_censor_abspos
-from opera.functional.outcome_transfer import DEFAULT_MANIFEST, resolve_transfer_manifest
+from opera.functional.outcome_transfer import (
+    DEFAULT_MANIFEST,
+    resolve_transfer_manifest,
+)
 
 
 class OutcomeTransferExtractionError(ValueError):
@@ -64,7 +67,11 @@ def _read_checkpoint_metadata(
     checkpoint_payload: Mapping[str, Any],
     metadata_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    source = Path(metadata_path) if metadata_path is not None else checkpoint.parent / "checkpoint_metadata.json"
+    source = (
+        Path(metadata_path)
+        if metadata_path is not None
+        else checkpoint.parent / "checkpoint_metadata.json"
+    )
     if source.exists():
         payload = json.loads(source.read_text(encoding="utf-8"))
         if not isinstance(payload, Mapping):
@@ -78,7 +85,9 @@ def _read_checkpoint_metadata(
             )
         return dict(metadata)
     hparams = checkpoint_payload.get("hyper_parameters", {})
-    metadata = hparams.get("checkpoint_metadata", {}) if isinstance(hparams, Mapping) else {}
+    metadata = (
+        hparams.get("checkpoint_metadata", {}) if isinstance(hparams, Mapping) else {}
+    )
     if metadata and not isinstance(metadata, Mapping):
         raise OutcomeTransferExtractionError(
             f"Checkpoint {checkpoint} has non-mapping checkpoint_metadata."
@@ -86,11 +95,15 @@ def _read_checkpoint_metadata(
     return dict(metadata or {})
 
 
-def _extract_backbone_state_dict(state_dict: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+def _extract_backbone_state_dict(
+    state_dict: Mapping[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
     """Extract native encoder weights from DAPT or OPERA Lightning state dicts."""
     cleaned = clean_lightning_state_dict(dict(state_dict))
     if not cleaned:
-        raise OutcomeTransferExtractionError("Checkpoint contains no model state dictionary.")
+        raise OutcomeTransferExtractionError(
+            "Checkpoint contains no model state dictionary."
+        )
     encoder_prefix = "encoder."
     if any(name.startswith(encoder_prefix) for name in cleaned):
         result = {
@@ -101,8 +114,19 @@ def _extract_backbone_state_dict(state_dict: Mapping[str, torch.Tensor]) -> dict
     else:
         # A DAPT/pretraining Lightning module wraps BonsaiPretrain directly,
         # so its clean state is already a backbone plus pretraining heads.
-        excluded = ("head.", "decoder.", "cls.", "classifier.", "pretrain_head.", "finetune_head.")
-        result = {name: value for name, value in cleaned.items() if not name.startswith(excluded)}
+        excluded = (
+            "head.",
+            "decoder.",
+            "cls.",
+            "classifier.",
+            "pretrain_head.",
+            "finetune_head.",
+        )
+        result = {
+            name: value
+            for name, value in cleaned.items()
+            if not name.startswith(excluded)
+        }
     if not result:
         raise OutcomeTransferExtractionError(
             "Checkpoint did not expose a native encoder namespace."
@@ -138,7 +162,9 @@ def load_frozen_encoder(
     model_config = get_saved_encoder_config(dict(hparams))
     vocabulary = torch.load(vocabulary_file, map_location="cpu", weights_only=False)
     if not isinstance(vocabulary, Mapping):
-        raise OutcomeTransferExtractionError("Vocabulary must be a token-to-ID mapping.")
+        raise OutcomeTransferExtractionError(
+            "Vocabulary must be a token-to-ID mapping."
+        )
     saved_vocab_size = int(model_config.get("vocab_size", -1))
     if saved_vocab_size != len(vocabulary):
         raise OutcomeTransferExtractionError(
@@ -150,7 +176,9 @@ def load_frozen_encoder(
             "attention_backend must be auto, checkpoint, sdpa, or flash."
         )
     if attention_backend == "sdpa" or (
-        attention_backend == "auto" and device.type == "cpu" and saved_attention == "flash"
+        attention_backend == "auto"
+        and device.type == "cpu"
+        and saved_attention == "flash"
     ):
         model_config["attn_type"] = "sdpa"
     elif attention_backend == "flash":
@@ -158,7 +186,9 @@ def load_frozen_encoder(
     # 'auto' on CUDA and 'checkpoint' preserve the saved backend.
     encoder = build_bonsai_encoder(model_config, vocab_size=len(vocabulary))
     try:
-        encoder.load_state_dict(_extract_backbone_state_dict(payload["state_dict"]), strict=True)
+        encoder.load_state_dict(
+            _extract_backbone_state_dict(payload["state_dict"]), strict=True
+        )
     except RuntimeError as exc:
         raise OutcomeTransferExtractionError(
             f"Could not strictly load encoder weights from {checkpoint}: {exc}"
@@ -318,13 +348,13 @@ def _validate_checkpoint_identity(
                 "seed": int(seed),
                 "registry_hash": plan["registry_hash"],
                 "manifest_hash": plan["manifest_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "included_outcomes": list(expected["training_outcomes"]),
                 "excluded_outcomes": list(expected["training_excluded_outcomes"]),
                 "evaluation_outcomes": list(expected["evaluation_outcomes"]),
-                "related_retained_outcomes": list(expected["related_retained_outcomes"]),
+                "related_retained_outcomes": list(
+                    expected["related_retained_outcomes"]
+                ),
                 "direct_dependencies_excluded": list(
                     expected["direct_dependencies_excluded"]
                 ),
@@ -393,11 +423,15 @@ def validate_common_prediction_origins(
     reference_index = reference.set_index("_subject_key")[["split", "index_date"]]
     targets = list(plan.get("evaluation_target_union", []))
     if not targets:
-        raise OutcomeTransferExtractionError("Resolved transfer plan has no evaluation_target_union.")
+        raise OutcomeTransferExtractionError(
+            "Resolved transfer plan has no evaluation_target_union."
+        )
     for target in targets:
         target_frame, _, _ = _filtered_outcome_frame(registry, str(target), membership)
         candidate = target_frame[["_subject_key", "split", "index_date"]].copy()
-        candidate["index_date"] = pd.to_datetime(candidate["index_date"], errors="coerce")
+        candidate["index_date"] = pd.to_datetime(
+            candidate["index_date"], errors="coerce"
+        )
         if candidate["index_date"].isna().any():
             raise OutcomeTransferExtractionError(
                 f"Transfer target {target!r} has missing index_date values."
@@ -414,7 +448,9 @@ def validate_common_prediction_origins(
                 f"Transfer target {target!r} has patients absent from the reference "
                 f"prediction-origin outcome; examples={missing}."
             )
-        same_split = joined["split"].astype(str) == joined["split_reference"].astype(str)
+        same_split = joined["split"].astype(str) == joined["split_reference"].astype(
+            str
+        )
         same_date = joined["index_date"] == joined["index_date_reference"]
         if not (same_split & same_date).all():
             bad = joined.loc[~(same_split & same_date)].head(5)
@@ -426,7 +462,9 @@ def validate_common_prediction_origins(
     return reference
 
 
-def _reference_records(reference: pd.DataFrame, split_key: str) -> dict[int, dict[str, Any]]:
+def _reference_records(
+    reference: pd.DataFrame, split_key: str
+) -> dict[int, dict[str, Any]]:
     selected = reference.loc[reference["split"].astype(str) == str(split_key)].copy()
     records: dict[int, dict[str, Any]] = {}
     for row in selected.itertuples(index=False):
@@ -441,11 +479,15 @@ def _reference_records(reference: pd.DataFrame, split_key: str) -> dict[int, dic
     return records
 
 
-def _pool_cls_last(encoder: torch.nn.Module, batch: Mapping[str, torch.Tensor]) -> torch.Tensor:
+def _pool_cls_last(
+    encoder: torch.nn.Module, batch: Mapping[str, torch.Tensor]
+) -> torch.Tensor:
     hidden = encoder_hidden_state(encoder(batch))
     lengths = batch["attention_mask"].sum(dim=1) - 1
     if torch.any(lengths < 0):
-        raise OutcomeTransferExtractionError("Encountered an empty sequence during extraction.")
+        raise OutcomeTransferExtractionError(
+            "Encountered an empty sequence during extraction."
+        )
     return hidden[
         torch.arange(hidden.size(0), device=hidden.device),
         lengths,
@@ -464,33 +506,44 @@ def extract_shared_split_embeddings(
     num_workers: int,
     device: torch.device,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, int]]:
-    """Apply canonical finetune censor/truncate/pool processing to all splits."""
+    """Pool physical SSL shards, then select temporal outcome splits."""
     if "[CLS]" not in vocabulary:
-        raise OutcomeTransferExtractionError("Vocabulary must contain '[CLS]' for prediction-origin extraction.")
+        raise OutcomeTransferExtractionError(
+            "Vocabulary must contain '[CLS]' for prediction-origin extraction."
+        )
+    from opera.modules.datamodules.OutcomeFinetuneDataModule import load_subject_pool
+
+    physical_paths = list(
+        dict.fromkeys(Path(path) for path in subject_split_paths.values())
+    )
+    for source in physical_paths:
+        if not source.exists():
+            raise FileNotFoundError(
+                f"Physical subject-data shard does not exist: {source}"
+            )
+    try:
+        subject_pool = load_subject_pool([str(path) for path in physical_paths])
+    except ValueError as exc:
+        raise OutcomeTransferExtractionError(str(exc)) from exc
+
     subject_ids: list[np.ndarray] = []
     embeddings: list[np.ndarray] = []
     counts: dict[str, int] = {}
     for split in ("train", "tuning", "held_out"):
-        source = Path(subject_split_paths[split])
-        if not source.exists():
-            raise FileNotFoundError(f"Subject split does not exist: {source}")
         records = _reference_records(reference, str(split_keys[split]))
         if not records:
             raise OutcomeTransferExtractionError(
                 f"Reference outcome has no patients for split {split!r}."
             )
-        loaded = torch.load(source, map_location="cpu", weights_only=False)
-        if not isinstance(loaded, list):
-            raise OutcomeTransferExtractionError(
-                f"Subject split {source} must contain a list of subject dictionaries."
-            )
-        selected = [subject for subject in loaded if int(subject["subject_id"]) in records]
+        selected = [
+            subject for subject in subject_pool if int(subject["subject_id"]) in records
+        ]
         selected_ids = {int(subject["subject_id"]) for subject in selected}
         missing = sorted(set(records) - selected_ids)
         duplicate = len(selected_ids) != len(selected)
         if missing or duplicate:
             raise OutcomeTransferExtractionError(
-                f"Subject split {split!r} does not exactly cover reference-origin patients; "
+                f"Pooled physical shards do not exactly cover temporal split {split!r}; "
                 f"missing={len(missing)} examples={missing[:10]}, duplicates={duplicate}."
             )
         background_length = int((selected[0]["segment"] == 0).sum())
@@ -519,9 +572,13 @@ def extract_shared_split_embeddings(
                 }
                 pooled = _pool_cls_last(encoder, device_batch)
                 split_ids.append(device_batch["subject_id"].detach().cpu().numpy())
-                split_embeddings.append(pooled.detach().cpu().numpy().astype(np.float32))
+                split_embeddings.append(
+                    pooled.detach().cpu().numpy().astype(np.float32)
+                )
         if not split_ids:
-            raise OutcomeTransferExtractionError(f"No batches were emitted for split {split!r}.")
+            raise OutcomeTransferExtractionError(
+                f"No batches were emitted for split {split!r}."
+            )
         split_subject_ids = np.concatenate(split_ids)
         if len(np.unique(split_subject_ids)) != len(split_subject_ids):
             raise OutcomeTransferExtractionError(
@@ -547,18 +604,23 @@ def _subject_paths(args: argparse.Namespace) -> dict[str, Path]:
     }
     if args.subject_data_dir:
         root = Path(args.subject_data_dir)
-        defaults = {
-            "train": root / "subject_data_train.pt",
-            "tuning": root / "subject_data_tuning.pt",
-            "held_out": root / "subject_data_held_out.pt",
+        configured = {
+            "ssl_train": Path(args.train_subject_data)
+            if args.train_subject_data
+            else root / "subject_data_train.pt",
+            "ssl_validation": Path(args.tuning_subject_data)
+            if args.tuning_subject_data
+            else root / "subject_data_tuning.pt",
         }
-        return {name: Path(value) if value else defaults[name] for name, value in explicit.items()}
-    if any(value is None for value in explicit.values()):
+        if args.held_out_subject_data:
+            configured["legacy_third_shard"] = Path(args.held_out_subject_data)
+        return configured
+    supplied = [value for value in explicit.values() if value is not None]
+    if not supplied:
         raise OutcomeTransferExtractionError(
-            "Provide --subject-data-dir or all of --train-subject-data, "
-            "--tuning-subject-data, and --held-out-subject-data."
+            "Provide --subject-data-dir or at least one physical subject-data shard."
         )
-    return {name: Path(value) for name, value in explicit.items()}
+    return {f"physical_{index}": Path(value) for index, value in enumerate(supplied)}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -568,7 +630,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     parser.add_argument("--registry", default=None)
     parser.add_argument("--base-config", default=None)
-    parser.add_argument("--representation", required=True, help="dapt or a resolved OPERA transfer condition.")
+    parser.add_argument(
+        "--representation",
+        required=True,
+        help="dapt or a resolved OPERA transfer condition.",
+    )
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--checkpoint-metadata", default=None)
@@ -592,9 +658,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
-        "--attention-backend", choices=["auto", "checkpoint", "sdpa", "flash"], default="auto"
+        "--attention-backend",
+        choices=["auto", "checkpoint", "sdpa", "flash"],
+        default="auto",
     )
-    parser.add_argument("--output", required=True, help="Output NPZ embedding artifact.")
+    parser.add_argument(
+        "--output", required=True, help="Output NPZ embedding artifact."
+    )
     return parser
 
 
@@ -605,7 +675,10 @@ def main() -> None:
         registry_path=args.registry,
         base_config_path=args.base_config,
     )
-    if args.representation != DAPT_REPRESENTATION and args.representation not in plan["conditions"]:
+    if (
+        args.representation != DAPT_REPRESENTATION
+        and args.representation not in plan["conditions"]
+    ):
         raise OutcomeTransferExtractionError(
             f"representation must be 'dapt' or one of {sorted(plan['conditions'])}."
         )
@@ -633,7 +706,9 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         legacy_full_checkpoint_template=args.legacy_full_checkpoint_template,
     )
-    saved_pooling = checkpoint_metadata.get("_checkpoint_pooling") or checkpoint_metadata.get("pooling")
+    saved_pooling = checkpoint_metadata.get(
+        "_checkpoint_pooling"
+    ) or checkpoint_metadata.get("pooling")
     if saved_pooling not in (None, "cls_last"):
         raise OutcomeTransferExtractionError(
             f"Transfer extraction supports only cls_last pooling; checkpoint records {saved_pooling!r}."
@@ -646,7 +721,9 @@ def main() -> None:
     )
     max_len = int(args.max_len or encoder.hparams["max_seqlen"])
     if max_len <= 0 or args.batch_size <= 0 or args.num_workers < 0:
-        raise OutcomeTransferExtractionError("max-len and batch-size must be positive; num-workers non-negative.")
+        raise OutcomeTransferExtractionError(
+            "max-len and batch-size must be positive; num-workers non-negative."
+        )
     paths = _subject_paths(args)
     subject_ids, embeddings, split_counts = extract_shared_split_embeddings(
         encoder,
@@ -673,7 +750,9 @@ def main() -> None:
             "excluded_outcomes": list(condition["training_excluded_outcomes"]),
             "evaluation_outcomes": list(condition["evaluation_outcomes"]),
             "related_retained_outcomes": list(condition["related_retained_outcomes"]),
-            "direct_dependencies_excluded": list(condition["direct_dependencies_excluded"]),
+            "direct_dependencies_excluded": list(
+                condition["direct_dependencies_excluded"]
+            ),
             "selection_outcomes": list(condition["training_outcomes"]),
             # Contrastive modules sort internal head names, so preserve the
             # canonical plan order in the extraction sidecar and let the
@@ -690,9 +769,7 @@ def main() -> None:
             "checkpoint_hash": file_hash(args.checkpoint),
             "registry_hash": plan["registry_hash"],
             "manifest_hash": plan["manifest_hash"],
-            "base_contrastive_config_hash": plan[
-                "base_contrastive_config_hash"
-            ],
+            "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
             "split_contract": plan["split_contract"],
             "split_contract_hash": plan["split_contract_hash"],
         },
@@ -702,7 +779,9 @@ def main() -> None:
             "checkpoint": str(Path(args.checkpoint)),
             "vocabulary": str(Path(args.vocabulary)),
             "reference_outcome": reference_outcome,
-            "prediction_origin_verified_for_targets": list(plan["evaluation_target_union"]),
+            "prediction_origin_verified_for_targets": list(
+                plan["evaluation_target_union"]
+            ),
             "pooling": "cls_last",
             "encoder_frozen": True,
             "max_len": max_len,
@@ -712,9 +791,7 @@ def main() -> None:
             "embedding_dim": int(embeddings.shape[1]),
             "registry_hash": plan["registry_hash"],
             "manifest_hash": plan["manifest_hash"],
-            "base_contrastive_config_hash": plan[
-                "base_contrastive_config_hash"
-            ],
+            "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
             "split_contract_hash": plan["split_contract_hash"],
         },
     }

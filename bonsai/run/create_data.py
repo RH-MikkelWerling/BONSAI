@@ -13,6 +13,9 @@ from hydra.core.plugins import Plugins
 from bonsai.functional.create_data import process_split
 from bonsai.modules.tokenizer.tokenizer import EHRTokenizer
 from bonsai.functional.subject_data import prepare_subject_data
+from bonsai.functional.meds import resolve_meds_data_dir
+from bonsai.functional.features import compute_abspos
+from datetime import datetime
 
 load_dotenv()
 Plugins.instance().register(DataCreationSearchpathPlugin)
@@ -24,21 +27,32 @@ Plugins.instance().register(DataCreationSearchpathPlugin)
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
-    path_input_dir = Path(cfg.paths.input_dir)
+    meds_root = Path(cfg.paths.input_dir)
+    path_input_dir = resolve_meds_data_dir(meds_root, cfg.splits)
     path_output_dir = Path(cfg.paths.output_dir)
 
     # Initialize tokenizer and vocabulary
     if cfg.tokenizer.vocabulary is not None:
-        vocab = torch.load(path_input_dir / cfg.tokenizer.vocabulary)
+        vocabulary_path = Path(cfg.tokenizer.vocabulary)
+        if not vocabulary_path.is_absolute():
+            vocabulary_path = meds_root / vocabulary_path
+        vocab = torch.load(vocabulary_path)
     else:
         vocab = None
         assert cfg.splits[0] == "train", (
             "First split must be 'train' to build vocabulary before tokenizing other splits"
         )
+    vocabulary_cutoff = cfg.get("vocabulary_cutoff_date")
+    vocabulary_cutoff_abspos = (
+        compute_abspos(datetime(**vocabulary_cutoff))
+        if vocabulary_cutoff is not None
+        else None
+    )
     tokenizer = EHRTokenizer(
         vocabulary=vocab,
         cutoffs=cfg.tokenizer.cutoffs,
         sep_tokens=cfg.tokenizer.sep_tokens,
+        vocabulary_cutoff_abspos=vocabulary_cutoff_abspos,
     )
 
     logging.info("create_data:")

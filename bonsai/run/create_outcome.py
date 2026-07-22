@@ -19,6 +19,7 @@ from bonsai.functional.outcomes import (
     validate_split_integrity,
 )
 from bonsai.modules.hydra.plugins import DataCreationSearchpathPlugin
+from bonsai.functional.meds import resolve_meds_data_dir
 
 load_dotenv()
 Plugins.instance().register(DataCreationSearchpathPlugin)
@@ -30,7 +31,7 @@ Plugins.instance().register(DataCreationSearchpathPlugin)
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
-    input_dir = Path(cfg.paths.input_dir)
+    input_dir = resolve_meds_data_dir(Path(cfg.paths.input_dir), cfg.splits)
     save_path = Path(cfg.paths.save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 

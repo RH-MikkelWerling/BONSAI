@@ -41,5 +41,6 @@ class TestSubjectData(unittest.TestCase):
         self.assertEqual(len(result), 2)
         result_by_subject = {s["subject_id"]: s for s in result}
 
-        self.assertEqual(result_by_subject[1]["code"].tolist(), [10, 12, 11])
+        # ehr2meds owns event ordering; BONSAI preserves the input order.
+        self.assertEqual(result_by_subject[1]["code"].tolist(), [11, 10, 12])
         self.assertEqual(len(result_by_subject[2]["code"]), 1)

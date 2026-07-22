@@ -41,6 +41,10 @@ import pandas as pd
 import lightning as L
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
+from opera.modules.datamodules.OutcomeFinetuneDataModule import (
+    load_subject_pool,
+    resolve_subject_data_paths,
+)
 
 from opera.compat.bonsai import filter_subject_data, binarize_outcomes
 from opera.functional.outcomes import (
@@ -72,7 +76,11 @@ def _eligibility_path(data_dir: str, outcome_config: dict):
 
 def _outcome_path(data_dir: str, outcome_config: dict) -> str:
     """Resolve a global/absolute outcome parquet or legacy cohort-local file."""
-    raw = outcome_config.get("outcome_path") or outcome_config.get("outcome_file") or outcome_config.get("filename")
+    raw = (
+        outcome_config.get("outcome_path")
+        or outcome_config.get("outcome_file")
+        or outcome_config.get("filename")
+    )
     if raw is None:
         raise ValueError("Outcome config requires outcome_path or outcome_file.")
     path = os.path.expandvars(str(raw))
@@ -80,7 +88,9 @@ def _outcome_path(data_dir: str, outcome_config: dict) -> str:
 
 
 def _competing_path(data_dir: str, outcome_config: dict) -> Optional[str]:
-    raw = outcome_config.get("competing_outcome_path") or outcome_config.get("competing_outcome_file")
+    raw = outcome_config.get("competing_outcome_path") or outcome_config.get(
+        "competing_outcome_file"
+    )
     if raw in (None, "", "null"):
         return None
     path = os.path.expandvars(str(raw))
@@ -88,23 +98,37 @@ def _competing_path(data_dir: str, outcome_config: dict) -> Optional[str]:
 
 
 def _read_population(cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
-    path = cohort_cfg.get("population_file", os.path.join(data_dir, "population_full.csv"))
+    path = cohort_cfg.get(
+        "population_file", os.path.join(data_dir, "population_full.csv")
+    )
     path = os.path.expandvars(str(path))
-    population = pd.read_parquet(path) if path.lower().endswith((".parquet", ".pq")) else pd.read_csv(path)
+    population = (
+        pd.read_parquet(path)
+        if path.lower().endswith((".parquet", ".pq"))
+        else pd.read_csv(path)
+    )
     col, value = cohort_cfg.get("cohort_fine_col"), cohort_cfg.get("cohort_fine_value")
     if bool(col) != bool(value):
-        raise ValueError("cohort_fine_col and cohort_fine_value must be provided together.")
+        raise ValueError(
+            "cohort_fine_col and cohort_fine_value must be provided together."
+        )
     if col:
         if col not in population:
             raise ValueError(f"Membership column {col!r} is absent from {path}.")
         population = population[population[col].astype(str) == str(value)].copy()
     if population.empty:
-        raise ValueError(f"No membership rows remain for configured cohort {cohort_cfg!r}.")
+        raise ValueError(
+            f"No membership rows remain for configured cohort {cohort_cfg!r}."
+        )
     return population
 
 
-def _filter_membership(frame: pd.DataFrame, cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
-    return frame[frame["subject_id"].isin(_read_population(cohort_cfg, data_dir)["subject_id"])].copy()
+def _filter_membership(
+    frame: pd.DataFrame, cohort_cfg: dict, data_dir: str
+) -> pd.DataFrame:
+    return frame[
+        frame["subject_id"].isin(_read_population(cohort_cfg, data_dir)["subject_id"])
+    ].copy()
 
 
 def compute_pooled_sorted_event_times(
@@ -126,7 +150,11 @@ def compute_pooled_sorted_event_times(
         for name, ocfg in outcome_configs.items():
             if name in set(cohort_cfg.get("exclude_outcomes", [])):
                 continue
-            if not (ocfg.get("outcome_path") or ocfg.get("outcome_file") or ocfg.get("filename")):
+            if not (
+                ocfg.get("outcome_path")
+                or ocfg.get("outcome_file")
+                or ocfg.get("filename")
+            ):
                 continue
             path = _outcome_path(data_dir, ocfg)
             if not os.path.exists(path):
@@ -197,7 +225,11 @@ def compute_pooled_event_time_probability_grids(
         for name, ocfg in outcome_configs.items():
             if name in set(cohort_cfg.get("exclude_outcomes", [])):
                 continue
-            if not (ocfg.get("outcome_path") or ocfg.get("outcome_file") or ocfg.get("filename")):
+            if not (
+                ocfg.get("outcome_path")
+                or ocfg.get("outcome_file")
+                or ocfg.get("filename")
+            ):
                 if require_all_configured_cells:
                     raise ValueError(
                         f"Configured outcome {name!r} has no outcome_file for "
@@ -398,6 +430,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
+        self._physical_subject_pools: dict[tuple[str, ...], list[dict]] = {}
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
@@ -513,22 +546,24 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 f"'held_out' splits."
             )
         data_dir = cohort_cfg["data_dir"]
-        split_file = os.path.join(
-            data_dir,
-            "subject_data_train.pt" if split == "train" else "subject_data_tuning.pt",
+        subject_paths = resolve_subject_data_paths(
+            data_dir, cohort_cfg.get("subject_data_paths")
         )
-        if not os.path.exists(split_file):
+        if not subject_paths:
             if self.require_all_configured_cells:
                 raise FileNotFoundError(
-                    f"Configured cohort {cohort_name!r} is missing split data: "
-                    f"{split_file}"
+                    f"Configured cohort {cohort_name!r} has no physical "
+                    f"subject-data files under {data_dir}."
                 )
-            print(f"  [{cohort_name}] Missing {split_file}, skipping.")
+            print(f"  [{cohort_name}] Missing physical subject data, skipping.")
             return None
 
         population = _read_population(cohort_cfg, data_dir)
 
-        subjects = torch.load(split_file, weights_only=False)
+        pool_key = tuple(subject_paths)
+        if pool_key not in self._physical_subject_pools:
+            self._physical_subject_pools[pool_key] = load_subject_pool(subject_paths)
+        subjects = self._physical_subject_pools[pool_key]
         subjects = filter_subject_data(subjects, population["subject_id"])
 
         split_key = "train" if split == "train" else "tuning"

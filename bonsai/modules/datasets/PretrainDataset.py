@@ -35,7 +35,7 @@ class PretrainDataset(Dataset):
     def _prepare_subject(self, index: int) -> tuple[dict, dict]:
         subject = clone_subject(self.subjects[index])
         if self.cutoff_date is not None:
-            subject = censor_subject(subject, self.cutoff_date)
+            subject = censor_subject(subject, self.cutoff_date, inclusive=False)
         truncated_subject, truncation_metadata = truncate_subject(
             subject,
             self.max_len,
@@ -213,7 +213,9 @@ class ARPretrainDataset(PretrainDataset):
                 # predicts the following [VAL] scalar. Avoid an additional,
                 # nearly trivial CE target for the shared marker token.
                 if self.val_token_id is None:
-                    raise ValueError("combined_binning requires [VAL] in the vocabulary.")
+                    raise ValueError(
+                        "combined_binning requires [VAL] in the vocabulary."
+                    )
                 value_mask = value_mask & (subject["code"][1:] == self.val_token_id)
                 subject["target_value_mask"] = value_mask
                 subject["target_value_bin"][~value_mask] = -100

@@ -76,6 +76,15 @@ def main(cfg: DictConfig) -> None:
     # ── Vocabulary handling ──────────────────────────────────────────
     base_vocab = torch.load(cfg.paths.vocab)
     old_vocab_size = len(base_vocab)
+    checkpoint_vocab_size = int(model_cfg["vocab_size"])
+    if old_vocab_size != checkpoint_vocab_size:
+        raise ValueError(
+            "DAPT base vocabulary/checkpoint mismatch: "
+            f"paths.vocab has {old_vocab_size} tokens but the checkpoint expects "
+            f"{checkpoint_vocab_size}. For joined lab-bin suffixes, keep "
+            "paths.vocab pointed at the checkpoint's original vocabulary and "
+            "supply the hematology/bin vocabulary through vocab_expansion."
+        )
     expand = cfg.get("expand_vocab", False)
 
     if expand:

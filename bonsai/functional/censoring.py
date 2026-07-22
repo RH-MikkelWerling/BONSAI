@@ -1,4 +1,4 @@
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from typing import Dict, Optional
 import torch
 from bonsai.functional.subject_data import clone_subject
@@ -9,6 +9,7 @@ def censor_subject(
     subject: Dict[str, torch.Tensor],
     censor_date_abspos: float,
     predict_token_id: Optional[int] = None,
+    inclusive: bool = True,
 ) -> Dict:
     """
     Censors a subject's data by truncating all attributes at the censor date,
@@ -17,7 +18,12 @@ def censor_subject(
     subject = clone_subject(subject)
 
     # Find the position where censor_date fits in the sorted abspos list
-    idx = bisect_right(subject["abspos"].numpy(), censor_date_abspos)
+    boundary = subject["abspos"].numpy()
+    idx = (
+        bisect_right(boundary, censor_date_abspos)
+        if inclusive
+        else bisect_left(boundary, censor_date_abspos)
+    )
 
     # Slice everything up to idx
     for embed_name in sequence_tensor_fields(subject):

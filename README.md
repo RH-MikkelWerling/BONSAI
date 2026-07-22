@@ -1,14 +1,16 @@
 # BONSAI / OPERA
 
-BONSAI contains the core EHR data, outcome, pretraining, and finetuning
-pipeline. OPERA adds hematology-specific adaptation, joint finetuning,
-evaluation, aggregation, and paper experiment tooling.
+This branch keeps upstream BONSAI as the foundation-model and generic EHR
+training layer. OPERA is an additive hematology research layer: it owns
+outcome-aware adaptation, survival/IPCW training, prospective evaluation,
+multi-cohort experiments, and paper analyses. Generic behavior stays in
+`bonsai/` only when OPERA genuinely requires a reusable BONSAI capability.
 
 ## Repository Layout
 
 - `bonsai/`: shared data processing, datasets, model modules, and training entry points
 - `opera/`: OPERA adaptation, joint finetuning, evaluation, plotting, and aggregation
-- `bonsai/configs/`: BONSAI data creation, training, and finetuning configs
+- `configs/`: upstream-compatible BONSAI data creation, training, and finetuning configs
 - `opera/configs/`: OPERA finetuning, evaluation, sweep, and manifest configs
 - `tests/`: unit tests for dataset immutability, checkpoint metadata, split logic, metrics, aggregation, and rarity helpers
 - `OPERA_EXPERIMENTS.md`: paper workflow notes and experiment commands
@@ -92,17 +94,44 @@ coverage report
 ## Architecture
 
 ```text
-MEDS-like shards
+ehr2meds MEDS cohort (physical 90/10 SSL partitions)
     -> BONSAI feature creation and tokenization
     -> subject_data_{train,tuning,held_out}.pt
     -> general pretraining / hematology DAPT / OPERA contrastive adaptation
-    -> per-task, survival, hybrid, or joint finetuning
+    -> pool physical subject files
+    -> select outcome train/tuning/held_out by the temporal manifest
+    -> per-task, survival, hybrid, or joint finetuning at index_date
     -> prediction artifacts and validated result.jsonl rows
     -> aggregation, significance analysis, and paper figures
 ```
 
-All supervised model inputs must end at `index_date`. `censor_date` is reserved
-for follow-up eligibility and time-to-event calculations.
+The physical ehr2meds split and the downstream outcome split are deliberately
+different contracts. The physical 90/10 split controls self-supervised fitting
+and numeric metadata; OPERA pools those files and uses outcome parquets as the
+sole authority for prospective train/tuning/held-out membership. All supervised
+model inputs end at `index_date`. `censor_date` is reserved for follow-up
+eligibility and time-to-event calculations.
+
+## First Production Run Contract
+
+Before training on registry data, require all of the following:
+
+- ehr2meds uses a deterministic 90/10 subject split for SSL train/validation.
+- Numeric normalization and bins are fitted only on the 90% SSL-training
+  subjects and events with `time < 2022-01-01`.
+- BONSAI data creation sets
+  `vocabulary_cutoff_date={year:2022,month:1,day:1}`; codes first observed at
+  or after the boundary map to `[UNK]`.
+- General pretraining sets the same exclusive `training.cutoff_date` and uses
+  the 10% SSL validation split for checkpoint selection and early stopping.
+- Outcome parquets pass `opera/configs/manifests/temporal_split.yaml`.
+- Tabular features are generated at the same patient-specific `index_date` as
+  neural inputs and contain no later measurements.
+
+The ehr2meds aggregate-numeric cutoff is an upstream prerequisite; this
+repository cannot infer it safely from annotated event shards without its
+metadata sidecar. Do not start a production run from numeric metadata that
+lacks fitting-cutoff and split provenance.
 
 ## Core Commands
 
@@ -173,23 +202,25 @@ python -m bonsai.run.validate_splits \
   --fail_on_error
 ```
 
-Before launching a stage, validate split labels, subject-data files, DAPT
-inputs, and optional embedding stores together:
+Before launching a stage, validate split labels, coverage across the pooled
+physical subject-data files, DAPT inputs, and optional embedding stores:
 
 ```bash
 python -m opera.run.validate_split_contract \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --subject_data train=/data/dlbcl/subject_data_train.pt \
-  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
-  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
+  --subject_data ssl_train=/data/dlbcl/subject_data_train.pt \
+  --subject_data ssl_validation=/data/dlbcl/subject_data_tuning.pt \
   --fail_on_error
 ```
 
 Bounded-window validation and test labels require sufficient follow-up by
 default. Finetuning runs write `label_split_summary.csv` with retained subjects,
 events, prevalence, and insufficient-follow-up exclusions by split.
-Validation is used for tuning/model selection and should be an explicit
-pre-prospective period; the prospective held-out test period remains separate.
+The locked paper contract is train through 2021, tuning/model selection during
+2022-2023, and one-time held-out evaluation from 2024 onward. General pretraining is
+a separate random 90/10 subject split and must use only events strictly before
+2022. Numeric metadata and vocabulary must be fitted on the 90% SSL-training
+view before being frozen and applied elsewhere.
 
 ## Rarity Analyses
 
@@ -267,6 +298,13 @@ Locked tabular feature matrices can be converted into those prediction files
 with `python -m opera.run.train_tabular_baselines`. TabPFN is supported as an
 optional baseline via `python -m pip install -e ".[tabpfn]"`.
 
+Tabular estimators are fitted only on `train`. Hyperparameters are selected on
+`tuning` by default, tuning predictions are saved as a separate OOT artifact,
+and `held_out` is never folded back into fitting or selection. In low-n/high-p
+cells the candidates use elastic-net logistic regression and shallow,
+column-subsampled, regularized XGBoost. Reproduce the supporting simulation
+with `python -m opera.run.simulate_tabular_low_n --output_dir ...`.
+
 Natural rarity is analysed from the patient-level prediction artifacts with a
 measurement-error-aware Bayesian spline hierarchy. The workflow requires exact
 model/comparator patient and label parity, uses the fixed-horizon eligibility
@@ -290,12 +328,26 @@ Paper-oriented manifests live in `opera/configs/manifests/`:
 - `paper_core.yaml`
 - `supplement.yaml`
 
-They document intended experiment bundles and expected artifacts. They are not a
-job scheduler.
+They document intended experiment bundles and expected artifacts. Executable
+sweep YAMLs are generated from `opera/configs/experiment_registry.yaml`:
 
-See `REPOSITORY_AUDIT.md` for the current ranked engineering and scientific
-findings, including the remaining work needed to make those manifests the
-canonical executable experiment contract.
+```bash
+python -m opera.run.generate_sweep_configs
+python -m opera.run.generate_outcome_transfer_configs
+```
+
+Run `python -m opera.run.check_readiness --help` before production submission;
+the generated configs are execution artifacts, while the registry and manifests
+are the maintained source of truth.
+
+## Upstream BONSAI Policy
+
+`upstream/main` is the reference for the `bonsai/` package. Before a production
+cycle, fetch upstream and review `git diff upstream/main...HEAD -- bonsai configs`.
+OPERA-specific behavior belongs under `opera/`; changes under `bonsai/` should
+be small, tested, and suitable for upstreaming. Generated results, local tool
+settings, test caches, checkpoints, and one-off audit reports are not repository
+source and must remain untracked.
 
 ## Citation
 

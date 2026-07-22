@@ -39,16 +39,16 @@ class TestFeatures(unittest.TestCase):
         self.assertIn("segment", features.columns)
         self.assertEqual(len(features), 6)
 
-    def test_create_features_preserves_value_columns_and_sorts_by_row_idx(self):
+    def test_create_features_preserves_value_columns_and_upstream_order(self):
         event_time = datetime(2000, 1, 2)
         df = pl.DataFrame(
             {
                 "subject_id": [1, 1, 1, 1],
-                "code": ["DOB", "GENDER", "LAB//aux", "LAB//parent"],
+                "code": ["DOB", "GENDER", "LAB//parent", "LAB//aux"],
                 "time": [datetime(2000, 1, 1), None, event_time, event_time],
-                "row_idx": [0, 1, 3, 2],
-                "value_normalized": [None, None, 0.8, 0.3],
-                "value_bin": [None, None, 4, 2],
+                "row_idx": [0, 1, 2, 3],
+                "value_normalized": [None, None, 0.3, 0.8],
+                "value_bin": [None, None, 2, 4],
                 "value_present": [False, False, True, True],
             }
         )

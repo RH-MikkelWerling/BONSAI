@@ -46,10 +46,29 @@ SURVIVAL_MODELS = frozenset({"cox", "xgboost_aft"})
 # Each entry is a list of parameter dicts to evaluate on the validation split.
 # Kept deliberately small so tuning adds little wall-clock overhead.
 TUNING_GRIDS: dict[str, list[dict]] = {
-    "logistic": [{"C": c} for c in (0.01, 0.1, 1.0, 10.0)],
+    # Sparse/elastic-net solutions are substantially more stable than an
+    # effectively unregularized fit when the encoded feature count exceeds n.
+    "logistic": [
+        {"C": c, "l1_ratio": ratio}
+        for c in (0.001, 0.01, 0.1, 1.0)
+        for ratio in (0.0, 0.5, 1.0)
+    ],
     "xgboost": [
-        {"max_depth": d, "learning_rate": lr}
-        for d, lr in ((3, 0.03), (4, 0.05), (5, 0.10))
+        {
+            "learning_rate": 0.03,
+            "max_depth": depth,
+            "min_child_weight": child,
+            "reg_alpha": alpha,
+            "reg_lambda": reg_lambda,
+            "colsample_bytree": colsample,
+        }
+        for depth, child, alpha, reg_lambda, colsample in (
+            (2, 2, 0.5, 5.0, 0.5),
+            (1, 10, 0.0, 10.0, 0.3),
+            (2, 10, 0.5, 10.0, 0.3),
+            (2, 5, 1.0, 10.0, 0.5),
+            (3, 10, 1.0, 20.0, 0.3),
+        )
     ],
 }
 
@@ -219,7 +238,9 @@ def outcome_labels(
         allowed_subject_ids=allowed_subject_ids,
     )
     regime = FIXED_HORIZON_REGIME if require_min_followup else SURVIVAL_REGIME
-    labels = {key: dict(value) for key, value in cohorts.for_regime(regime).records.items()}
+    labels = {
+        key: dict(value) for key, value in cohorts.for_regime(regime).records.items()
+    }
     if ipcw_horizon_hours is not None:
         weights = compute_ipcw_train_weights(labels, horizon_hours=ipcw_horizon_hours)
         for subject_id, weight in weights.items():
@@ -333,7 +354,13 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
     base_model = model_name.removesuffix("_ipcw_bce")
     if base_model == "logistic":
         return LogisticRegression(
-            max_iter=2000, class_weight="balanced", random_state=seed
+            C=0.1,
+            solver="saga",
+            l1_ratio=0.5,
+            max_iter=5000,
+            tol=1e-3,
+            class_weight="balanced",
+            random_state=seed,
         )
     if base_model == "xgboost":
         try:
@@ -345,10 +372,13 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
             ) from exc
         return XGBClassifier(
             n_estimators=500,
-            max_depth=3,
+            max_depth=2,
             learning_rate=0.03,
             subsample=0.9,
-            colsample_bytree=0.9,
+            colsample_bytree=0.5,
+            min_child_weight=2,
+            reg_alpha=0.5,
+            reg_lambda=5.0,
             objective="binary:logistic",
             eval_metric="logloss",
             random_state=seed,
@@ -379,7 +409,9 @@ def tune_estimator_params(
     train_df: "pd.DataFrame",
     val_df: "pd.DataFrame",
     feature_columns: list[str],
+    categorical_columns: Optional[list[str]] = None,
     seed: int = 42,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> dict:
     """Select hyperparameters for *model_name* using a held-out validation split.
 
@@ -404,8 +436,8 @@ def tune_estimator_params(
         DataFrames with columns for *feature_columns* plus a ``"label"``
         integer column.
     feature_columns:
-        Ordered list of numeric feature column names (same convention as the
-        main training path; categorical preprocessing is not applied here).
+        Ordered list of feature columns. The same imputation, scaling, and
+        categorical encoding pipeline used by the final fit is applied here.
     seed:
         Random seed forwarded to estimators.
 
@@ -428,19 +460,36 @@ def tune_estimator_params(
     ):
         return {}
 
-    X_train = train_df[feature_columns].to_numpy(dtype=float)
     y_train = train_df["label"].to_numpy(dtype=int)
-    X_val = val_df[feature_columns].to_numpy(dtype=float)
     y_val = val_df["label"].to_numpy(dtype=int)
 
     best_auroc = -1.0
     best_params: dict = {}
     for params in grid:
-        estimator = make_estimator(base_model, seed)
         try:
+            estimator = make_estimator(base_model, seed)
             estimator.set_params(**params)
-            estimator.fit(X_train, y_train)
-            probs = estimator.predict_proba(X_val)[:, 1]
+            pipeline = Pipeline(
+                [
+                    (
+                        "preprocess",
+                        build_preprocessor(
+                            train_df,
+                            feature_columns,
+                            categorical_columns,
+                            dense_output=False,
+                        ),
+                    ),
+                    ("model", estimator),
+                ]
+            )
+            fit_kwargs = (
+                {"model__sample_weight": sample_weight}
+                if sample_weight is not None
+                else {}
+            )
+            pipeline.fit(train_df[feature_columns], y_train, **fit_kwargs)
+            probs = pipeline.predict_proba(val_df[feature_columns])[:, 1]
             auroc = float(roc_auc_score(y_val, probs))
         except Exception:
             continue
@@ -449,6 +498,29 @@ def tune_estimator_params(
             best_params = dict(params)
 
     return best_params
+
+
+def high_dimensional_diagnostics(
+    train_df: pd.DataFrame,
+    feature_columns: list[str],
+) -> dict:
+    """Describe whether a baseline is operating in a low-n/high-p regime."""
+    n_rows = int(len(train_df))
+    n_features = int(len(feature_columns))
+    ratio = float(n_features / n_rows) if n_rows else float("inf")
+    minority = (
+        int(train_df["label"].value_counts().min())
+        if n_rows and "label" in train_df and train_df["label"].nunique() > 1
+        else 0
+    )
+    return {
+        "n_train_rows": n_rows,
+        "n_raw_features": n_features,
+        "features_per_row": ratio,
+        "minority_class_rows": minority,
+        "low_n_high_p": bool(n_features >= n_rows),
+        "severe_low_n_high_p": bool(n_features >= 5 * max(n_rows, 1)),
+    }
 
 
 def missingness_report(
@@ -683,6 +755,10 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         model not in SURVIVAL_MODELS and not model.endswith("_ipcw_bce")
         for model in requested_models
     )
+    uses_tunable_training = any(
+        model not in SURVIVAL_MODELS and model.removesuffix("_ipcw_bce") in TUNING_GRIDS
+        for model in requested_models
+    )
     uses_survival_training = any(model in SURVIVAL_MODELS for model in requested_models)
     if uses_ipcw_training and args.n_hours_end_include is None:
         raise ValueError("IPCW-BCE tabular training requires --n_hours_end_include.")
@@ -787,28 +863,25 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     )
     # Load the validation split for --tune when requested.
     tune_df: Optional[pd.DataFrame] = None
-    if getattr(args, "tune", False) and uses_binary_training:
-        try:
-            tune_labels = outcome_labels(
-                args.outcome,
-                split=args.tune_split,
-                n_hours_start_include=args.n_hours_start_include,
-                n_hours_end_include=args.n_hours_end_include,
-                require_min_followup=True,
-                competing_outcome_path=args.competing_outcome,
-                registry_start_date=args.registry_start_date,
-                cohort=args.cohort,
-                outcome_name=args.outcome_name,
-                eligibility_path=args.eligibility,
-                allowed_subject_ids=allowed_subject_ids,
-            )
-            tune_df = merge_features_and_labels(features, tune_labels)
-        except Exception as exc:
-            import warnings
-
-            warnings.warn(
-                f"Tuning split {args.tune_split!r} could not be loaded "
-                f"({exc}); falling back to default hyperparameters."
+    if getattr(args, "tune", True) and uses_tunable_training:
+        tune_labels = outcome_labels(
+            args.outcome,
+            split=args.tune_split,
+            n_hours_start_include=args.n_hours_start_include,
+            n_hours_end_include=args.n_hours_end_include,
+            require_min_followup=True,
+            competing_outcome_path=args.competing_outcome,
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
+        )
+        tune_df = merge_features_and_labels(features, tune_labels)
+        if tune_df.empty or tune_df["label"].nunique() < 2:
+            raise ValueError(
+                f"Tuning split {args.tune_split!r} must contain both classes; "
+                "held-out data cannot be used for model selection."
             )
     contract.update(
         {
@@ -825,6 +898,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             else None,
             "train_split": args.train_split,
             "test_split": args.test_split,
+            "tune_split": args.tune_split if tune_df is not None else None,
+            "n_tune_labelled": int(len(tune_df)) if tune_df is not None else None,
+            "high_dimensional": high_dimensional_diagnostics(train_df, feature_columns),
         }
     )
     if uses_binary_training and train_df["label"].nunique() < 2:
@@ -965,7 +1041,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                     train_df=model_train_df,
                     val_df=tune_df,
                     feature_columns=model_feature_columns,
+                    categorical_columns=categorical_columns,
                     seed=args.seed,
+                    sample_weight=sample_weight,
                 )
             predictions, pipeline = train_one_model(
                 model_name=model_name,
@@ -991,6 +1069,17 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         )
         pred_path = output_dir / f"{stem}_predictions.csv"
         predictions.to_csv(pred_path, index=False)
+        tune_pred_path = None
+        if pipeline is not None and tune_df is not None:
+            tune_pred_path = output_dir / f"{stem}_tuning_predictions.csv"
+            pd.DataFrame(
+                {
+                    "subject_id": tune_df["subject_id"].to_numpy(),
+                    "probability": pipeline.predict_proba(
+                        tune_df[model_feature_columns]
+                    )[:, 1].astype(float),
+                }
+            ).to_csv(tune_pred_path, index=False)
         if pipeline is not None:
             write_feature_importance(
                 pipeline,
@@ -1002,9 +1091,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "training_mode": (
                 "survival"
                 if is_survival_model
-                else (
-                    "ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary"
-                )
+                else ("ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary")
             ),
             "evaluation_regime": (
                 SURVIVAL_REGIME if is_survival_model else FIXED_HORIZON_REGIME
@@ -1039,6 +1126,12 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "feature_contract": str(contract_path),
             "missingness_report": str(missingness_path),
             "prediction_file": str(pred_path),
+            "tuning_prediction_file": str(tune_pred_path)
+            if tune_pred_path is not None
+            else None,
+            "fit_split": args.train_split,
+            "selection_split": args.tune_split if tune_df is not None else None,
+            "evaluation_split": args.test_split,
             "registry_start_date": args.registry_start_date,
             "eligibility": args.eligibility,
         }
@@ -1111,7 +1204,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--tune",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Enable validation-based hyperparameter selection for logistic and "
             "xgboost. Uses --tune_split as the validation set. Only the "

@@ -365,6 +365,12 @@ The `subject_ids` in `predictions.npz` must match across all model variants for 
 
 ## 8. Adding a new cohort — checklist
 
+Point `paths.input_dir` at the ehr2meds MEDS cohort root. BONSAI reads event
+shards from `data/{train,tuning,held_out}` and leaves `metadata/` available at
+the same root; the older flat `{split}/` layout remains supported. Finalized
+ehr2meds shards are already ordered by subject, time, and `row_idx`, and BONSAI
+preserves that order rather than sorting the clinical events again.
+
 1. Process EHR data into MEDS format
 2. Run `bonsai.run.create_data` → produces `subject_data_{split}.pt` and `vocabulary.pt`
 3. For each outcome, run `bonsai.run.create_outcome` with an appropriate config → produces `outcomes/{name}.parquet`
@@ -411,18 +417,23 @@ prediction positions and fails before training when they disagree.
 # Numeric combined binning
 
 BONSAI's paper-aligned numeric path is enabled with
-`numeric_value_mode: combined_binning` during data creation. An ehr2meds event
-with `numeric_value_present=true` is expanded into two adjacent positions:
+`numeric_value_mode: combined_binning` during data creation. A valid ehr2meds
+numeric event (non-null `numeric_value_bin`) is expanded into two adjacent
+positions; the clinical code may itself be the joint `LAB_CODE//BIN` token:
 
 ```text
-LAB/CODE, [VAL]
+LAB/CODE//BIN, [VAL]
 ```
 
-The clinical position has no numeric payload. The `[VAL]` position carries
+The joint clinical position supplies the coarse categorical bin. It has no
+numeric payload. The `[VAL]` position carries
 `numeric_value_bin` as `value_bin` and preferentially carries
 `numeric_value_binned` as the model scalar (`value_normalized` is the fallback).
 The normalized bin representative keeps inputs and MSE targets in `[0, 1]`
-across concepts with different bin counts.
+across concepts with different bin counts. Because the causal state at the
+joint code already observes the bin, scalar regression is intentionally a
+bin-conditioned residual-value objective; joint-code-only and scalar-only
+representations remain ablation targets.
 
 With causal pretraining, the hidden state at `LAB/CODE` predicts the scalar at
 the following `[VAL]` position. `[VAL]` is excluded from categorical CE, so the

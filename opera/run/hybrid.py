@@ -139,6 +139,7 @@ def main(cfg: DictConfig) -> None:
         train_sampler=get_sampler(
             weight_fn=cfg.training.sampling_weight_fn, labels=train_labels
         ),
+        subject_data_paths=cfg.paths.get("subject_data_paths"),
     )
 
     # ── Build hybrid model ───────────────────────────────────────────

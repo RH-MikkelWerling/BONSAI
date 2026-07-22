@@ -21,8 +21,8 @@ from opera.evaluation.rarity import (
 SPLIT_CONTRACT = {
     "train_end": "2021-12-31",
     "val_start": "2022-01-01",
-    "val_end": "2022-12-31",
-    "test_start": "2023-01-01",
+    "val_end": "2023-12-31",
+    "test_start": "2024-01-01",
     "test_end": None,
     "date_col": "index_date",
     "train_key": "train",
@@ -66,12 +66,18 @@ def test_task_labels_count_positive_negative_and_indeterminate():
         {
             "subject_id": [1, 2, 3, 4],
             "split": ["train", "train", "held_out", "held_out"],
-            "index_date": pd.to_datetime(["2021-01-01", "2021-01-01", "2023-01-01", "2023-01-01"]),
+            "index_date": pd.to_datetime(
+                ["2021-01-01", "2021-01-01", "2023-01-01", "2023-01-01"]
+            ),
             "outcome_date": pd.to_datetime(["2021-01-10", None, "2023-01-10", None]),
-            "censor_date": pd.to_datetime(["2021-03-01", "2021-03-01", "2023-03-01", "2023-01-15"]),
+            "censor_date": pd.to_datetime(
+                ["2021-03-01", "2021-03-01", "2023-03-01", "2023-01-15"]
+            ),
         }
     )
-    population = pd.DataFrame({"subject_id": [1, 2, 3, 4], "cohort_fine": ["DLBCL"] * 4})
+    population = pd.DataFrame(
+        {"subject_id": [1, 2, 3, 4], "cohort_fine": ["DLBCL"] * 4}
+    )
     labels = build_task_label_table(
         outcomes=outcomes,
         population=population,
@@ -99,10 +105,15 @@ def test_nested_sampling_is_reproducible_unique_and_nested():
     pd.testing.assert_frame_equal(first, second)
     validate_nested_manifest(first)
     train = first[first["split"] == "train"]
-    sets = [set(group["subject_id"]) for _, group in train.groupby("sample_size", sort=True)]
+    sets = [
+        set(group["subject_id"]) for _, group in train.groupby("sample_size", sort=True)
+    ]
     assert sets[0] < sets[1] < sets[2]
     assert not first.duplicated(["sample_size", "seed", "split", "subject_id"]).any()
-    assert patient_id_hash(sets[0]) == first[first["sample_size"] == 20]["patient_id_hash"].iloc[0]
+    assert (
+        patient_id_hash(sets[0])
+        == first[first["sample_size"] == 20]["patient_id_hash"].iloc[0]
+    )
 
 
 def test_infeasible_and_one_class_levels_are_logged():
@@ -116,7 +127,12 @@ def test_infeasible_and_one_class_levels_are_logged():
 
 
 def test_absolute_and_percentage_sample_sizes_are_deduplicated():
-    assert resolve_sample_sizes(1000, [100, 250, 5000], [0.1, 0.5]) == [100, 250, 500, 1000]
+    assert resolve_sample_sizes(1000, [100, 250, 5000], [0.1, 0.5]) == [
+        100,
+        250,
+        500,
+        1000,
+    ]
 
 
 def test_task_eligibility_uses_prespecified_counts_only():
@@ -205,7 +221,9 @@ def _prediction_frame(offset=0.0):
         {
             "subject_id": np.repeat(np.arange(10), 2),
             "label": np.repeat([0, 1] * 5, 2),
-            "probability": np.clip(np.repeat(np.linspace(0.05, 0.95, 10), 2) + offset, 0.001, 0.999),
+            "probability": np.clip(
+                np.repeat(np.linspace(0.05, 0.95, 10), 2) + offset, 0.001, 0.999
+            ),
         }
     )
 
@@ -216,7 +234,9 @@ def test_bootstrap_is_patient_clustered_and_reproducible():
     second = bootstrap_metric_table(predictions, n_bootstrap=40, seed=3)
     pd.testing.assert_frame_equal(first, second)
     assert set(first["n_test_patients"]) == {10}
-    assert {"auroc", "auprc", "pr_skill", "brier_skill", "log_loss"}.issubset(first["metric"])
+    assert {"auroc", "auprc", "pr_skill", "brier_skill", "log_loss"}.issubset(
+        first["metric"]
+    )
 
 
 def test_paired_bootstrap_and_fixed_test_parity():

@@ -55,5 +55,5 @@ model:
   bias: false
   causal: true
   attn_type: flash
-  value_bin_vocab_size: 1
-  value_embedding_mode: combined_binning
+  value_bin_vocab_size: 0
+  value_embedding_mode: legacy

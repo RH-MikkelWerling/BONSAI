@@ -36,6 +36,7 @@ from opera.evaluation.cohorts import (
     population_subject_strata,
 )
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
+from opera.modules.datamodules.OutcomeFinetuneDataModule import load_subject_pool
 
 from opera.evaluation.metrics import (
     compute_macro_stratified_concordance,
@@ -309,7 +310,7 @@ def main(cfg: DictConfig) -> None:
     full_fu_sids = evaluation_cohorts.fixed_horizon.subject_ids
 
     # Build dataset / loader over ALL test patients
-    test_data = torch.load(cfg.paths.test_split)
+    test_data = load_subject_pool(cfg.paths.subject_data_paths)
     # Optional fine-cohort subsetting for train-on-grouped / eval-on-fine.
     if cohort_fine_col and cohort_fine_value:
         print(
@@ -322,7 +323,7 @@ def main(cfg: DictConfig) -> None:
     if not test_data:
         raise ValueError(
             "No test subjects remain after filtering to outcome labels and "
-            "population membership. Check paths.test_split, paths.population, "
+            "population membership. Check paths.subject_data_paths, paths.population, "
             f"paths.outcome={cfg.paths.outcome}, and test_key={test_key!r}."
         )
 

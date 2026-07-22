@@ -34,6 +34,10 @@ class TestCensoring(unittest.TestCase):
         for k in self.subject:
             self.assertTrue(torch.equal(censored[k], self.subject[k]))
 
+    def test_censor_subject_supports_exclusive_pretraining_boundary(self):
+        censored = censor_subject(self.subject, censor_date_abspos=40, inclusive=False)
+        self.assertTrue(torch.equal(censored["code"], torch.tensor([1, 2, 3])))
+
     def test_censor_subject_with_predict_token(self):
         subj = {k: v.clone() for k, v in self.subject.items()}
         predict_token_id = 99

@@ -236,10 +236,12 @@ class ContrastiveDataModule(L.LightningDataModule):
         require_min_followup_val: bool = False,
         max_len: int = 8192,
         batch_sampling: Optional[Dict[str, object]] = None,
+        subject_data_paths: Optional[List[str]] = None,
     ):
         super().__init__()
         self.path_train_data = path_train_data
         self.path_val_data = path_val_data
+        self.subject_data_paths = subject_data_paths
         self.population = (
             pd.read_parquet(path_population)
             if str(path_population).lower().endswith((".parquet", ".pq"))
@@ -308,8 +310,17 @@ class ContrastiveDataModule(L.LightningDataModule):
         if stage != "fit":
             raise NotImplementedError(f"Stage {stage} not supported.")
 
-        train_data = torch.load(self.path_train_data)
-        val_data = torch.load(self.path_val_data)
+        from opera.modules.datamodules.OutcomeFinetuneDataModule import (
+            load_subject_pool,
+            resolve_subject_data_paths,
+        )
+
+        paths = resolve_subject_data_paths(
+            Path(self.path_train_data).parent, self.subject_data_paths
+        )
+        subject_pool = load_subject_pool(paths)
+        train_data = subject_pool
+        val_data = subject_pool
 
         train_data = filter_subject_data(train_data, self.population["subject_id"])
         val_data = filter_subject_data(val_data, self.population["subject_id"])

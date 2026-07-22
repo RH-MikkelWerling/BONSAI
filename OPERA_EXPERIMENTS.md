@@ -17,6 +17,11 @@ prospective_split:
 parquet. The summary records split counts, index-date ranges, and observed
 events.
 
+The prospective outcome split is independent of ehr2meds' random physical
+train/tuning partition. OPERA pools physical subject-data files before applying
+outcome membership, so patients are not dropped because their SSL partition
+name differs from their downstream temporal split.
+
 Validate a generated outcome file before training:
 
 ```bash
@@ -35,11 +40,10 @@ DAPT inputs, and optional DAPT embedding stores against the same contract:
 ```bash
 python -m opera.run.validate_split_contract \
   --outcome /data/dlbcl/outcomes/mortality.parquet \
-  --subject_data train=/data/dlbcl/subject_data_train.pt \
-  --subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
-  --subject_data held_out=/data/dlbcl/subject_data_held_out.pt \
-  --dapt_subject_data train=/data/dlbcl/subject_data_train.pt \
-  --dapt_subject_data tuning=/data/dlbcl/subject_data_tuning.pt \
+  --subject_data ssl_train=/data/dlbcl/subject_data_train.pt \
+  --subject_data ssl_validation=/data/dlbcl/subject_data_tuning.pt \
+  --dapt_subject_data ssl_train=/data/dlbcl/subject_data_train.pt \
+  --dapt_subject_data ssl_validation=/data/dlbcl/subject_data_tuning.pt \
   --embedding_store /results/dapt_embeddings.pt \
   --fail_on_error
 ```
@@ -283,6 +287,25 @@ columns are treated as candidate features unless excluded with
 `--exclude_columns`. Numeric features are median-imputed with missingness
 indicators, categorical features keep missingness as a category, and each run
 writes a feature-missingness report.
+
+Binary tabular models fit only the temporal `train` rows. Tuning is enabled by
+default on `tuning` (2022-2023), and each run saves separate tuning predictions
+before writing the untouched `held_out` (2024+) predictions. Use `--no-tune`
+only for an explicitly prespecified, non-selected ablation.
+
+For low-n/high-p cells, run both `logistic` and `xgboost`. The logistic grid
+includes ridge, elastic-net, and sparse fits; the XGBoost grid uses shallow
+trees, column subsampling, minimum child support, and L1/L2 regularization. An
+illustrative simulation with 100-500 training rows and 500-2,000 features found
+that sparse logistic regression consistently improved on ridge, while the
+regularized XGBoost profile retained essentially the same AUROC as the former
+profile with better held-out log loss. Reproduce and extend it with:
+
+```bash
+python -m opera.run.simulate_tabular_low_n \
+  --output_dir /results/simulations/tabular_low_n \
+  --repeats 20
+```
 
 TabPFN can be run as an optional baseline in an environment with the optional
 extra installed:

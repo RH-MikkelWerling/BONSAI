@@ -55,8 +55,8 @@ def test_same_time_row_order_and_value_adjacency_survive_sep_insertion():
         {
             "subject_id": [1, 1, 1],
             "time": [datetime(2025, 1, 2)] * 3,
-            "code": ["LATE", "LAB/A", "EARLY"],
-            "row_idx": [30, 20, 10],
+            "code": ["EARLY", "LAB/A", "LATE"],
+            "row_idx": [10, 20, 30],
             "numeric_value_bin": [None, 2, None],
             "numeric_value_binned": [None, 0.4, None],
             "numeric_value_present": [False, True, False],
@@ -77,4 +77,26 @@ def test_same_time_row_order_and_value_adjacency_survive_sep_insertion():
         "[VAL]",
         "[SEP]",
         "LATE",
+    ]
+
+
+def test_hot_vocabulary_excludes_codes_at_or_after_cutoff():
+    tokenizer = EHRTokenizer(sep_tokens=False, vocabulary_cutoff_abspos=2.0)
+    features = pl.DataFrame(
+        {
+            "subject_id": [1, 1, 1],
+            "code": ["PAST", "AT_CUTOFF", "FUTURE"],
+            "abspos": [1.0, 2.0, 3.0],
+            "segment": [0, 1, 2],
+        }
+    )
+
+    result = tokenizer(features)
+
+    assert "PAST" in tokenizer.vocabulary
+    assert "AT_CUTOFF" not in tokenizer.vocabulary
+    assert "FUTURE" not in tokenizer.vocabulary
+    assert result["code"].to_list()[1:] == [
+        tokenizer.vocabulary["[UNK]"],
+        tokenizer.vocabulary["[UNK]"],
     ]

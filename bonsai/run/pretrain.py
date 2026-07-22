@@ -3,7 +3,7 @@ import lightning as L
 from dotenv import load_dotenv
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import get_class
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
@@ -92,13 +92,24 @@ def main(cfg: DictConfig) -> None:
         },
     )
 
+    callbacks = [ckpt_callback]
+    if cfg.training.get("early_stopping_patience"):
+        callbacks.append(
+            EarlyStopping(
+                monitor="val/loss",
+                mode="min",
+                patience=int(cfg.training.early_stopping_patience),
+                min_delta=float(cfg.training.get("early_stopping_min_delta", 0.0)),
+            )
+        )
+
     trainer = L.Trainer(
         accelerator=cfg.hardware.accelerator,
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
         devices=cfg.hardware.num_devices,
         limit_val_batches=cfg.training.limit_val_batches,
         limit_train_batches=cfg.training.limit_train_batches,
-        callbacks=[ckpt_callback],
+        callbacks=callbacks,
         logger=[logger],
         max_epochs=cfg.training.epochs,
         num_nodes=cfg.hardware.num_nodes,

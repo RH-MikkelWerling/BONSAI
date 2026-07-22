@@ -156,9 +156,9 @@ def _plot_smoothed_trend(
 
 def _synthetic_trend_frame(group: pd.DataFrame) -> pd.DataFrame:
     trend_data = group.copy()
-    trend_data["training_percent"] = pd.to_numeric(
-        trend_data["training_fraction"], errors="coerce"
-    ) * 100.0
+    trend_data["training_percent"] = (
+        pd.to_numeric(trend_data["training_fraction"], errors="coerce") * 100.0
+    )
     return trend_data
 
 
@@ -460,15 +460,20 @@ def plot_synthetic_learning_curves(
         group = group.sort_values("sample_size")
         color = model_color(model)
         ax.plot(
-            group["sample_size"], group["macro_mean"], marker="o",
-            color=color, label=model_label(model),
+            group["sample_size"],
+            group["macro_mean"],
+            marker="o",
+            color=color,
+            label=model_label(model),
         )
         if {"ci_lower", "ci_upper"}.issubset(group.columns):
             ax.fill_between(
                 group["sample_size"].astype(float),
                 group["ci_lower"].astype(float),
                 group["ci_upper"].astype(float),
-                color=color, alpha=0.16, linewidth=0,
+                color=color,
+                alpha=0.16,
+                linewidth=0,
             )
     if not data.empty and (data["sample_size"] > 0).all():
         ax.set_xscale("log")
@@ -491,20 +496,29 @@ def plot_relative_benefit_curve(
     setup_style()
     fig, ax = plt.subplots(figsize=FIG_FULL)
     data = summary[summary["metric"] == metric].copy() if not summary.empty else summary
-    if data.empty or not {"model", "comparator", "sample_size", "macro_mean"}.issubset(data.columns):
+    if data.empty or not {"model", "comparator", "sample_size", "macro_mean"}.issubset(
+        data.columns
+    ):
         save_fig(fig, save_path)
         return fig
     for (model, comparator), group in data.groupby(["model", "comparator"]):
         group = group.sort_values("sample_size")
         color = model_color(model)
         ax.plot(
-            group["sample_size"], group["macro_mean"], marker="o", color=color,
+            group["sample_size"],
+            group["macro_mean"],
+            marker="o",
+            color=color,
             label=f"{model_label(model)} - {model_label(comparator)}",
         )
         if {"ci_lower", "ci_upper"}.issubset(group.columns):
             ax.fill_between(
-                group["sample_size"].astype(float), group["ci_lower"].astype(float),
-                group["ci_upper"].astype(float), color=color, alpha=0.16, linewidth=0,
+                group["sample_size"].astype(float),
+                group["ci_lower"].astype(float),
+                group["ci_upper"].astype(float),
+                color=color,
+                alpha=0.16,
+                linewidth=0,
             )
     _finish_delta_axis(ax)
     if not data.empty and (data["sample_size"] > 0).all():
@@ -524,7 +538,9 @@ def plot_natural_viability_heatmap(
 ) -> plt.Figure:
     """Show test-event counts and natural-task viability for every task."""
     setup_style()
-    if eligibility.empty or not {"cohort_fine", "outcome"}.issubset(eligibility.columns):
+    if eligibility.empty or not {"cohort_fine", "outcome"}.issubset(
+        eligibility.columns
+    ):
         fig, _ = plt.subplots(figsize=FIG_FULL)
         save_fig(fig, save_path)
         return fig
@@ -536,20 +552,35 @@ def plot_natural_viability_heatmap(
     for row in eligibility.itertuples(index=False):
         i, j = diagnoses.index(row.cohort_fine), outcomes.index(row.outcome)
         values[i, j] = tier_value.get(row.natural_viability_tier, 0)
-        annotations[i, j] = f"{int(row.n_test_positive)} events\n{row.natural_viability_tier}"
+        annotations[i, j] = (
+            f"{int(row.n_test_positive)} events\n{row.natural_viability_tier}"
+        )
     width = max(5.5, 1.4 * len(outcomes))
     height = max(4.0, 0.42 * len(diagnoses))
     fig, ax = plt.subplots(figsize=(width, height))
     from matplotlib.colors import ListedColormap
 
-    image = ax.imshow(values, aspect="auto", cmap=ListedColormap(["#EEEEEE", "#F2C66D", "#4C9F70"]), vmin=0, vmax=2)
+    image = ax.imshow(
+        values,
+        aspect="auto",
+        cmap=ListedColormap(["#EEEEEE", "#F2C66D", "#4C9F70"]),
+        vmin=0,
+        vmax=2,
+    )
     del image
     for i in range(len(diagnoses)):
         for j in range(len(outcomes)):
-            ax.text(j, i, annotations[i, j], ha="center", va="center", fontsize=NOTE_SIZE)
-    ax.set_xticks(range(len(outcomes)), [v.replace("_", " ") for v in outcomes], rotation=30, ha="right")
+            ax.text(
+                j, i, annotations[i, j], ha="center", va="center", fontsize=NOTE_SIZE
+            )
+    ax.set_xticks(
+        range(len(outcomes)),
+        [v.replace("_", " ") for v in outcomes],
+        rotation=30,
+        ha="right",
+    )
     ax.set_yticks(range(len(diagnoses)), diagnoses)
-    ax.set_title("Natural rarity task viability (fixed 2023+ test set)")
+    ax.set_title("Natural rarity task viability (fixed 2024+ test set)")
     ax.set_xlabel("Outcome")
     ax.set_ylabel("Fine diagnosis")
     fig.tight_layout()
@@ -566,8 +597,17 @@ def plot_natural_rarity_scatter(
     """Plot paired natural-task benefit without pooling task definitions."""
     setup_style()
     fig, ax = plt.subplots(figsize=FIG_FULL)
-    data = differences[differences["metric"] == metric].copy() if not differences.empty else differences
-    required = {"outcome", "difference", "n_train_determinate", "natural_viability_tier"}
+    data = (
+        differences[differences["metric"] == metric].copy()
+        if not differences.empty
+        else differences
+    )
+    required = {
+        "outcome",
+        "difference",
+        "n_train_determinate",
+        "natural_viability_tier",
+    }
     if data.empty or not required.issubset(data.columns):
         save_fig(fig, save_path)
         return fig
@@ -576,15 +616,22 @@ def plot_natural_rarity_scatter(
         marker = "o"
         main = group[group["natural_viability_tier"] == "primary"]
         aggregate = group[group["natural_viability_tier"] == "aggregate_only"]
-        for subset, fill, suffix in ((main, color, ""), (aggregate, "white", " (aggregate only)")):
+        for subset, fill, suffix in (
+            (main, color, ""),
+            (aggregate, "white", " (aggregate only)"),
+        ):
             if subset.empty:
                 continue
             lower = subset["difference"] - subset["difference_ci_lower"]
             upper = subset["difference_ci_upper"] - subset["difference"]
             ax.errorbar(
-                subset["n_train_determinate"], subset["difference"],
-                yerr=[lower.clip(lower=0), upper.clip(lower=0)], fmt=marker,
-                color=color, markerfacecolor=fill, capsize=2.5,
+                subset["n_train_determinate"],
+                subset["difference"],
+                yerr=[lower.clip(lower=0), upper.clip(lower=0)],
+                fmt=marker,
+                color=color,
+                markerfacecolor=fill,
+                capsize=2.5,
                 label=outcome.replace("_", " ") + suffix,
             )
     _finish_delta_axis(ax)
@@ -613,12 +660,18 @@ def plot_diagnosis_learning_curves(
     if metrics.empty or not required.issubset(metrics.columns):
         save_fig(fig, save_path)
         return fig
-    data = metrics[(metrics["cohort_fine"] == cohort_fine) & (metrics["metric"] == metric)]
-    summary = data.groupby(["outcome", "model", "sample_size"], as_index=False)["estimate"].mean()
+    data = metrics[
+        (metrics["cohort_fine"] == cohort_fine) & (metrics["metric"] == metric)
+    ]
+    summary = data.groupby(["outcome", "model", "sample_size"], as_index=False)[
+        "estimate"
+    ].mean()
     for (outcome, model), group in summary.groupby(["outcome", "model"]):
         group = group.sort_values("sample_size")
         ax.plot(
-            group["sample_size"], group["estimate"], marker="o",
+            group["sample_size"],
+            group["estimate"],
+            marker="o",
             color=model_color(model),
             linestyle="-" if hash(outcome) % 2 else "--",
             label=f"{model_label(model)} | {outcome.replace('_', ' ')}",
@@ -644,22 +697,42 @@ def plot_combined_rarity_experiment(
     """Adjacent panels; synthetic and natural observations are never pooled."""
     setup_style()
     fig, (ax_syn, ax_nat) = plt.subplots(1, 2, figsize=(9.8, 3.8))
-    syn = synthetic[synthetic["metric"] == metric] if not synthetic.empty and "metric" in synthetic else pd.DataFrame()
+    syn = (
+        synthetic[synthetic["metric"] == metric]
+        if not synthetic.empty and "metric" in synthetic
+        else pd.DataFrame()
+    )
     if not syn.empty:
         for (model, comparator), group in syn.groupby(["model", "comparator"]):
             group = group.sort_values("sample_size")
-            ax_syn.plot(group["sample_size"], group["macro_mean"], marker="o", color=model_color(model), label=f"{model_label(model)} - {model_label(comparator)}")
+            ax_syn.plot(
+                group["sample_size"],
+                group["macro_mean"],
+                marker="o",
+                color=model_color(model),
+                label=f"{model_label(model)} - {model_label(comparator)}",
+            )
     _finish_delta_axis(ax_syn)
     ax_syn.set_xscale("log")
     ax_syn.set_title("Controlled synthetic rarity")
     ax_syn.set_xlabel("Sampled target labels")
     ax_syn.set_ylabel(f"Paired {metric.replace('_', ' ')} benefit")
 
-    nat = natural[natural["metric"] == metric] if not natural.empty and "metric" in natural else pd.DataFrame()
+    nat = (
+        natural[natural["metric"] == metric]
+        if not natural.empty and "metric" in natural
+        else pd.DataFrame()
+    )
     if not nat.empty:
         for outcome, group in nat.groupby("outcome"):
             color = CATEGORICAL[hash(outcome) % len(CATEGORICAL)]
-            ax_nat.scatter(group["n_train_determinate"], group["difference"], color=color, alpha=0.82, label=outcome.replace("_", " "))
+            ax_nat.scatter(
+                group["n_train_determinate"],
+                group["difference"],
+                color=color,
+                alpha=0.82,
+                label=outcome.replace("_", " "),
+            )
     _finish_delta_axis(ax_nat)
     ax_nat.set_xscale("log")
     ax_nat.set_title("Naturally occurring rarity")
@@ -668,7 +741,14 @@ def plot_combined_rarity_experiment(
     handles, labels = ax_syn.get_legend_handles_labels()
     handles2, labels2 = ax_nat.get_legend_handles_labels()
     if handles or handles2:
-        fig.legend(handles + handles2, labels + labels2, frameon=False, fontsize=LEGEND_SIZE, loc="lower center", ncol=3)
+        fig.legend(
+            handles + handles2,
+            labels + labels2,
+            frameon=False,
+            fontsize=LEGEND_SIZE,
+            loc="lower center",
+            ncol=3,
+        )
         fig.tight_layout(rect=(0, 0.14, 1, 1))
     else:
         fig.tight_layout()
@@ -689,29 +769,37 @@ def write_rarity_experiment_plots(
     """Regenerate the publication figures entirely from cached tables."""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    plot_natural_viability_heatmap(eligibility, str(output / "natural_viability_heatmap.png"))
+    plot_natural_viability_heatmap(
+        eligibility, str(output / "natural_viability_heatmap.png")
+    )
     diagnosis_dir = output / "diagnosis_learning_curves"
     if not synthetic_metrics.empty and "cohort_fine" in synthetic_metrics:
         for diagnosis in sorted(synthetic_metrics["cohort_fine"].dropna().unique()):
             plot_diagnosis_learning_curves(
-                synthetic_metrics, cohort_fine=diagnosis,
+                synthetic_metrics,
+                cohort_fine=diagnosis,
                 save_path=str(diagnosis_dir / f"{diagnosis}_auroc.png"),
             )
     for metric in metrics:
         plot_synthetic_learning_curves(
-            synthetic_summary, metric=metric,
+            synthetic_summary,
+            metric=metric,
             save_path=str(output / f"synthetic_learning_curve_{metric}.png"),
         )
         plot_relative_benefit_curve(
-            synthetic_difference_summary, metric=metric,
+            synthetic_difference_summary,
+            metric=metric,
             save_path=str(output / f"synthetic_relative_benefit_{metric}.png"),
         )
         plot_natural_rarity_scatter(
-            natural_differences, metric=metric,
+            natural_differences,
+            metric=metric,
             save_path=str(output / f"natural_rarity_scatter_{metric}.png"),
         )
         plot_combined_rarity_experiment(
-            synthetic_difference_summary, natural_differences, metric=metric,
+            synthetic_difference_summary,
+            natural_differences,
+            metric=metric,
             save_path=str(output / f"combined_synthetic_natural_{metric}.png"),
         )
 
@@ -769,7 +857,9 @@ def plot_rarity_delta(
         tier = str(row.get("rarity_tier", "unknown"))
         color = CATEGORICAL[hash(tier) % len(CATEGORICAL)]
         ax.scatter(i, row["delta"], color=color, s=38, zorder=3)
-        ax.text(i, row["delta"], row["label"], fontsize=ANNOT_SIZE, ha="center", va="bottom")
+        ax.text(
+            i, row["delta"], row["label"], fontsize=ANNOT_SIZE, ha="center", va="bottom"
+        )
     ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.9)
     ax.set_xlabel(
         f"Cohort-outcome cells sorted by {_rarity_x_label(rarity_col).lower()}"

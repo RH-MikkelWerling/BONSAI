@@ -27,8 +27,10 @@ from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 from bonsai.functional.pathing import get_experiment_output_path
-from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
+from opera.modules.datamodules.OutcomeFinetuneDataModule import (
+    OutcomeFinetuneDataModule,
+)
 from opera.modules.networks.linear_probe_net import BonsaiLinearProbe
 from bonsai.functional.outcomes import (
     save_binarized_split_summary,
@@ -110,14 +112,15 @@ def build_finetune_data_module(
     val_outcomes: dict,
     test_outcomes: dict,
     train_labels: list[int],
-) -> FinetuneDataModule:
+) -> OutcomeFinetuneDataModule:
     """Construct the datamodule exactly as the finetune runner uses it."""
-    return FinetuneDataModule(
+    return OutcomeFinetuneDataModule(
         batch_size=cfg.training.batch_size,
         num_workers=cfg.hardware.num_workers,
         path_train_data=cfg.paths.train_split,
         path_val_data=cfg.paths.val_split,
         path_predict_data=cfg.paths.get("test_split"),
+        subject_data_paths=cfg.paths.get("subject_data_paths"),
         path_population=cfg.paths.population,
         train_outcomes=train_outcomes,
         val_outcomes=val_outcomes,
@@ -170,7 +173,9 @@ def main(cfg: DictConfig) -> None:
     if membership_ids is not None:
         outcomes = outcomes[outcomes["subject_id"].isin(membership_ids)].copy()
     if outcomes.empty:
-        raise ValueError("No eligible outcome rows remain after cohort membership filtering.")
+        raise ValueError(
+            "No eligible outcome rows remain after cohort membership filtering."
+        )
 
     competing_df = None
     competing_path = cfg.paths.get("competing_outcome")

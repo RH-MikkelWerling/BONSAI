@@ -2,7 +2,8 @@
 DataModule for the hybrid experiment (EHR embeddings + RKKP tabular features).
 """
 
-from typing import Literal, Dict, List
+from pathlib import Path
+from typing import Literal, Dict, List, Optional
 import pandas as pd
 import lightning as L
 import torch
@@ -34,10 +35,12 @@ class HybridDataModule(L.LightningDataModule):
         batch_size: int,
         num_workers: int,
         train_sampler=None,
+        subject_data_paths: Optional[List[str]] = None,
     ):
         super().__init__()
         self.path_train_data = path_train_data
         self.path_val_data = path_val_data
+        self.subject_data_paths = subject_data_paths
         self.population = pd.read_csv(path_population)
         self.tabular_df = pd.read_parquet(path_tabular)
         self.feature_columns = feature_columns
@@ -54,8 +57,17 @@ class HybridDataModule(L.LightningDataModule):
         if stage != "fit":
             raise NotImplementedError
 
-        train_data = torch.load(self.path_train_data)
-        val_data = torch.load(self.path_val_data)
+        from opera.modules.datamodules.OutcomeFinetuneDataModule import (
+            load_subject_pool,
+            resolve_subject_data_paths,
+        )
+
+        paths = resolve_subject_data_paths(
+            Path(self.path_train_data).parent, self.subject_data_paths
+        )
+        subject_pool = load_subject_pool(paths)
+        train_data = subject_pool
+        val_data = subject_pool
 
         train_data = [s for s in train_data if s["subject_id"] in self.train_outcomes]
         val_data = [s for s in val_data if s["subject_id"] in self.val_outcomes]

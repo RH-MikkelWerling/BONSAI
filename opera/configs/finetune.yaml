@@ -23,6 +23,11 @@ paths:
   dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
   train_split: ${paths.dir}/subject_data_train.pt
   val_split: ${paths.dir}/subject_data_tuning.pt
+  # Physical ehr2meds SSL partitions are pooled before outcome-defined OOT
+  # train/tuning/held-out selection. The legacy split paths remain fallbacks.
+  subject_data_paths:
+    - ${paths.train_split}
+    - ${paths.val_split}
   vocabulary: ${paths.dir}/vocabulary.pt
   population: ${paths.dir}/population_full.csv
   outcome: ${paths.dir}/outcomes/${outcome}.parquet
@@ -52,8 +57,8 @@ model:
   attention_dropout: 0.0
   causal: true
   attn_type: flash
-  value_bin_vocab_size: 1
-  value_embedding_mode: combined_binning
+  value_bin_vocab_size: 0
+  value_embedding_mode: legacy
   freeze_encoder: false
   head_type: finetune_head
   trainable_prefixes: null

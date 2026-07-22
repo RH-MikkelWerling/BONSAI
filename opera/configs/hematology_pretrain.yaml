@@ -47,8 +47,9 @@ model:
   attention_dropout: 0.0
   causal: true
   attn_type: flash
-  value_bin_vocab_size: 1
-  value_embedding_mode: combined_binning
+  # ehr2meds joined lab-bin suffixes enter through the ordinary code vocabulary.
+  value_bin_vocab_size: 0
+  value_embedding_mode: legacy
 
 training:
   max_len: ${model.max_seqlen}
@@ -61,6 +62,6 @@ training:
   learning_rate: 1e-4
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 2
-  value_regression_loss_weight: 1.0
+  value_regression_loss_weight: 0.0
   limit_val_batches: 1.0
   limit_train_batches: 1.0
