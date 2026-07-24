@@ -2,12 +2,20 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import pytest
+from omegaconf import OmegaConf
 
-from opera.functional.ipcw import compute_ipcw_train_weights
+from opera.functional.ipcw import (
+    compute_ipcw_train_weights,
+    summarize_ipcw_weights,
+)
 from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
     cox_batch_signal_counts,
     cox_partial_likelihood_loss,
+)
+from opera.run.survival_finetune import (
+    _validate_cox_support,
+    resolve_survival_monitor,
 )
 
 
@@ -30,8 +38,76 @@ def test_compute_ipcw_train_weights_cases_controls_and_normalization():
     assert weights[3] == 0.0
     assert weights[4] == 0.0
     assert weights[6] > 0.0
-    nonzero = torch.tensor([w for w in weights.values() if w > 0.0])
-    assert torch.isclose(nonzero.mean(), torch.tensor(1.0), atol=1e-6)
+    assert torch.isclose(
+        torch.tensor(list(weights.values())).mean(),
+        torch.tensor(1.0),
+        atol=1e-6,
+    )
+
+
+def test_cumulative_incidence_weights_keep_competing_events_as_controls():
+    weights = compute_ipcw_train_weights(
+        _outcomes(),
+        horizon_hours=30 * 24,
+        estimand="cumulative_incidence",
+    )
+
+    assert weights[1] > 0.0
+    assert weights[2] > 0.0
+    assert weights[3] == 0.0  # administrative censoring before the horizon
+    assert weights[4] > 0.0  # competing event is a known negative
+    assert weights[6] > 0.0
+    assert torch.isclose(
+        torch.tensor(list(weights.values())).mean(),
+        torch.tensor(1.0),
+        atol=1e-6,
+    )
+
+
+def test_ipcw_weight_diagnostics_report_effective_sample_size():
+    weights = compute_ipcw_train_weights(
+        _outcomes(),
+        horizon_hours=30 * 24,
+        estimand="cumulative_incidence",
+    )
+    diagnostics = summarize_ipcw_weights(_outcomes(), weights)
+
+    assert diagnostics["n_total"] == 6
+    assert diagnostics["n_cases_nonzero"] == 1
+    assert diagnostics["n_controls_nonzero"] == 4
+    assert 0 < diagnostics["effective_sample_size"] <= 6
+    assert diagnostics["mean_weight"] == pytest.approx(1.0)
+
+
+def test_ipcw_cif_bce_module_uses_weighted_binary_loss():
+    module = SurvivalFinetuneModule(
+        BatchScoreModel([0.3, -0.2, 1.1, -1.0]),
+        "ipcw_cif_bce",
+        horizon_days=20.0,
+    )
+    loss = module.training_step(_batch(weights=[1.0, 0.0, 1.0, 1.0]), 0)
+    assert torch.isfinite(loss)
+
+
+def test_ipcw_cif_validation_logs_full_cohort_weighted_auc(monkeypatch):
+    module = SurvivalFinetuneModule(
+        BatchScoreModel([4.0, 1.0, 0.5, 0.0]),
+        "ipcw_cif_bce",
+        horizon_days=20.0,
+    )
+    batch = _batch()
+    batch["target"] = torch.tensor([[1], [0], [0], [0]], dtype=torch.long)
+    batch["event"] = torch.tensor([[1], [2], [0], [0]], dtype=torch.long)
+    captured = {}
+
+    def capture(name, value, **kwargs):
+        captured[name] = float(value.detach())
+
+    monkeypatch.setattr(module, "log", capture)
+    module.validation_step(batch, 0)
+    module.on_validation_epoch_end()
+
+    assert captured["val/AUROC"] == pytest.approx(1.0)
 
 
 def test_cox_partial_likelihood_loss_scalar_grad_and_no_events():
@@ -141,7 +217,7 @@ def test_survival_finetune_module_competing_events_do_not_crash_and_logs_cindex(
 
 def test_ipcw_bce_zero_weight_blocks_gradient_and_unit_weights_match_bce():
     model = BatchScoreModel([0.3, -0.2, 1.1, -1.0])
-    module = SurvivalFinetuneModule(model, "ipcw_bce")
+    module = SurvivalFinetuneModule(model, "ipcw_bce", horizon_days=20.0)
     batch = _batch(weights=[1.0, 0.0, 1.0, 1.0])
 
     loss = module.training_step(batch, 0)
@@ -151,7 +227,11 @@ def test_ipcw_bce_zero_weight_blocks_gradient_and_unit_weights_match_bce():
 
     logits = torch.tensor([0.3, -0.2, 1.1, -1.0])
     labels = _batch()["target"].reshape(-1).float()
-    unit_module = SurvivalFinetuneModule(BatchScoreModel(logits.tolist()), "ipcw_bce")
+    unit_module = SurvivalFinetuneModule(
+        BatchScoreModel(logits.tolist()),
+        "ipcw_bce",
+        horizon_days=20.0,
+    )
     unit_loss = unit_module.training_step(_batch(), 0)
     expected = F.binary_cross_entropy_with_logits(logits, labels)
     assert torch.isclose(unit_loss, expected)
@@ -159,7 +239,56 @@ def test_ipcw_bce_zero_weight_blocks_gradient_and_unit_weights_match_bce():
 
 def test_ipcw_bce_loss_changes_when_ipcw_weight_is_halved():
     logits = [0.3, -0.2, 1.1, -1.0]
-    module = SurvivalFinetuneModule(BatchScoreModel(logits), "ipcw_bce")
+    module = SurvivalFinetuneModule(
+        BatchScoreModel(logits),
+        "ipcw_bce",
+        horizon_days=20.0,
+    )
     full_loss = module.training_step(_batch(weights=[1.0, 1.0, 1.0, 1.0]), 0)
     half_loss = module.training_step(_batch(weights=[0.5, 1.0, 1.0, 1.0]), 0)
+    raw = F.binary_cross_entropy_with_logits(
+        torch.tensor(logits),
+        _batch()["target"].reshape(-1).float(),
+        reduction="none",
+    )
+    expected = (raw * torch.tensor([0.5, 1.0, 1.0, 1.0])).mean()
+    assert torch.isclose(half_loss, expected)
     assert not torch.isclose(full_loss, half_loss)
+
+
+@pytest.mark.parametrize(
+    ("training_mode", "expected"),
+    [
+        ("cox", ("val/concordance_index", "max")),
+        ("ipcw_bce", ("val/loss", "min")),
+        ("ipcw_cif_bce", ("val/loss", "min")),
+    ],
+)
+def test_survival_monitor_auto_is_estimand_appropriate(training_mode, expected):
+    cfg = OmegaConf.create(
+        {
+            "training_mode": training_mode,
+            "training": {"eval_monitor_metric": "auto"},
+        }
+    )
+    assert resolve_survival_monitor(cfg) == expected
+
+
+def test_cox_support_fails_before_training_without_comparable_events():
+    with pytest.raises(ValueError, match="no comparable primary events"):
+        _validate_cox_support(
+            "tuning",
+            {
+                1: {"time_days": 10.0, "event": 1},
+                2: {"time_days": 5.0, "event": 0},
+            },
+        )
+
+    summary = _validate_cox_support(
+        "tuning",
+        {
+            1: {"time_days": 10.0, "event": 1},
+            2: {"time_days": 20.0, "event": 0},
+        },
+    )
+    assert summary["n_comparable_primary_events"] == 1

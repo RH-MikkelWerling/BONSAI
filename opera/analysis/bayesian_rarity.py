@@ -120,26 +120,20 @@ def prepare_rarity_data(
     for count_column in (rarity_column, "minority_class"):
         consistency = observations.groupby("cell_id")[count_column].nunique()
         if (consistency > 1).any():
-            raise ValueError(
-                f"{count_column} changed across seeds within a task cell."
-            )
+            raise ValueError(f"{count_column} changed across seeds within a task cell.")
     cells = observations[cell_columns].drop_duplicates("cell_id").copy()
     cells = cells.sort_values("cell_id").reset_index(drop=True)
     cell_lookup = {name: index for index, name in enumerate(cells["cell_id"])}
     observations["cell_index"] = observations["cell_id"].map(cell_lookup).astype(int)
 
     cohorts = sorted(cells["cohort"].astype(str).unique())
-    cohort_group_pairs = (
-        cells[["cohort", "cohort_group"]].astype(str).drop_duplicates()
-    )
+    cohort_group_pairs = cells[["cohort", "cohort_group"]].astype(str).drop_duplicates()
     group_counts = cohort_group_pairs.groupby("cohort")["cohort_group"].nunique()
     if (group_counts > 1).any():
         raise ValueError("Each fine cohort must map to exactly one cohort_group.")
     groups = sorted(cohort_group_pairs["cohort_group"].unique())
     group_lookup = {value: index for index, value in enumerate(groups)}
-    cohort_to_group = cohort_group_pairs.set_index("cohort")[
-        "cohort_group"
-    ].to_dict()
+    cohort_to_group = cohort_group_pairs.set_index("cohort")["cohort_group"].to_dict()
     group_of_cohort = np.asarray(
         [group_lookup[cohort_to_group[value]] for value in cohorts],
         dtype=int,
@@ -149,9 +143,7 @@ def prepare_rarity_data(
     outcome_family_pairs = (
         cells[["outcome", "outcome_family"]].astype(str).drop_duplicates()
     )
-    family_counts = outcome_family_pairs.groupby("outcome")[
-        "outcome_family"
-    ].nunique()
+    family_counts = outcome_family_pairs.groupby("outcome")["outcome_family"].nunique()
     if (family_counts > 1).any():
         raise ValueError("Each outcome must map to exactly one outcome_family.")
     families = sorted(cells["outcome_family"].astype(str).unique())
@@ -334,8 +326,7 @@ def fit_hierarchical_rarity_model(
             )
             cohort_z = pm.Normal("cohort_z", 0.0, 1.0, dims="cohort")
             cohort_level = (
-                group_effect[prepared.group_of_cohort]
-                + sigma_cohort_within * cohort_z
+                group_effect[prepared.group_of_cohort] + sigma_cohort_within * cohort_z
             )
             cohort_effect = cohort_level[prepared.cohort_index]
             variance_components.append(sigma_group**2 + sigma_cohort_within**2)
@@ -360,9 +351,7 @@ def fit_hierarchical_rarity_model(
                     + sigma_outcome_within * outcome_z
                 )
                 outcome_effect = outcome_level[prepared.outcome_index]
-                variance_components.append(
-                    sigma_family**2 + sigma_outcome_within**2
-                )
+                variance_components.append(sigma_family**2 + sigma_outcome_within**2)
             else:
                 sigma_outcome = pm.HalfNormal(
                     "sigma_outcome",
@@ -385,11 +374,7 @@ def fit_hierarchical_rarity_model(
         smooth_cell = pm.math.dot(spline_cells, spline_coef)
         cell_theta = pm.Deterministic(
             "cell_theta",
-            alpha
-            + smooth_cell
-            + cohort_effect
-            + outcome_effect
-            + sigma_cell * cell_z,
+            alpha + smooth_cell + cohort_effect + outcome_effect + sigma_cell * cell_z,
             dims="cell",
         )
         pm.Deterministic(
@@ -486,10 +471,9 @@ def fit_hierarchical_rarity_model(
     for name, values in cell_quantiles.items():
         cell_summary[f"posterior_{name}"] = values
     cell_summary["posterior_probability_benefit"] = (cell_draws > 0).mean(axis=0)
-    cell_summary["reportable_standalone"] = (
-        pd.to_numeric(cell_summary["minority_class"], errors="coerce")
-        >= int(min_report_minority)
-    )
+    cell_summary["reportable_standalone"] = pd.to_numeric(
+        cell_summary["minority_class"], errors="coerce"
+    ) >= int(min_report_minority)
     cell_path = output / "posterior_cells.csv"
     cell_summary.to_csv(cell_path, index=False)
 

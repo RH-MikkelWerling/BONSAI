@@ -53,6 +53,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from opera.compat.bonsai import build_bonsai_pretrain
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 
@@ -66,7 +70,9 @@ load_dotenv()
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="dapt_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Checkpoint and base vocabulary ───────────────────────────────
     ckpt = torch.load(cfg.pretrain_ckpt, map_location="cpu", weights_only=False)
@@ -251,6 +257,7 @@ def main(cfg: DictConfig) -> None:
         ckpt_path=cfg.paths.get("ckpt_path"),
     )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

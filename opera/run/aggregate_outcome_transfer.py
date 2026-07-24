@@ -20,7 +20,10 @@ from opera.evaluation.outcome_transfer_aggregation import (
     summarize_severity_deltas,
     write_transfer_aggregation_outputs,
 )
-from opera.functional.outcome_transfer import DEFAULT_MANIFEST, resolve_transfer_manifest
+from opera.functional.outcome_transfer import (
+    DEFAULT_MANIFEST,
+    resolve_transfer_manifest,
+)
 from opera.visualization.outcome_transfer import write_outcome_transfer_figure
 
 
@@ -81,23 +84,37 @@ def main() -> None:
     )
     prediction_path = Path(args.predictions)
     predictions = _read_table(prediction_path)
-    deltas, cohort_results, family_summary, aggregation_failures = aggregate_transfer_predictions(
-        plan,
-        predictions,
-        n_bootstrap=args.n_bootstrap,
+    deltas, cohort_results, family_summary, aggregation_failures = (
+        aggregate_transfer_predictions(
+            plan,
+            predictions,
+            n_bootstrap=args.n_bootstrap,
+        )
     )
     cohort_summary = summarize_grouped_cohort_deltas(cohort_results)
     severity_primary_summary = summarize_severity_deltas(plan, deltas, scope="primary")
-    severity_secondary_summary = summarize_severity_deltas(plan, deltas, scope="secondary")
+    severity_secondary_summary = summarize_severity_deltas(
+        plan, deltas, scope="secondary"
+    )
     existing_failure_path = prediction_path.parent / "transfer_failures.csv"
     existing_failures = (
-        _read_table(existing_failure_path) if existing_failure_path.exists() else pd.DataFrame()
+        _read_table(existing_failure_path)
+        if existing_failure_path.exists()
+        else pd.DataFrame()
     )
-    failures = pd.concat(
-        [frame for frame in (existing_failures, aggregation_failures) if not frame.empty],
-        ignore_index=True,
-        sort=False,
-    ) if (not existing_failures.empty or not aggregation_failures.empty) else pd.DataFrame()
+    failures = (
+        pd.concat(
+            [
+                frame
+                for frame in (existing_failures, aggregation_failures)
+                if not frame.empty
+            ],
+            ignore_index=True,
+            sort=False,
+        )
+        if (not existing_failures.empty or not aggregation_failures.empty)
+        else pd.DataFrame()
+    )
     written = write_transfer_aggregation_outputs(
         args.output_dir,
         deltas=deltas,
@@ -110,7 +127,11 @@ def main() -> None:
     )
     figure_paths: dict[str, Path] = {}
     if not args.skip_figure:
-        result_path = Path(args.results) if args.results else prediction_path.parent / "transfer_results.csv"
+        result_path = (
+            Path(args.results)
+            if args.results
+            else prediction_path.parent / "transfer_results.csv"
+        )
         figure_paths = write_outcome_transfer_figure(
             args.output_dir,
             results=_read_table(result_path),
@@ -126,9 +147,7 @@ def main() -> None:
                 "manifest_hash": plan["manifest_hash"],
                 "registry": plan["registry"],
                 "registry_hash": plan["registry_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "split_contract": plan["split_contract"],
                 "split_contract_hash": plan["split_contract_hash"],
                 "n_bootstrap": args.n_bootstrap,
@@ -145,13 +164,18 @@ def main() -> None:
                 ),
                 "output_files": {
                     **{name: str(path) for name, path in written.items()},
-                    **{f"figure_{name}": str(path) for name, path in figure_paths.items()},
+                    **{
+                        f"figure_{name}": str(path)
+                        for name, path in figure_paths.items()
+                    },
                 },
                 "n_pan_hematology_delta_rows": int(len(deltas)),
                 "n_grouped_delta_rows": int(len(cohort_results)),
                 "n_grouped_macro_summary_rows": int(len(cohort_summary)),
                 "n_severity_primary_summary_rows": int(len(severity_primary_summary)),
-                "n_severity_secondary_summary_rows": int(len(severity_secondary_summary)),
+                "n_severity_secondary_summary_rows": int(
+                    len(severity_secondary_summary)
+                ),
                 "n_failures": int(len(failures)),
             },
             indent=2,

@@ -1,7 +1,7 @@
-"""Hematology-only pretraining entry point.
+"""DALY-CARE-only pretraining entry point.
 
 This wraps the BONSAI pretraining machinery with an OPERA-owned config so the
-paper ladder can include a clean hematology-from-scratch checkpoint without
+paper ladder can include a clean DALY-CARE-from-scratch checkpoint without
 editing the shared BONSAI config tree.
 """
 
@@ -14,6 +14,10 @@ from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig
 
 from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from bonsai.functional.model_config import validate_pretraining_attention
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
@@ -25,12 +29,14 @@ load_dotenv()
 
 @hydra.main(
     config_path="../configs",
-    config_name="hematology_pretrain",
+    config_name="daly_care_pretrain",
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="training_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     dataset_class = get_class(cfg.paths.dataset_class)
     validate_pretraining_attention(dataset_class, causal=cfg.model.causal)
@@ -78,11 +84,11 @@ def main(cfg: DictConfig) -> None:
             "value_regression_loss_weight", 1.0
         ),
         checkpoint_metadata={
-            "training_stage": cfg.get("training_stage", "hematology_only_pretraining"),
+            "training_stage": cfg.get("training_stage", "daly_care_only_pretraining"),
             "dataset": cfg.get("dataset"),
             "tokenizer_vocab_path": cfg.paths.vocab,
             "split_identifier": "train:tuning",
-            "pretraining_scope": "hematology_only",
+            "pretraining_scope": "daly_care_only",
         },
     )
 
@@ -105,6 +111,7 @@ def main(cfg: DictConfig) -> None:
         ckpt_path=cfg.paths.ckpt_path,
     )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

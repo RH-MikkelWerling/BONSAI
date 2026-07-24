@@ -21,6 +21,7 @@ cohort set, e.g. contrastive.yaml for a single-cohort run.
 
 import hydra
 import torch
+from pathlib import Path
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
@@ -51,8 +52,17 @@ def main(cfg: DictConfig) -> None:
         raise ValueError(
             "output_path=... is required (where to save the .pt embedding store)."
         )
-    device = cfg.hardware.accelerator if cfg.hardware.accelerator != "auto" else (
-        "cuda" if torch.cuda.is_available() else "cpu"
+    output_path = Path(output_path)
+    if output_path.exists() and not bool(cfg.get("overwrite", False)):
+        print(
+            f"DAPT embedding store already exists at {output_path}; reusing it "
+            "(set overwrite=true to rebuild)."
+        )
+        return
+    device = (
+        cfg.hardware.accelerator
+        if cfg.hardware.accelerator != "auto"
+        else ("cuda" if torch.cuda.is_available() else "cpu")
     )
 
     # ── Load encoder from DAPT checkpoint (same path as contrastive*.py) ──

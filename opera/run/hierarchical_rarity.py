@@ -133,8 +133,7 @@ def assemble(config: dict[str, Any]) -> dict[str, Path]:
         wrong_levels = sorted(set(observed_levels) - {"fine"})
         if wrong_levels:
             raise ValueError(
-                "Primary rarity analysis refuses non-fine artifacts: "
-                f"{wrong_levels}."
+                f"Primary rarity analysis refuses non-fine artifacts: {wrong_levels}."
             )
 
     task_metadata_path = config.get("task_metadata")

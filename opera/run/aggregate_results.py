@@ -357,16 +357,10 @@ def main():
         # tau^2 and I^2 are based on calibrated within-cell SE rather than the
         # equal-weight fallback (which makes tau^2 = 0 by construction).
         _paired_ci = None
-        if (
-            args.baseline
-            and args.comparator
-            and args.predictions_dir
-        ):
+        if args.baseline and args.comparator and args.predictions_dir:
             import pandas as _pd
 
-            _paired_name = (
-                f"paired_delta_{args.comparator}_minus_{args.baseline}.csv"
-            )
+            _paired_name = f"paired_delta_{args.comparator}_minus_{args.baseline}.csv"
             _paired_path = output_dir / _paired_name
             if _paired_path.exists():
                 _paired_ci = _pd.read_csv(_paired_path)
@@ -383,7 +377,8 @@ def main():
                 ci_upper_col: Optional[str] = None
                 if _paired_ci is not None and not _paired_ci.empty:
                     join_cols = [
-                        c for c in ("cohort", "outcome")
+                        c
+                        for c in ("cohort", "outcome")
                         if c in delta_tbl.columns and c in _paired_ci.columns
                     ]
                     if join_cols:

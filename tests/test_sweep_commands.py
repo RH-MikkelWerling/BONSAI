@@ -64,7 +64,7 @@ def test_build_finetune_cmd_default_module_and_config():
 
 
 def test_build_finetune_cmd_survival_module_and_config():
-    for mode in ("cox", "ipcw_bce"):
+    for mode in ("cox", "ipcw_bce", "ipcw_cif_bce"):
         cmd = build_finetune_cmd(
             encoder_ckpt="/ckpt/best.ckpt",
             encoder_source="contrastive",
@@ -729,7 +729,9 @@ def test_run_variant_cell_invalid_training_mode_records_failure(tmp_path):
     assert "invalid_mode" in tracker.records[0].reason
 
 
-def test_run_variant_cell_finetune_population_is_fine_cohort_only(tmp_path, monkeypatch):
+def test_run_variant_cell_finetune_population_is_fine_cohort_only(
+    tmp_path, monkeypatch
+):
     """A fine-level sweep cell must finetune on the fine cohort alone.
 
     ``_run_variant_cell`` has no clinical-group/grouped-parent parameter at
@@ -767,4 +769,5 @@ def test_run_variant_cell_finetune_population_is_fine_cohort_only(tmp_path, monk
     assert result is None  # fake run_finetune reports no checkpoint produced
     assert captured["cohort"] == "RT"
     assert captured["cohort_fine_value"] == "RT"
+    assert "overwrite=false" in captured["extra_overrides"]
     assert "DLBCL_like" not in captured.values()

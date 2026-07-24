@@ -222,7 +222,9 @@ def plot_embedding_survival_gradient(
         )
 
     cbar = fig.colorbar(sc, ax=ax, shrink=0.85, pad=0.02)
-    cbar.set_label(f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=NOTE_SIZE)
+    cbar.set_label(
+        f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=NOTE_SIZE
+    )
     cbar.ax.tick_params(labelsize=NOTE_SIZE)
 
     ax.set_xlabel(f"{method.upper()} 1")
@@ -298,7 +300,9 @@ def plot_embedding_multi_outcome(
                 _density_contour(ax, coords[mask, 0], coords[mask, 1], color, levels=4)
 
         ax.set_title(
-            name.replace("_", " ").title(), fontsize=SUBTITLE_SIZE, fontweight="semibold"
+            name.replace("_", " ").title(),
+            fontsize=SUBTITLE_SIZE,
+            fontweight="semibold",
         )
         ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="lower right")
         clean_2d_axes(ax)
@@ -1083,7 +1087,11 @@ def plot_embedding_map_insights(
     group_display = [(group_names or {}).get(g, str(g)) for g in unique]
 
     im = ax_prox.imshow(
-        proximity, cmap=sequential_cmap("opera"), vmin=0, vmax=proximity.max(), aspect="auto"
+        proximity,
+        cmap=sequential_cmap("opera"),
+        vmin=0,
+        vmax=proximity.max(),
+        aspect="auto",
     )
     cb2 = fig.colorbar(im, ax=ax_prox, shrink=0.82, pad=0.03, aspect=20)
     cb2.set_label("Fraction of k-NN", fontsize=NOTE_SIZE)
@@ -1380,7 +1388,9 @@ def plot_embedding_stage_metadata_grid(
             ax.set_box_aspect(panel_aspect)
             ax.xaxis.set_major_locator(MaxNLocator(4))
             ax.yaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(labelsize=TICK_SIZE - 1.5, length=2.5, colors=PALETTE["ink_secondary"])
+            ax.tick_params(
+                labelsize=TICK_SIZE - 1.5, length=2.5, colors=PALETTE["ink_secondary"]
+            )
             ax.grid(True, color=PALETTE["grid"], linewidth=0.6, alpha=1.0)
             ax.set_axisbelow(True)
             ax.spines["top"].set_visible(False)
@@ -1389,8 +1399,18 @@ def plot_embedding_stage_metadata_grid(
             ax.spines["bottom"].set_color(PALETTE["panel_border"])
             ax.spines["left"].set_linewidth(0.7)
             ax.spines["bottom"].set_linewidth(0.7)
-            ax.set_xlabel(f"{axis_label}-1", fontsize=TICK_SIZE, labelpad=3, color=PALETTE["ink_secondary"])
-            ax.set_ylabel(f"{axis_label}-2", fontsize=TICK_SIZE, labelpad=3, color=PALETTE["ink_secondary"])
+            ax.set_xlabel(
+                f"{axis_label}-1",
+                fontsize=TICK_SIZE,
+                labelpad=3,
+                color=PALETTE["ink_secondary"],
+            )
+            ax.set_ylabel(
+                f"{axis_label}-2",
+                fontsize=TICK_SIZE,
+                labelpad=3,
+                color=PALETTE["ink_secondary"],
+            )
             if row == 0:
                 ax.set_title(
                     variable_labels.get(variable, variable),
@@ -1438,7 +1458,13 @@ def plot_embedding_stage_metadata_grid(
             linespacing=1.2,
         )
 
-    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=0.988)
+    fig.suptitle(
+        title,
+        fontsize=SUPTITLE_SIZE,
+        fontweight="semibold",
+        color=PALETTE["ink"],
+        y=0.988,
+    )
     fig.text(
         0.5,
         0.954,

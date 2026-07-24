@@ -373,7 +373,7 @@ class VariantSpec:
             )
 
         training_mode = value.get("training_mode")
-        if training_mode not in (None, "cox", "ipcw_bce"):
+        if training_mode not in (None, "cox", "ipcw_bce", "ipcw_cif_bce"):
             issues.append(
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
             )
@@ -534,11 +534,14 @@ class SweepConfig:
                     f"Variant {name!r} uses Cox training with pos_weight configured."
                 )
         if any(
-            variant.values.get("training_mode") == "ipcw_bce"
+            variant.values.get("training_mode") in {"ipcw_bce", "ipcw_cif_bce"}
             for variant in variants.values()
         ):
             for variant_name, variant in variants.items():
-                if variant.values.get("training_mode") != "ipcw_bce":
+                if variant.values.get("training_mode") not in {
+                    "ipcw_bce",
+                    "ipcw_cif_bce",
+                }:
                     continue
                 for name, outcome in outcomes.items():
                     if not variant_applies_to_outcome(variant.values, name):
@@ -608,8 +611,14 @@ class SweepConfig:
             issues,
         )
         run_id = _optional_string(value.get("run_id"), "config.run_id", issues)
-        analysis_level = _optional_string(value.get("analysis_level"), "config.analysis_level", issues)
-        if analysis_level is not None and analysis_level not in {"fine", "grouped", "global"}:
+        analysis_level = _optional_string(
+            value.get("analysis_level"), "config.analysis_level", issues
+        )
+        if analysis_level is not None and analysis_level not in {
+            "fine",
+            "grouped",
+            "global",
+        }:
             issues.append("config.analysis_level must be fine, grouped, or global.")
 
         if issues:

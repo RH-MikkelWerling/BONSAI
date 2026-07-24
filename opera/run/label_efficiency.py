@@ -120,9 +120,7 @@ def subsample_outcome_parquet(
         "censor_date",
     }.issubset(sampling_df.columns):
         competing_df = (
-            pd.read_parquet(competing_outcome_path)
-            if competing_outcome_path
-            else None
+            pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
         )
         derived = binarize_outcomes(
             sampling_df,
@@ -208,9 +206,7 @@ def outcome_split_size_metadata(
     )
     out: Dict[str, float] = {}
     competing_df = (
-        pd.read_parquet(competing_outcome_path)
-        if competing_outcome_path
-        else None
+        pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
     )
     for split_name, result_key in (
         ("train", "train"),
@@ -466,14 +462,22 @@ def build_tabular_fraction_cmd(
         sys.executable,
         "-m",
         "opera.run.train_tabular_baselines",
-        "--features", str(features_path),
-        "--outcome", str(outcome_parquet),
-        "--output_dir", str(output_dir),
-        "--cohort", cohort,
-        "--outcome_name", outcome_name,
-        "--models", models,
-        "--seed", str(seed),
-        "--n_hours_start_include", str(n_hours_start_include),
+        "--features",
+        str(features_path),
+        "--outcome",
+        str(outcome_parquet),
+        "--output_dir",
+        str(output_dir),
+        "--cohort",
+        cohort,
+        "--outcome_name",
+        outcome_name,
+        "--models",
+        models,
+        "--seed",
+        str(seed),
+        "--n_hours_start_include",
+        str(n_hours_start_include),
     ]
     if n_hours_end_include is not None:
         cmd += ["--n_hours_end_include", str(n_hours_end_include)]

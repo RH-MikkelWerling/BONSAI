@@ -123,18 +123,21 @@ Registry availability is an outcome-level property. A cohort-wide
 This prevents a laboratory coverage date from unnecessarily excluding patients
 from mortality or other broadly ascertainable endpoints.
 
-For patient-specific ascertainment, configure `eligibility_file` on each
-outcome. The sidecar contract is documented in `DATA_FORMAT.md`. Its final
+For patient-specific ascertainment that was not already enforced while
+constructing the outcome parquet, configure `eligibility_file` on that outcome.
+Do not duplicate an already-vetted eligible risk set merely to satisfy the
+configuration. The sidecar contract is documented in `DATA_FORMAT.md`. Its final
 `eligible` value must come from a locked source/follow-up rule, not from whether
 the outcome-defining test or event happened to appear. Keep source coverage,
 baseline adequacy, post-index observability, follow-up, and observed event state
 as separate fields.
 
-These sidecars are operational inputs, not merely cohort-flow documentation.
-All OPERA training and evaluation paths remove `eligible=false` rows before
-binarization. In multi-outcome training, the resulting missing patient-outcome
-entries become `-1` mask values, so broadly ascertainable mortality can use the
-full cohort while laboratory outcomes use their valid subsets.
+When configured, sidecars are operational inputs, not merely cohort-flow
+documentation. All OPERA training and evaluation paths remove `eligible=false`
+rows before binarization. In multi-outcome training, the resulting missing
+patient-outcome entries become `-1` mask values, so broadly ascertainable
+mortality can use the full cohort while laboratory outcomes use their valid
+subsets.
 
 Generate the auditable denominator table before a paper run:
 
@@ -175,6 +178,11 @@ python -m opera.run.joint_finetune
 
 Each training run should save checkpoint metadata and a sidecar
 `checkpoint_metadata.json` so the lineage of a final checkpoint can be traced.
+Successful OPERA stages also write `training_complete.json`. Repeating the same
+command against the same output directory reuses a compatible completed
+checkpoint; `overwrite=true` is required to replace it. The marker fingerprints
+the resolved training config, so an accidental configuration change fails
+instead of silently consuming stale weights.
 The checked-in configs use environment-rooted expected artifact locations.
 Those locations become usable only after the corresponding upstream training
 stage has emitted its `best.ckpt`; readiness verifies that the concrete files
@@ -185,14 +193,19 @@ OPERA imports BONSAI architecture and data helpers through
 moves a shared symbol, prefer repairing that compatibility adapter first rather
 than patching every OPERA script separately.
 
-In OPERA contrastive training, the frozen DAPT/BONSAI embedding store is a
-similarity prior, not the whole learning signal. Per-outcome survival times and
-censoring define the primary pair weights; DAPT cosine similarity only
-multiplies those weights when `dapt_embedding_store` is provided. Pairs with
-missing DAPT embeddings are neutral, and training logs `dapt/weight_*` plus
-`dapt/coverage` so you can verify whether the prior is active or overly strong.
-Set `model.dapt_lambda_floor=1.0` to ablate the prior while keeping the
-survival contrastive objective unchanged.
+OPERA representation training combines an exact-time, continuous
+piecewise-exponential competing-risk likelihood with the survival-time
+contrastive objective. Death is modeled as the competing cause for every
+non-mortality endpoint and excluded from target-event contrastive imputation.
+The proper likelihood uses natural-distribution random batches; event-enriched
+sampling is rejected unless the likelihood is disabled.
+
+The frozen DAPT/BONSAI embedding store supplies both a pair-similarity prior and
+a pre-projection encoder anchor. DAPT cosine similarity multiplies contrastive
+pair weights, while the anchor limits encoder drift. Production generation
+requires at least 99% training-subject coverage and logs `dapt/weight_*`,
+`dapt/coverage`, and `anchor_loss`. Set `model.dapt_lambda_floor=1.0` and
+`model.dapt_anchor_weight=0.0` for the DAPT-prior ablation.
 
 ## Long Sequences
 
@@ -362,8 +375,10 @@ python -m opera.run.train_tabular_baselines \
 ```
 
 Supported training models are `logistic`, `xgboost`, `logistic_ipcw_bce`,
-`xgboost_ipcw_bce`, and optional `tabpfn`. The IPCW variants train on all
-usable training patients with censoring weights and still write ordinary
+`xgboost_ipcw_bce`, `logistic_ipcw_cif_bce`, `xgboost_ipcw_cif_bce`, and
+optional `tabpfn`. Net-risk variants censor competing events; CIF variants
+retain them as observed negatives. Both train on all usable training patients
+with censoring weights and still write ordinary
 `subject_id`, `probability` prediction files, so downstream sweep/evaluation
 comparisons remain identical. Tabular Cox is intentionally not part of this
 contract because it emits relative risk scores rather than calibrated horizon
@@ -401,11 +416,24 @@ memory, and feature-count constraints than XGBoost. The runner limits TabPFN to
 a stable subset of features by observedness and simple signal score; tune the
 feature and row caps in the locked paper environment.
 
-Fine-Gray competing-risk models are not implemented in this Python pipeline.
-The current survival evaluation is cause-specific IPCW. That limitation should
-be stated in the manuscript; the practical mitigation is to report competing
-event counts and avoid over-claiming calibrated cumulative incidence for
-non-fatal endpoints.
+Fine-Gray subdistribution-hazard regression is not implemented. The fixed-
+horizon pipeline instead supports two explicit direct-probability estimands:
+`ipcw_bce` targets net risk by censoring competing events, while
+`ipcw_cif_bce` targets cumulative incidence by retaining competing events as
+observed controls. Held-out evaluation reports the matching time-dependent AUC
+and Brier metrics. IPCW weights are normalized once over the complete split,
+and every run writes `ipcw_weight_summary.csv` with effective sample size and
+extreme-weight diagnostics.
+
+IPCW checkpoints select on weighted tuning log loss by default. This is a
+proper probability score and remains defined when a rare tuning cell contains
+one class; the tuning AUROC logged for diagnosis uses the complete tuning
+cohort and the matching censoring weights. Cox checkpoints select on the
+complete tuning-set C-index. Cox training uses Breslow partial likelihood
+within coverage-balanced mini-batches: every subject appears once per
+single-process epoch, but risk sets are approximate unless the complete cohort
+fits in one batch. This limitation must be reported rather than describing the
+mini-batch objective as an exact full-cohort Cox likelihood.
 
 ### IPI-Complete Credibility Subset
 

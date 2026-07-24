@@ -43,6 +43,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from bonsai.functional.model_config import normalize_bonsai_model_config
 from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
@@ -141,7 +145,9 @@ def build_finetune_data_module(
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="finetune_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Load encoder ─────────────────────────────────────────────────
     encoder_state, pretrain_hparams = load_encoder_state_dict(
@@ -365,6 +371,7 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
     )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
     # ── Save test outcomes for evaluation ────────────────────────────
     torch.save(

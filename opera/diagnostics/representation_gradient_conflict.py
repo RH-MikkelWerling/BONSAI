@@ -150,13 +150,13 @@ def _load_model(
         dapt_lambda_floor=float(
             model_init.get(
                 "dapt_lambda_floor",
-                cfg.model.get("dapt_lambda_floor", 0.3),
+                cfg.model.get("dapt_lambda_floor", 0.55),
             )
         ),
         dapt_anchor_weight=float(
             model_init.get(
                 "dapt_anchor_weight",
-                cfg.model.get("dapt_anchor_weight", 0.0),
+                cfg.model.get("dapt_anchor_weight", 0.2),
             )
         ),
         competing_event_weight=float(

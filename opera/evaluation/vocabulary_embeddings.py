@@ -54,9 +54,13 @@ def _coerce_vocabulary(value: Any) -> dict[str, int]:
             if key in value and isinstance(value[key], Mapping):
                 value = value[key]
                 break
-        if all(isinstance(token, str) and _is_int_like(idx) for token, idx in value.items()):
+        if all(
+            isinstance(token, str) and _is_int_like(idx) for token, idx in value.items()
+        ):
             vocabulary = {str(token): int(idx) for token, idx in value.items()}
-        elif all(_is_int_like(idx) and isinstance(token, str) for idx, token in value.items()):
+        elif all(
+            _is_int_like(idx) and isinstance(token, str) for idx, token in value.items()
+        ):
             vocabulary = {str(token): int(idx) for idx, token in value.items()}
         else:
             raise ValueError("Vocabulary mapping must be token->id or id->token.")
@@ -70,7 +74,9 @@ def _coerce_vocabulary(value: Any) -> dict[str, int]:
         elif value.shape[1] >= 2:
             token_col, id_col = value.columns[:2]
         else:
-            raise ValueError("Vocabulary table must contain token and token_id columns.")
+            raise ValueError(
+                "Vocabulary table must contain token and token_id columns."
+            )
         vocabulary = {
             str(row[token_col]): int(row[id_col])
             for _, row in value[[token_col, id_col]].dropna().iterrows()
@@ -227,12 +233,13 @@ def merge_token_metadata(
     if metadata[key].duplicated().any():
         raise ValueError(f"Token metadata contains duplicate {key!r} values.")
     renamed = metadata.copy()
-    conflicts = (
-        set(renamed.columns)
-        & set(embeddings.columns)
-        - {token_col, token_id_col}
+    conflicts = set(renamed.columns) & set(embeddings.columns) - {
+        token_col,
+        token_id_col,
+    }
+    renamed = renamed.rename(
+        columns={column: f"{column}_metadata" for column in conflicts}
     )
-    renamed = renamed.rename(columns={column: f"{column}_metadata" for column in conflicts})
     return embeddings.merge(renamed, on=key, how="left", validate="one_to_one")
 
 

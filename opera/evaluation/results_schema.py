@@ -99,6 +99,15 @@ def flatten_report_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
             for key, value in metrics.items():
                 row[f"{key}_{horizon}"] = value
 
+    competing_risk = report.get("competing_risk", {})
+    if competing_risk:
+        row["competing_risk_n_total"] = competing_risk.get("n_total")
+        row["n_primary_events"] = competing_risk.get("n_primary_events")
+        row["n_competing_events"] = competing_risk.get("n_competing_events")
+        for horizon, metrics in competing_risk.get("per_horizon", {}).items():
+            for key, value in metrics.items():
+                row[f"{key}_{horizon}"] = value
+
     stratified = report.get("stratified_concordance", {})
     micro = stratified.get("micro", {})
     macro = stratified.get("macro", {})
@@ -146,6 +155,7 @@ def bootstrap_ci_rows(report: Dict[str, Any]) -> pd.DataFrame:
     for family, payload in (
         ("binary", report.get("bootstrap_ci", {})),
         ("survival", report.get("survival_bootstrap_ci", {})),
+        ("competing_risk", report.get("competing_risk_bootstrap_ci", {})),
     ):
         for metric, values in payload.items():
             if not isinstance(values, dict):

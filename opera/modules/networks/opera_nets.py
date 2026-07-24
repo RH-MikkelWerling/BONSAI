@@ -28,6 +28,9 @@ from opera.modules.networks.cross_outcome_weighters import (
     KendallWeighter,
     build_cross_outcome_weighter,
 )
+from opera.modules.networks.competing_risk import (
+    PiecewiseExponentialCompetingRiskLoss,
+)
 
 
 def outcome_eligibility_mask(
@@ -240,10 +243,10 @@ class SurvivalSoftContrastiveLoss(nn.Module):
 
     Admin-censored patients are encoded as a conditional distribution over
     plausible future primary-event locations under the Kaplan-Meier event-time
-    mass. Competing deaths are handled by ``competing_event_handling``:
-    ``hard_negative`` treats them like informative event-free observations at
-    death time, while ``censor`` preserves the historical exact-death behavior
-    with optional primary-vs-competing downweighting.
+    mass. Production excludes competing deaths from target-event imputation
+    because the proper competing-risk likelihood models death explicitly.
+    ``hard_negative`` retains the historical cause-specific-censoring geometry
+    as an ablation.
     """
 
     def __init__(
@@ -256,7 +259,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         competing_event_handling: str = "hard_negative",
     ):
         super().__init__()
-        allowed = {"censor", "hard_negative", "reliability"}
+        allowed = {"censor", "exclude", "hard_negative", "reliability"}
         if competing_event_handling not in allowed:
             raise ValueError(
                 "competing_event_handling must be one of "
@@ -362,7 +365,7 @@ class SurvivalSoftContrastiveLoss(nn.Module):
             )
 
         exact_mask = distribution_events == 1
-        if self.competing_event_handling == "censor":
+        if self.competing_event_handling in {"censor", "exclude"}:
             exact_mask = exact_mask | (events == 2)
         if exact_mask.any():
             dist[exact_mask, exact_idx[exact_mask]] = 1.0
@@ -427,13 +430,18 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         pair_weights = km_dist @ km_kernel @ km_dist.t()
 
         comp = events == 2
-        if self.competing_event_handling == "censor" and comp.any():
+        if self.competing_event_handling in {"censor", "exclude"} and comp.any():
             # OR: downweight any pair involving at least one competing-event patient
             # (XOR would miss competing+competing pairs, leaving them unreliably weighted)
             any_comp = comp.unsqueeze(1) | comp.unsqueeze(0)
+            competing_weight = (
+                0.0
+                if self.competing_event_handling == "exclude"
+                else float(self.competing_event_weight)
+            )
             pair_weights = torch.where(
                 any_comp,
-                pair_weights * float(self.competing_event_weight),
+                pair_weights * competing_weight,
                 pair_weights,
             )
 
@@ -539,7 +547,7 @@ class _LegacyMultiOutcomeSurvivalLoss(nn.Module):
         temperature: float = 0.07,
         km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
-        dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor weight
+        dapt_lambda_floor: float = 0.55,  # TUNE: cross-disease floor weight
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         competing_event_weight: float = 0.0,
         competing_event_handling: str = "hard_negative",
@@ -735,7 +743,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
         temperature: float = 0.07,
         km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
-        dapt_lambda_floor: float = 0.3,
+        dapt_lambda_floor: float = 0.55,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
         competing_event_weight: float = 0.0,
         competing_event_handling: str = "hard_negative",
@@ -1057,8 +1065,8 @@ class OperaContrastiveModel(nn.Module):
         km_time_scale: float = 0.25,
         outcome_sorted_event_times: Optional[Dict[str, torch.Tensor]] = None,
         outcome_event_time_probs: Optional[Dict[str, torch.Tensor]] = None,
-        dapt_lambda_floor: float = 0.3,  # TUNE: cross-disease floor
-        dapt_anchor_weight: float = 0.0,
+        dapt_lambda_floor: float = 0.55,  # TUNE: cross-disease floor
+        dapt_anchor_weight: float = 0.2,
         competing_event_weight: float = 0.0,
         competing_event_handling: str = "hard_negative",
         effective_pair_normalization: bool = True,
@@ -1066,12 +1074,26 @@ class OperaContrastiveModel(nn.Module):
         freeze_encoder: bool = False,
         pooling: str = "cls_last",
         dapt_embedding_store: Optional[Dict] = None,
+        competing_risk_config: Optional[Mapping[str, object]] = None,
     ):
         super().__init__()
         self.encoder = encoder
         self.freeze_encoder = freeze_encoder
         self.dapt_embedding_store = dapt_embedding_store  # {subject_id: tensor}
         self.dapt_anchor_weight = dapt_anchor_weight
+        competing_risk_settings = dict(competing_risk_config or {})
+        self.competing_risk_weight = float(
+            competing_risk_settings.get("loss_weight", 0.0)
+        )
+        if self.competing_risk_weight < 0:
+            raise ValueError("competing_risk.loss_weight must be non-negative.")
+        self.contrastive_loss_weight = float(
+            competing_risk_settings.get("contrastive_loss_weight", 1.0)
+        )
+        if self.contrastive_loss_weight < 0:
+            raise ValueError(
+                "competing_risk.contrastive_loss_weight must be non-negative."
+            )
         self.model_init_config = {
             "hidden_size": hidden_size,
             "projection_hidden_dim": projection_hidden_dim,
@@ -1086,6 +1108,7 @@ class OperaContrastiveModel(nn.Module):
             "cross_outcome_config": dict(cross_outcome_config or {}),
             "freeze_encoder": freeze_encoder,
             "pooling": pooling,
+            "competing_risk_config": competing_risk_settings,
         }
 
         if freeze_encoder:
@@ -1114,6 +1137,40 @@ class OperaContrastiveModel(nn.Module):
             effective_pair_normalization=effective_pair_normalization,
             cross_outcome_config=cross_outcome_config,
         )
+        self.competing_risk_loss = None
+        self.competing_risk_head = None
+        if self.competing_risk_weight > 0:
+            boundaries = competing_risk_settings.get("interval_boundaries_days")
+            if not isinstance(boundaries, (list, tuple)):
+                raise ValueError(
+                    "competing_risk.interval_boundaries_days is required when "
+                    "competing_risk.loss_weight is positive."
+                )
+            self.competing_risk_loss = PiecewiseExponentialCompetingRiskLoss(
+                outcome_names,
+                boundaries,
+                no_competing_outcomes=[
+                    name
+                    for name in competing_risk_settings.get(
+                        "no_competing_outcomes",
+                        ["overall_survival"],
+                    )
+                    if name in outcome_names
+                ],
+                time_scale_days=float(
+                    competing_risk_settings.get("time_scale_days", 365.25)
+                ),
+                smoothness_weight=float(
+                    competing_risk_settings.get("smoothness_weight", 0.0)
+                ),
+            )
+            n_outputs = len(outcome_names) * 2 * self.competing_risk_loss.n_intervals
+            self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
+            nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
+            nn.init.constant_(
+                self.competing_risk_head.bias,
+                float(competing_risk_settings.get("initial_log_hazard", -2.3)),
+            )
 
     def _pool(
         self,
@@ -1239,8 +1296,28 @@ class OperaContrastiveModel(nn.Module):
             subject_ids=subject_ids,
             dapt_embedding_store=self.dapt_embedding_store,
         )
+        contrastive_loss = log_dict["loss"]
+        log_dict["contrastive_loss"] = contrastive_loss.detach()
+        total_loss = self.contrastive_loss_weight * contrastive_loss
+
+        if self.competing_risk_head is not None:
+            n_intervals = self.competing_risk_loss.n_intervals
+            log_hazards = self.competing_risk_head(pooled).reshape(
+                pooled.shape[0],
+                len(self.contrastive_loss.outcome_names),
+                2,
+                n_intervals,
+            )
+            competing_risk_loss, competing_logs = self.competing_risk_loss(
+                log_hazards,
+                outcome_survival,
+            )
+            total_loss = total_loss + self.competing_risk_weight * competing_risk_loss
+            log_dict.update(competing_logs)
+
         anchor_loss = self._compute_anchor_loss(pooled, subject_ids)
         if anchor_loss is not None:
-            log_dict["loss"] = log_dict["loss"] + self.dapt_anchor_weight * anchor_loss
+            total_loss = total_loss + self.dapt_anchor_weight * anchor_loss
             log_dict["anchor_loss"] = anchor_loss.detach()
+        log_dict["loss"] = total_loss
         return log_dict

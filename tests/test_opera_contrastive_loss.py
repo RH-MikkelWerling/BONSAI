@@ -5,6 +5,15 @@ from opera.modules.networks.opera_nets import MultiOutcomeSurvivalLoss
 MOCK_SORTED_EVENTS = {"mortality": torch.tensor([5.0, 10.0, 20.0, 30.0, 40.0])}
 
 
+def test_dapt_similarity_floor_defaults_to_production_value():
+    loss = MultiOutcomeSurvivalLoss(
+        ["mortality"],
+        outcome_sorted_event_times=MOCK_SORTED_EVENTS,
+    )
+
+    assert loss.dapt_lambda_floor == 0.55
+
+
 def test_missing_dapt_embeddings_are_neutral_not_moderate_similarity():
     loss = MultiOutcomeSurvivalLoss(
         ["mortality"],

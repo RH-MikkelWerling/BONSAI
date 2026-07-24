@@ -46,8 +46,8 @@ cohorts:
 # `outcome_file` points to the event-time parquet in each cohort's outcomes/ dir.
 # Multiple tasks can reuse the same source event file with different windows.
 # n_hours_end_include: null means open-ended (no upper window).
-# eligibility_file is an optional patient-level ascertainment audit. Confirmatory
-# runs should configure one for every outcome; see DATA_FORMAT.md.
+# eligibility_file is an optional patient-level runtime filter. Configure one
+# only when the outcome parquet is not already the final eligible risk set.
 # An outcome-level registry_start_date overrides the cohort fallback. Explicit
 # null means no date restriction for that outcome.
 outcomes:
@@ -107,10 +107,10 @@ model_variants:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
 
-  hematology_only_pretrain:
-    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
+  daly_care_pretrain:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
     encoder_source: pretrain
-    pretraining_scope: hematology_only
+    pretraining_scope: daly_care_only
 
   pretrain_linear_probe:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
@@ -121,10 +121,10 @@ model_variants:
       - model.head_type=linear_probe
       - training_stage=linear_probe
 
-  hematology_only_linear_probe:
-    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
+  daly_care_linear_probe:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
     encoder_source: pretrain
-    pretraining_scope: hematology_only
+    pretraining_scope: daly_care_only
     training_stage: linear_probe
     extra_overrides:
       - model.freeze_encoder=true

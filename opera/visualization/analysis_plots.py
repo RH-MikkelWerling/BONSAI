@@ -125,7 +125,9 @@ def plot_transfer_matrix(
     )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label(f"{metric}  (off-diagonal)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"])
+    cbar.set_label(
+        f"{metric}  (off-diagonal)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"]
+    )
     cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
     cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
@@ -204,7 +206,9 @@ def plot_transfer_efficiency(
     ax.set_yticklabels(display_names, fontsize=TICK_SIZE)
     ax.set_xlabel("Target outcome", fontsize=LABEL_SIZE)
     ax.set_ylabel("Source outcome", fontsize=LABEL_SIZE)
-    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
+    ax.set_title(
+        title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"]
+    )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
     cbar.set_label(
@@ -347,7 +351,9 @@ def plot_residual_embedding(
     cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
     cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
-    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
+    ax.set_title(
+        title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"]
+    )
     ax.set_xticks([])
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
@@ -566,7 +572,13 @@ def plot_within_stratum_grid(
         f"Shared {method.upper()} projection, shown separately within "
         f"clinician-defined {stratum_name} strata"
     )
-    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=0.985)
+    fig.suptitle(
+        title,
+        fontsize=SUPTITLE_SIZE,
+        fontweight="semibold",
+        color=PALETTE["ink"],
+        y=0.985,
+    )
     fig.text(
         0.5,
         0.947,
@@ -1118,7 +1130,12 @@ def plot_performance_landscape(
 
     ax_dist.set_xlabel("Density", fontsize=LABEL_SIZE)
     ax_dist.set_ylabel(dist_label, fontsize=LABEL_SIZE)
-    ax_dist.set_title("By outcome label", fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
+    ax_dist.set_title(
+        "By outcome label",
+        fontsize=TITLE_SIZE,
+        fontweight="semibold",
+        color=PALETTE["ink"],
+    )
     style_legend(ax_dist.legend(fontsize=LEGEND_SIZE))
     ax_dist.spines["top"].set_visible(False)
     ax_dist.spines["right"].set_visible(False)
@@ -1678,7 +1695,9 @@ def plot_embedding_atlas(
 
     ax.set_xlabel(f"{method.upper()} 1", fontsize=LABEL_SIZE)
     ax.set_ylabel(f"{method.upper()} 2", fontsize=LABEL_SIZE)
-    ax.set_title(title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"])
+    ax.set_title(
+        title, fontsize=TITLE_SIZE, fontweight="semibold", color=PALETTE["ink"]
+    )
     ax.set_xticks([])
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
@@ -1925,14 +1944,22 @@ def plot_landscape_summary(
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=[ax_frac, ax_err], shrink=0.6, pad=0.01, aspect=20)
         cbar.set_label(
-            "σ  (low = strongly structured)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"]
+            "σ  (low = strongly structured)",
+            fontsize=NOTE_SIZE,
+            color=PALETTE["ink_secondary"],
         )
         cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
         cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
     add_panel_label(ax_frac, "A")
     add_panel_label(ax_err, "B")
-    fig.suptitle(title, fontsize=SUPTITLE_SIZE, fontweight="semibold", color=PALETTE["ink"], y=1.04)
+    fig.suptitle(
+        title,
+        fontsize=SUPTITLE_SIZE,
+        fontweight="semibold",
+        color=PALETTE["ink"],
+        y=1.04,
+    )
     # No fig.tight_layout() here: fig.colorbar(..., ax=[ax_frac, ax_err]) above
     # already shrinks both axes to make room for itself, and running
     # tight_layout afterward fights that placement (colorbar ends up drifting

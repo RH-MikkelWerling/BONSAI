@@ -79,7 +79,9 @@ def main(cfg: DictConfig) -> None:
 
     torch.save(tokenizer.vocabulary, path_output_dir / "vocabulary.pt")
 
-    population = pl.from_dict({"subject_id": ids})
+    # A subject may occur in multiple input shards. The generated population is
+    # a minimal subject manifest and must still contain exactly one row per ID.
+    population = pl.from_dict({"subject_id": list(dict.fromkeys(ids))})
     population.write_csv(path_output_dir / "population_full.csv")
 
 

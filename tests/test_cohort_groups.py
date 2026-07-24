@@ -249,7 +249,11 @@ def test_generated_joint_opera_config_structure():
     import yaml
 
     config_path = (
-        Path(__file__).parents[1] / "opera" / "configs" / "generated" / "joint_opera_full_panel.yaml"
+        Path(__file__).parents[1]
+        / "opera"
+        / "configs"
+        / "generated"
+        / "joint_opera_full_panel.yaml"
     )
     assert config_path.exists()
     with open(config_path, encoding="utf-8") as fh:

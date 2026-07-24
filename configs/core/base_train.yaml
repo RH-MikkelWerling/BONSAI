@@ -8,3 +8,5 @@ hydra:
     subdir: ${hydra:job.config_name}/run_id_${run_id}
 
 run_id: ${version:}
+seed: 42
+overwrite: false

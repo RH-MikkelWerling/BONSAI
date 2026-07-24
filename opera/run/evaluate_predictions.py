@@ -22,7 +22,9 @@ from opera.evaluation.cohorts import (
     read_subject_ids,
 )
 from opera.evaluation.metrics import (
+    bootstrap_competing_risk_metrics,
     bootstrap_survival_metrics,
+    compute_competing_risk_metrics,
     compute_survival_metrics,
     format_evaluation_summary,
     full_evaluation,
@@ -154,9 +156,7 @@ def build_eval_frames(
         )
         if "risk_score" not in survival.columns:
             requested = risk_col or probability_col
-            raise ValueError(
-                f"Survival evaluation requires risk column {requested!r}."
-            )
+            raise ValueError(f"Survival evaluation requires risk column {requested!r}.")
         if survival["risk_score"].isna().any():
             raise ValueError("Survival predictions contain missing risk scores.")
         frames[SURVIVAL_REGIME] = survival
@@ -202,11 +202,7 @@ def outcome_window_size_metadata(
 ) -> dict:
     """Compute split sizes/events from the same canonical cohort builder."""
     metadata = {}
-    regime = (
-        FIXED_HORIZON_REGIME
-        if evaluation_regime == "both"
-        else evaluation_regime
-    )
+    regime = FIXED_HORIZON_REGIME if evaluation_regime == "both" else evaluation_regime
     for split_name, result_key in (
         ("train", "train"),
         ("tuning", "val"),
@@ -383,6 +379,7 @@ def main() -> None:
                 else None
             ),
             time_horizons=time_horizons,
+            competing_risk=bool(args.competing_outcome),
         )
         summary = format_evaluation_summary(report)
     else:
@@ -412,6 +409,18 @@ def main() -> None:
                 seed=args.seed,
             ),
         }
+        if args.competing_outcome:
+            report["competing_risk"] = compute_competing_risk_metrics(
+                times, events, risks, time_horizons=time_horizons
+            )
+            report["competing_risk_bootstrap_ci"] = bootstrap_competing_risk_metrics(
+                times,
+                events,
+                risks,
+                time_horizons=time_horizons,
+                n_bootstrap=min(args.n_bootstrap, 500),
+                seed=args.seed,
+            )
         summary = format_survival_summary(report)
 
     print(cohort_summary(cohorts.fixed_horizon, args.outcome_name))

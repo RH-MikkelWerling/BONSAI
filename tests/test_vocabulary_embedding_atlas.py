@@ -73,9 +73,7 @@ def test_extract_vocabulary_embeddings_supports_bonsai_and_opera_keys(tmp_path):
         "pathology//M9680",
     ]
     assert bonsai.loc[bonsai["token"] == "[PAD]", "token_family"].item() == "special"
-    assert (
-        bonsai.loc[bonsai["token"] == "LPR3//DC833", "token_family"].item() == "LPR3"
-    )
+    assert bonsai.loc[bonsai["token"] == "LPR3//DC833", "token_family"].item() == "LPR3"
     assert bonsai.filter(like="embedding_").shape[1] >= 4
 
 
@@ -95,9 +93,7 @@ def test_vocabulary_projection_and_plot(tmp_path):
     )
 
     assert isinstance(fig, Figure)
-    assert {"atlas_x", "atlas_y", "token", "token_family"}.issubset(
-        coordinates.columns
-    )
+    assert {"atlas_x", "atlas_y", "token", "token_family"}.issubset(coordinates.columns)
     assert (tmp_path / "vocab_atlas.png").exists()
     assert (tmp_path / "vocab_atlas.pdf").exists()
 
@@ -200,7 +196,9 @@ def test_vocabulary_size_mismatch_is_rejected(tmp_path):
     _write_vocab(vocab_path)
     checkpoint = tmp_path / "bad.ckpt"
     values = torch.zeros((5, 4), dtype=torch.float32)
-    torch.save({"state_dict": {"model.embeddings.code_embedding.weight": values}}, checkpoint)
+    torch.save(
+        {"state_dict": {"model.embeddings.code_embedding.weight": values}}, checkpoint
+    )
 
     with pytest.raises(ValueError, match="Vocabulary size"):
         extract_vocabulary_embedding_frame(checkpoint, vocab_path)

@@ -65,9 +65,19 @@ def _severity_deltas() -> pd.DataFrame:
     for target, (lower, role, transfer_delta) in targets.items():
         for seed, adjustment in ((42, 0.00), (43, 0.10)):
             for contrast, condition_a, condition_b, value in (
-                ("transfer_vs_dapt", "opera_no_g3", "dapt", transfer_delta + adjustment),
+                (
+                    "transfer_vs_dapt",
+                    "opera_no_g3",
+                    "dapt",
+                    transfer_delta + adjustment,
+                ),
                 ("full_vs_transfer", "opera_full", "opera_no_g3", 0.05 + adjustment),
-                ("full_vs_dapt", "opera_full", "dapt", transfer_delta + 0.05 + adjustment),
+                (
+                    "full_vs_dapt",
+                    "opera_full",
+                    "dapt",
+                    transfer_delta + 0.05 + adjustment,
+                ),
             ):
                 rows.append(
                     {
@@ -92,7 +102,9 @@ def _severity_deltas() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_primary_severity_aggregate_is_resolver_matched_and_secondary_is_separate(tmp_path):
+def test_primary_severity_aggregate_is_resolver_matched_and_secondary_is_separate(
+    tmp_path,
+):
     plan = _severity_plan()
     deltas = _severity_deltas()
 

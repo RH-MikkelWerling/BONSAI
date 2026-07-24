@@ -37,9 +37,7 @@ from opera.functional.outcomes import (
 
 
 PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
-_UNRESOLVED_ENVIRONMENT = re.compile(
-    r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|%[^%]+%"
-)
+_UNRESOLVED_ENVIRONMENT = re.compile(r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|%[^%]+%")
 
 
 def _looks_like_placeholder(value: str) -> bool:
@@ -70,8 +68,7 @@ def _read_table(path: Path) -> Any:
     if path.suffix.lower() in {".csv", ".txt"}:
         return pd.read_csv(path)
     raise ValueError(
-        f"Unsupported tabular file extension {path.suffix!r}; "
-        "expected parquet or CSV."
+        f"Unsupported tabular file extension {path.suffix!r}; expected parquet or CSV."
     )
 
 
@@ -133,8 +130,7 @@ def _membership_ids_for_cohort(
             membership_cache[membership_path] = membership
     except Exception as exc:
         issues.append(
-            f"Could not read cohort {cohort!r} population_file "
-            f"{membership_path}: {exc}"
+            f"Could not read cohort {cohort!r} population_file {membership_path}: {exc}"
         )
         return None, None
 
@@ -173,9 +169,7 @@ def _membership_ids_for_cohort(
                 f"{membership_path}; columns={list(membership.columns)}"
             )
             return None, membership
-        scoped = membership[
-            membership[cohort_col].astype(str) == str(cohort_value)
-        ]
+        scoped = membership[membership[cohort_col].astype(str) == str(cohort_value)]
         if scoped.empty:
             issues.append(
                 f"Cohort {cohort!r} has no patients after filtering "
@@ -186,8 +180,7 @@ def _membership_ids_for_cohort(
 
     if membership.empty:
         issues.append(
-            f"Cohort {cohort!r} population_file contains no patients: "
-            f"{membership_path}"
+            f"Cohort {cohort!r} population_file contains no patients: {membership_path}"
         )
         return set(), membership
     return set(membership["subject_id"]), membership
@@ -233,7 +226,11 @@ def check_sweep_config(
 
     for name, variant in variants.items():
         training_mode = variant.get("training_mode")
-        if training_mode is not None and training_mode not in {"cox", "ipcw_bce"}:
+        if training_mode is not None and training_mode not in {
+            "cox",
+            "ipcw_bce",
+            "ipcw_cif_bce",
+        }:
             issues.append(
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
             )
@@ -272,12 +269,13 @@ def check_sweep_config(
                 issues.append(f"Variant {name!r} {key} does not exist: {value}")
 
     has_ipcw_bce_variant = any(
-        variant.get("training_mode") == "ipcw_bce" for variant in variants.values()
+        variant.get("training_mode") in {"ipcw_bce", "ipcw_cif_bce"}
+        for variant in variants.values()
     )
     normalized_outcomes = normalize_outcome_config(cfg.get("outcomes") or {})
     if has_ipcw_bce_variant:
         for variant_name, variant in variants.items():
-            if variant.get("training_mode") != "ipcw_bce":
+            if variant.get("training_mode") not in {"ipcw_bce", "ipcw_cif_bce"}:
                 continue
             for outcome_name, outcome_cfg in normalized_outcomes.items():
                 if not variant_applies_to_outcome(variant, outcome_name):
@@ -496,7 +494,11 @@ def check_sweep_config(
                                     f"Cohort {cohort!r} IPI coverage for {outcome_name!r} "
                                     f"is {coverage:.0%}; usable."
                                 )
-                        elif ipi_col and membership_frame is not None and ipi_col not in membership_frame.columns:
+                        elif (
+                            ipi_col
+                            and membership_frame is not None
+                            and ipi_col not in membership_frame.columns
+                        ):
                             issues.append(
                                 f"Cohort {cohort!r} IPI column {ipi_col!r} is not in "
                                 "population_file."

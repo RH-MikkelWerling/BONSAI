@@ -52,7 +52,7 @@ training:
   batch_size: 128
   batch_sampling:
     # Cox: spread real events across batches while preserving once-per-epoch
-    # patient coverage. IPCW-BCE: use ordinary random batches so the weighted
+    # patient coverage. Both IPCW-BCE modes use ordinary random batches so the weighted
     # additive objective remains representative. Event-aware oversampling is
     # available only as a deliberately biased ablation.
     type: auto
@@ -63,9 +63,12 @@ training:
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 1
   # Survival/IPCW objectives do not use label resampling or extra positive
-  # class weighting. Cox uses censoring-aware event times; IPCW-BCE uses
-  # per-subject IPCW weights to preserve probability calibration.
-  eval_monitor_metric: val/concordance_index
+  # class weighting. Cox uses censoring-aware event times. `ipcw_bce` targets
+  # net risk (competing events censored); `ipcw_cif_bce` targets cumulative
+  # incidence (competing events are observed negatives).
+  # auto: Cox selects by full-validation C-index; IPCW modes select by weighted
+  # validation log loss, which remains defined in one-class rare cells.
+  eval_monitor_metric: auto
   early_stopping_patience: 5
   limit_val_batches: 1.0
   limit_train_batches: 1.0

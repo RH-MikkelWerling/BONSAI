@@ -24,8 +24,15 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.modules.networks.competing_risk import (
+    validate_competing_risk_sampling,
+)
 from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
 from opera.modules.datamodules.ContrastiveDataModule import (
     ContrastiveDataModule,
@@ -42,7 +49,9 @@ load_dotenv()
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="contrastive_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Load encoder from DAPT checkpoint ────────────────────────────
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
@@ -60,6 +69,13 @@ def main(cfg: DictConfig) -> None:
     # ── Outcome names ────────────────────────────────────────────────
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
     outcome_names = sorted(outcome_configs.keys())
+    validate_competing_risk_sampling(
+        OmegaConf.to_container(cfg.get("competing_risk", {}), resolve=True),
+        OmegaConf.to_container(
+            cfg.training.get("batch_sampling", {}),
+            resolve=True,
+        ),
+    )
     outcome_sorted_event_times, outcome_event_time_probs = (
         compute_event_time_probability_grids(
             outcome_configs,
@@ -77,6 +93,11 @@ def main(cfg: DictConfig) -> None:
         print(f"Loading DAPT embedding store from {cfg.dapt_embedding_store} ...")
         dapt_embedding_store = torch.load(cfg.dapt_embedding_store, map_location="cpu")
         print(f"  Loaded {len(dapt_embedding_store)} patient embeddings.")
+    elif bool(cfg.training.get("require_dapt_embedding_store", False)):
+        raise ValueError(
+            "training.require_dapt_embedding_store=true but "
+            "dapt_embedding_store is null. Build the store before training."
+        )
 
     # ── Build OPERA contrastive model ────────────────────────────────
     model = OperaContrastiveModel(
@@ -88,8 +109,8 @@ def main(cfg: DictConfig) -> None:
         temperature=cfg.model.temperature,
         outcome_sorted_event_times=outcome_sorted_event_times,
         outcome_event_time_probs=outcome_event_time_probs,
-        dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),
-        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
+        dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.55),
+        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         competing_event_weight=cfg.model.get("competing_event_weight", 0.0),
         competing_event_handling=cfg.model.get(
             "competing_event_handling", "hard_negative"
@@ -104,6 +125,10 @@ def main(cfg: DictConfig) -> None:
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
+        competing_risk_config=OmegaConf.to_container(
+            cfg.get("competing_risk", {}),
+            resolve=True,
+        ),
     )
 
     # ── Data ─────────────────────────────────────────────────────────
@@ -128,7 +153,7 @@ def main(cfg: DictConfig) -> None:
         encoder_lr_multiplier=cfg.training.encoder_lr_multiplier,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
-        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
+        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         checkpoint_metadata={
             "training_stage": "opera_contrastive_adaptation",
             "source_checkpoint": cfg.dapt_ckpt,
@@ -162,6 +187,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

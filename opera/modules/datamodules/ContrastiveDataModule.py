@@ -309,6 +309,8 @@ class ContrastiveDataModule(L.LightningDataModule):
     def setup(self, stage: Literal["fit", "test", "predict"]):
         if stage != "fit":
             raise NotImplementedError(f"Stage {stage} not supported.")
+        if hasattr(self, "train_dataset"):
+            return
 
         from opera.modules.datamodules.OutcomeFinetuneDataModule import (
             load_subject_pool,
@@ -425,6 +427,7 @@ class ContrastiveDataModule(L.LightningDataModule):
             persistent_workers=self.num_workers > 0,
             drop_last=True,
             sampler=self.train_sampler,
+            shuffle=self.train_sampler is None,
             collate_fn=contrastive_collate,
         )
 

@@ -199,6 +199,11 @@ def mark_probability_metrics_not_applicable(report: dict) -> None:
     report["decision_curve"] = pd.DataFrame()
     for metrics in report.get("survival", {}).get("per_horizon", {}).values():
         metrics["ipcw_brier"] = float("nan")
+    for metrics in report.get("competing_risk", {}).get("per_horizon", {}).values():
+        metrics["cif_brier"] = float("nan")
+    for metric, values in report.get("competing_risk_bootstrap_ci", {}).items():
+        if metric.startswith("cif_brier_"):
+            values.update(mean=float("nan"), lower=float("nan"), upper=float("nan"))
 
 
 def format_cox_evaluation_summary(report: dict) -> str:
@@ -426,6 +431,7 @@ def main(cfg: DictConfig) -> None:
         events=events_all,
         survival_probabilities=probs_all,
         time_horizons=time_horizons,
+        competing_risk=bool(competing_path),
     )
     stratified_cfg = cfg.get("stratified_concordance", {}) or {}
     if stratified_cfg.get("enabled", False):
@@ -465,6 +471,11 @@ def main(cfg: DictConfig) -> None:
         mark_probability_metrics_not_applicable(report)
     report["evaluation_notes"] = {
         "training_mode": training_mode,
+        "survival_estimand": {
+            "cox": "cause_specific_hazard",
+            "ipcw_bce": "net_risk",
+            "ipcw_cif_bce": "cumulative_incidence",
+        }.get(training_mode),
         "time_horizons_days": time_horizons,
         "calibration_note": (
             "Cox checkpoints output relative risk scores. Binary AUROC/AUPRC "

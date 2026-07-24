@@ -35,8 +35,12 @@ class EvaluationCohort:
     @property
     def n_events(self) -> int:
         if self.regime == FIXED_HORIZON_REGIME:
-            return int(sum(int(record["label"] == 1) for record in self.records.values()))
-        return int(sum(int(record.get("event", 0) == 1) for record in self.records.values()))
+            return int(
+                sum(int(record["label"] == 1) for record in self.records.values())
+            )
+        return int(
+            sum(int(record.get("event", 0) == 1) for record in self.records.values())
+        )
 
     def to_frame(self) -> pd.DataFrame:
         frame = pd.DataFrame.from_dict(self.records, orient="index")
@@ -74,7 +78,9 @@ def read_subject_ids(path: Optional[str | Path]) -> Optional[set[Any]]:
     if "subject_id" not in frame.columns:
         raise ValueError(f"Subject restriction {source} must contain subject_id.")
     if frame["subject_id"].duplicated().any():
-        raise ValueError(f"Subject restriction {source} contains duplicate subject_id rows.")
+        raise ValueError(
+            f"Subject restriction {source} contains duplicate subject_id rows."
+        )
     return set(frame["subject_id"])
 
 
@@ -97,7 +103,9 @@ def population_subject_ids(
     if "subject_id" not in population.columns:
         raise ValueError(f"Population file {source} must contain subject_id.")
     if bool(cohort_fine_col) != bool(cohort_fine_value):
-        raise ValueError("cohort_fine_col and cohort_fine_value must be provided together.")
+        raise ValueError(
+            "cohort_fine_col and cohort_fine_value must be provided together."
+        )
     if cohort_fine_col:
         if cohort_fine_col not in population.columns:
             raise ValueError(

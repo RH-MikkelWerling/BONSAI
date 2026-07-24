@@ -171,7 +171,9 @@ def _checkpoint_metadata(checkpoint_path: Path) -> dict[str, Any]:
             f"Unable to inspect checkpoint metadata for {checkpoint_path}: {exc}"
         ) from exc
     if not isinstance(payload, Mapping):
-        raise OutcomeTransferLaunchError(f"Checkpoint {checkpoint_path} is not a mapping.")
+        raise OutcomeTransferLaunchError(
+            f"Checkpoint {checkpoint_path} is not a mapping."
+        )
     hparams = payload.get("hyper_parameters", {})
     if not isinstance(hparams, Mapping):
         return {}
@@ -241,7 +243,9 @@ def check_reusable_full_checkpoint(
     # transfer checkpoints use the clearer ``source_dapt_checkpoint``.  Both
     # must prove the encoder was adapted from a DAPT source before a full
     # checkpoint can serve as the direct-supervision reference.
-    source_dapt = metadata.get("source_dapt_checkpoint", metadata.get("source_checkpoint"))
+    source_dapt = metadata.get(
+        "source_dapt_checkpoint", metadata.get("source_checkpoint")
+    )
     if not source_dapt:
         return False, "source_dapt_checkpoint_missing", metadata
     return True, "compatible", metadata
@@ -413,12 +417,16 @@ def _status_row(
 def _write_status(rows: list[dict[str, Any]], output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / STATUS_NAME
-    fieldnames = list(rows[0]) if rows else [
-        "timestamp_utc",
-        "condition",
-        "seed",
-        "status",
-    ]
+    fieldnames = (
+        list(rows[0])
+        if rows
+        else [
+            "timestamp_utc",
+            "condition",
+            "seed",
+            "status",
+        ]
+    )
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -631,7 +639,9 @@ def launch_outcome_transfer_conditions(
                     _status_row(
                         condition=condition,
                         seed=seed,
-                        status="reused" if compatible else "incompatible_full_checkpoint",
+                        status="reused"
+                        if compatible
+                        else "incompatible_full_checkpoint",
                         run_dir=run_dir,
                         plan=plan,
                         command=None,
@@ -661,7 +671,11 @@ def launch_outcome_transfer_conditions(
                     )
                 )
                 continue
-            if existing is None and existing_detail != "checkpoint_not_found" and not overwrite:
+            if (
+                existing is None
+                and existing_detail != "checkpoint_not_found"
+                and not overwrite
+            ):
                 rows.append(
                     _status_row(
                         condition=condition,

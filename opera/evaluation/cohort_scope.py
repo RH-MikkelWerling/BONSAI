@@ -73,7 +73,9 @@ def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(unique)
 
 
-def _cohort_names_from_config(cohorts: Mapping[str, Any] | Sequence[str]) -> tuple[str, ...]:
+def _cohort_names_from_config(
+    cohorts: Mapping[str, Any] | Sequence[str],
+) -> tuple[str, ...]:
     if isinstance(cohorts, Mapping):
         return tuple(str(name) for name in cohorts.keys())
     return tuple(str(name) for name in cohorts)
@@ -94,7 +96,9 @@ def build_adaptation_breadth_ladder(
             f"target_cohort={target_cohort!r} is not present in configured cohorts"
         )
 
-    neighbour_names = tuple(str(item) for item in (neighbours or {}).get(target_cohort, ()))
+    neighbour_names = tuple(
+        str(item) for item in (neighbours or {}).get(target_cohort, ())
+    )
     unknown_neighbours = sorted(set(neighbour_names) - set(cohort_names))
     if unknown_neighbours:
         raise ValueError(
@@ -170,7 +174,9 @@ def build_ladder_plan_from_manifest(path: str | Path) -> dict[str, Any]:
     if manifest.get("general_pretraining", FROZEN_GENERAL_PRETRAINING) != (
         FROZEN_GENERAL_PRETRAINING
     ):
-        raise ValueError("Adaptation breadth ladder requires frozen general pretraining")
+        raise ValueError(
+            "Adaptation breadth ladder requires frozen general pretraining"
+        )
     scopes = build_adaptation_breadth_ladder(
         target_cohort=str(manifest["target_cohort"]),
         cohorts=manifest["cohorts"],

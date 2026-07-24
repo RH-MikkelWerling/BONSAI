@@ -32,9 +32,10 @@ def test_adaptation_breadth_ladder_keeps_finetune_cohort_fixed():
     plan = build_ladder_plan(scopes)
     assert plan["finetune_cohort"] == "dlbcl"
     assert "dataset=dlbcl" in plan["scopes"][1]["hydra_overrides"]["finetune"]
-    assert "cohort_scope.adaptation_cohorts=[dlbcl,cll]" in plan["scopes"][1][
-        "hydra_overrides"
-    ]["contrastive"]
+    assert (
+        "cohort_scope.adaptation_cohorts=[dlbcl,cll]"
+        in plan["scopes"][1]["hydra_overrides"]["contrastive"]
+    )
 
 
 def test_adaptation_breadth_ladder_rejects_unknown_neighbour():

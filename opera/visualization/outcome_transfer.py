@@ -83,7 +83,11 @@ def _draw_representation_ladder(
         return
     if target_order is None:
         target_order = sorted(frame["target_outcome"].astype(str).unique().tolist())
-    target_order = [target for target in target_order if target in set(frame["target_outcome"].astype(str))]
+    target_order = [
+        target
+        for target in target_order
+        if target in set(frame["target_outcome"].astype(str))
+    ]
     if not target_order:
         ax.text(0.5, 0.5, "No supported held-out results", ha="center", va="center")
         ax.set_title(title)
@@ -165,9 +169,9 @@ def _draw_severity_delta_panel(
         & (deltas["metric"].astype(str) == "auroc")
         & (deltas["evaluation_level"].astype(str) == "pan_hematology")
         & (deltas["evaluation_group"].astype(str) == "all_hematology")
-        & deltas["contrast"].astype(str).isin(
-            ["transfer_vs_dapt", "full_vs_transfer", "full_vs_dapt"]
-        )
+        & deltas["contrast"]
+        .astype(str)
+        .isin(["transfer_vs_dapt", "full_vs_transfer", "full_vs_dapt"])
     ].copy()
     if "evaluation_role" in work.columns and not work.empty:
         if set(work["evaluation_role"].astype(str)) != {SEVERITY_PRIMARY_SCOPE}:
@@ -200,7 +204,10 @@ def _draw_severity_delta_panel(
         if per_target.empty:
             continue
         y = np.asarray(
-            [y_locations[str(target)] + offset for target in per_target["target_outcome"]]
+            [
+                y_locations[str(target)] + offset
+                for target in per_target["target_outcome"]
+            ]
         )
         ax.scatter(
             per_target["estimate"],
@@ -272,7 +279,9 @@ def _draw_family_delta_panel(ax: plt.Axes, deltas: pd.DataFrame) -> None:
         & deltas["contrast"].astype(str).isin(["transfer_vs_dapt", "full_vs_transfer"])
     ].copy()
     if work.empty:
-        ax.text(0.5, 0.5, "No supported held-out family results", ha="center", va="center")
+        ax.text(
+            0.5, 0.5, "No supported held-out family results", ha="center", va="center"
+        )
         ax.set_title("Family transfer")
         return
     families = [
@@ -292,7 +301,9 @@ def _draw_family_delta_panel(ax: plt.Axes, deltas: pd.DataFrame) -> None:
         for family, group in subset.groupby("target_family", sort=False):
             if str(family) not in y_locations:
                 continue
-            per_target = group.groupby("target_outcome", as_index=False)["estimate"].mean()
+            per_target = group.groupby("target_outcome", as_index=False)[
+                "estimate"
+            ].mean()
             y = np.full(len(per_target), y_locations[str(family)] + offset)
             ax.scatter(
                 per_target["estimate"],

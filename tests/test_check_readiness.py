@@ -243,11 +243,7 @@ def test_generated_fine_sweep_config_passes_readiness_check():
     from pathlib import Path
 
     config = str(
-        Path(__file__).parents[1]
-        / "opera"
-        / "configs"
-        / "generated"
-        / "fine_cox.yaml"
+        Path(__file__).parents[1] / "opera" / "configs" / "generated" / "fine_cox.yaml"
     )
     issues = check_sweep_config(config, require_existing_paths=False)
     # Filter out expected unresolved-env-var warnings (these are acceptable in CI)

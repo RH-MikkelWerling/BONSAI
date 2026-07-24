@@ -10,7 +10,7 @@ death_outcome: overall_survival
 paths:
   # One shared subject-data store. Cohort membership and outcomes are joined by
   # subject_id at runtime; no subject data are copied into cohort folders.
-  shared_data_dir: ${BONSAI_PROCESSED_DATA}/hematology_all
+  shared_data_dir: ${BONSAI_PROCESSED_DATA}/daly_care
   cohort_membership_file: ${BONSAI_COHORT_MEMBERSHIP}
   outcomes_dir: ${BONSAI_OUTCOMES_DIR}
   output_root: ${BONSAI_RESULTS_ROOT}/production_sweeps
@@ -148,6 +148,12 @@ outcomes:
   - WBC_decreased_g2plus
   - WBC_decreased_g3plus
 
+# Optional runtime eligibility filters. Add an entry only when the corresponding
+# outcome parquet is not already the final eligible risk set.
+#
+# eligibility_files:
+#   aki_first_documented: ${BONSAI_OUTCOMES_DIR}/aki_first_documented__audit.parquet
+
 # Every endpoint must occur exactly once. The generator validates coverage.
 outcome_families:
   Disease control & survival:
@@ -255,9 +261,10 @@ model_variants:
   base_pretrain:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
-  hematology_only_pretrain:
-    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/hematology_pretrain/best.ckpt
+  daly_care_pretrain:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
     encoder_source: pretrain
+    pretraining_scope: daly_care_only
   dapt:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt

@@ -96,9 +96,7 @@ def drop_duplicates(df: pl.DataFrame) -> pl.DataFrame:
     subset.extend(column for column in OPTIONAL_TOKEN_COLUMNS if column in df.columns)
     df = df.unique(subset=subset, maintain_order=True)
     if pre != len(df):
-        logging.info(
-            f"Dropped {pre - len(df)} duplicate rows based on {subset}"
-        )
+        logging.info(f"Dropped {pre - len(df)} duplicate rows based on {subset}")
     return df
 
 
@@ -175,9 +173,7 @@ def process_split(
         if "row_id" in tokenized.columns:
             columns.append(pl.col("row_id").cast(pl.Int64))
         if "value_normalized" in tokenized.columns:
-            columns.append(
-                pl.col("value_normalized").fill_null(0.0).cast(pl.Float32)
-            )
+            columns.append(pl.col("value_normalized").fill_null(0.0).cast(pl.Float32))
         if "value_bin" in tokenized.columns:
             columns.append(pl.col("value_bin").fill_null(0).cast(pl.Int64))
         if "value_present" in tokenized.columns:

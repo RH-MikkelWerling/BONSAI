@@ -106,9 +106,13 @@ def build_task_label_table(
     the ascertainment cohort but not the fixed-horizon cohort are explicitly
     marked indeterminate. This preserves the canonical censoring semantics.
     """
-    outcome_frame = outcomes.copy() if isinstance(outcomes, pd.DataFrame) else read_table(outcomes)
+    outcome_frame = (
+        outcomes.copy() if isinstance(outcomes, pd.DataFrame) else read_table(outcomes)
+    )
     population_frame = (
-        population.copy() if isinstance(population, pd.DataFrame) else read_table(population)
+        population.copy()
+        if isinstance(population, pd.DataFrame)
+        else read_table(population)
     )
     required_population = {"subject_id", cohort_fine_col}
     missing = required_population - set(population_frame.columns)
@@ -124,7 +128,9 @@ def build_task_label_table(
         ]
     )
     if not allowed:
-        raise ValueError(f"No population patients found for cohort_fine={cohort_fine!r}.")
+        raise ValueError(
+            f"No population patients found for cohort_fine={cohort_fine!r}."
+        )
 
     dates = _unique_patient_dates(outcome_frame).set_index("subject_id")
     rows: list[dict] = []
@@ -264,7 +270,9 @@ def _nested_patient_order(frame: pd.DataFrame, seed: int) -> list[object]:
         group = group.copy()
         order = rng.permutation(len(group))
         group["_within_rank"] = np.arange(len(group))[order.argsort()]
-        group["_priority"] = (group["_within_rank"] + rng.random(len(group))) / len(group)
+        group["_priority"] = (group["_within_rank"] + rng.random(len(group))) / len(
+            group
+        )
         parts.append(group)
     ordered = pd.concat(parts).sort_values(["_priority", "_stratum", "subject_id"])
     return ordered["subject_id"].tolist()
@@ -304,7 +312,9 @@ def build_nested_sample_manifest(
     previous: set[object] = set()
     for size in sorted(set(map(int, sizes))):
         if size <= 0 or size > n_train_total:
-            skipped.append({"sample_size": size, "seed": seed, "reason": "infeasible_size"})
+            skipped.append(
+                {"sample_size": size, "seed": seed, "reason": "infeasible_size"}
+            )
             continue
         train_ids = set(train_order[:size])
         selected = train[train["subject_id"].isin(train_ids)]
@@ -325,13 +335,21 @@ def build_nested_sample_manifest(
             raise AssertionError("Nested sampling invariant failed.")
         previous = train_ids
         tune_n = (
-            min(len(tune_order), max(1, int(round(len(tune_order) * size / n_train_total))))
+            min(
+                len(tune_order),
+                max(1, int(round(len(tune_order) * size / n_train_total))),
+            )
             if downsample_tuning and tune_order
             else len(tune_order)
         )
-        for split, ids in (("train", train_order[:size]), ("tuning", tune_order[:tune_n])):
+        for split, ids in (
+            ("train", train_order[:size]),
+            ("tuning", tune_order[:tune_n]),
+        ):
             for subject_id in ids:
-                row = labels[(labels["split"] == split) & (labels["subject_id"] == subject_id)].iloc[0]
+                row = labels[
+                    (labels["split"] == split) & (labels["subject_id"] == subject_id)
+                ].iloc[0]
                 records.append(
                     {
                         "sample_size": size,
@@ -350,7 +368,9 @@ def build_nested_sample_manifest(
             .rename("patient_id_hash")
             .reset_index()
         )
-        manifest = manifest.merge(hashes, on=["sample_size", "seed", "split"], how="left")
+        manifest = manifest.merge(
+            hashes, on=["sample_size", "seed", "split"], how="left"
+        )
     return manifest, pd.DataFrame(skipped)
 
 
@@ -364,15 +384,21 @@ def validate_nested_manifest(manifest: pd.DataFrame) -> None:
         for _, level in group.groupby("sample_size", sort=True):
             current = set(level["subject_id"])
             if not previous.issubset(current):
-                raise ValueError(f"Samples are not nested for seed={seed}, split={split}.")
+                raise ValueError(
+                    f"Samples are not nested for seed={seed}, split={split}."
+                )
             previous = current
 
 
-def binary_metric_values(labels: np.ndarray, probabilities: np.ndarray) -> dict[str, float]:
+def binary_metric_values(
+    labels: np.ndarray, probabilities: np.ndarray
+) -> dict[str, float]:
     labels = np.asarray(labels, dtype=int)
     probabilities = np.clip(np.asarray(probabilities, dtype=float), 1e-7, 1 - 1e-7)
     if len(labels) == 0 or len(np.unique(labels)) < 2:
-        raise ValueError("Binary metrics require non-empty positive and negative classes.")
+        raise ValueError(
+            "Binary metrics require non-empty positive and negative classes."
+        )
     prevalence = float(labels.mean())
     auprc = float(average_precision_score(labels, probabilities))
     brier = float(brier_score_loss(labels, probabilities))
@@ -416,7 +442,9 @@ def bootstrap_metric_table(
         sample = _cluster_resample(predictions, rng)
         if sample["label"].nunique() < 2:
             continue
-        values = binary_metric_values(sample["label"].to_numpy(), sample["probability"].to_numpy())
+        values = binary_metric_values(
+            sample["label"].to_numpy(), sample["probability"].to_numpy()
+        )
         for metric, value in values.items():
             if np.isfinite(value):
                 draws[metric].append(value)
@@ -428,9 +456,15 @@ def bootstrap_metric_table(
             {
                 "metric": metric,
                 "estimate": estimate,
-                "ci_lower": float(np.quantile(values, alpha)) if values.size else np.nan,
-                "ci_upper": float(np.quantile(values, 1 - alpha)) if values.size else np.nan,
-                "bootstrap_se": float(values.std(ddof=1)) if values.size > 1 else np.nan,
+                "ci_lower": float(np.quantile(values, alpha))
+                if values.size
+                else np.nan,
+                "ci_upper": float(np.quantile(values, 1 - alpha))
+                if values.size
+                else np.nan,
+                "bootstrap_se": float(values.std(ddof=1))
+                if values.size > 1
+                else np.nan,
                 "n_bootstrap_valid": int(values.size),
                 "n_test_patients": int(predictions["subject_id"].nunique()),
             }
@@ -443,7 +477,9 @@ def assert_prediction_parity(predictions_by_model: Mapping[str, pd.DataFrame]) -
     reference_name = None
     reference = None
     for name, frame in predictions_by_model.items():
-        pairs = frame[["subject_id", "label"]].drop_duplicates().sort_values("subject_id")
+        pairs = (
+            frame[["subject_id", "label"]].drop_duplicates().sort_values("subject_id")
+        )
         if reference is None:
             reference_name, reference = name, pairs.reset_index(drop=True)
             continue
@@ -483,7 +519,11 @@ def paired_bootstrap_difference(
         a = binary_metric_values(frame["label_model"], frame["probability_model"])
         b = binary_metric_values(frame["label_model"], frame["probability_comparator"])
         return {
-            metric: (b[metric] - a[metric] if metric in LOWER_IS_BETTER else a[metric] - b[metric])
+            metric: (
+                b[metric] - a[metric]
+                if metric in LOWER_IS_BETTER
+                else a[metric] - b[metric]
+            )
             for metric in METRIC_NAMES
         }
 
@@ -508,9 +548,15 @@ def paired_bootstrap_difference(
                 "model": model_name,
                 "comparator": comparator_name,
                 "difference": estimate,
-                "difference_ci_lower": float(np.quantile(values, alpha)) if values.size else np.nan,
-                "difference_ci_upper": float(np.quantile(values, 1 - alpha)) if values.size else np.nan,
-                "difference_se": float(values.std(ddof=1)) if values.size > 1 else np.nan,
+                "difference_ci_lower": float(np.quantile(values, alpha))
+                if values.size
+                else np.nan,
+                "difference_ci_upper": float(np.quantile(values, 1 - alpha))
+                if values.size
+                else np.nan,
+                "difference_se": float(values.std(ddof=1))
+                if values.size > 1
+                else np.nan,
                 "n_bootstrap_valid": int(values.size),
                 "n_test_patients": int(merged["subject_id"].nunique()),
             }
@@ -534,7 +580,9 @@ def macro_synthetic_summary(
     rng = np.random.default_rng(seed)
     task_cols = ["cohort_fine", "outcome"]
     for keys, group in metrics.groupby(group_cols, dropna=False):
-        task_seed = group.groupby([*task_cols, "seed"], as_index=False)["estimate"].mean()
+        task_seed = group.groupby([*task_cols, "seed"], as_index=False)[
+            "estimate"
+        ].mean()
         task_mean = task_seed.groupby(task_cols, as_index=False)["estimate"].mean()
         tasks = list(task_seed.groupby(task_cols, sort=False))
         draws = []
@@ -563,13 +611,25 @@ def summarize_natural_differences(differences: pd.DataFrame) -> pd.DataFrame:
     """Macro, median, information-weighted, and patient-weighted natural effects."""
     if differences.empty:
         return pd.DataFrame()
-    task_keys = ["cohort_fine", "outcome", "model", "comparator", "metric", "natural_viability_tier"]
+    task_keys = [
+        "cohort_fine",
+        "outcome",
+        "model",
+        "comparator",
+        "metric",
+        "natural_viability_tier",
+    ]
     aggregate_spec = {
         "difference": ("difference", "mean"),
-        "difference_se": ("difference_se", lambda value: float(np.sqrt(np.nanmean(np.square(value))))),
+        "difference_se": (
+            "difference_se",
+            lambda value: float(np.sqrt(np.nanmean(np.square(value)))),
+        ),
         "n_test_patients": ("n_test_patients", "max"),
     }
-    differences = differences.groupby(task_keys, dropna=False, as_index=False).agg(**aggregate_spec)
+    differences = differences.groupby(task_keys, dropna=False, as_index=False).agg(
+        **aggregate_spec
+    )
     rows = []
     group_cols = ["model", "comparator", "metric", "natural_viability_tier"]
     for keys, group in differences.groupby(group_cols, dropna=False):
@@ -588,11 +648,20 @@ def summarize_natural_differences(differences: pd.DataFrame) -> pd.DataFrame:
                 "median_difference": float(values.median()),
                 "proportion_favouring_model": float((values > 0).mean()),
                 "information_weighted_difference": (
-                    float(np.average(values[info_weights.notna()], weights=info_weights.dropna()))
-                    if info_weights.notna().any() else np.nan
+                    float(
+                        np.average(
+                            values[info_weights.notna()], weights=info_weights.dropna()
+                        )
+                    )
+                    if info_weights.notna().any()
+                    else np.nan
                 ),
-                "patient_weighted_difference": float(np.average(values, weights=patient_weights)),
-                "n_tasks": int(valid[["cohort_fine", "outcome"]].drop_duplicates().shape[0]),
+                "patient_weighted_difference": float(
+                    np.average(values, weights=patient_weights)
+                ),
+                "n_tasks": int(
+                    valid[["cohort_fine", "outcome"]].drop_duplicates().shape[0]
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -611,14 +680,19 @@ def estimate_label_savings(
         return pd.DataFrame()
     full_comparator = frame[frame["model"] == comparator].sort_values("sample_size")
     comparator_target = (
-        float(full_comparator.iloc[-1]["macro_mean"]) if not full_comparator.empty else np.nan
+        float(full_comparator.iloc[-1]["macro_mean"])
+        if not full_comparator.empty
+        else np.nan
     )
     rows = []
     for model, group in frame.groupby("model"):
         group = group.sort_values("sample_size")
         x = group["sample_size"].to_numpy(dtype=float)
         y = group["macro_mean"].to_numpy(dtype=float)
-        for name, threshold in (("prespecified", target), ("comparator_full", comparator_target)):
+        for name, threshold in (
+            ("prespecified", target),
+            ("comparator_full", comparator_target),
+        ):
             if threshold is None or not np.isfinite(threshold):
                 continue
             reached = np.where(y >= threshold)[0]

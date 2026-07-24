@@ -233,7 +233,9 @@ def test_ar_pretraining_builds_next_token_value_targets():
 
     assert torch.equal(sample["code"], torch.tensor([5, 6, 7, 8]))
     assert torch.equal(sample["target"], torch.tensor([6, 7, 8, 9]))
-    assert torch.equal(sample["target_value_mask"], torch.tensor([True, True, False, True]))
+    assert torch.equal(
+        sample["target_value_mask"], torch.tensor([True, True, False, True])
+    )
     assert torch.equal(sample["target_value_bin"], torch.tensor([2, 3, -100, 4]))
     torch.testing.assert_close(
         sample["target_value_normalized"],
@@ -310,7 +312,9 @@ def test_ar_combined_binning_predicts_value_from_preceding_event():
     sample = dataset[0]
 
     # The state at code 6 predicts the following bin representative.
-    assert torch.equal(sample["target_value_mask"], torch.tensor([False, True, False, True]))
+    assert torch.equal(
+        sample["target_value_mask"], torch.tensor([False, True, False, True])
+    )
     torch.testing.assert_close(
         sample["target_value_normalized"], torch.tensor([0.0, 0.3, 0.0, 0.4])
     )

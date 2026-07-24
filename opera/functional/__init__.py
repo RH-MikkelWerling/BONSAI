@@ -12,7 +12,11 @@ from opera.functional.cohort_groups import (
     is_valid_fine,
     is_valid_grouped,
 )
-from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
+from opera.functional.ipcw import (
+    attach_ipcw_weights,
+    compute_ipcw_train_weights,
+    summarize_ipcw_weights,
+)
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_outcome_eligibility,
@@ -30,6 +34,7 @@ __all__ = [
     "attach_prediction_censor_abspos",
     "filter_outcome_eligibility",
     "compute_ipcw_train_weights",
+    "summarize_ipcw_weights",
     "filter_registry_eligible_outcomes",
     "fine_to_grouped",
     "grouped_to_fine",

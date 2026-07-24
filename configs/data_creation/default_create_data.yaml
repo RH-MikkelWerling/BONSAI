@@ -1,5 +1,5 @@
 defaults:
-  - core/base_create@
+  - /core/base_create@
   - _self_
   
 splits: 

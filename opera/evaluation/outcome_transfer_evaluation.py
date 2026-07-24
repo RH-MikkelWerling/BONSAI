@@ -263,7 +263,9 @@ def _read_artifact_frame(path: str | Path) -> pd.DataFrame:
     """Read an embedding artefact into the canonical wide table shape."""
     source = Path(path)
     if not source.exists():
-        raise OutcomeTransferEvaluationError(f"Embedding artefact does not exist: {source}")
+        raise OutcomeTransferEvaluationError(
+            f"Embedding artefact does not exist: {source}"
+        )
     if source.suffix.lower() == ".npz":
         with np.load(source, allow_pickle=False) as payload:
             if "subject_ids" not in payload or "embeddings" not in payload:
@@ -294,7 +296,9 @@ def _read_metadata(path: str | Path | None) -> Mapping[str, Any]:
         return {}
     source = Path(path)
     if not source.exists():
-        raise OutcomeTransferEvaluationError(f"Checkpoint metadata does not exist: {source}")
+        raise OutcomeTransferEvaluationError(
+            f"Checkpoint metadata does not exist: {source}"
+        )
     with source.open(encoding="utf-8") as handle:
         if source.suffix.lower() == ".json":
             payload = json.load(handle)
@@ -333,13 +337,17 @@ def load_embedding_artifact(
     a checkpoint hash that cannot be verified.
     """
     if not representation:
-        raise OutcomeTransferEvaluationError("Embedding representation must be non-empty.")
+        raise OutcomeTransferEvaluationError(
+            "Embedding representation must be non-empty."
+        )
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise OutcomeTransferEvaluationError("Embedding seed must be an integer.")
     source = Path(path)
     frame = _read_artifact_frame(source).copy()
     if "subject_id" not in frame:
-        raise OutcomeTransferEvaluationError(f"Embedding artefact {source} is missing 'subject_id'.")
+        raise OutcomeTransferEvaluationError(
+            f"Embedding artefact {source} is missing 'subject_id'."
+        )
     frame["_subject_key"] = frame["subject_id"].map(_subject_key)
     if frame["_subject_key"].duplicated().any():
         examples = frame.loc[frame["_subject_key"].duplicated(), "subject_id"].head(10)
@@ -381,7 +389,9 @@ def load_embedding_artifact(
     artifact_hash = file_hash(source)
     supplied_checkpoint_hash = metadata.get("checkpoint_hash")
     checkpoint_hash = str(supplied_checkpoint_hash or artifact_hash)
-    hash_source = "checkpoint_metadata" if supplied_checkpoint_hash else "embedding_artifact"
+    hash_source = (
+        "checkpoint_metadata" if supplied_checkpoint_hash else "embedding_artifact"
+    )
     return EmbeddingArtifact(
         representation=representation,
         seed=seed,
@@ -391,7 +401,9 @@ def load_embedding_artifact(
         checkpoint_hash=checkpoint_hash,
         checkpoint_hash_source=hash_source,
         metadata=metadata,
-        metadata_path=Path(selected_metadata) if selected_metadata is not None else None,
+        metadata_path=Path(selected_metadata)
+        if selected_metadata is not None
+        else None,
     )
 
 
@@ -489,7 +501,9 @@ def _resolve_outcome_inputs(
         )
     outcome_root = _expand_path(paths["outcomes_dir"])
     metadata = _outcome_metadata(registry, outcome)
-    outcome_path = _path_from_raw(metadata.get("outcome_file", f"{outcome}.parquet"), outcome_root)
+    outcome_path = _path_from_raw(
+        metadata.get("outcome_file", f"{outcome}.parquet"), outcome_root
+    )
     death = str(registry["death_outcome"])
     raw_competing = metadata.get("competing_outcome_path") or metadata.get(
         "competing_outcome_file"
@@ -497,7 +511,9 @@ def _resolve_outcome_inputs(
     if raw_competing in (None, "", "null") and outcome != death:
         raw_competing = f"{death}.parquet"
     competing_path = (
-        None if raw_competing in (None, "", "null") else _path_from_raw(raw_competing, outcome_root)
+        None
+        if raw_competing in (None, "", "null")
+        else _path_from_raw(raw_competing, outcome_root)
     )
     raw_eligibility = metadata.get("eligibility_file")
     if raw_eligibility in (None, "", "null"):
@@ -510,11 +526,21 @@ def _resolve_outcome_inputs(
         else _path_from_raw(raw_eligibility, outcome_root)
     )
     start_hours = metadata.get("n_hours_start_include", 1)
-    if isinstance(start_hours, bool) or not isinstance(start_hours, int) or start_hours < 0:
+    if (
+        isinstance(start_hours, bool)
+        or not isinstance(start_hours, int)
+        or start_hours < 0
+    ):
         raise OutcomeTransferEvaluationError(
             f"Outcome {outcome!r} has invalid n_hours_start_include={start_hours!r}."
         )
-    return outcome_path, competing_path, eligibility_path, metadata.get("registry_start_date"), start_hours
+    return (
+        outcome_path,
+        competing_path,
+        eligibility_path,
+        metadata.get("registry_start_date"),
+        start_hours,
+    )
 
 
 def _filtered_outcome_frame(
@@ -611,9 +637,15 @@ def build_target_labels(
         raise OutcomeTransferEvaluationError(
             f"Unknown target outcome {target_outcome!r} in the canonical registry."
         )
-    if isinstance(horizon_days, bool) or not isinstance(horizon_days, int) or horizon_days <= 0:
+    if (
+        isinstance(horizon_days, bool)
+        or not isinstance(horizon_days, int)
+        or horizon_days <= 0
+    ):
         raise OutcomeTransferEvaluationError("horizon_days must be a positive integer.")
-    membership = membership.copy() if membership is not None else _load_membership(registry)
+    membership = (
+        membership.copy() if membership is not None else _load_membership(registry)
+    )
     split_keys = dict(split_keys or _split_keys(registry.get("split_contract", "")))
     # ``split_contract`` lives in the transfer manifest rather than the
     # registry in production, so callers normally supply split_keys.  The
@@ -622,7 +654,9 @@ def build_target_labels(
         raise OutcomeTransferEvaluationError(
             "split_keys must map exactly train, tuning, and held_out."
         )
-    frame, competing, start_hours = _filtered_outcome_frame(registry, target_outcome, membership)
+    frame, competing, start_hours = _filtered_outcome_frame(
+        registry, target_outcome, membership
+    )
     frame = frame.merge(
         membership[["_subject_key", "cohort_grouped"]],
         on="_subject_key",
@@ -704,7 +738,9 @@ def build_target_labels(
         )
     return TargetLabelBundle(
         labels=labels.sort_values(["split", "_subject_key"]).reset_index(drop=True),
-        raw_status=raw_status.sort_values(["split", "_subject_key"]).reset_index(drop=True),
+        raw_status=raw_status.sort_values(["split", "_subject_key"]).reset_index(
+            drop=True
+        ),
         target_outcome=target_outcome,
         horizon_days=horizon_days,
     )
@@ -716,14 +752,20 @@ def _group_mask(frame: pd.DataFrame, evaluation_group: str) -> pd.Series:
     return frame["cohort_grouped"].astype(str) == str(evaluation_group)
 
 
-def label_count_summary(bundle: TargetLabelBundle, evaluation_group: str) -> dict[str, int | float]:
+def label_count_summary(
+    bundle: TargetLabelBundle, evaluation_group: str
+) -> dict[str, int | float]:
     """Return required count/censoring fields for a result or status row."""
     result: dict[str, int | float] = {}
     aliases = {"train": "train", "tuning": "tuning", "held_out": "test"}
     for split, alias in aliases.items():
-        labels = bundle.labels.loc[(bundle.labels["split"] == split) & _group_mask(bundle.labels, evaluation_group)]
+        labels = bundle.labels.loc[
+            (bundle.labels["split"] == split)
+            & _group_mask(bundle.labels, evaluation_group)
+        ]
         raw = bundle.raw_status.loc[
-            (bundle.raw_status["split"] == split) & _group_mask(bundle.raw_status, evaluation_group)
+            (bundle.raw_status["split"] == split)
+            & _group_mask(bundle.raw_status, evaluation_group)
         ]
         events = int((labels["label"] == 1).sum())
         non_events = int((labels["label"] == 0).sum())
@@ -744,7 +786,9 @@ def label_count_summary(bundle: TargetLabelBundle, evaluation_group: str) -> dic
     return result
 
 
-def _features_for(artifact: EmbeddingArtifact, subject_keys: Sequence[str]) -> np.ndarray:
+def _features_for(
+    artifact: EmbeddingArtifact, subject_keys: Sequence[str]
+) -> np.ndarray:
     columns = embedding_columns(artifact.frame)
     indexed = artifact.frame.set_index("_subject_key")
     if not indexed.index.is_unique:
@@ -766,7 +810,9 @@ def assert_embedding_denominator_parity(
 ) -> None:
     """Fail closed if any compared frozen representation lacks labelled patients."""
     expected_by_split = {
-        split: bundle.labels.loc[bundle.labels["split"] == split, "_subject_key"].tolist()
+        split: bundle.labels.loc[
+            bundle.labels["split"] == split, "_subject_key"
+        ].tolist()
         for split in ("train", "tuning", "held_out")
     }
     for artifact in artifacts:
@@ -805,7 +851,9 @@ def fit_standardized_linear_probe(
 ) -> FrozenProbe:
     """Fit on train, choose C only on tuning, and never inspect held-out labels."""
     if not c_grid or any(not np.isfinite(value) or value <= 0 for value in c_grid):
-        raise OutcomeTransferEvaluationError("c_grid must contain positive finite values.")
+        raise OutcomeTransferEvaluationError(
+            "c_grid must contain positive finite values."
+        )
     train = bundle.labels.loc[bundle.labels["split"] == "train"].copy()
     tuning = bundle.labels.loc[bundle.labels["split"] == "tuning"].copy()
     if len(np.unique(train["label"])) < 2:
@@ -843,7 +891,9 @@ def fit_standardized_linear_probe(
         # Iterating C in ascending order and using strict comparison gives a
         # deterministic, more regularized tie-breaker.
         if best is None or tuning_auroc > best.tuning_auroc:
-            best = FrozenProbe(pipeline=pipeline, selected_c=c_value, tuning_auroc=tuning_auroc)
+            best = FrozenProbe(
+                pipeline=pipeline, selected_c=c_value, tuning_auroc=tuning_auroc
+            )
     assert best is not None
     return best
 
@@ -895,7 +945,9 @@ def assert_prediction_denominator_parity(
             canonical = current
             canonical_name = name
             continue
-        if len(current) != len(canonical) or not current["_subject_key"].equals(canonical["_subject_key"]):
+        if len(current) != len(canonical) or not current["_subject_key"].equals(
+            canonical["_subject_key"]
+        ):
             raise DenominatorParityError(
                 f"Held-out patient denominator mismatch between {canonical_name!r} and {name!r}"
                 + (f" for {context}." if context else ".")
@@ -920,7 +972,9 @@ def assert_prediction_denominator_parity(
 def _family_lookup(plan: Mapping[str, Any]) -> dict[str, str]:
     raw = plan.get("outcome_families")
     if not isinstance(raw, Mapping):
-        raise OutcomeTransferEvaluationError("Resolved transfer plan lacks outcome_families.")
+        raise OutcomeTransferEvaluationError(
+            "Resolved transfer plan lacks outcome_families."
+        )
     return {str(outcome): str(family) for outcome, family in raw.items()}
 
 
@@ -931,7 +985,9 @@ def _condition_metadata(
 ) -> dict[str, Any]:
     lookup = _family_lookup(plan)
     if target not in lookup:
-        raise OutcomeTransferEvaluationError(f"Target {target!r} lacks a canonical family.")
+        raise OutcomeTransferEvaluationError(
+            f"Target {target!r} lacks a canonical family."
+        )
     if representation == DAPT_REPRESENTATION:
         included: list[str] = []
         excluded: list[str] = []
@@ -942,13 +998,18 @@ def _condition_metadata(
         excluded = list(condition["training_excluded_outcomes"])
         transfer_level = str(condition["transfer_level"])
     target_family = lookup[target]
-    lower_grade = target.replace("_g3plus", "_g2plus") if target.endswith("_g3plus") else None
+    lower_grade = (
+        target.replace("_g3plus", "_g2plus") if target.endswith("_g3plus") else None
+    )
     return {
         "target_family": target_family,
         "transfer_level": transfer_level,
         "direct_target_seen": bool(target in included),
         "same_family_seen": bool(
-            any(item != target and lookup.get(item) == target_family for item in included)
+            any(
+                item != target and lookup.get(item) == target_family
+                for item in included
+            )
         ),
         "matched_lower_grade_seen": bool(lower_grade and lower_grade in included),
         "included_outcome_count": len(included),
@@ -1005,7 +1066,9 @@ def _result_rows(
         "n_test_metric_rows": int(len(group)),
         **counts,
     }
-    return [{**base, "metric": metric, "value": value} for metric, value in metrics.items()]
+    return [
+        {**base, "metric": metric, "value": value} for metric, value in metrics.items()
+    ]
 
 
 def _needed_representation_keys(plan: Mapping[str, Any]) -> set[tuple[str, int]]:
@@ -1106,9 +1169,7 @@ def _validate_artifact_inventory(
             "seed": seed,
             "registry_hash": plan["registry_hash"],
             "manifest_hash": plan["manifest_hash"],
-            "base_contrastive_config_hash": plan[
-                "base_contrastive_config_hash"
-            ],
+            "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
             "included_outcomes": list(expected["training_outcomes"]),
             "excluded_outcomes": list(expected["training_excluded_outcomes"]),
             "evaluation_outcomes": list(expected["evaluation_outcomes"]),
@@ -1222,8 +1283,14 @@ def evaluate_frozen_transfer_probes(
             )
             for seed in plan["seeds"]:
                 seed = int(seed)
-                representation_names = (DAPT_REPRESENTATION, condition_name, "opera_full")
-                cell_artifacts = [artifacts[(name, seed)] for name in representation_names]
+                representation_names = (
+                    DAPT_REPRESENTATION,
+                    condition_name,
+                    "opera_full",
+                )
+                cell_artifacts = [
+                    artifacts[(name, seed)] for name in representation_names
+                ]
                 assert_embedding_denominator_parity(cell_artifacts, bundle)
                 prediction_by_representation: dict[str, pd.DataFrame] = {}
                 for artifact in cell_artifacts:

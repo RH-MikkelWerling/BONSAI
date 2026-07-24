@@ -201,7 +201,7 @@ def test_primary_training_configs_default_to_flash_attention():
     paths = [
         root / "configs" / "pretrain.yaml",
         root / "configs" / "finetune.yaml",
-        root / "opera" / "configs" / "hematology_pretrain.yaml",
+        root / "opera" / "configs" / "daly_care_pretrain.yaml",
         root / "opera" / "configs" / "finetune.yaml",
     ]
     for path in paths:

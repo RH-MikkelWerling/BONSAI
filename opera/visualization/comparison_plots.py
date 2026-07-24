@@ -527,7 +527,12 @@ def plot_ipi_credibility(
         )
         if np.isfinite(cov):
             ax.text(
-                j, 1.01, f"{100 * cov:.0f}%", ha="center", va="bottom", fontsize=ANNOT_SIZE
+                j,
+                1.01,
+                f"{100 * cov:.0f}%",
+                ha="center",
+                va="bottom",
+                fontsize=ANNOT_SIZE,
             )
     ax.set_xticks(range(len(tasks)), tasks, rotation=45, ha="right")
     ax.set_ylabel("AUROC")
@@ -648,9 +653,10 @@ def plot_subgroup_delta_forest(
         return _empty_message_figure("No subgroup delta rows available.", save_path)
 
     baseline = None
-    if "baseline_model" in subgroup_delta.columns and subgroup_delta[
-        "baseline_model"
-    ].notna().any():
+    if (
+        "baseline_model" in subgroup_delta.columns
+        and subgroup_delta["baseline_model"].notna().any()
+    ):
         baseline = str(subgroup_delta["baseline_model"].dropna().iloc[0])
     delta_col = f"delta_{metric}_vs_{baseline}" if baseline else ""
     if delta_col not in subgroup_delta.columns:
@@ -668,9 +674,10 @@ def plot_subgroup_delta_forest(
         baseline = delta_col.split("_vs_", 1)[1]
 
     comparator = None
-    if "comparator_model" in subgroup_delta.columns and subgroup_delta[
-        "comparator_model"
-    ].notna().any():
+    if (
+        "comparator_model" in subgroup_delta.columns
+        and subgroup_delta["comparator_model"].notna().any()
+    ):
         comparator = str(subgroup_delta["comparator_model"].dropna().iloc[0])
     comparator = comparator or "comparator"
 

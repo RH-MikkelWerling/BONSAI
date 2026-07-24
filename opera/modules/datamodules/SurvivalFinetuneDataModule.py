@@ -55,8 +55,10 @@ class SurvivalFinetuneDataModule(OutcomeFinetuneDataModule):
         super().__init__(*args, **kwargs)
         self.batch_sampling = dict(batch_sampling or {})
         self.training_mode = str(training_mode)
-        if self.training_mode not in {"cox", "ipcw_bce"}:
-            raise ValueError("training_mode must be 'cox' or 'ipcw_bce'.")
+        if self.training_mode not in {"cox", "ipcw_bce", "ipcw_cif_bce"}:
+            raise ValueError(
+                "training_mode must be 'cox', 'ipcw_bce', or 'ipcw_cif_bce'."
+            )
         self.train_batch_sampler = None
 
     def setup(self, stage: Literal["fit", "test", "predict"]):

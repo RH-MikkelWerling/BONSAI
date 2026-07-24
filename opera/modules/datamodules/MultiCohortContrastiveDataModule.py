@@ -608,6 +608,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
     def setup(self, stage: Literal["fit", "test", "predict"]):
         if stage != "fit":
             raise NotImplementedError(f"Stage {stage} not supported.")
+        if hasattr(self, "train_dataset"):
+            return
 
         print("Loading multi-cohort contrastive datasets...")
         train_datasets, val_datasets = [], []
@@ -714,6 +716,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             persistent_workers=self.num_workers > 0,
             drop_last=True,
             sampler=self.train_sampler,
+            shuffle=self.train_sampler is None,
             collate_fn=contrastive_collate,
         )
 

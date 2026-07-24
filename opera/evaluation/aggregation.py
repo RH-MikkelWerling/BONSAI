@@ -988,9 +988,7 @@ def pooled_transfer_effect(
         tbl = tbl[ci_se > 0].copy()
         if tbl.empty:
             return pd.DataFrame()
-        tbl["_ci_derived_se"] = (
-            (tbl[ci_upper_col] - tbl[ci_lower_col]) / (2.0 * 1.96)
-        )
+        tbl["_ci_derived_se"] = (tbl[ci_upper_col] - tbl[ci_lower_col]) / (2.0 * 1.96)
         _active_se_col = "_ci_derived_se"
         _se_source = "paired_bootstrap_ci"
     else:

@@ -25,12 +25,12 @@ contrasts:
     gain_col: brier_gain
     atypicality_mode: own
 
-  - name: hematology_pretrain_vs_general_pretrain
-    description: "General population pretraining vs. hematology-only pretraining - the irrelevant patients"
+  - name: daly_care_pretrain_vs_general_pretrain
+    description: "Broad-cohort pretraining vs. DALY-CARE-only pretraining"
     primary: true
-    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/hematology_only_pretrain/seed_42/predictions.npz
+    baseline_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/daly_care_pretrain/seed_42/predictions.npz
     comparator_predictions: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/base_pretrain/seed_42/predictions.npz
-    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/hematology_only_pretrain/seed_42/predictions.npz
+    baseline_embeddings: ${BONSAI_RESULTS_ROOT}/opera_sweep/{cohort}/{outcome}/daly_care_pretrain/seed_42/predictions.npz
     metadata: ${BONSAI_PROCESSED_DATA}/{cohort}/population_full.csv
     cohort_col: cohort
     subject_col: subject_id

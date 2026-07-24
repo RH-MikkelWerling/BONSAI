@@ -194,7 +194,7 @@ def resolve_severity_evaluation_targets(
             raise OutcomeTransferAggregationError(
                 "Matched G2/G3 pairs must join a *_g2plus outcome to a *_g3plus outcome."
             )
-        expected_lower = f"{target[:-len('_g3plus')]}_g2plus"
+        expected_lower = f"{target[: -len('_g3plus')]}_g2plus"
         if lower != expected_lower:
             raise OutcomeTransferAggregationError(
                 f"Invalid matched G2/G3 pair {lower!r} -> {target!r}."
@@ -203,7 +203,9 @@ def resolve_severity_evaluation_targets(
 
     primary = [pair["target_outcome"] for pair in pairs]
     if len(primary) != len(set(primary)):
-        raise OutcomeTransferAggregationError("Resolved matched G2/G3 targets must be unique.")
+        raise OutcomeTransferAggregationError(
+            "Resolved matched G2/G3 targets must be unique."
+        )
     declared_primary = condition.get("primary_evaluation_outcomes")
     if declared_primary != primary:
         raise OutcomeTransferAggregationError(
@@ -264,12 +266,16 @@ def paired_bootstrap_metric_delta(
             "Paired bootstrap requires equally sized labels and prediction arrays."
         )
     if len(labels_arr) == 0:
-        raise OutcomeTransferAggregationError("Paired bootstrap has no held-out patients.")
+        raise OutcomeTransferAggregationError(
+            "Paired bootstrap has no held-out patients."
+        )
     if len(np.unique(labels_arr)) < 2 and metric in {"auroc", "auprc"}:
         raise OutcomeTransferAggregationError(
             f"{metric} is undefined because this held-out subgroup has one class."
         )
-    estimate = _metric_value(labels_arr, a, metric) - _metric_value(labels_arr, b, metric)
+    estimate = _metric_value(labels_arr, a, metric) - _metric_value(
+        labels_arr, b, metric
+    )
     rng = np.random.default_rng(seed)
     draws: list[float] = []
     for _ in range(n_bootstrap):
@@ -300,7 +306,9 @@ def paired_bootstrap_metric_delta(
         "n_bootstrap_requested": int(n_bootstrap),
         "n_bootstrap_valid": int(len(values)),
         "n_patients": int(len(labels_arr)),
-        "benefit_direction": "lower_is_better" if metric == "brier_score" else "higher_is_better",
+        "benefit_direction": "lower_is_better"
+        if metric == "brier_score"
+        else "higher_is_better",
     }
 
 
@@ -341,10 +349,13 @@ def _validate_prediction_table(predictions: pd.DataFrame) -> None:
         )
     if predictions.empty:
         raise OutcomeTransferAggregationError("Transfer prediction table is empty.")
-    if predictions["probability"].isna().any() or not np.isfinite(
-        predictions["probability"].to_numpy(dtype=float)
-    ).all():
-        raise OutcomeTransferAggregationError("Transfer prediction probabilities must be finite.")
+    if (
+        predictions["probability"].isna().any()
+        or not np.isfinite(predictions["probability"].to_numpy(dtype=float)).all()
+    ):
+        raise OutcomeTransferAggregationError(
+            "Transfer prediction probabilities must be finite."
+        )
     if ((predictions["probability"] < 0) | (predictions["probability"] > 1)).any():
         raise OutcomeTransferAggregationError(
             "Transfer prediction probabilities must be in the [0, 1] range."
@@ -366,7 +377,9 @@ def _comparison_specs(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
             secondary_targets = set(secondary)
         else:
             primary_targets = set(
-                condition.get("primary_evaluation_outcomes", condition["evaluation_outcomes"])
+                condition.get(
+                    "primary_evaluation_outcomes", condition["evaluation_outcomes"]
+                )
             )
             secondary_targets = set(condition.get("secondary_evaluation_outcomes", []))
         for target in condition["evaluation_outcomes"]:
@@ -400,7 +413,9 @@ def _comparison_specs(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
     return specs
 
 
-def _assert_cohort_parity(predictions: Mapping[str, pd.DataFrame], *, context: str) -> None:
+def _assert_cohort_parity(
+    predictions: Mapping[str, pd.DataFrame], *, context: str
+) -> None:
     assert_prediction_denominator_parity(predictions, context=context)
     canonical: pd.Series | None = None
     name: str | None = None
@@ -641,7 +656,9 @@ def aggregate_transfer_predictions(
                     else frame.loc[frame["cohort_grouped"].astype(str) == group].copy()
                     for name, frame in frames.items()
                 }
-                level = "pan_hematology" if group == ALL_HEMATOLOGY else "cohort_grouped"
+                level = (
+                    "pan_hematology" if group == ALL_HEMATOLOGY else "cohort_grouped"
+                )
                 for a, b, contrast in contrasts:
                     rows, row_failures = _paired_rows(
                         comparison_condition=condition,
@@ -698,41 +715,35 @@ def summarize_family_deltas(deltas: pd.DataFrame) -> pd.DataFrame:
         )
     # First average repeat seeds within each outcome, then average each outcome
     # once.  This is a macro-outcome summary, not a pseudo-patient pooled test.
-    per_outcome = (
-        deltas.groupby(
-            [
-                "comparison_condition",
-                "target_outcome",
-                "target_family",
-                "transfer_level",
-                "primary_horizon_days",
-                "contrast",
-                "metric",
-            ],
-            dropna=False,
-            as_index=False,
-        )
-        .agg(estimate=("estimate", "mean"), n_seeds=("seed", "nunique"))
-    )
-    summary = (
-        per_outcome.groupby(
-            [
-                "comparison_condition",
-                "target_family",
-                "transfer_level",
-                "primary_horizon_days",
-                "contrast",
-                "metric",
-            ],
-            dropna=False,
-            as_index=False,
-        )
-        .agg(
-            n_outcomes=("target_outcome", "nunique"),
-            n_outcome_seed_cells=("n_seeds", "sum"),
-            macro_estimate=("estimate", "mean"),
-            outcome_standard_deviation=("estimate", "std"),
-        )
+    per_outcome = deltas.groupby(
+        [
+            "comparison_condition",
+            "target_outcome",
+            "target_family",
+            "transfer_level",
+            "primary_horizon_days",
+            "contrast",
+            "metric",
+        ],
+        dropna=False,
+        as_index=False,
+    ).agg(estimate=("estimate", "mean"), n_seeds=("seed", "nunique"))
+    summary = per_outcome.groupby(
+        [
+            "comparison_condition",
+            "target_family",
+            "transfer_level",
+            "primary_horizon_days",
+            "contrast",
+            "metric",
+        ],
+        dropna=False,
+        as_index=False,
+    ).agg(
+        n_outcomes=("target_outcome", "nunique"),
+        n_outcome_seed_cells=("n_seeds", "sum"),
+        macro_estimate=("estimate", "mean"),
+        outcome_standard_deviation=("estimate", "std"),
     )
     summary["outcome_standard_error"] = summary["outcome_standard_deviation"] / np.sqrt(
         summary["n_outcomes"].clip(lower=1)
@@ -743,25 +754,29 @@ def summarize_family_deltas(deltas: pd.DataFrame) -> pd.DataFrame:
 
 def _empty_severity_summary(scope: str) -> pd.DataFrame:
     """Return a schema-stable empty severity aggregate."""
-    return pd.DataFrame(
-        columns=[
-            "severity_scope",
-            "comparison_condition",
-            "transfer_level",
-            "primary_horizon_days",
-            "contrast",
-            "condition_a",
-            "condition_b",
-            "metric",
-            "n_targets",
-            "n_target_seed_cells",
-            "target_outcomes",
-            "lower_grade_outcomes",
-            "macro_estimate",
-            "target_standard_error",
-            "aggregation",
-        ]
-    ).assign(severity_scope=scope).iloc[0:0]
+    return (
+        pd.DataFrame(
+            columns=[
+                "severity_scope",
+                "comparison_condition",
+                "transfer_level",
+                "primary_horizon_days",
+                "contrast",
+                "condition_a",
+                "condition_b",
+                "metric",
+                "n_targets",
+                "n_target_seed_cells",
+                "target_outcomes",
+                "lower_grade_outcomes",
+                "macro_estimate",
+                "target_standard_error",
+                "aggregation",
+            ]
+        )
+        .assign(severity_scope=scope)
+        .iloc[0:0]
+    )
 
 
 def summarize_severity_deltas(
@@ -835,43 +850,37 @@ def summarize_severity_deltas(
 
     # Average repeat seeds within each held-out outcome first.  This retains
     # each target's paired estimate as the unit of the final macro summary.
-    per_target = (
-        work.groupby(
-            [
-                "comparison_condition",
-                "target_outcome",
-                "transfer_level",
-                "primary_horizon_days",
-                "contrast",
-                "condition_a",
-                "condition_b",
-                "metric",
-            ],
-            dropna=False,
-            as_index=False,
-        )
-        .agg(estimate=("estimate", "mean"), n_seeds=("seed", "nunique"))
-    )
-    summary = (
-        per_target.groupby(
-            [
-                "comparison_condition",
-                "transfer_level",
-                "primary_horizon_days",
-                "contrast",
-                "condition_a",
-                "condition_b",
-                "metric",
-            ],
-            dropna=False,
-            as_index=False,
-        )
-        .agg(
-            n_targets=("target_outcome", "nunique"),
-            n_target_seed_cells=("n_seeds", "sum"),
-            macro_estimate=("estimate", "mean"),
-            target_standard_deviation=("estimate", "std"),
-        )
+    per_target = work.groupby(
+        [
+            "comparison_condition",
+            "target_outcome",
+            "transfer_level",
+            "primary_horizon_days",
+            "contrast",
+            "condition_a",
+            "condition_b",
+            "metric",
+        ],
+        dropna=False,
+        as_index=False,
+    ).agg(estimate=("estimate", "mean"), n_seeds=("seed", "nunique"))
+    summary = per_target.groupby(
+        [
+            "comparison_condition",
+            "transfer_level",
+            "primary_horizon_days",
+            "contrast",
+            "condition_a",
+            "condition_b",
+            "metric",
+        ],
+        dropna=False,
+        as_index=False,
+    ).agg(
+        n_targets=("target_outcome", "nunique"),
+        n_target_seed_cells=("n_seeds", "sum"),
+        macro_estimate=("estimate", "mean"),
+        target_standard_deviation=("estimate", "std"),
     )
     summary["target_standard_error"] = summary["target_standard_deviation"] / np.sqrt(
         summary["n_targets"].clip(lower=1)
@@ -953,14 +962,11 @@ def summarize_grouped_cohort_deltas(cohort_results: pd.DataFrame) -> pd.DataFram
         "condition_b",
         "metric",
     ]
-    summary = (
-        supported.groupby(grouping, dropna=False, as_index=False)
-        .agg(
-            n_supported_grouped_cohorts=("evaluation_group", "nunique"),
-            n_patients_across_supported_cohorts=("n_test", "sum"),
-            macro_cohort_estimate=("estimate", "mean"),
-            cohort_standard_deviation=("estimate", "std"),
-        )
+    summary = supported.groupby(grouping, dropna=False, as_index=False).agg(
+        n_supported_grouped_cohorts=("evaluation_group", "nunique"),
+        n_patients_across_supported_cohorts=("n_test", "sum"),
+        macro_cohort_estimate=("estimate", "mean"),
+        cohort_standard_deviation=("estimate", "std"),
     )
     summary["cohort_standard_error"] = summary["cohort_standard_deviation"] / np.sqrt(
         summary["n_supported_grouped_cohorts"].clip(lower=1)
@@ -988,8 +994,10 @@ def write_transfer_aggregation_outputs(
         "transfer_cohort_results": destination / "transfer_cohort_results.csv",
         "transfer_family_summary": destination / "transfer_family_summary.csv",
         "transfer_cohort_summary": destination / "transfer_cohort_summary.csv",
-        "transfer_severity_primary_summary": destination / "transfer_severity_primary_summary.csv",
-        "transfer_severity_secondary_summary": destination / "transfer_severity_secondary_summary.csv",
+        "transfer_severity_primary_summary": destination
+        / "transfer_severity_primary_summary.csv",
+        "transfer_severity_secondary_summary": destination
+        / "transfer_severity_secondary_summary.csv",
         "transfer_failures": destination / "transfer_failures.csv",
     }
     _with_schema(deltas, TRANSFER_DELTA_COLUMNS).to_csv(

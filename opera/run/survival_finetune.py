@@ -15,13 +15,21 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from bonsai.functional.outcomes import (
     save_binarized_split_summary,
     split_and_binarize_outcomes,
 )
 from bonsai.functional.pathing import get_experiment_output_path
 from opera.compat.bonsai import build_bonsai_finetune
-from opera.functional.ipcw import attach_ipcw_weights, compute_ipcw_train_weights
+from opera.functional.ipcw import (
+    attach_ipcw_weights,
+    compute_ipcw_train_weights,
+    summarize_ipcw_weights,
+)
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_outcome_eligibility,
@@ -63,6 +71,90 @@ def resolve_survival_finetune_max_len(cfg: DictConfig) -> int:
     return int(value)
 
 
+def resolve_survival_monitor(cfg: DictConfig) -> tuple[str, str]:
+    """Resolve an estimand-appropriate checkpoint-selection metric."""
+    configured = str(cfg.training.get("eval_monitor_metric", "auto"))
+    if configured != "auto":
+        mode = "max" if configured in {"val/AUROC", "val/concordance_index"} else "min"
+        return configured, mode
+    if cfg.training_mode == "cox":
+        return "val/concordance_index", "max"
+    return "val/loss", "min"
+
+
+def _validate_and_report_ipcw_weights(
+    split_name: str,
+    outcomes: dict,
+    weights: dict,
+) -> dict:
+    """Fail on absent training signal and warn on unstable IPCW support."""
+    diagnostics = summarize_ipcw_weights(outcomes, weights)
+    if diagnostics["n_nonzero"] == 0:
+        raise ValueError(f"{split_name} has no IPCW-observed subjects.")
+    if split_name == "train" and (
+        diagnostics["n_cases_nonzero"] == 0 or diagnostics["n_controls_nonzero"] == 0
+    ):
+        raise ValueError(
+            "IPCW training requires at least one observed case and control; "
+            f"{split_name} diagnostics={diagnostics}."
+        )
+    if split_name != "train" and (
+        diagnostics["n_cases_nonzero"] == 0 or diagnostics["n_controls_nonzero"] == 0
+    ):
+        LOGGER.warning(
+            "%s has only one IPCW-observed class. Weighted validation loss is "
+            "defined, but validation AUROC is not estimable: %s.",
+            split_name,
+            diagnostics,
+        )
+    if diagnostics["effective_sample_fraction"] < 0.1:
+        LOGGER.warning(
+            "%s IPCW effective sample fraction is %.3f; estimates may be unstable.",
+            split_name,
+            diagnostics["effective_sample_fraction"],
+        )
+    if diagnostics["max_weight"] > 20.0:
+        LOGGER.warning(
+            "%s IPCW maximum normalized weight is %.2f; inspect positivity and "
+            "administrative follow-up before interpreting this cell.",
+            split_name,
+            diagnostics["max_weight"],
+        )
+    return {"split": split_name, **diagnostics}
+
+
+def _survival_support_summary(split_name: str, outcomes: dict) -> dict:
+    """Summarize primary events and Cox-comparable events for one split."""
+    records = list(outcomes.values())
+    times = [float(record["time_days"]) for record in records]
+    events = [int(record["event"]) for record in records]
+    comparable_events = sum(
+        event == 1 and any(other_time > time for other_time in times)
+        for time, event in zip(times, events)
+    )
+    return {
+        "split": split_name,
+        "n_total": len(records),
+        "n_primary_events": sum(event == 1 for event in events),
+        "n_competing_events": sum(event == 2 for event in events),
+        "n_admin_censored": sum(event == 0 for event in events),
+        "n_comparable_primary_events": int(comparable_events),
+    }
+
+
+def _validate_cox_support(split_name: str, outcomes: dict) -> dict:
+    diagnostics = _survival_support_summary(split_name, outcomes)
+    if diagnostics["n_primary_events"] == 0:
+        raise ValueError(
+            f"Cox {split_name} split has no observed primary events: {diagnostics}."
+        )
+    if diagnostics["n_comparable_primary_events"] == 0:
+        raise ValueError(
+            f"Cox {split_name} split has no comparable primary events: {diagnostics}."
+        )
+    return diagnostics
+
+
 def build_survival_finetune_data_module(
     cfg: DictConfig,
     vocab: dict,
@@ -96,8 +188,11 @@ def build_survival_finetune_data_module(
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
+    L.seed_everything(int(cfg.seed), workers=True)
     logger = CSVLogger(get_experiment_output_path(), name="survival_finetune_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     encoder_state, pretrain_hparams = load_encoder_state_dict(
         cfg.encoder_ckpt,
@@ -151,19 +246,56 @@ def main(cfg: DictConfig) -> None:
         competing_event_df=competing_df,
     )
 
-    if cfg.training_mode == "ipcw_bce":
+    if cfg.training_mode in {"ipcw_bce", "ipcw_cif_bce"}:
+        estimand = (
+            "cumulative_incidence"
+            if cfg.training_mode == "ipcw_cif_bce"
+            else "net_risk"
+        )
         train_ipcw = compute_ipcw_train_weights(
             train_outcomes,
             horizon_hours=cfg.labels.n_hours_end_include,
+            estimand=estimand,
         )
+        ipcw_diagnostics = [
+            _validate_and_report_ipcw_weights(
+                cfg.labels.train_key,
+                train_outcomes,
+                train_ipcw,
+            )
+        ]
         attach_ipcw_weights(train_outcomes, train_ipcw)
         val_ipcw = compute_ipcw_train_weights(
             val_outcomes,
             horizon_hours=cfg.labels.n_hours_end_include,
+            estimand=estimand,
+        )
+        ipcw_diagnostics.append(
+            _validate_and_report_ipcw_weights(
+                cfg.labels.val_key,
+                val_outcomes,
+                val_ipcw,
+            )
         )
         attach_ipcw_weights(val_outcomes, val_ipcw)
+        pd.DataFrame(ipcw_diagnostics).to_csv(
+            f"{model_save_dir}/ipcw_weight_summary.csv",
+            index=False,
+        )
     elif cfg.training_mode != "cox":
-        raise ValueError("training_mode must be one of {'cox', 'ipcw_bce'}.")
+        raise ValueError(
+            "training_mode must be one of {'cox', 'ipcw_bce', 'ipcw_cif_bce'}."
+        )
+    else:
+        cox_diagnostics = [
+            _validate_cox_support(cfg.labels.train_key, train_outcomes),
+            _validate_cox_support(cfg.labels.val_key, val_outcomes),
+            _survival_support_summary(cfg.labels.test_key, test_outcomes),
+        ]
+        pd.DataFrame(cox_diagnostics).to_csv(
+            f"{model_save_dir}/survival_support_summary.csv",
+            index=False,
+        )
 
     save_binarized_split_summary(
         outcomes=outcomes,
@@ -209,9 +341,7 @@ def main(cfg: DictConfig) -> None:
         len(unexpected),
     )
 
-    monitor = (
-        "val/AUROC" if cfg.training_mode == "ipcw_bce" else "val/concordance_index"
-    )
+    monitor, monitor_mode = resolve_survival_monitor(cfg)
     lightning_module = SurvivalFinetuneModule(
         model=model,
         training_mode=cfg.training_mode,
@@ -221,6 +351,11 @@ def main(cfg: DictConfig) -> None:
         checkpoint_metadata={
             "training_stage": "survival_finetuning",
             "training_mode": cfg.training_mode,
+            "survival_estimand": {
+                "cox": "cause_specific_hazard",
+                "ipcw_bce": "net_risk",
+                "ipcw_cif_bce": "cumulative_incidence",
+            }[cfg.training_mode],
             "source_checkpoint": cfg.encoder_ckpt,
             "encoder_source": cfg.encoder_source,
             "dataset": cfg.dataset,
@@ -231,16 +366,22 @@ def main(cfg: DictConfig) -> None:
             ),
             "selection_split": cfg.labels.val_key,
             "selection_metric": monitor,
-            "selection_mode": "max",
+            "selection_mode": monitor_mode,
+            "seed": int(cfg.seed),
         },
         pos_weight=None,
+        horizon_days=(
+            None
+            if cfg.training_mode == "cox"
+            else float(cfg.labels.n_hours_end_include) / 24.0
+        ),
     )
 
     callbacks = [
         ModelCheckpoint(
             dirpath=model_save_dir,
             monitor=monitor,
-            mode="max",
+            mode=monitor_mode,
             save_top_k=1,
             filename="best",
             enable_version_counter=False,
@@ -252,7 +393,7 @@ def main(cfg: DictConfig) -> None:
             EarlyStopping(
                 monitor=monitor,
                 patience=cfg.training.early_stopping_patience,
-                mode="max",
+                mode=monitor_mode,
             )
         )
 
@@ -278,6 +419,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
     torch.save(
         {"train": train_outcomes, "val": val_outcomes, "test": test_outcomes},
         f"{model_save_dir}/outcome_splits.pt",

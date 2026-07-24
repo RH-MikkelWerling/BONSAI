@@ -129,9 +129,7 @@ def _outcome_metadata(registry: Mapping[str, Any], outcome: str) -> Mapping[str,
     return {}
 
 
-def _resolve_outcome_source(
-    registry: Mapping[str, Any], outcome: str
-) -> OutcomeSource:
+def _resolve_outcome_source(registry: Mapping[str, Any], outcome: str) -> OutcomeSource:
     """Resolve global outcome, competing-event, and optional eligibility paths."""
     paths = registry.get("paths")
     if not isinstance(paths, Mapping) or not paths.get("outcomes_dir"):
@@ -257,19 +255,18 @@ def _load_membership(
             f"registry: {unknown}."
         )
     if membership.empty:
-        raise OutcomeTransferPreflightError("Membership file contains no hematology patients.")
+        raise OutcomeTransferPreflightError(
+            "Membership file contains no hematology patients."
+        )
 
     ids_by_group = {
-        group: set(
-            membership.loc[grouped_values == group, "subject_id"].tolist()
-        )
+        group: set(membership.loc[grouped_values == group, "subject_id"].tolist())
         for group in known_groups
     }
     empty_groups = [group for group, ids in ids_by_group.items() if not ids]
     if empty_groups:
         raise OutcomeTransferPreflightError(
-            "Membership has no patients for canonical grouped cohorts: "
-            f"{empty_groups}."
+            f"Membership has no patients for canonical grouped cohorts: {empty_groups}."
         )
     return membership, ids_by_group
 
@@ -488,7 +485,9 @@ def _condition_target_requests(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "reference_for_conditions": None,
                 }
             )
-            direct_refs.setdefault((target_name, horizon), set()).add(str(condition_name))
+            direct_refs.setdefault((target_name, horizon), set()).add(
+                str(condition_name)
+            )
 
     full = conditions["opera_full"]
     for (target, horizon), source_conditions in sorted(direct_refs.items()):
@@ -525,9 +524,7 @@ def _row(
 ) -> dict[str, Any]:
     condition = request["condition"]
     held_out = split_counts["held_out"]
-    support_category = _support_category(
-        held_out["events"], held_out["non_events"]
-    )
+    support_category = _support_category(held_out["events"], held_out["non_events"])
     required_primary = (
         request["target_outcome"] in REQUIRED_PRIMARY_TARGETS
         and evaluation_level == "all_hematology"
@@ -552,20 +549,22 @@ def _row(
         "n_train_events": split_counts["train"]["events"],
         "n_train_non_events": split_counts["train"]["non_events"],
         "n_train_competing_events": split_counts["train"]["competing_events"],
-        "n_train_censored_before_horizon": split_counts["train"]["censored_before_horizon"],
+        "n_train_censored_before_horizon": split_counts["train"][
+            "censored_before_horizon"
+        ],
         "n_tuning": split_counts["tuning"]["n"],
         "n_tuning_events": split_counts["tuning"]["events"],
         "n_tuning_non_events": split_counts["tuning"]["non_events"],
         "n_tuning_competing_events": split_counts["tuning"]["competing_events"],
-        "n_tuning_censored_before_horizon": split_counts["tuning"]["censored_before_horizon"],
+        "n_tuning_censored_before_horizon": split_counts["tuning"][
+            "censored_before_horizon"
+        ],
         "n_held_out": held_out["n"],
         "n_held_out_events": held_out["events"],
         "n_held_out_non_events": held_out["non_events"],
         "n_competing_events": held_out["competing_events"],
         "n_censored_before_horizon": held_out["censored_before_horizon"],
-        "held_out_minority_class": min(
-            held_out["events"], held_out["non_events"]
-        ),
+        "held_out_minority_class": min(held_out["events"], held_out["non_events"]),
         "support_category": support_category,
         "required_primary_candidate": required_primary,
         "required_primary_candidate_met": (
@@ -620,8 +619,7 @@ def build_outcome_transfer_support_report(
 
     target_requests = _condition_target_requests(plan)
     unknown_targets = sorted(
-        {item["target_outcome"] for item in target_requests}
-        - set(registry["outcomes"])
+        {item["target_outcome"] for item in target_requests} - set(registry["outcomes"])
     )
     if unknown_targets:
         raise OutcomeTransferPreflightError(
@@ -631,7 +629,9 @@ def build_outcome_transfer_support_report(
     rows: list[dict[str, Any]] = []
     # Cache the raw shared labels by target.  The same target can occur in a
     # direct reference and an ablation condition, often at the same horizon.
-    source_cache: dict[str, tuple[OutcomeSource, pd.DataFrame, pd.DataFrame | None]] = {}
+    source_cache: dict[
+        str, tuple[OutcomeSource, pd.DataFrame, pd.DataFrame | None]
+    ] = {}
     for request in target_requests:
         target = str(request["target_outcome"])
         if target not in source_cache:
@@ -668,9 +668,7 @@ def build_outcome_transfer_support_report(
                 if group not in unavailable_groups
             ]
         )
-        all_availability = (
-            "partially_available" if unavailable_groups else "available"
-        )
+        all_availability = "partially_available" if unavailable_groups else "available"
         populations: Iterable[tuple[str, str, set[Any], str]] = [
             ("all_hematology", ALL_HEMATOLOGY, all_target_ids, all_availability)
         ]
@@ -681,14 +679,17 @@ def build_outcome_transfer_support_report(
                     "cohort_grouped",
                     group,
                     ids,
-                    "unavailable"
-                    if group in unavailable_groups
-                    else "available",
+                    "unavailable" if group in unavailable_groups else "available",
                 )
                 for group, ids in ids_by_group.items()
             ],
         ]
-        for evaluation_level, evaluation_group, population_ids, availability in populations:
+        for (
+            evaluation_level,
+            evaluation_group,
+            population_ids,
+            availability,
+        ) in populations:
             if availability == "unavailable":
                 zero = {
                     "n": 0,

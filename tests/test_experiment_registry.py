@@ -19,27 +19,26 @@ def test_production_registry_has_locked_inventory() -> None:
 
     assert len(registry["outcomes"]) == 87
     assert len(registry["cohort_groups"]) == 10
-    assert sum(
-        len(group["fine"]) for group in registry["cohort_groups"].values()
-    ) == 24
-    assert sum(
-        count
-        for group in registry["cohort_groups"].values()
-        for count in group["fine"].values()
-    ) == 38_905
+    assert sum(len(group["fine"]) for group in registry["cohort_groups"].values()) == 24
+    assert (
+        sum(
+            count
+            for group in registry["cohort_groups"].values()
+            for count in group["fine"].values()
+        )
+        == 38_905
+    )
     assert registry["horizons_days"] == [30, 90, 180, 365, 730]
 
 
 def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) -> None:
     paths = generate_configs(REGISTRY, tmp_path)
     sweep_paths = [
-        path
-        for path in paths
-        if path.name.startswith(("fine_", "grouped_"))
+        path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 15
-    assert len(sweep_paths) == 12
+    assert len(paths) == 25
+    assert len(sweep_paths) == 22
     for path in sweep_paths:
         load_sweep_config(path)
 
@@ -57,19 +56,50 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     fine = yaml.safe_load((tmp_path / "fine_ipcw_30d.yaml").read_text())
     assert (
         fine["cohorts"]["TRANSFORMED_FL"]["data_dir"]
-        == "${BONSAI_PROCESSED_DATA}/hematology_all"
+        == "${BONSAI_PROCESSED_DATA}/daly_care"
     )
     assert fine["cohorts"]["MCL"]["population_file"] == "${BONSAI_COHORT_MEMBERSHIP}"
     assert fine["cohorts"]["SolM"]["cohort_fine_value"] == "SolM"
     assert set(fine["cohorts"]["BL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES
     assert fine["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
+    assert "eligibility_file" not in fine["outcomes"]["sepsis"]
+
+    fine_cif = yaml.safe_load((tmp_path / "fine_ipcw_cif_30d.yaml").read_text())
+    assert fine_cif["model_variants"]["opera"]["training_mode"] == "ipcw_cif_bce"
+    assert fine_cif["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
 
     joint = yaml.safe_load((tmp_path / "joint_opera_full_panel.yaml").read_text())
     mol = yaml.safe_load((tmp_path / "multi_outcome_full_panel.yaml").read_text())
     assert len(joint["outcomes"]) == len(mol["outcomes"]) == 87
+    assert joint["training"]["batch_sampling"]["type"] == "random"
+    assert joint["training"]["require_dapt_embedding_store"] is True
+    assert joint["model"]["competing_event_handling"] == "exclude"
+    assert joint["model"]["dapt_anchor_weight"] > 0
+    assert joint["model"]["dapt_lambda_floor"] < 1
+    assert joint["competing_risk"]["loss_weight"] > 0
+    assert joint["competing_risk"]["interval_boundaries_days"] == [
+        3,
+        7,
+        14,
+        30,
+        60,
+        90,
+        180,
+        365,
+        730,
+        1460,
+    ]
     assert "${BONSAI_" not in yaml.safe_dump(joint)
     assert "${BONSAI_" not in yaml.safe_dump(mol)
     assert set(joint["cohorts"]) == {
-        "AMYLOIDOSIS", "BL_LBL", "CLL_SLL", "DLBCL_like", "HCL", "HL",
-        "Indolent_B_NHL", "MCL", "MM", "T_NHL",
+        "AMYLOIDOSIS",
+        "BL_LBL",
+        "CLL_SLL",
+        "DLBCL_like",
+        "HCL",
+        "HL",
+        "Indolent_B_NHL",
+        "MCL",
+        "MM",
+        "T_NHL",
     }

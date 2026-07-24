@@ -27,9 +27,7 @@ def _tagged_checkpoint_metadata(plan, condition: str, seed: int) -> dict:
         "excluded_outcomes": list(expected["training_excluded_outcomes"]),
         "evaluation_outcomes": list(expected["evaluation_outcomes"]),
         "related_retained_outcomes": list(expected["related_retained_outcomes"]),
-        "direct_dependencies_excluded": list(
-            expected["direct_dependencies_excluded"]
-        ),
+        "direct_dependencies_excluded": list(expected["direct_dependencies_excluded"]),
         "selection_outcomes": list(expected["training_outcomes"]),
         "split_contract": plan["split_contract"],
         "split_contract_hash": plan["split_contract_hash"],
@@ -101,7 +99,9 @@ def test_legacy_full_rejects_mismatched_recorded_seed() -> None:
         "outcome_set": sorted(plan["conditions"]["opera_full"]["training_outcomes"]),
         "source_checkpoint": "/synthetic/legacy-dapt.ckpt",
     }
-    with pytest.raises(OutcomeTransferExtractionError, match="does not match requested"):
+    with pytest.raises(
+        OutcomeTransferExtractionError, match="does not match requested"
+    ):
         _validate_checkpoint_identity(
             representation="opera_full",
             seed=42,

@@ -36,6 +36,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_outcome_eligibility,
@@ -56,7 +60,9 @@ load_dotenv()
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="hybrid_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Load encoder ─────────────────────────────────────────────────
     encoder_state, pretrain_hparams = load_encoder_state_dict(
@@ -206,6 +212,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

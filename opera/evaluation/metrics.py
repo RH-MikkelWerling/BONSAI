@@ -710,6 +710,35 @@ def _km_censoring_fn(times: np.ndarray, events: np.ndarray):
     return G_fn
 
 
+def _km_admin_censoring_fn(times: np.ndarray, events: np.ndarray):
+    """Estimate administrative-censoring survival with events 1/2 observed.
+
+    Primary and competing events reveal the fixed-horizon outcome status and
+    therefore are not censoring events for a cumulative-incidence estimand.
+    """
+    admin_censored = (events == 0).astype(int)
+    unique_times = np.sort(np.unique(times))
+    G = 1.0
+    step_times = [0.0]
+    step_vals = [1.0]
+    for t in unique_times:
+        n_at_risk = np.sum(times >= t)
+        n_cens = np.sum((times == t) & (admin_censored == 1))
+        if n_at_risk > 0:
+            G *= 1.0 - n_cens / n_at_risk
+        step_times.append(float(t))
+        step_vals.append(float(G))
+    step_times = np.asarray(step_times)
+    step_vals = np.asarray(step_vals)
+
+    def G_fn(t: float) -> float:
+        idx = int(np.searchsorted(step_times, t, side="left")) - 1
+        idx = max(0, min(idx, len(step_vals) - 1))
+        return float(step_vals[idx])
+
+    return G_fn
+
+
 def compute_concordance_index(
     times: np.ndarray,
     events: np.ndarray,
@@ -792,7 +821,9 @@ def _validate_stratified_concordance_inputs(
     }
     for name, values in arrays.items():
         if values.ndim != 1:
-            raise ValueError(f"{name} must be one-dimensional; got shape={values.shape}.")
+            raise ValueError(
+                f"{name} must be one-dimensional; got shape={values.shape}."
+            )
     lengths = {len(values) for values in arrays.values()}
     if len(lengths) != 1:
         raise ValueError(
@@ -976,18 +1007,14 @@ def compute_macro_stratified_concordance(
                 "n_comparable": counts["comparable"],
                 "n_events": n_events,
                 "n_total": int(mask.sum()),
-                "reliable": bool(
-                    n_events >= min_events and counts["comparable"] > 0
-                ),
+                "reliable": bool(n_events >= min_events and counts["comparable"] > 0),
             }
         )
 
     finite_points = [
         item["c_index"] for item in per_stratum if np.isfinite(item["c_index"])
     ]
-    macro_c_index = (
-        float(np.mean(finite_points)) if finite_points else float("nan")
-    )
+    macro_c_index = float(np.mean(finite_points)) if finite_points else float("nan")
 
     rng = np.random.RandomState(seed)
     bootstrap_values = []
@@ -1103,6 +1130,112 @@ def compute_ipcw_metrics_at_horizon(
         "n_cases": n_cases,
         "n_controls": n_controls,
         "n_excluded": n_excluded,
+    }
+
+
+def compute_competing_risk_metrics_at_horizon(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+    horizon: float,
+    G_fn=None,
+) -> Dict[str, float]:
+    """Evaluate primary-event cumulative incidence at one fixed horizon.
+
+    Competing events before the horizon are observed controls. Only
+    administrative censoring before the horizon leaves status unknown.
+    """
+    if G_fn is None:
+        G_fn = _km_admin_censoring_fn(times, events)
+
+    case_mask = (times <= horizon) & (events == 1)
+    competing_control = (times <= horizon) & (events == 2)
+    horizon_control = times > horizon
+    # Exact-horizon administrative follow-up establishes a control.
+    horizon_control |= (times >= horizon) & (events == 0)
+    control_mask = competing_control | horizon_control
+    excluded_mask = ~(case_mask | control_mask)
+
+    case_indices = np.flatnonzero(case_mask)
+    control_indices = np.flatnonzero(control_mask)
+    case_weights = np.array(
+        [1.0 / max(G_fn(float(times[i])), 1e-6) for i in case_indices]
+    )
+    control_weights = np.array(
+        [
+            1.0
+            / max(
+                G_fn(float(times[i]) if competing_control[i] else float(horizon)),
+                1e-6,
+            )
+            for i in control_indices
+        ]
+    )
+
+    auc = float("nan")
+    if len(case_indices) and len(control_indices):
+        case_risk = predicted_risk[case_indices, None]
+        control_risk = predicted_risk[None, control_indices]
+        concordance = (case_risk > control_risk).astype(float)
+        concordance += 0.5 * (case_risk == control_risk).astype(float)
+        pair_weights = case_weights[:, None] * control_weights[None, :]
+        denominator = pair_weights.sum()
+        if denominator > 0:
+            auc = float((concordance * pair_weights).sum() / denominator)
+
+    brier_sum = 0.0
+    for index, weight in zip(case_indices, case_weights):
+        brier_sum += float(weight) * (1.0 - float(predicted_risk[index])) ** 2
+    for index, weight in zip(control_indices, control_weights):
+        brier_sum += float(weight) * float(predicted_risk[index]) ** 2
+
+    return {
+        "cif_auc": auc,
+        "cif_brier": brier_sum / len(times) if len(times) else float("nan"),
+        "n_cases": int(case_mask.sum()),
+        "n_controls": int(control_mask.sum()),
+        "n_competing_controls": int(competing_control.sum()),
+        "n_excluded_admin_censoring": int(excluded_mask.sum()),
+    }
+
+
+def compute_competing_risk_metrics(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+    time_horizons: Optional[List[float]] = None,
+) -> Dict:
+    """Compute cumulative-incidence AUC/Brier metrics across horizons."""
+    if time_horizons is None:
+        time_horizons = [30.0, 90.0, 365.0, 730.0]
+    valid = np.isfinite(times) & np.isfinite(predicted_risk) & (events >= 0)
+    times = np.asarray(times)[valid].astype(float)
+    events = np.asarray(events)[valid].astype(int)
+    predicted_risk = np.asarray(predicted_risk)[valid].astype(float)
+    if not len(times):
+        return {
+            "n_total": 0,
+            "n_primary_events": 0,
+            "n_competing_events": 0,
+            "per_horizon": {},
+        }
+    G_fn = _km_admin_censoring_fn(times, events)
+    per_horizon = {}
+    for horizon in time_horizons:
+        if horizon > float(times.max()):
+            continue
+        per_horizon[f"{int(horizon)}d"] = compute_competing_risk_metrics_at_horizon(
+            times,
+            events,
+            predicted_risk,
+            horizon,
+            G_fn,
+        )
+    return {
+        "n_total": int(len(times)),
+        "n_primary_events": int((events == 1).sum()),
+        "n_competing_events": int((events == 2).sum()),
+        "per_horizon": per_horizon,
     }
 
 
@@ -1232,6 +1365,52 @@ def bootstrap_survival_metrics(
     return result
 
 
+def bootstrap_competing_risk_metrics(
+    times: np.ndarray,
+    events: np.ndarray,
+    predicted_risk: np.ndarray,
+    time_horizons: Optional[List[float]] = None,
+    n_bootstrap: int = 500,
+    seed: int = 42,
+    ci: float = 0.95,
+) -> Dict:
+    """Bootstrap cumulative-incidence AUC and Brier confidence intervals."""
+    if time_horizons is None:
+        time_horizons = [30.0, 90.0, 365.0, 730.0]
+    rng = np.random.RandomState(seed)
+    alpha = (1 - ci) / 2
+    n = len(times)
+    values: Dict[str, list] = {}
+
+    for _ in range(n_bootstrap):
+        idx = _stratified_bootstrap_indices(n, events, rng)
+        t_b, e_b, r_b = times[idx], events[idx], predicted_risk[idx]
+        G_fn = _km_admin_censoring_fn(t_b, e_b)
+        for horizon in time_horizons:
+            if horizon > float(t_b.max()):
+                continue
+            result = compute_competing_risk_metrics_at_horizon(
+                t_b, e_b, r_b, horizon, G_fn
+            )
+            label = f"{int(horizon)}d"
+            for metric in ("cif_auc", "cif_brier"):
+                values.setdefault(f"{metric}_{label}", []).append(result[metric])
+
+    intervals = {}
+    for metric, samples in values.items():
+        finite = np.asarray([value for value in samples if np.isfinite(value)])
+        intervals[metric] = {
+            "mean": float(finite.mean()) if len(finite) else float("nan"),
+            "lower": (
+                float(np.quantile(finite, alpha)) if len(finite) else float("nan")
+            ),
+            "upper": (
+                float(np.quantile(finite, 1 - alpha)) if len(finite) else float("nan")
+            ),
+        }
+    return intervals
+
+
 # ═════════════════════════════════════════════════════════════════════
 # 7. Aggregated evaluation report
 # ═════════════════════════════════════════════════════════════════════
@@ -1247,6 +1426,7 @@ def full_evaluation(
     events: Optional[np.ndarray] = None,
     survival_probabilities: Optional[np.ndarray] = None,
     time_horizons: Optional[List[float]] = None,
+    competing_risk: bool = False,
 ) -> Dict:
     """
     Run the complete evaluation suite and return all results.
@@ -1322,6 +1502,18 @@ def full_evaluation(
             n_bootstrap=min(n_bootstrap, 500),  # survival CI is slower
             seed=seed,
         )
+        if competing_risk:
+            report["competing_risk"] = compute_competing_risk_metrics(
+                times, events, risk_scores, time_horizons=time_horizons
+            )
+            report["competing_risk_bootstrap_ci"] = bootstrap_competing_risk_metrics(
+                times,
+                events,
+                risk_scores,
+                time_horizons=time_horizons,
+                n_bootstrap=min(n_bootstrap, 500),
+                seed=seed,
+            )
 
     return report
 
@@ -1443,6 +1635,32 @@ def format_evaluation_summary(report: Dict) -> str:
                     f"  IPCW-AUC@{label:>4s}: {ipcw_auc:.4f}  IPCW-Brier: {ipcw_brier:.4f}  "
                     f"(cases={n_cases}, controls={n_ctrl}, excluded={n_excl})"
                 )
+
+    if "competing_risk" in report:
+        competing = report["competing_risk"]
+        competing_ci = report.get("competing_risk_bootstrap_ci", {})
+        lines.append(
+            "\n-- Cumulative-incidence metrics "
+            f"(n={competing['n_total']}, primary={competing['n_primary_events']}, "
+            f"competing={competing['n_competing_events']}) --"
+        )
+        for label, metrics in competing.get("per_horizon", {}).items():
+            auc = metrics.get("cif_auc", float("nan"))
+            brier = metrics.get("cif_brier", float("nan"))
+            auc_ci = competing_ci.get(f"cif_auc_{label}", {})
+            interval = (
+                f" [{auc_ci.get('lower', float('nan')):.4f}, "
+                f"{auc_ci.get('upper', float('nan')):.4f}]"
+                if auc_ci
+                else ""
+            )
+            lines.append(
+                f"  CIF-AUC@{label:>4s}: {auc:.4f}{interval}  "
+                f"CIF-Brier: {brier:.4f} "
+                f"(cases={metrics.get('n_cases', 0)}, "
+                f"competing controls={metrics.get('n_competing_controls', 0)}, "
+                f"admin excluded={metrics.get('n_excluded_admin_censoring', 0)})"
+            )
 
     lines.append("\n" + "=" * 70)
     return "\n".join(lines)

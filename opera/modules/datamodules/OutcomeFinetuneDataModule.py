@@ -25,7 +25,6 @@ def resolve_subject_data_paths(data_dir: str, configured=None) -> list[str]:
         for path in (
             root / "subject_data_train.pt",
             root / "subject_data_tuning.pt",
-            root / "subject_data_held_out.pt",
         )
         if path.exists()
     ]

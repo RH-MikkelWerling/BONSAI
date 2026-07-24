@@ -33,7 +33,7 @@ class OperaContrastiveModule(L.LightningModule):
         encoder_lr_multiplier: float = 0.1,
         optimizer_epsilon: float = 1e-6,
         scheduler_warmup_epochs: int = 1,
-        dapt_anchor_weight: float = 0.0,
+        dapt_anchor_weight: float = 0.2,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()

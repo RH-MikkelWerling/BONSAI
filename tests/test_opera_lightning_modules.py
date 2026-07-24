@@ -10,6 +10,7 @@ is not attached to a ``Trainer`` (as here), Lightning treats ``self.log`` as a
 no-op that only emits a warning, so the steps can be invoked directly.
 """
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -80,7 +81,11 @@ def _batch():
 # ── OperaContrastiveModule ──────────────────────────────────────────────────
 
 
-def _make_opera_model(dapt_anchor_weight: float = 0.0, store=None):
+def _make_opera_model(
+    dapt_anchor_weight: float = 0.0,
+    store=None,
+    competing_risk_config=None,
+):
     return OperaContrastiveModel(
         encoder=_StubEncoder(),
         outcome_names=OUTCOMES,
@@ -92,6 +97,7 @@ def _make_opera_model(dapt_anchor_weight: float = 0.0, store=None):
         },
         dapt_anchor_weight=dapt_anchor_weight,
         dapt_embedding_store=store,
+        competing_risk_config=competing_risk_config,
         pooling="cls_last",
     )
 
@@ -125,6 +131,34 @@ def test_opera_contrastive_loss_shape():
     assert loss.ndim == 0
     assert torch.isfinite(loss)
     assert loss.requires_grad
+
+
+def test_opera_combines_contrastive_and_competing_risk_losses():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 0.5,
+            "contrastive_loss_weight": 1.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+        }
+    )
+    batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+
+    result = model(batch, survival)
+
+    assert torch.isfinite(result["loss"])
+    assert torch.isfinite(result["contrastive_loss"])
+    assert torch.isfinite(result["cr/loss"])
+    assert result["loss"].item() == pytest.approx(
+        result["contrastive_loss"].item() + 0.5 * result["cr/loss"].item()
+    )
 
 
 def test_opera_contrastive_requires_dapt_ckpt_or_none():

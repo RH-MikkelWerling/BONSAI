@@ -10,6 +10,20 @@ class _StubEncoder(nn.Module):
         return (batch["input_emb"],)
 
 
+def test_dapt_anchor_defaults_to_production_value():
+    model = OperaContrastiveModel(
+        encoder=_StubEncoder(),
+        outcome_names=["mortality"],
+        hidden_size=8,
+        projection_hidden_dim=8,
+        projection_dim=4,
+        outcome_sorted_event_times={"mortality": torch.tensor([10.0, 20.0, 30.0])},
+        pooling="cls_last",
+    )
+
+    assert model.dapt_anchor_weight == 0.2
+
+
 def _make_minimal_opera_model(dapt_anchor_weight=0.0, store=None):
     return OperaContrastiveModel(
         encoder=_StubEncoder(),

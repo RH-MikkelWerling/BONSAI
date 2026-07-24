@@ -9,9 +9,14 @@ import pytest
 import yaml
 from omegaconf import OmegaConf
 
-from opera.functional.outcome_transfer import build_transfer_config, resolve_transfer_manifest
+from opera.functional.outcome_transfer import (
+    build_transfer_config,
+    resolve_transfer_manifest,
+)
 from opera.run.contrastive_multicohort import _validate_transfer_config
-from opera.run.generate_outcome_transfer_configs import generate_outcome_transfer_configs
+from opera.run.generate_outcome_transfer_configs import (
+    generate_outcome_transfer_configs,
+)
 from opera.run.outcome_transfer_train import (
     OutcomeTransferLaunchError,
     _validate_preflight_report,
@@ -57,7 +62,9 @@ def test_launcher_rejects_stale_base_or_split_provenance_in_generated_config(
 
     config["base_contrastive_config_hash"] = "stale-base-config"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-    with pytest.raises(OutcomeTransferLaunchError, match="base_contrastive_config_hash"):
+    with pytest.raises(
+        OutcomeTransferLaunchError, match="base_contrastive_config_hash"
+    ):
         launch_outcome_transfer_conditions(
             config_dir=config_dir,
             output_dir=tmp_path / "outputs",
@@ -93,7 +100,9 @@ def test_execute_requires_a_matching_label_only_preflight_before_any_subprocess(
         )
 
 
-def test_preflight_gate_requires_every_current_transfer_target_cell(tmp_path: Path) -> None:
+def test_preflight_gate_requires_every_current_transfer_target_cell(
+    tmp_path: Path,
+) -> None:
     plan = resolve_transfer_manifest(MANIFEST)
     expected_rows = [
         {
@@ -146,7 +155,9 @@ def test_preflight_gate_requires_every_current_transfer_target_cell(tmp_path: Pa
         ),
         encoding="utf-8",
     )
-    with pytest.raises(OutcomeTransferLaunchError, match="Preflight report is incomplete"):
+    with pytest.raises(
+        OutcomeTransferLaunchError, match="Preflight report is incomplete"
+    ):
         _validate_preflight_report(report_path, plan)
 
 
@@ -302,9 +313,7 @@ def test_launcher_discovers_and_validates_nested_csvlogger_checkpoint(
                     "included_outcomes": expected["training_outcomes"],
                     "excluded_outcomes": expected["training_excluded_outcomes"],
                     "evaluation_outcomes": expected["evaluation_outcomes"],
-                    "related_retained_outcomes": expected[
-                        "related_retained_outcomes"
-                    ],
+                    "related_retained_outcomes": expected["related_retained_outcomes"],
                     "direct_dependencies_excluded": expected[
                         "direct_dependencies_excluded"
                     ],
@@ -330,7 +339,9 @@ def test_launcher_discovers_and_validates_nested_csvlogger_checkpoint(
     assert rows[0]["checkpoint_path"] == str(checkpoint)
 
 
-def test_runner_rejects_held_out_labels_before_data_module_or_checkpoint_selection() -> None:
+def test_runner_rejects_held_out_labels_before_data_module_or_checkpoint_selection() -> (
+    None
+):
     plan = resolve_transfer_manifest(MANIFEST)
     base = yaml.safe_load(BASE_CONFIG.read_text(encoding="utf-8"))
     config = build_transfer_config(plan, "opera_no_transfusion_signal", base)

@@ -94,9 +94,7 @@ def validate_eligibility_frame(frame: pd.DataFrame) -> list[str]:
                 "ascertainment_eligible must contain only non-null boolean-like values"
             )
         if ((eligible == True) & (ascertainment == False)).any():  # noqa: E712
-            issues.append(
-                "eligible=true requires ascertainment_eligible=true"
-            )
+            issues.append("eligible=true requires ascertainment_eligible=true")
 
     for column in CRITERION_COLUMNS:
         if column not in frame.columns:
@@ -165,13 +163,7 @@ def eligibility_mask(
         followup_only = (followup == False) & ~structural_failure  # noqa: E712
         return (final | followup_only.fillna(False)).astype(bool)
 
-    reasons = (
-        frame["eligibility_reason"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
+    reasons = frame["eligibility_reason"].fillna("").astype(str).str.strip().str.lower()
     followup_only = reasons.str.contains("followup|early_censor", regex=True)
     return (final | followup_only).astype(bool)
 

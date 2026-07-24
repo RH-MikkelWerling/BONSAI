@@ -96,7 +96,7 @@ coverage report
 ```text
 ehr2meds MEDS cohort (physical 90/10 SSL partitions)
     -> BONSAI feature creation and tokenization
-    -> subject_data_{train,tuning,held_out}.pt
+    -> subject_data_{train,tuning}.pt
     -> general pretraining / hematology DAPT / OPERA contrastive adaptation
     -> pool physical subject files
     -> select outcome train/tuning/held_out by the temporal manifest
@@ -113,6 +113,9 @@ model inputs end at `index_date`. `censor_date` is reserved for follow-up
 eligibility and time-to-event calculations.
 
 ## First Production Run Contract
+
+For the complete server setup, artifact placement, smoke tests, and staged
+launch procedure, follow [SERVER_RUNBOOK.md](SERVER_RUNBOOK.md).
 
 Before training on registry data, require all of the following:
 
@@ -274,7 +277,7 @@ mortality_2y:
 non-events. A single event-time parquet can therefore support survival metrics
 and multiple horizon-classification tasks.
 
-Outcome-specific `eligibility_file` sidecars are applied before labels are
+Optional outcome-specific `eligibility_file` sidecars are applied before labels are
 constructed. This lets a patient contribute to mortality while being masked
 for an unascertainable laboratory endpoint. Fixed-horizon binary training
 requires complete follow-up for event-free controls; configured death tables

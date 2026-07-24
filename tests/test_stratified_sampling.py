@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from torch.utils.data import ConcatDataset, WeightedRandomSampler
+from torch.utils.data import ConcatDataset, RandomSampler, WeightedRandomSampler
 
 import opera.functional.stratified_sampling as stratified_sampling
 from opera.functional.stratified_sampling import (
@@ -784,3 +784,16 @@ def test_multicohort_datamodule_threads_cohort_labels_to_sampler():
     # Ordering contract: small_cohort's global indices must be the tail
     # range, matching ConcatDataset's concatenation order.
     assert sampler.cohort_indices["small_cohort"].min() == len(big)
+
+
+def test_multicohort_random_training_loader_really_shuffles():
+    module = object.__new__(MultiCohortContrastiveDataModule)
+    module.train_dataset = _make_event_dataset(n_subjects=12)
+    module.train_batch_sampler = None
+    module.train_sampler = None
+    module.batch_size = 4
+    module.num_workers = 0
+
+    loader = module.train_dataloader()
+
+    assert isinstance(loader.sampler, RandomSampler)

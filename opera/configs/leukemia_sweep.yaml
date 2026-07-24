@@ -6,6 +6,8 @@
 #
 # Production primary analyses (train and evaluate within cohort_fine):
 #   opera/configs/generated/fine_cox.yaml
+#   opera/configs/generated/fine_ipcw_cif_{30,90,180,365,730}d.yaml
+# Net-risk sensitivity analyses:
 #   opera/configs/generated/fine_ipcw_{30,90,180,365,730}d.yaml
 #
 # Secondary pooled analyses (cohort_grouped) live alongside them as
@@ -15,6 +17,11 @@
 deprecated:
   replacement_configs:
     - opera/configs/generated/fine_cox.yaml
+    - opera/configs/generated/fine_ipcw_cif_30d.yaml
+    - opera/configs/generated/fine_ipcw_cif_90d.yaml
+    - opera/configs/generated/fine_ipcw_cif_180d.yaml
+    - opera/configs/generated/fine_ipcw_cif_365d.yaml
+    - opera/configs/generated/fine_ipcw_cif_730d.yaml
     - opera/configs/generated/fine_ipcw_30d.yaml
     - opera/configs/generated/fine_ipcw_90d.yaml
     - opera/configs/generated/fine_ipcw_180d.yaml

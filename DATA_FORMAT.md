@@ -11,9 +11,8 @@ $BONSAI_PROCESSED_DATA/
 ├── {cohort}/                          # one directory per disease cohort
 │   ├── subject_data_train.pt          # list[dict] — tokenised EHR, train split
 │   ├── subject_data_tuning.pt         # list[dict] — tokenised EHR, val split
-│   ├── subject_data_held_out.pt       # list[dict] — tokenised EHR, test split
 │   ├── vocabulary.pt                  # dict[str, int] — token → id
-│   ├── population_full.csv            # subject-level metadata + IPI scores
+│   ├── population_full.csv            # minimal subject manifest; may be enriched
 │   └── outcomes/
 │       ├── mortality_1y.parquet
 │       ├── mortality_2y.parquet
@@ -47,7 +46,11 @@ A Python `list` of dicts, one dict per patient. Load with `torch.load(path)`.
 
 **Background tokens**: each patient's sequence begins with static background tokens (sex, birth year, etc.) in segment 0. The number of background tokens is the same for all patients in a cohort and is inferred at runtime as `(subjects[0]["segment"] == 0).sum()`.
 
-**Splits**: train → `subject_data_train.pt`, val → `subject_data_tuning.pt`, test → `subject_data_held_out.pt`. The `split` field in outcome parquets must use the string keys `"train"`, `"tuning"`, `"held_out"`.
+**Physical splits**: ehr2meds' random 90/10 preprocessing partitions are written
+to `subject_data_train.pt` and `subject_data_tuning.pt`. OPERA pools both files
+for supervised tasks. Prospective train/tuning/held-out membership is defined by
+the outcome/index-date manifest, not by a third physical subject-data file. The
+`split` field in outcome parquets uses `"train"`, `"tuning"`, and `"held_out"`.
 
 ---
 
@@ -128,9 +131,10 @@ known follow-up date.
 
 ## 5. Outcome eligibility sidecars
 
-When outcome ascertainment differs by patient or outcome, write one eligibility
-sidecar per cohort-outcome cell. Do not encode an unascertainable outcome as a
-negative label.
+When outcome ascertainment has not already been enforced while constructing the
+outcome parquet, write an eligibility sidecar for that outcome. Sidecars are
+optional runtime filters, not mandatory duplicates of an already-vetted risk
+set. Do not encode an unascertainable outcome as a negative label.
 
 The sidecar may be CSV or parquet and must contain exactly one row per patient:
 
@@ -213,7 +217,10 @@ cohort-outcome cell must name an existing, valid sidecar.
 
 ## 6. Population CSV (`population_full.csv`)
 
-One row per patient. Used to filter subject data to a defined study population and to supply clinical score baselines (IPI etc.).
+`create_data.py` writes one row per tokenized patient with only `subject_id`.
+For production OPERA this minimal manifest may be replaced or enriched with
+cohort membership and clinical score columns. It is used to filter subject data
+to the study population and to supply clinical score baselines (IPI etc.).
 
 **Required columns:**
 
@@ -385,7 +392,7 @@ preserves that order rather than sorting the clinical events again.
 
 **No code changes are required to add a cohort.** The production configs use
 `require_all_configured_cells: true`: every listed cohort-outcome file and
-sidecar must exist. If an outcome is intentionally unavailable for a cohort,
+every explicitly configured sidecar must exist. If an outcome is intentionally unavailable for a cohort,
 use a separate reduced experiment config or omit that cell from the canonical
 contract rather than relying on a silent skip.
 
@@ -396,8 +403,9 @@ contract rather than relying on a silent skip.
 1. Define the outcome event logic in a `create_outcome` config YAML
 2. Run `bonsai.run.create_outcome` for each cohort → produces `outcomes/{name}.parquet` in each cohort directory
 3. Add the outcome to `contrastive_multicohort.yaml` under `outcomes:` with
-   `outcome_file`, `eligibility_file`, `n_hours_start_include`, and
-   `n_hours_end_include`
+   `outcome_file`, `n_hours_start_include`, and `n_hours_end_include`. Add
+   `eligibility_file` only if the outcome parquet has not already been
+   restricted to its final eligible risk set.
 4. Add the same block to `joint_finetune.yaml`
 5. Add to your sweep config under `outcomes:`
 6. Run contrastive training (or continue from a checkpoint with `save_last=True`) → new outcome automatically gets a `log_sigma` parameter and appears in all evaluation reports
@@ -414,12 +422,18 @@ contract rather than relying on a silent skip.
 All outcomes for a patient must share the same `index_date` (typically
 first-line treatment start). `ContrastiveDataset` validates the derived
 prediction positions and fails before training when they disagree.
-# Numeric combined binning
+# Numeric representations
 
-BONSAI's paper-aligned numeric path is enabled with
-`numeric_value_mode: combined_binning` during data creation. A valid ehr2meds
-numeric event (non-null `numeric_value_bin`) is expanded into two adjacent
-positions; the clinical code may itself be the joint `LAB_CODE//BIN` token:
+The first production run uses suffix-only binning. ehr2meds emits the joined
+`LAB_CODE//bin_k` code and `configs/daly_care_data.yaml` deliberately sets
+`numeric_value_mode: legacy`. BONSAI therefore consumes the joined code as one
+ordinary categorical token and does not duplicate it with a `[VAL]` position.
+This is the locked initial server path.
+
+The optional combined categorical-plus-scalar ablation is enabled with
+`numeric_value_mode: combined_binning`. A valid ehr2meds numeric event
+(non-null `numeric_value_bin`) is then expanded into two adjacent positions;
+the clinical code may itself be the joined `LAB_CODE//bin_k` token:
 
 ```text
 LAB/CODE//BIN, [VAL]

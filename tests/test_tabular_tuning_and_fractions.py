@@ -85,9 +85,9 @@ def test_tune_estimator_params_falls_back_on_single_class(tmp_path):
 
     train, _, cols = _make_binary_dfs()
     # val with only one class
-    val_single = pd.DataFrame(
-        np.zeros((20, 4)), columns=cols
-    ).assign(label=0, subject_id=range(200, 220))
+    val_single = pd.DataFrame(np.zeros((20, 4)), columns=cols).assign(
+        label=0, subject_id=range(200, 220)
+    )
 
     result = tune_estimator_params("logistic", train, val_single, cols)
     assert result == {}
@@ -214,9 +214,7 @@ def _make_minimal_sweep_config(tmp_path: Path) -> Path:
     return config_path
 
 
-def test_label_efficiency_calls_tabular_at_each_fraction_seed(
-    tmp_path, monkeypatch
-):
+def test_label_efficiency_calls_tabular_at_each_fraction_seed(tmp_path, monkeypatch):
     """When --tabular_features is set, subprocess.run is called for each cell."""
     # Build a tiny outcome parquet the subsampler accepts.
     outcome_df = pd.DataFrame(
@@ -232,7 +230,9 @@ def test_label_efficiency_calls_tabular_at_each_fraction_seed(
     outcome_df.to_parquet(outcome_path)
 
     features_path = tmp_path / "features.csv"
-    features_path.write_text("subject_id,f1\n" + "\n".join(f"{i},{i*0.1}" for i in range(20)))
+    features_path.write_text(
+        "subject_id,f1\n" + "\n".join(f"{i},{i * 0.1}" for i in range(20))
+    )
 
     config_path = _make_minimal_sweep_config(tmp_path)
 
@@ -265,13 +265,20 @@ def test_label_efficiency_calls_tabular_at_each_fraction_seed(
         "argv",
         [
             "label_efficiency",
-            "--sweep_config", str(config_path),
-            "--tasks", "dlbcl:mortality",
-            "--fractions", "0.5",
-            "--seeds", "42,43",
-            "--output_dir", str(tmp_path / "out"),
-            "--tabular_features", str(features_path),
-            "--tabular_models", "xgboost",
+            "--sweep_config",
+            str(config_path),
+            "--tasks",
+            "dlbcl:mortality",
+            "--fractions",
+            "0.5",
+            "--seeds",
+            "42,43",
+            "--output_dir",
+            str(tmp_path / "out"),
+            "--tabular_features",
+            str(features_path),
+            "--tabular_models",
+            "xgboost",
         ],
     )
 

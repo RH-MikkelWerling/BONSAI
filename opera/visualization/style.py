@@ -219,7 +219,9 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
     if path is not None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=0.12, facecolor="white")
+        fig.savefig(
+            path, dpi=dpi, bbox_inches="tight", pad_inches=0.12, facecolor="white"
+        )
         if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             fig.savefig(
                 path.with_suffix(".pdf"),

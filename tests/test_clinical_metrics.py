@@ -3,6 +3,7 @@ import numpy as np
 from opera.evaluation.metrics import (
     _km_censoring_fn,
     calibration_intercept_slope,
+    compute_competing_risk_metrics,
     compute_survival_metrics,
     full_evaluation,
     high_risk_enrichment,
@@ -83,6 +84,40 @@ def test_ipcw_metrics_exclude_competing_deaths_before_horizon():
     # Patient 1 (competing death at 60d < 100d) must be excluded, not treated as a case
     assert per_h.get("n_cases", 0) == 1
     assert per_h.get("n_excluded", 0) == 1  # the competing death patient
+
+
+def test_cif_metrics_treat_competing_death_as_observed_control():
+    times = np.array([30.0, 60.0, 70.0, 150.0])
+    events = np.array([1, 2, 0, 0])
+    good_preds = np.array([0.9, 0.1, 0.5, 0.05])
+    bad_preds = np.array([0.1, 0.9, 0.5, 0.95])
+
+    good = compute_competing_risk_metrics(
+        times, events, good_preds, time_horizons=[100.0]
+    )["per_horizon"]["100d"]
+    bad = compute_competing_risk_metrics(
+        times, events, bad_preds, time_horizons=[100.0]
+    )["per_horizon"]["100d"]
+
+    assert good["n_competing_controls"] == 1
+    assert good["n_excluded_admin_censoring"] == 1
+    assert good["cif_auc"] == 1.0
+    assert good["cif_brier"] < bad["cif_brier"]
+
+
+def test_full_evaluation_adds_competing_risk_report_when_requested():
+    report = full_evaluation(
+        np.array([1, 0]),
+        np.array([0.9, 0.1]),
+        n_bootstrap=5,
+        times=np.array([30.0, 60.0, 150.0]),
+        events=np.array([1, 2, 0]),
+        survival_probabilities=np.array([0.9, 0.1, 0.05]),
+        time_horizons=[100.0],
+        competing_risk=True,
+    )
+    assert report["competing_risk"]["n_competing_events"] == 1
+    assert "cif_auc_100d" in report["competing_risk_bootstrap_ci"]
 
 
 def test_ipcw_brier_uses_event_probability_target_orientation():

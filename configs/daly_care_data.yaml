@@ -1,0 +1,32 @@
+# @package _global_
+# Production conversion of ehr2meds' ready-to-ingest DALY-CARE output.
+defaults:
+  - data_creation/default_create_data@
+  - _self_
+
+dataset: daly_care
+
+paths:
+  input_dir: ${oc.env:EHR2MEDS_OUTPUT}
+  output_dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+
+# ehr2meds owns event ordering and has already rewritten numeric events as
+# joined LAB_CODE//bin_k codes.
+numeric_value_mode: legacy
+
+# Vocabulary fitting uses only physical SSL-train subjects and pre-2022 events.
+vocabulary_cutoff_date:
+  year: 2022
+  month: 1
+  day: 1
+
+splits:
+  - train
+  - tuning
+
+exclude_regex: null
+
+tokenizer:
+  vocabulary: null
+  cutoffs: null
+  sep_tokens: true

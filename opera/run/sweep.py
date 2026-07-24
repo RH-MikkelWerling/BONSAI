@@ -332,7 +332,9 @@ def prepare_ipi_subset_predictions(
         cohort_fine_value=cohort_fine_value,
     )
     if allowed_subject_ids is not None:
-        population = population[population["subject_id"].isin(allowed_subject_ids)].copy()
+        population = population[
+            population["subject_id"].isin(allowed_subject_ids)
+        ].copy()
     outcomes = pd.read_parquet(outcome_parquet)
     outcomes = filter_outcome_eligibility(
         outcomes,
@@ -1312,6 +1314,7 @@ def _run_variant_cell(
     if training_mode is not None and training_mode not in {
         "cox",
         "ipcw_bce",
+        "ipcw_cif_bce",
     }:
         print(f"  Invalid training_mode={training_mode!r}, skipping.")
         tracker.append(
@@ -1327,7 +1330,7 @@ def _run_variant_cell(
         if fail_fast:
             raise ValueError(f"Invalid training_mode={training_mode!r}")
         return None
-    if training_mode == "ipcw_bce" and n_hours_end is None:
+    if training_mode in {"ipcw_bce", "ipcw_cif_bce"} and n_hours_end is None:
         print("  IPCW-BCE requires n_hours_end_include, skipping.")
         tracker.append(
             cohort=cohort_name,
@@ -1346,7 +1349,7 @@ def _run_variant_cell(
             if encoder_source == "joint"
             else (
                 f"{training_mode} finetune and evaluate"
-                if training_mode in {"cox", "ipcw_bce"}
+                if training_mode in {"cox", "ipcw_bce", "ipcw_cif_bce"}
                 else "finetune and evaluate"
             )
         )
@@ -1422,6 +1425,7 @@ def _run_variant_cell(
             extra_overrides=[
                 *(variant_cfg.get("extra_overrides") or []),
                 f"seed={seed}",
+                f"overwrite={str(overwrite).lower()}",
             ],
             log_dir=cell_dir / "logs",
         )
@@ -1459,7 +1463,7 @@ def _run_variant_cell(
         model_family=result_variant,
         training_stage=(
             "survival_finetuning"
-            if training_mode in {"cox", "ipcw_bce"}
+            if training_mode in {"cox", "ipcw_bce", "ipcw_cif_bce"}
             else variant_cfg.get("training_stage", "per_task_finetuning")
         ),
         encoder_frozen=(
@@ -1572,6 +1576,7 @@ def run_sweep(
     fail_fast: bool = False,
 ):
     cfg = load_sweep_config(config_path).to_mapping()
+
     # Sweep YAMLs may use server environment variables for shared data,
     # outcome, checkpoint, and result roots.  Expand them before paths are
     # handed to subprocesses (which are deliberately invoked without a shell).

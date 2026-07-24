@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any, Optional
 
 import torch
+from omegaconf import DictConfig, OmegaConf
 
 from bonsai.functional.model_config import (
     config_to_dict,
@@ -16,6 +18,105 @@ from bonsai.functional.model_config import (
 MODEL_CONFIG_KEY = "model_config"
 ENCODER_CONFIG_KEY = "encoder_config"
 MODEL_INIT_CONFIG_KEY = "model_init_config"
+COMPLETION_MARKER = "training_complete.json"
+
+
+def _completion_config(cfg: DictConfig | dict) -> dict:
+    """Return the stable, resolved config used to identify a completed run."""
+    if isinstance(cfg, DictConfig):
+        payload = OmegaConf.to_container(cfg, resolve=True)
+    else:
+        payload = dict(cfg)
+    if not isinstance(payload, dict):
+        raise TypeError("Training config must resolve to a mapping.")
+    # These control invocation identity rather than the fitted model.
+    payload.pop("overwrite", None)
+    payload.pop("run_id", None)
+    return payload
+
+
+def training_config_fingerprint(cfg: DictConfig | dict) -> str:
+    """Hash a resolved training config for safe completed-run reuse."""
+    canonical = json.dumps(
+        _completion_config(cfg),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def should_skip_completed_training(
+    output_dir: str | Path,
+    cfg: DictConfig | dict,
+) -> bool:
+    """Return whether a compatible, complete training run can be reused.
+
+    A marker-backed run is reused only when its config fingerprint matches.
+    Legacy runs containing both the checkpoint and metadata sidecar are also
+    considered complete, but cannot be checked for exact config identity.
+    """
+    output_dir = Path(output_dir)
+    overwrite = bool(cfg.get("overwrite", False))
+    if overwrite:
+        return False
+
+    required = (output_dir / "best.ckpt", output_dir / "checkpoint_metadata.json")
+    marker_path = output_dir / COMPLETION_MARKER
+    if marker_path.exists():
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        missing = [str(path) for path in required if not path.is_file()]
+        if missing:
+            return False
+        current = training_config_fingerprint(cfg)
+        recorded = marker.get("config_fingerprint")
+        if recorded != current:
+            raise RuntimeError(
+                f"Completed training output already exists at {output_dir}, but "
+                "its configuration differs from this invocation. Choose a new "
+                "output directory or set overwrite=true explicitly."
+            )
+        print(
+            f"Completed training run found at {output_dir}; reusing best.ckpt "
+            "(set overwrite=true to rerun)."
+        )
+        return True
+
+    if all(path.is_file() for path in required):
+        print(
+            f"Legacy completed training run found at {output_dir}; reusing "
+            "best.ckpt (set overwrite=true to rerun)."
+        )
+        return True
+    return False
+
+
+def mark_training_complete(
+    output_dir: str | Path,
+    cfg: DictConfig | dict,
+) -> Path:
+    """Atomically write the marker used by resumable checkpoint generation."""
+    output_dir = Path(output_dir)
+    required = (output_dir / "best.ckpt", output_dir / "checkpoint_metadata.json")
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Cannot mark training complete; required artifacts are missing: "
+            + ", ".join(missing)
+        )
+    path = output_dir / COMPLETION_MARKER
+    temporary = output_dir / f".{COMPLETION_MARKER}.tmp"
+    payload = {
+        "status": "completed",
+        "config_fingerprint": training_config_fingerprint(cfg),
+        "artifacts": [item.name for item in required],
+    }
+    temporary.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return path
 
 
 def attach_model_config(module: Any, model: Any) -> None:

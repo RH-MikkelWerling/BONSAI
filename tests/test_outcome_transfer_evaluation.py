@@ -121,12 +121,17 @@ def _synthetic_transfer_fixture(tmp_path):
     }
     rng = np.random.default_rng(7)
     artifacts = {}
-    for representation, strength in (("dapt", 0.2), ("opera_no_target", 0.45), ("opera_full", 0.8)):
+    for representation, strength in (
+        ("dapt", 0.2),
+        ("opera_no_target", 0.45),
+        ("opera_full", 0.8),
+    ):
         signal = (subject_ids % 2 == 0).astype(float)
         frame = pd.DataFrame(
             {
                 "subject_id": subject_ids,
-                "embedding_0": strength * signal + rng.normal(0, 0.15, len(subject_ids)),
+                "embedding_0": strength * signal
+                + rng.normal(0, 0.15, len(subject_ids)),
                 "embedding_1": rng.normal(0, 1, len(subject_ids)),
                 "_subject_key": [str(item) for item in subject_ids],
             }
@@ -139,9 +144,7 @@ def _synthetic_transfer_fixture(tmp_path):
                 "source_checkpoint": "/synthetic/pretraining.ckpt",
                 "registry_hash": plan["registry_hash"],
                 "manifest_hash": plan["manifest_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "split_contract": plan["split_contract"],
                 "split_contract_hash": plan["split_contract_hash"],
             }
@@ -155,13 +158,13 @@ def _synthetic_transfer_fixture(tmp_path):
                 "transfer_level": condition["transfer_level"],
                 "registry_hash": plan["registry_hash"],
                 "manifest_hash": plan["manifest_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "included_outcomes": condition["training_outcomes"],
                 "excluded_outcomes": condition["training_excluded_outcomes"],
                 "evaluation_outcomes": condition["evaluation_outcomes"],
-                "related_retained_outcomes": condition.get("related_retained_outcomes", []),
+                "related_retained_outcomes": condition.get(
+                    "related_retained_outcomes", []
+                ),
                 "direct_dependencies_excluded": condition.get(
                     "direct_dependencies_excluded", []
                 ),
@@ -185,7 +188,9 @@ def _synthetic_transfer_fixture(tmp_path):
     return registry, plan, artifacts
 
 
-def test_frozen_probe_is_pan_hematology_and_grouped_rows_reuse_predictions(tmp_path, monkeypatch):
+def test_frozen_probe_is_pan_hematology_and_grouped_rows_reuse_predictions(
+    tmp_path, monkeypatch
+):
     registry, plan, artifacts = _synthetic_transfer_fixture(tmp_path)
     original_fit = transfer_evaluation.fit_standardized_linear_probe
     calls = []
@@ -194,7 +199,9 @@ def test_frozen_probe_is_pan_hematology_and_grouped_rows_reuse_predictions(tmp_p
         calls.append(args[0].representation)
         return original_fit(*args, **kwargs)
 
-    monkeypatch.setattr(transfer_evaluation, "fit_standardized_linear_probe", counted_fit)
+    monkeypatch.setattr(
+        transfer_evaluation, "fit_standardized_linear_probe", counted_fit
+    )
     results, predictions, status, failures = evaluate_frozen_transfer_probes(
         plan,
         registry=registry,
@@ -206,7 +213,9 @@ def test_frozen_probe_is_pan_hematology_and_grouped_rows_reuse_predictions(tmp_p
     assert failures.empty
     assert set(status["status"]) == {"completed"}
     assert set(results["evaluation_level"]) == {"pan_hematology", "cohort_grouped"}
-    assert set(results.loc[results["evaluation_level"] == "cohort_grouped", "evaluation_group"]) == {
+    assert set(
+        results.loc[results["evaluation_level"] == "cohort_grouped", "evaluation_group"]
+    ) == {
         "GROUP_A",
         "GROUP_B",
     }
@@ -226,10 +235,12 @@ def test_paired_aggregation_fails_closed_and_writes_figure(tmp_path):
         c_grid=(0.1, 1.0),
     )
     assert failures.empty
-    deltas, cohorts, family_summary, aggregation_failures = aggregate_transfer_predictions(
-        plan,
-        predictions,
-        n_bootstrap=20,
+    deltas, cohorts, family_summary, aggregation_failures = (
+        aggregate_transfer_predictions(
+            plan,
+            predictions,
+            n_bootstrap=20,
+        )
     )
     assert len(deltas) == 9  # 3 contrasts x AUROC/AUPRC/Brier for one seed/task.
     assert len(cohorts) == 18  # the same three contrasts/metrics for two groups.
@@ -286,7 +297,9 @@ def test_paired_aggregation_fails_closed_and_writes_figure(tmp_path):
         mismatched["opera_full"].iloc[0]["label"]
     )
     with pytest.raises(DenominatorParityError, match="label mismatch"):
-        assert_prediction_denominator_parity(mismatched, context="synthetic parity test")
+        assert_prediction_denominator_parity(
+            mismatched, context="synthetic parity test"
+        )
 
 
 def test_opera_embedding_requires_a_plan_matched_metadata_sidecar(tmp_path):
@@ -295,7 +308,9 @@ def test_opera_embedding_requires_a_plan_matched_metadata_sidecar(tmp_path):
     bad[("opera_no_target", 42)] = replace(
         bad[("opera_no_target", 42)], metadata_path=None
     )
-    with pytest.raises(OutcomeTransferEvaluationError, match="no embedding metadata sidecar"):
+    with pytest.raises(
+        OutcomeTransferEvaluationError, match="no embedding metadata sidecar"
+    ):
         evaluate_frozen_transfer_probes(
             plan,
             registry=registry,
@@ -327,7 +342,9 @@ def test_dapt_embedding_cannot_be_an_opera_checkpoint_relabelled_as_dapt(tmp_pat
     invalid["training_stage"] = "opera_contrastive_adaptation"
     bad = dict(artifacts)
     bad[("dapt", 42)] = replace(dapt, metadata=invalid)
-    with pytest.raises(OutcomeTransferEvaluationError, match="hematology_domain_adaptation"):
+    with pytest.raises(
+        OutcomeTransferEvaluationError, match="hematology_domain_adaptation"
+    ):
         evaluate_frozen_transfer_probes(
             plan,
             registry=registry,
@@ -382,7 +399,9 @@ def test_empty_frozen_probe_outputs_keep_a_stable_schema(tmp_path):
     assert set(TRANSFER_PROBE_STATUS_COLUMNS) <= set(
         pd.read_csv(paths["transfer_probe_status"]).columns
     )
-    assert set(TRANSFER_FAILURE_COLUMNS) <= set(pd.read_csv(paths["transfer_failures"]).columns)
+    assert set(TRANSFER_FAILURE_COLUMNS) <= set(
+        pd.read_csv(paths["transfer_failures"]).columns
+    )
     assert set(TRANSFER_PREDICTION_COLUMNS) <= set(
         pd.read_parquet(paths["transfer_predictions"]).columns
     )

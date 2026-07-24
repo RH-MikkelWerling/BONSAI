@@ -77,19 +77,26 @@ def test_transfusion_signal_holdout_removes_direct_composite_components_only() -
         "platelet_transfusion",
     }
     assert condition["evaluation_outcomes"] == ["any_transfusion"]
-    assert {"anemia_g2plus", "anemia_g3plus", "thrombocytopenia_g2plus", "thrombocytopenia_g3plus"} <= set(
-        condition["related_retained_outcomes"]
-    )
+    assert {
+        "anemia_g2plus",
+        "anemia_g3plus",
+        "thrombocytopenia_g2plus",
+        "thrombocytopenia_g3plus",
+    } <= set(condition["related_retained_outcomes"])
     assert not set(condition["training_excluded_outcomes"]) & set(
         condition["related_retained_outcomes"]
     )
 
 
-def test_hospitalisation_dependencies_are_verified_and_keep_independent_proxies() -> None:
+def test_hospitalisation_dependencies_are_verified_and_keep_independent_proxies() -> (
+    None
+):
     plan = _plan()
     condition = plan["conditions"]["opera_no_hospitalisation_signal"]
 
-    assert condition["dependency_resolution_status"] == "verified_archival_source_evidence"
+    assert (
+        condition["dependency_resolution_status"] == "verified_archival_source_evidence"
+    )
     assert not condition["launch_blocked"]
     assert condition["direct_dependencies_excluded"] == ["hospitalisation"]
     assert condition["training_excluded_outcomes"] == ["hospitalisation"]
@@ -121,7 +128,10 @@ def test_family_holdouts_are_exactly_the_canonical_family_members() -> None:
 
     for condition_name, family in expected.items():
         condition = plan["conditions"][condition_name]
-        assert condition["training_excluded_outcomes"] == registry["outcome_families"][family]
+        assert (
+            condition["training_excluded_outcomes"]
+            == registry["outcome_families"][family]
+        )
         assert condition["evaluation_outcomes"] == registry["outcome_families"][family]
         assert not set(condition["training_outcomes"]) & set(
             registry["outcome_families"][family]
@@ -147,9 +157,10 @@ def test_generated_configs_change_only_outcome_panel_and_add_transfer_metadata(
         for key, value in base.items():
             if key != "outcomes":
                 assert generated[key] == value
-        assert list(generated["outcomes"]) == plan["conditions"][condition][
-            "training_outcomes"
-        ]
+        assert (
+            list(generated["outcomes"])
+            == plan["conditions"][condition]["training_outcomes"]
+        )
         for key in (
             "transfer_analysis",
             "transfer_condition",
@@ -166,12 +177,11 @@ def test_generated_configs_change_only_outcome_panel_and_add_transfer_metadata(
         ):
             assert key in generated
         checkpoint_metadata = generated["transfer_checkpoint_metadata"]
-        assert checkpoint_metadata["base_contrastive_config_hash"] == plan[
-            "base_contrastive_config_hash"
-        ]
-        assert checkpoint_metadata["split_contract_hash"] == plan[
-            "split_contract_hash"
-        ]
+        assert (
+            checkpoint_metadata["base_contrastive_config_hash"]
+            == plan["base_contrastive_config_hash"]
+        )
+        assert checkpoint_metadata["split_contract_hash"] == plan["split_contract_hash"]
 
 
 def test_held_out_labels_cannot_reach_training_or_checkpoint_selection() -> None:
@@ -183,9 +193,10 @@ def test_held_out_labels_cannot_reach_training_or_checkpoint_selection() -> None
         assert not held_out & set(config["outcomes"])
         assert not held_out & set(config["selection_outcomes"])
         assert config["selection_outcomes"] == config["training_outcomes"]
-        assert config["transfer_checkpoint_metadata"]["selection_outcomes"] == config[
-            "training_outcomes"
-        ]
+        assert (
+            config["transfer_checkpoint_metadata"]["selection_outcomes"]
+            == config["training_outcomes"]
+        )
 
 
 def test_checkpoint_slots_are_fixed_and_dapt_is_not_a_training_slot() -> None:
@@ -216,16 +227,18 @@ def test_manifest_resolution_is_deterministic_and_requires_verified_extra_depend
     except ValueError as error:
         assert "without verified dependency_provenance" in str(error)
     else:  # pragma: no cover - defensive assertion for an invalid manifest
-        raise AssertionError("Unverified direct hospitalisation dependency was accepted.")
+        raise AssertionError(
+            "Unverified direct hospitalisation dependency was accepted."
+        )
 
 
 def test_hospitalisation_archival_evidence_hash_is_checked_at_resolution(
     tmp_path: Path,
 ) -> None:
     broken = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
-    provenance = broken["conditions"]["opera_no_hospitalisation_signal"][
-        "exclude"
-    ]["dependency_provenance"]
+    provenance = broken["conditions"]["opera_no_hospitalisation_signal"]["exclude"][
+        "dependency_provenance"
+    ]
     provenance["evidence_sha256"] = "0" * 64
     manifest_path = tmp_path / "tampered_evidence.yaml"
     manifest_path.write_text(yaml.safe_dump(broken, sort_keys=False), encoding="utf-8")

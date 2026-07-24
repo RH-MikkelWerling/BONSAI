@@ -80,7 +80,9 @@ def load_transfer_manifest(path: str | Path = DEFAULT_MANIFEST) -> dict[str, Any
     if not isinstance(seeds, list) or not all(isinstance(seed, int) for seed in seeds):
         raise ValueError("Outcome-transfer manifest seeds must be a list of integers.")
     if seeds != [42, 43, 44]:
-        raise ValueError("Outcome-transfer manifest must use the locked seeds [42, 43, 44].")
+        raise ValueError(
+            "Outcome-transfer manifest must use the locked seeds [42, 43, 44]."
+        )
     conditions = manifest["conditions"]
     if not isinstance(conditions, dict):
         raise ValueError("Outcome-transfer manifest conditions must be a mapping.")
@@ -101,7 +103,9 @@ def _family_lookup(registry: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def _structural_exclusions_by_group(registry: Mapping[str, Any]) -> dict[str, list[str]]:
+def _structural_exclusions_by_group(
+    registry: Mapping[str, Any],
+) -> dict[str, list[str]]:
     """Resolve registry-declared cohort availability without inventing cells."""
     outcomes = list(registry["outcomes"])
     excluded: dict[str, set[str]] = {
@@ -154,7 +158,7 @@ def _matched_g2_g3_pairs(registry_outcomes: Sequence[str]) -> list[dict[str, str
     for g3 in registry_outcomes:
         if not g3.endswith("_g3plus"):
             continue
-        g2 = f"{g3[:-len('_g3plus')]}_g2plus"
+        g2 = f"{g3[: -len('_g3plus')]}_g2plus"
         if g2 in outcome_set:
             pairs.append({"lower_grade_outcome": g2, "target_outcome": g3})
     if not pairs:
@@ -272,7 +276,11 @@ def _resolve_hospitalisation_dependencies(
     # closure, including the target itself.  This aligns the metadata with the
     # actual training-exclusion list and avoids ambiguity for launch guards.
     direct_closure = _ordered_unique([target, *requested], registry_outcomes)
-    status = "verified_archival_source_evidence" if verified else "unresolved_source_not_found"
+    status = (
+        "verified_archival_source_evidence"
+        if verified
+        else "unresolved_source_not_found"
+    )
     details = {
         "dependency_resolution_status": status,
         "dependency_provenance": deepcopy(dict(provenance)) if verified else None,
@@ -312,7 +320,9 @@ def _resolve_exclusion(
     if exclusion_type == "suffix":
         suffix = exclusion.get("value")
         if not isinstance(suffix, str) or not suffix:
-            raise ValueError(f"Transfer condition {condition!r} needs a non-empty suffix.")
+            raise ValueError(
+                f"Transfer condition {condition!r} needs a non-empty suffix."
+            )
         return [outcome for outcome in outcomes if outcome.endswith(suffix)], {
             "dependency_resolution_status": "not_applicable",
             "dependency_provenance": None,
@@ -321,8 +331,12 @@ def _resolve_exclusion(
         }
     if exclusion_type == "exact":
         exact = exclusion.get("outcomes", [])
-        if not isinstance(exact, list) or not all(isinstance(value, str) for value in exact):
-            raise ValueError(f"Transfer condition {condition!r} exact exclusions must be a list.")
+        if not isinstance(exact, list) or not all(
+            isinstance(value, str) for value in exact
+        ):
+            raise ValueError(
+                f"Transfer condition {condition!r} exact exclusions must be a list."
+            )
         _require_known_outcomes(
             exact, outcomes, condition=condition, field="exact excluded outcomes"
         )
@@ -377,7 +391,9 @@ def _resolve_evaluation_outcomes(
     if exclusion_type == "family":
         return list(excluded), list(excluded), []
     configured = spec.get("evaluation_outcomes", [])
-    if not isinstance(configured, list) or not all(isinstance(value, str) for value in configured):
+    if not isinstance(configured, list) or not all(
+        isinstance(value, str) for value in configured
+    ):
         raise ValueError(
             f"Transfer condition {condition!r} evaluation_outcomes must be a list."
         )
@@ -414,7 +430,9 @@ def _resolve_related_retained_outcomes(
     if isinstance(exclusion, Mapping) and exclusion.get("type") == "family":
         return list(training_outcomes)
     families = spec.get("related_retained_families", [])
-    if not isinstance(families, list) or not all(isinstance(value, str) for value in families):
+    if not isinstance(families, list) or not all(
+        isinstance(value, str) for value in families
+    ):
         raise ValueError(
             f"Transfer condition {condition!r} related_retained_families must be a list."
         )
@@ -429,11 +447,14 @@ def _resolve_related_retained_outcomes(
 
 
 def _validate_base_config(
-    base_config: Mapping[str, Any], registry: Mapping[str, Any]) -> None:
+    base_config: Mapping[str, Any], registry: Mapping[str, Any]
+) -> None:
     """Fail if an ablation would not start from the canonical full panel."""
     base_outcomes = base_config.get("outcomes")
     if not isinstance(base_outcomes, Mapping):
-        raise ValueError("Canonical full OPERA config must contain an outcomes mapping.")
+        raise ValueError(
+            "Canonical full OPERA config must contain an outcomes mapping."
+        )
     registry_outcomes = list(registry["outcomes"])
     if list(base_outcomes) != registry_outcomes:
         missing = sorted(set(registry_outcomes) - set(base_outcomes))
@@ -494,15 +515,21 @@ def resolve_transfer_manifest(
             spec=raw_spec,
             registry=registry,
         )
-        training = [outcome for outcome in registry_outcomes if outcome not in set(excluded)]
+        training = [
+            outcome for outcome in registry_outcomes if outcome not in set(excluded)
+        ]
         if not training:
-            raise ValueError(f"Transfer condition {condition!r} excludes every outcome.")
-        evaluation, primary_evaluation, secondary_evaluation = _resolve_evaluation_outcomes(
-            condition=condition,
-            spec=raw_spec,
-            excluded=excluded,
-            registry=registry,
-            matched_pairs=matched_pairs,
+            raise ValueError(
+                f"Transfer condition {condition!r} excludes every outcome."
+            )
+        evaluation, primary_evaluation, secondary_evaluation = (
+            _resolve_evaluation_outcomes(
+                condition=condition,
+                spec=raw_spec,
+                excluded=excluded,
+                registry=registry,
+                matched_pairs=matched_pairs,
+            )
         )
         related_retained = _resolve_related_retained_outcomes(
             condition=condition,
@@ -538,11 +565,7 @@ def resolve_transfer_manifest(
             # impossible to mistake structural non-availability for a
             # transfer holdout or a label-loading failure.
             "structural_cohort_exclusions": {
-                group: [
-                    outcome
-                    for outcome in unavailable
-                    if outcome in set(training)
-                ]
+                group: [outcome for outcome in unavailable if outcome in set(training)]
                 for group, unavailable in structural_exclusions.items()
                 if any(outcome in set(training) for outcome in unavailable)
             },
@@ -634,9 +657,7 @@ def transfer_plan_rows(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "matched_g2_g3_pairs": json.dumps(resolved["matched_g2_g3_pairs"]),
                 "registry_hash": plan["registry_hash"],
                 "manifest_hash": plan["manifest_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "split_contract_hash": plan["split_contract_hash"],
             }
         )
@@ -723,7 +744,9 @@ def build_transfer_config(
                 "included_outcomes": list(resolved["training_outcomes"]),
                 "excluded_outcomes": list(resolved["training_excluded_outcomes"]),
                 "evaluation_outcomes": list(resolved["evaluation_outcomes"]),
-                "related_retained_outcomes": list(resolved["related_retained_outcomes"]),
+                "related_retained_outcomes": list(
+                    resolved["related_retained_outcomes"]
+                ),
                 "direct_dependencies_excluded": list(
                     resolved["direct_dependencies_excluded"]
                 ),
@@ -732,9 +755,7 @@ def build_transfer_config(
                 ),
                 "registry_hash": plan["registry_hash"],
                 "manifest_hash": plan["manifest_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "split_contract": plan["split_contract"],
                 "split_contract_hash": plan["split_contract_hash"],
                 "source_dapt_checkpoint": config.get("dapt_ckpt"),

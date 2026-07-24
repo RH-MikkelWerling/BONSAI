@@ -8,6 +8,7 @@ from hydra.core.global_hydra import GlobalHydra
 ROOT = Path(__file__).resolve().parents[1]
 
 BONSAI_CONFIGS = [
+    "daly_care_data",
     "pretrain",
     "finetune",
 ]
@@ -18,7 +19,7 @@ OPERA_CONFIGS = [
     "dapt",
     "evaluate",
     "finetune",
-    "hematology_pretrain",
+    "daly_care_pretrain",
     "hybrid",
     "joint_finetune",
     "mol",
@@ -51,12 +52,22 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
     ):
         cfg = compose(config_name=config_name)
     assert cfg is not None
+    if config_name in {"pretrain", "finetune"}:
+        assert cfg.overwrite is False
     if config_name == "pretrain":
         assert cfg.paths.dataset_class.endswith("ARPretrainDataset")
         assert cfg.model.causal is True
         assert cfg.model.value_bin_vocab_size == 0
         assert cfg.model.value_embedding_mode == "legacy"
         assert cfg.training.value_regression_loss_weight == 0.0
+    if config_name == "daly_care_data":
+        assert cfg.splits == ["train", "tuning"]
+        assert cfg.numeric_value_mode == "legacy"
+        assert dict(cfg.vocabulary_cutoff_date) == {
+            "year": 2022,
+            "month": 1,
+            "day": 1,
+        }
 
 
 @pytest.mark.parametrize("config_name", OPERA_CONFIGS)
@@ -67,5 +78,31 @@ def test_opera_hydra_configs_compose(config_environment, config_name):
     ):
         cfg = compose(config_name=config_name)
     assert cfg is not None
+    if config_name not in {"evaluate"}:
+        assert cfg.overwrite is False
     if config_name == "survival_finetune":
         assert cfg.training.batch_sampling.type == "auto"
+        assert cfg.training.eval_monitor_metric == "auto"
+        assert cfg.seed == 42
+    if config_name in {"daly_care_pretrain", "dapt"}:
+        assert dict(cfg.training.cutoff_date) == {
+            "year": 2022,
+            "month": 1,
+            "day": 1,
+        }
+    if config_name == "generated/joint_opera_full_panel":
+        assert cfg.dataset == "daly_care_joint_opera"
+        assert "generated" not in cfg
+    if config_name == "generated/multi_outcome_full_panel":
+        assert cfg.dataset == "daly_care_multi_outcome"
+        assert "generated" not in cfg
+
+
+def test_survival_config_accepts_sweep_seed_override(config_environment):
+    with initialize_config_dir(
+        config_dir=str(ROOT / "opera" / "configs"),
+        version_base="1.2",
+    ):
+        cfg = compose(config_name="survival_finetune", overrides=["seed=43"])
+
+    assert cfg.seed == 43

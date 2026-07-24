@@ -195,9 +195,7 @@ def test_paired_tables_overlap_and_model_preparation(tmp_path):
     assert np.isfinite(prepared.spline_cells).all()
     assert set(prepared.cells["cohort_group"]) == {"group_a", "group_b"}
     assert "minority_class" in prepared.cells
-    assert not prepared.cells["n_events_train"].equals(
-        prepared.cells["minority_class"]
-    )
+    assert not prepared.cells["n_events_train"].equals(prepared.cells["minority_class"])
     assert len(prepared.group_of_cohort) == len(prepared.cohorts)
     assert len(prepared.family_of_outcome) == len(prepared.outcomes)
     assert np.all(prepared.group_of_cohort >= 0)
@@ -296,9 +294,9 @@ def test_prepare_rarity_data_keeps_partial_pool_cells():
     assert prepared.grid_event_counts.min() == pytest.approx(8.0)
     poor_cohort = prepared.cohorts.index("cohort_a_poor")
     rich_cohort = prepared.cohorts.index("cohort_a_rich")
-    assert prepared.group_of_cohort[poor_cohort] == prepared.group_of_cohort[
-        rich_cohort
-    ]
+    assert (
+        prepared.group_of_cohort[poor_cohort] == prepared.group_of_cohort[rich_cohort]
+    )
 
 
 def test_prepare_rarity_data_requires_reporting_counts():

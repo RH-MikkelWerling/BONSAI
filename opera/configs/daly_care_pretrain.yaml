@@ -1,14 +1,15 @@
-# Hematology-only pretraining from scratch.
+# DALY-CARE-only pretraining from scratch.
 #
 # This is the clean ablation for the staged ladder:
-#   base_pretrain -> hematology_only_pretrain -> DAPT -> OPERA per-cohort
+#   base_pretrain -> daly_care_pretrain -> DAPT -> OPERA per-cohort
 #   -> OPERA joint -> joint finetune.
 #
 # Run with the OPERA wrapper around the BONSAI pretraining machinery:
-#   python -m opera.run.hematology_pretrain
+#   python -m opera.run.daly_care_pretrain
 
-dataset: hematology_all
-training_stage: hematology_only_pretraining
+dataset: daly_care
+training_stage: daly_care_only_pretraining
+overwrite: false
 
 hydra:
   verbose: false
@@ -52,6 +53,12 @@ model:
   value_embedding_mode: legacy
 
 training:
+  # Exclusive calendar boundary: neither SSL training nor validation sees
+  # events at or after 2022-01-01.
+  cutoff_date:
+    year: 2022
+    month: 1
+    day: 1
   max_len: ${model.max_seqlen}
   truncation_strategy: mixed_window
   validation_truncation_strategy: tail

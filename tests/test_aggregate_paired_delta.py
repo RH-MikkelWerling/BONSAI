@@ -36,11 +36,15 @@ def _make_predictions_tree(tmp_path: Path):
             opera_probs = np.clip(base_probs + 0.10 * labels, 0.0, 1.0)
             _write_predictions(
                 tmp_path / cohort / outcome / "opera",
-                labels, opera_probs, subject_ids,
+                labels,
+                opera_probs,
+                subject_ids,
             )
             _write_predictions(
                 tmp_path / cohort / outcome / "tabular",
-                labels, base_probs, subject_ids,
+                labels,
+                base_probs,
+                subject_ids,
             )
     return tmp_path
 
@@ -124,12 +128,18 @@ def test_aggregate_results_writes_paired_delta_csv(tmp_path, monkeypatch):
         "argv",
         [
             "aggregate_results",
-            "--results_dir", str(tmp_path / "results"),
-            "--output_dir", str(output_dir),
-            "--baseline", "tabular",
-            "--comparator", "opera",
-            "--predictions_dir", str(preds_dir),
-            "--paired_n_bootstrap", "200",
+            "--results_dir",
+            str(tmp_path / "results"),
+            "--output_dir",
+            str(output_dir),
+            "--baseline",
+            "tabular",
+            "--comparator",
+            "opera",
+            "--predictions_dir",
+            str(preds_dir),
+            "--paired_n_bootstrap",
+            "200",
             "--diagnostic_plots",
         ],
     )

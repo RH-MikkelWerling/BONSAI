@@ -211,6 +211,7 @@ def outcome_labels(
     competing_outcome_path: Optional[str] = None,
     include_survival_fields: bool = False,
     ipcw_horizon_hours: Optional[int] = None,
+    ipcw_estimand: str = "net_risk",
     registry_start_date: Optional[str] = None,
     cohort: Optional[str] = None,
     outcome_name: Optional[str] = None,
@@ -242,7 +243,11 @@ def outcome_labels(
         key: dict(value) for key, value in cohorts.for_regime(regime).records.items()
     }
     if ipcw_horizon_hours is not None:
-        weights = compute_ipcw_train_weights(labels, horizon_hours=ipcw_horizon_hours)
+        weights = compute_ipcw_train_weights(
+            labels,
+            horizon_hours=ipcw_horizon_hours,
+            estimand=ipcw_estimand,
+        )
         for subject_id, weight in weights.items():
             labels[subject_id]["ipcw_weight"] = float(weight)
     frame = pd.DataFrame.from_dict(labels, orient="index").reset_index(
@@ -351,7 +356,7 @@ def build_preprocessor(
 
 def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
     """Construct a supported tabular estimator."""
-    base_model = model_name.removesuffix("_ipcw_bce")
+    base_model = model_name.removesuffix("_ipcw_cif_bce").removesuffix("_ipcw_bce")
     if base_model == "logistic":
         return LogisticRegression(
             C=0.1,
@@ -385,7 +390,7 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
             n_jobs=4,
         )
     if base_model == "tabpfn":
-        if model_name.endswith("_ipcw_bce"):
+        if model_name.endswith(("_ipcw_bce", "_ipcw_cif_bce")):
             raise ValueError("TabPFN IPCW-weighted training is not supported.")
         try:
             from tabpfn import TabPFNClassifier
@@ -448,7 +453,7 @@ def tune_estimator_params(
     """
     from sklearn.metrics import roc_auc_score
 
-    base_model = model_name.removesuffix("_ipcw_bce")
+    base_model = model_name.removesuffix("_ipcw_cif_bce").removesuffix("_ipcw_bce")
     grid = TUNING_GRIDS.get(base_model)
     if not grid:
         return {}
@@ -745,18 +750,25 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         "tabpfn",
         "logistic_ipcw_bce",
         "xgboost_ipcw_bce",
+        "logistic_ipcw_cif_bce",
+        "xgboost_ipcw_cif_bce",
         *SURVIVAL_MODELS,
     }
     unknown_models = sorted(set(requested_models) - supported_models)
     if unknown_models:
         raise ValueError(f"Unknown tabular baseline models: {unknown_models}.")
-    uses_ipcw_training = any(model.endswith("_ipcw_bce") for model in requested_models)
+    uses_net_ipcw = any(model.endswith("_ipcw_bce") for model in requested_models)
+    uses_cif_ipcw = any(model.endswith("_ipcw_cif_bce") for model in requested_models)
+    uses_ipcw_training = uses_net_ipcw or uses_cif_ipcw
     uses_binary_training = any(
-        model not in SURVIVAL_MODELS and not model.endswith("_ipcw_bce")
+        model not in SURVIVAL_MODELS
+        and not model.endswith(("_ipcw_bce", "_ipcw_cif_bce"))
         for model in requested_models
     )
     uses_tunable_training = any(
-        model not in SURVIVAL_MODELS and model.removesuffix("_ipcw_bce") in TUNING_GRIDS
+        model not in SURVIVAL_MODELS
+        and model.removesuffix("_ipcw_cif_bce").removesuffix("_ipcw_bce")
+        in TUNING_GRIDS
         for model in requested_models
     )
     uses_survival_training = any(model in SURVIVAL_MODELS for model in requested_models)
@@ -793,6 +805,26 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             allowed_subject_ids=allowed_subject_ids,
         )
         if uses_ipcw_training
+        else None
+    )
+    cif_ipcw_train_labels = (
+        outcome_labels(
+            args.outcome,
+            split=args.train_split,
+            n_hours_start_include=args.n_hours_start_include,
+            n_hours_end_include=args.n_hours_end_include,
+            require_min_followup=False,
+            competing_outcome_path=args.competing_outcome,
+            include_survival_fields=True,
+            ipcw_horizon_hours=args.n_hours_end_include,
+            ipcw_estimand="cumulative_incidence",
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
+        )
+        if uses_cif_ipcw
         else None
     )
     test_labels = outcome_labels(
@@ -848,6 +880,11 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     ipcw_train_df = (
         merge_features_and_labels(features, ipcw_train_labels)
         if ipcw_train_labels is not None
+        else None
+    )
+    cif_ipcw_train_df = (
+        merge_features_and_labels(features, cif_ipcw_train_labels)
+        if cif_ipcw_train_labels is not None
         else None
     )
     test_df = merge_features_and_labels(features, test_labels)
@@ -984,11 +1021,15 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         model_train_df = (
             survival_train_df
             if is_survival_model
-            else (ipcw_train_df if model_name.endswith("_ipcw_bce") else train_df)
+            else (
+                cif_ipcw_train_df
+                if model_name.endswith("_ipcw_cif_bce")
+                else (ipcw_train_df if model_name.endswith("_ipcw_bce") else train_df)
+            )
         )
         model_test_df = survival_test_df if is_survival_model else test_df
         sample_weight = None
-        if model_name.endswith("_ipcw_bce"):
+        if model_name.endswith(("_ipcw_bce", "_ipcw_cif_bce")):
             # IPCW preserves early-censored training patients; it does not change
             # the fixed-horizon evaluation cohort used for model comparisons.
             if "ipcw_weight" not in model_train_df.columns:
@@ -1091,7 +1132,11 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "training_mode": (
                 "survival"
                 if is_survival_model
-                else ("ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary")
+                else (
+                    "ipcw_cif_bce"
+                    if model_name.endswith("_ipcw_cif_bce")
+                    else ("ipcw_bce" if model_name.endswith("_ipcw_bce") else "binary")
+                )
             ),
             "evaluation_regime": (
                 SURVIVAL_REGIME if is_survival_model else FIXED_HORIZON_REGIME

@@ -40,7 +40,9 @@ def main() -> None:
     else:
         print(text)
     if not args.dry_run:
-        print("Plan emitted only; launch training explicitly from the generated overrides.")
+        print(
+            "Plan emitted only; launch training explicitly from the generated overrides."
+        )
 
 
 if __name__ == "__main__":

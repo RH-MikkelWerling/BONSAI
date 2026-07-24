@@ -68,14 +68,49 @@ Ordinary BCE defaults to full follow-up in every split. Survival and
 survival-contrastive runners explicitly use ascertainment eligibility and keep
 right-censored observations instead.
 
-## Rare-Outcome Batch Construction
+## OPERA Competing-Risk Representation Objective
+
+The generated joint OPERA run combines three representation signals:
+
+1. an exact-time continuous piecewise-exponential competing-risk likelihood;
+2. the survival-time soft contrastive loss;
+3. a cosine anchor to the frozen DAPT representation.
+
+For every non-mortality outcome, event code `1` is the target event, `2` is
+death before that event, and `0` is administrative censoring. Overall survival
+is configured as a one-cause endpoint. The likelihood uses the exact number of
+days at risk. Its shared candidate hazard-change grid is:
+
+```text
+3, 7, 14, 30, 60, 90, 180, 365, 730, 1460 days
+```
+
+This grid spans the complete 87-outcome panel: immediate metabolic/laboratory
+toxicity and acute-care outcomes, intermediate infection and organ toxicity,
+and long-latency disease control, subsequent malignancy, and survival. The
+hazard is locally constant, but event, death, and censoring times are not
+rounded. Each run writes `competing_risk_interval_support.csv`; sparse
+outcome-intervals are visible there and are stabilized by adjacent-log-hazard
+smoothness rather than silently removed using tuning or held-out information.
+
+The primary likelihood run uses natural-distribution random minibatches.
+Outcome-enriched sampling would alter absolute hazard estimates without
+inverse-sampling correction, so the runner rejects that combination. Batch
+size still matters for the auxiliary contrastive pair pool, but not for the
+validity of the individual competing-risk likelihood. Gradient accumulation
+increases optimizer batch size but does not enlarge a contrastive pair pool.
+
+Competing deaths are excluded from the target-event contrastive geometry; they
+are already handled explicitly and correctly by the likelihood. The historical
+`hard_negative` contrastive behavior remains available only as an ablation.
+
+## Rare-Outcome Batch Construction (contrastive-only ablations)
 
 Event-aware batching uses outcome quotas only when an endpoint has enough
-distinct evidence. Focused batches require at least one unique event and
-(production configs) eight unique eligible patients before an outcome
+distinct evidence and is reserved for runs with the proper likelihood
+disabled. Focused batches require at least one unique event and enough eligible patients before an outcome
 receives focused batches — `min_unique_events_for_focus` was lowered from 2
-to 1 across every maintained `event_aware` config (`contrastive.yaml`,
-`generated/joint_opera_full_panel.yaml`, `joint_finetune.yaml`): a single observed event still anchors a real KM
+to 1 in the maintained event-aware ablation: a single observed event still anchors a real KM
 cumulative-mass location, and the quota-drawing code
 (`_draw_events`/`_draw_from_pool` in `stratified_sampling.py`) already caps
 every quota at whatever's actually available, so the old threshold excluded
@@ -863,11 +898,27 @@ Regenerate the executable configs after changing the registry:
 python -m opera.run.generate_sweep_configs
 ```
 
-This writes grouped and fine Cox configs plus grouped and fine IPCW-BCE configs
-for 30, 90, 180, 365, and 730 days under `opera/configs/generated/`. Cox is the
-primary survival analysis; IPCW-BCE provides the horizon-specific binary
-analyses. Every non-death endpoint uses `overall_survival.parquet` as the
+This writes grouped and fine Cox configs plus two IPCW-BCE families for 30, 90,
+180, 365, and 730 days under `opera/configs/generated/`. Existing
+`*_ipcw_<horizon>d.yaml` configs target net risk and censor competing events.
+New `*_ipcw_cif_<horizon>d.yaml` configs target cumulative incidence and keep
+competing events as observed negatives. Held-out evaluation reports both the
+net-risk IPCW metrics and cumulative-incidence (`cif_auc`, `cif_brier`) metrics
+when a competing-outcome file is configured. Cox remains the primary survival
+analysis. Every non-death endpoint uses `overall_survival.parquet` as the
 competing event, while overall survival itself does not.
+
+For IPCW training, weights are estimated separately within train and tuning,
+then globally rescaled to mean one without per-batch self-normalization.
+Checkpoint selection uses weighted tuning log loss; the runner also writes
+`ipcw_weight_summary.csv` with observed cases/controls, maximum and 99th-
+percentile weights, and effective sample size. Treat cells with low effective
+sample fractions or extreme weights as positivity/follow-up warnings.
+
+Cox uses coverage-balanced mini-batches to distribute events and later
+comparators without duplicating patients. These are still approximate
+mini-batch risk sets. They become the exact Breslow risk set only when the
+entire training cohort fits in one batch.
 
 The generated paths use three server environment variables:
 
@@ -890,4 +941,5 @@ For example:
 ```bash
 python -m opera.run.sweep --config opera/configs/generated/grouped_cox.yaml
 python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_365d.yaml
+python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_cif_365d.yaml
 ```

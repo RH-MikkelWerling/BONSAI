@@ -132,7 +132,9 @@ def _patch_resolved_plan(monkeypatch: pytest.MonkeyPatch, split_contract: Path) 
     )
 
 
-def _write_shared_synthetic_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _write_shared_synthetic_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     registry = load_registry(REGISTRY_PATH)
     groups = list(registry["cohort_groups"])
     subject_ids = list(range(1, 121))

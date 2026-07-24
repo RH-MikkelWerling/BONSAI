@@ -1,4 +1,4 @@
-"""Generate production Cox/IPCW sweep configs from one locked registry."""
+"""Generate production Cox/net-risk/CIF sweep configs from one locked registry."""
 
 from __future__ import annotations
 
@@ -155,22 +155,23 @@ def _outcomes(
 ) -> dict[str, dict[str, Any]]:
     if training_mode == "cox" and horizon_days is not None:
         raise ValueError("Cox generation does not take a fixed horizon.")
-    if training_mode == "ipcw_bce" and horizon_days is None:
+    if training_mode in {"ipcw_bce", "ipcw_cif_bce"} and horizon_days is None:
         raise ValueError("IPCW-BCE generation requires a fixed horizon.")
     death = registry["death_outcome"]
     result = {}
+    eligibility_files = registry.get("eligibility_files", {})
     for outcome in registry["outcomes"]:
         config: dict[str, Any] = {
             "outcome_file": f"{registry['paths']['outcomes_dir']}/{outcome}.parquet",
-            "eligibility_file": (
-                f"{registry['paths']['outcomes_dir']}/{outcome}__audit.parquet"
-            ),
             "n_hours_start_include": 1,
             "n_hours_end_include": (
                 None if horizon_days is None else int(horizon_days) * 24
             ),
             "registry_start_date": None,
         }
+        eligibility_file = eligibility_files.get(outcome)
+        if eligibility_file:
+            config["eligibility_file"] = eligibility_file
         if outcome != death:
             config["competing_outcome_path"] = (
                 f"{registry['paths']['outcomes_dir']}/{death}.parquet"
@@ -186,7 +187,12 @@ def build_sweep_config(
     training_mode: str,
     horizon_days: int | None,
 ) -> dict[str, Any]:
-    objective = "cox" if training_mode == "cox" else f"ipcw_{horizon_days}d"
+    if training_mode == "cox":
+        objective = "cox"
+    elif training_mode == "ipcw_cif_bce":
+        objective = f"ipcw_cif_{horizon_days}d"
+    else:
+        objective = f"ipcw_{horizon_days}d"
     variants = {
         name: {**config, "training_mode": training_mode}
         for name, config in registry["model_variants"].items()
@@ -216,9 +222,11 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
     return {
         "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
         "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
-        "dataset": "hematology_joint_opera",
+        "dataset": "daly_care_joint_opera",
         "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
-        "dapt_embedding_store": None,
+        "dapt_embedding_store": (
+            "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/dapt_embeddings.pt"
+        ),
         "paths": {
             "vocabulary": f"{registry['paths']['shared_data_dir']}/vocabulary.pt"
         },
@@ -229,11 +237,33 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
             "projection_dim": 128,
             "temperature": 0.07,
             "km_time_scale": 0.25,
-            "competing_event_handling": "hard_negative",
+            "dapt_lambda_floor": 0.55,
+            "dapt_anchor_weight": 0.2,
+            "competing_event_handling": "exclude",
             "competing_event_weight": 0.0,
             "effective_pair_normalization": True,
             "freeze_encoder": False,
             "pooling": "cls_last",
+        },
+        "competing_risk": {
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 1.0,
+            "interval_boundaries_days": [
+                3,
+                7,
+                14,
+                30,
+                60,
+                90,
+                180,
+                365,
+                730,
+                1460,
+            ],
+            "time_scale_days": 365.25,
+            "initial_log_hazard": -2.3,
+            "smoothness_weight": 0.01,
+            "no_competing_outcomes": ["overall_survival"],
         },
         "cross_outcome": {
             "weighter": "uniform",
@@ -243,7 +273,9 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
         "training": {
             "require_all_configured_cells": True,
             "require_min_followup_train": False,
+            "require_dapt_embedding_store": True,
             "batch_size": 128,
+            "batch_sampling": {"type": "random"},
             "accumulate_grad_batches": 2,
             "epochs": 20,
             "learning_rate": 5e-5,
@@ -261,7 +293,7 @@ def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
     return {
         "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
         "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
-        "dataset": "hematology_multi_outcome",
+        "dataset": "daly_care_multi_outcome",
         "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
         "paths": {
             "dir": registry["paths"]["shared_data_dir"],
@@ -304,12 +336,19 @@ def generate_configs(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    objectives = [("cox", None)] + [
-        ("ipcw_bce", horizon) for horizon in registry["horizons_days"]
-    ]
+    objectives = (
+        [("cox", None)]
+        + [("ipcw_bce", horizon) for horizon in registry["horizons_days"]]
+        + [("ipcw_cif_bce", horizon) for horizon in registry["horizons_days"]]
+    )
     for level in ("grouped", "fine"):
         for training_mode, horizon in objectives:
-            label = "cox" if horizon is None else f"ipcw_{horizon}d"
+            if horizon is None:
+                label = "cox"
+            elif training_mode == "ipcw_cif_bce":
+                label = f"ipcw_cif_{horizon}d"
+            else:
+                label = f"ipcw_{horizon}d"
             path = output / f"{level}_{label}.yaml"
             config = build_sweep_config(
                 registry,
@@ -345,7 +384,8 @@ def generate_configs(
     }.items():
         path = output / name
         path.write_text(
-            yaml.dump(
+            "# @package _global_\n"
+            + yaml.dump(
                 _hydra_environment(config), Dumper=_NoAliasDumper, sort_keys=False
             ),
             encoding="utf-8",

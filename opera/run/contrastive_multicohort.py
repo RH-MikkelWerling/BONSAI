@@ -11,6 +11,8 @@ Usage:
         dapt_embedding_store=/path/to/dapt_embeddings.pt
 """
 
+import csv
+
 import hydra
 import lightning as L
 import torch
@@ -25,8 +27,16 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.modules.networks.competing_risk import (
+    summarize_competing_risk_support,
+    validate_competing_risk_sampling,
+)
 from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
     MultiCohortContrastiveDataModule,
@@ -89,8 +99,7 @@ def _validate_transfer_config(cfg: DictConfig, outcome_names: list[str]) -> dict
     overlap = sorted(set(excluded) & set(outcome_names))
     if overlap:
         raise ValueError(
-            "Held-out transfer labels cannot enter contrastive adaptation: "
-            f"{overlap}."
+            f"Held-out transfer labels cannot enter contrastive adaptation: {overlap}."
         )
     # The existing contrastive model sorts its internal head names while the
     # generated YAML preserves canonical registry order.  The leakage
@@ -121,7 +130,8 @@ def _validate_transfer_config(cfg: DictConfig, outcome_names: list[str]) -> dict
         # Do not resolve unrelated environment interpolations here.  This
         # guard executes before DAPT I/O and should report an outcome-panel
         # breach even in a config-only dry run without server paths exported.
-        cfg.get("transfer_checkpoint_metadata", {}), resolve=False
+        cfg.get("transfer_checkpoint_metadata", {}),
+        resolve=False,
     )
     if not isinstance(declared, dict):
         raise ValueError("transfer_checkpoint_metadata must be a mapping.")
@@ -131,8 +141,7 @@ def _validate_transfer_config(cfg: DictConfig, outcome_names: list[str]) -> dict
     missing = [field for field in missing if field != "seed"]
     if missing:
         raise ValueError(
-            "Transfer checkpoint metadata is incomplete; missing "
-            f"{sorted(missing)}."
+            f"Transfer checkpoint metadata is incomplete; missing {sorted(missing)}."
         )
     for key, expected in {
         "condition": condition,
@@ -179,9 +188,7 @@ def _checkpoint_metadata(
             "direct_dependencies_excluded": list(cfg.direct_dependencies_excluded),
             "registry_hash": str(cfg.registry_hash),
             "manifest_hash": str(cfg.manifest_hash),
-            "base_contrastive_config_hash": str(
-                cfg.base_contrastive_config_hash
-            ),
+            "base_contrastive_config_hash": str(cfg.base_contrastive_config_hash),
             "split_contract": str(cfg.split_contract),
             "split_contract_hash": str(cfg.split_contract_hash),
             "source_dapt_checkpoint": str(cfg.dapt_ckpt),
@@ -210,12 +217,21 @@ def main(cfg: DictConfig) -> None:
     # influence any training or checkpoint-selection operation.
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
     outcome_names = sorted(outcome_configs.keys())
+    validate_competing_risk_sampling(
+        OmegaConf.to_container(cfg.get("competing_risk", {}), resolve=True),
+        OmegaConf.to_container(
+            cfg.training.get("batch_sampling", {}),
+            resolve=True,
+        ),
+    )
     transfer_metadata = _validate_transfer_config(cfg, outcome_names)
 
     logger = CSVLogger(
         get_experiment_output_path(), name="contrastive_multicohort_runs"
     )
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Load encoder from DAPT checkpoint ─────────────────────────────
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
@@ -234,6 +250,12 @@ def main(cfg: DictConfig) -> None:
         print(f"Loading DAPT embedding store from {cfg.dapt_embedding_store} ...")
         dapt_embedding_store = torch.load(cfg.dapt_embedding_store, map_location="cpu")
         print(f"  Loaded {len(dapt_embedding_store)} patient embeddings.")
+    elif bool(cfg.training.get("require_dapt_embedding_store", False)):
+        raise ValueError(
+            "training.require_dapt_embedding_store=true but "
+            "dapt_embedding_store is null. Build the store with "
+            "python -m opera.run.build_dapt_embedding_store before training."
+        )
 
     # ── Build model ────────────────────────────────────────────────────
     cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
@@ -264,8 +286,8 @@ def main(cfg: DictConfig) -> None:
         km_time_scale=cfg.model.get("km_time_scale", 0.25),
         outcome_sorted_event_times=outcome_sorted_event_times,
         outcome_event_time_probs=outcome_event_time_probs,
-        dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.3),
-        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
+        dapt_lambda_floor=cfg.model.get("dapt_lambda_floor", 0.55),
+        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         competing_event_weight=cfg.model.get("competing_event_weight", 0.0),
         competing_event_handling=cfg.model.get(
             "competing_event_handling", "hard_negative"
@@ -280,6 +302,10 @@ def main(cfg: DictConfig) -> None:
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
+        competing_risk_config=OmegaConf.to_container(
+            cfg.get("competing_risk", {}),
+            resolve=True,
+        ),
     )
 
     # ── Data ───────────────────────────────────────────────────────────
@@ -296,6 +322,58 @@ def main(cfg: DictConfig) -> None:
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
     )
+    data_module.setup("fit")
+
+    competing_risk_config = OmegaConf.to_container(
+        cfg.get("competing_risk", {}),
+        resolve=True,
+    )
+    if float(competing_risk_config.get("loss_weight", 0.0)) > 0:
+        support = summarize_competing_risk_support(
+            data_module.train_dataset,
+            outcome_names,
+            competing_risk_config["interval_boundaries_days"],
+        )
+        support_path = f"{model_save_dir}/competing_risk_interval_support.csv"
+        with open(support_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(support[0]))
+            writer.writeheader()
+            writer.writerows(support)
+        sparse = [
+            row
+            for row in support
+            if row["n_valid"] > 0 and row["n_target"] + row["n_death"] < 5
+        ]
+        print(
+            f"Competing-risk interval support written to {support_path}; "
+            f"{len(sparse)} outcome-intervals have fewer than five observed events."
+        )
+
+    if dapt_embedding_store is not None:
+        datasets = getattr(
+            data_module.train_dataset,
+            "datasets",
+            [data_module.train_dataset],
+        )
+        training_subjects = {
+            int(subject["subject_id"])
+            for dataset in datasets
+            for subject in dataset.subjects
+        }
+        covered = training_subjects.intersection(
+            int(subject_id) for subject_id in dapt_embedding_store
+        )
+        coverage = len(covered) / max(len(training_subjects), 1)
+        print(f"DAPT embedding-store training coverage: {coverage:.2%}")
+        if (
+            bool(cfg.training.get("require_dapt_embedding_store", False))
+            and coverage < 0.99
+        ):
+            raise ValueError(
+                "DAPT embedding-store coverage is below 99% for the OPERA "
+                f"training population ({coverage:.2%}). Rebuild the store from "
+                "the same resolved joint OPERA configuration."
+            )
 
     # ── Lightning ──────────────────────────────────────────────────────
     lightning_module = OperaContrastiveModule(
@@ -305,7 +383,7 @@ def main(cfg: DictConfig) -> None:
         encoder_lr_multiplier=cfg.training.encoder_lr_multiplier,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
-        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.0),
+        dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,
@@ -338,6 +416,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

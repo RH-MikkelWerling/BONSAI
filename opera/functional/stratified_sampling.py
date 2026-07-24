@@ -896,7 +896,9 @@ class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
     def _append_cohort_summary(self, lines: list[str]) -> None:
         if not self.cohort_indices:
             return
-        lines.append("  cohort epoch coverage (diagnostic only; does not affect sampling):")
+        lines.append(
+            "  cohort epoch coverage (diagnostic only; does not affect sampling):"
+        )
         total_draws = self.num_batches * self.batch_size
         for label in sorted(self.cohort_indices):
             indices = self.cohort_indices[label]

@@ -723,7 +723,9 @@ def plot_hierarchical_rarity_curve(
     ax.xaxis.set_minor_locator(NullLocator())
     ax.set_xlabel("Training events (log scale)", labelpad=8)
     metric_name = METRIC_LABELS.get(metric, metric.replace("_", " ").upper())
-    ax.set_ylabel(f"Paired Δ{metric_name} ({model_label} − {comparator_label})", labelpad=8)
+    ax.set_ylabel(
+        f"Paired Δ{metric_name} ({model_label} − {comparator_label})", labelpad=8
+    )
     ax.set_title(title, loc="left", pad=14, fontsize=TITLE_SIZE)
     ax.text(
         0.995,
@@ -812,7 +814,13 @@ def plot_hierarchical_rarity_curve(
         label="Hollow markers: <10 held-out\ncases or controls",
     )
     interval_handles = [
-        Line2D([0], [0], color=PALETTE["opera_joint"], linewidth=2.2, label="Posterior median"),
+        Line2D(
+            [0],
+            [0],
+            color=PALETTE["opera_joint"],
+            linewidth=2.2,
+            label="Posterior median",
+        ),
         Patch(facecolor=PALETTE["opera"], alpha=0.25, label="50% credible interval"),
         Patch(facecolor="#5264A8", alpha=0.18, label="95% credible interval"),
     ]

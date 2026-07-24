@@ -28,6 +28,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.checkpointing import (
+    mark_training_complete,
+    should_skip_completed_training,
+)
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.mol_net import MultiOutcomeModel
 from opera.modules.lightningmodules.MOLModule import MOLModule
@@ -43,7 +47,9 @@ load_dotenv()
 )
 def main(cfg: DictConfig) -> None:
     logger = CSVLogger(get_experiment_output_path(), name="mol_runs")
-    model_save_dir = logger.log_dir
+    model_save_dir = get_experiment_output_path()
+    if should_skip_completed_training(model_save_dir, cfg):
+        return
 
     # ── Load encoder from DAPT/pretrain checkpoint ───────────────────
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
@@ -145,6 +151,7 @@ def main(cfg: DictConfig) -> None:
 
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    mark_training_complete(model_save_dir, cfg)
 
 
 if __name__ == "__main__":

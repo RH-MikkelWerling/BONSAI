@@ -417,6 +417,21 @@ def test_competing_death_censor_mode_reproduces_conservative_zero_weight():
     assert n_eff.item() == pytest.approx(0.0)
 
 
+def test_competing_death_exclude_mode_always_removes_pairs():
+    sorted_et = torch.tensor([30.0, 90.0, 180.0])
+    times = torch.tensor([90.0, 60.0])
+    events = torch.tensor([1, 2])
+    loss_fn = SurvivalSoftContrastiveLoss(
+        competing_event_handling="exclude",
+        competing_event_weight=1.0,
+    )
+
+    weights, n_eff = loss_fn._compute_pair_weights(times, events, sorted_et)
+
+    assert weights.sum().item() == pytest.approx(0.0)
+    assert n_eff.item() == pytest.approx(0.0)
+
+
 def test_competing_event_gamma_sensitivity_increases_primary_competing_weight():
     sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
     times = torch.tensor([90.0, 60.0])

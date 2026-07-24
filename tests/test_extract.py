@@ -81,7 +81,9 @@ def test_build_dapt_embedding_store_saves_to_disk(tmp_path):
     dataloader = _fake_dataloader([5, 6, 7])
     save_path = tmp_path / "dapt_embeddings.pt"
 
-    build_dapt_embedding_store(model, dataloader, device="cpu", save_path=str(save_path))
+    build_dapt_embedding_store(
+        model, dataloader, device="cpu", save_path=str(save_path)
+    )
 
     assert save_path.exists()
     reloaded = torch.load(save_path, weights_only=False)

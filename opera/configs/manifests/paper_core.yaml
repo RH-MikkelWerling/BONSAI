@@ -18,9 +18,9 @@ stages:
   - name: general_denmark_pretraining
     script: bonsai.run.pretrain
     artifact: checkpoint
-  - name: hematology_only_pretraining
-    script: opera.run.hematology_pretrain
-    config: opera/configs/hematology_pretrain.yaml
+  - name: daly_care_only_pretraining
+    script: opera.run.daly_care_pretrain
+    config: opera/configs/daly_care_pretrain.yaml
     artifact: checkpoint
   - name: patient_benefit_analysis
     script: opera.run.patient_benefit_analysis
@@ -28,7 +28,7 @@ stages:
     artifact: figures
     depends_on:
       - general_denmark_pretraining
-      - hematology_only_pretraining
+      - daly_care_only_pretraining
       - hematology_domain_adaptation
       - opera_contrastive_adaptation
   - name: hematology_domain_adaptation
@@ -54,11 +54,11 @@ comparisons:
     display_name: "No pretraining"
   - name: base_pretrained
     encoder_source: pretrain
-  - name: hematology_only_pretrained
+  - name: daly_care_only_pretrained
     encoder_source: pretrain
-    pretraining_scope: hematology_only
+    pretraining_scope: daly_care_only
     primary_result: true
-    display_name: "Hematology-only pretrain"
+    display_name: "DALY-CARE-only pretrain"
   - name: hematology_dapt
     encoder_source: dapt
   - name: non_contrastive_hematology
@@ -75,8 +75,8 @@ comparisons:
     encoder_source: joint
 
 transfer_contrasts:
-  - name: hematology_only_minus_general_pretraining
-    baseline_model: hematology_only_pretrain
+  - name: daly_care_only_minus_general_pretraining
+    baseline_model: daly_care_pretrain
     comparator_model: base_pretrain
     for_whom_analysis: true
     atypicality_mode: nearest
@@ -84,8 +84,8 @@ transfer_contrasts:
       Tests whether general population pretraining helps hematology patients
       who are atypical within the hematology distribution - the 'irrelevant
       patients' experiment.
-  - name: dapt_minus_hematology_only
-    baseline_model: hematology_only_pretrain
+  - name: dapt_minus_daly_care_only
+    baseline_model: daly_care_pretrain
     comparator_model: dapt
   - name: joint_opera_minus_per_cohort_opera
     baseline_model: opera_per_cohort

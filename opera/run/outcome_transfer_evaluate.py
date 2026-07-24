@@ -35,7 +35,10 @@ from opera.evaluation.outcome_transfer_evaluation import (
     resolve_registry,
     write_frozen_probe_outputs,
 )
-from opera.functional.outcome_transfer import DEFAULT_MANIFEST, resolve_transfer_manifest
+from opera.functional.outcome_transfer import (
+    DEFAULT_MANIFEST,
+    resolve_transfer_manifest,
+)
 
 
 def _artifact_spec(value: str) -> tuple[tuple[str, int], str]:
@@ -62,7 +65,9 @@ def _c_grid(value: str) -> tuple[float, ...]:
     try:
         values = tuple(float(item.strip()) for item in value.split(",") if item.strip())
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("--c-grid must be comma-separated numbers.") from exc
+        raise argparse.ArgumentTypeError(
+            "--c-grid must be comma-separated numbers."
+        ) from exc
     if not values or any(item <= 0 for item in values):
         raise argparse.ArgumentTypeError("--c-grid must contain positive values.")
     return values
@@ -152,9 +157,7 @@ def main() -> None:
                 "registry_hash": plan["registry_hash"],
                 "split_contract": plan["split_contract"],
                 "split_contract_hash": plan["split_contract_hash"],
-                "base_contrastive_config_hash": plan[
-                    "base_contrastive_config_hash"
-                ],
+                "base_contrastive_config_hash": plan["base_contrastive_config_hash"],
                 "seeds": plan["seeds"],
                 "c_grid": list(args.c_grid),
                 "probe": "standardized_logistic_regression",
