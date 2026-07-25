@@ -55,9 +55,15 @@ class SurvivalFinetuneDataModule(OutcomeFinetuneDataModule):
         super().__init__(*args, **kwargs)
         self.batch_sampling = dict(batch_sampling or {})
         self.training_mode = str(training_mode)
-        if self.training_mode not in {"cox", "ipcw_bce", "ipcw_cif_bce"}:
+        if self.training_mode not in {
+            "cox",
+            "cox_exact_cached",
+            "ipcw_bce",
+            "ipcw_cif_bce",
+        }:
             raise ValueError(
-                "training_mode must be 'cox', 'ipcw_bce', or 'ipcw_cif_bce'."
+                "training_mode must be 'cox', 'cox_exact_cached', "
+                "'ipcw_bce', or 'ipcw_cif_bce'."
             )
         self.train_batch_sampler = None
 
@@ -171,7 +177,10 @@ class SurvivalFinetuneDataModule(OutcomeFinetuneDataModule):
             drop_last=False,
             collate_fn=survival_finetune_collate,
             sampler=self.train_sampler,
-            shuffle=self.train_sampler is None,
+            shuffle=(
+                self.train_sampler is None
+                and self.training_mode != "cox_exact_cached"
+            ),
         )
 
     def val_dataloader(self):

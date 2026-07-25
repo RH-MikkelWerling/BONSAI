@@ -150,6 +150,6 @@ def test_generated_primary_sweep_has_only_current_model_ladder():
     config = SweepConfig.from_mapping(raw).to_mapping()
     variants = config["model_variants"]
 
-    assert variants["opera"]["training_mode"] == "cox"
-    assert variants["multi_outcome"]["training_mode"] == "cox"
+    assert variants["opera"]["training_mode"] == "cox_exact_cached"
+    assert variants["multi_outcome"]["training_mode"] == "cox_exact_cached"
     assert "opera_per_grouped" not in variants

@@ -4,10 +4,12 @@ from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
     cox_batch_signal_counts,
     cox_partial_likelihood_loss,
+    exact_breslow_cox_loss,
 )
 
 __all__ = [
     "SurvivalFinetuneModule",
     "cox_batch_signal_counts",
     "cox_partial_likelihood_loss",
+    "exact_breslow_cox_loss",
 ]

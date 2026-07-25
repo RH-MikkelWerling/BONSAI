@@ -25,9 +25,11 @@ hardware:
   num_nodes: 1
   num_devices: 1
   num_workers: 6
-  precision: "bf16-mixed"
+  # The available V100 supports FP16 but not BF16. This is an operational
+  # hardware difference from the collaborators' A100 runs, not a model change.
+  precision: "16-mixed"
   strategy: "auto"
-  compile_mode: "default"
+  compile_mode: null
 
 paths:
   dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
@@ -39,15 +41,17 @@ paths:
   ckpt_path: null
 
 model:
-  hidden_size: 768
-  num_layers: 12
-  num_attention_heads: 12
-  max_seqlen: 8192
+  # Match the collaborator general-population BONSAI architecture so the
+  # pretraining population, rather than model capacity, defines the contrast.
+  hidden_size: 64
+  num_layers: 4
+  num_attention_heads: 4
+  max_seqlen: 3372
   bias: false
   dropout: 0.1
   attention_dropout: 0.0
   causal: true
-  attn_type: flash
+  attn_type: sdpa
   # ehr2meds joined lab-bin suffixes enter through the ordinary code vocabulary.
   value_bin_vocab_size: 0
   value_embedding_mode: legacy
@@ -60,15 +64,15 @@ training:
     month: 1
     day: 1
   max_len: ${model.max_seqlen}
-  truncation_strategy: mixed_window
+  truncation_strategy: tail
   validation_truncation_strategy: tail
-  tail_window_probability: 0.5
-  batch_size: 16
-  accumulate_grad_batches: 4
-  epochs: 20
-  learning_rate: 1e-4
+  tail_window_probability: 1.0
+  batch_size: 128
+  accumulate_grad_batches: 1
+  epochs: 10
+  learning_rate: 3e-4
   optimizer_epsilon: 1e-6
-  scheduler_warmup_epochs: 2
+  scheduler_warmup_epochs: 0.1
   value_regression_loss_weight: 0.0
   limit_val_batches: 1.0
   limit_train_batches: 1.0

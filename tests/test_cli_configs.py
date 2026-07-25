@@ -90,6 +90,21 @@ def test_opera_hydra_configs_compose(config_environment, config_name):
             "month": 1,
             "day": 1,
         }
+    if config_name == "daly_care_pretrain":
+        assert cfg.model.hidden_size == 64
+        assert cfg.model.num_layers == 4
+        assert cfg.model.num_attention_heads == 4
+        assert cfg.model.max_seqlen == 3372
+        assert cfg.model.attn_type == "sdpa"
+        assert cfg.hardware.precision == "16-mixed"
+        assert cfg.hardware.compile_mode is None
+        assert cfg.training.max_len == 3372
+        assert cfg.training.batch_size == 128
+        assert cfg.training.accumulate_grad_batches == 1
+        assert cfg.training.epochs == 10
+        assert cfg.training.learning_rate == pytest.approx(3e-4)
+        assert cfg.training.scheduler_warmup_epochs == pytest.approx(0.1)
+        assert cfg.training.truncation_strategy == "tail"
     if config_name == "generated/joint_opera_full_panel":
         assert cfg.dataset == "daly_care_joint_opera"
         assert "generated" not in cfg

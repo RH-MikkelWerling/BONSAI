@@ -101,12 +101,18 @@ def load_encoder_state_dict(
     return encoder_state, hparams
 
 
-def resolve_finetune_max_len(cfg: DictConfig) -> int:
-    """Resolve the sequence length used by the OPERA finetune datamodule."""
+def resolve_finetune_max_len(
+    cfg: DictConfig,
+    encoder_max_seqlen: Optional[int] = None,
+) -> int:
+    """Resolve a sequence length that does not exceed the saved encoder limit."""
     value = cfg.training.get("max_len")
     if value is None:
         value = cfg.model.get("max_seqlen", 8192)
-    return int(value)
+    value = int(value)
+    if encoder_max_seqlen is not None:
+        value = min(value, int(encoder_max_seqlen))
+    return value
 
 
 def build_finetune_data_module(
@@ -116,6 +122,7 @@ def build_finetune_data_module(
     val_outcomes: dict,
     test_outcomes: dict,
     train_labels: list[int],
+    encoder_max_seqlen: Optional[int] = None,
 ) -> OutcomeFinetuneDataModule:
     """Construct the datamodule exactly as the finetune runner uses it."""
     return OutcomeFinetuneDataModule(
@@ -130,7 +137,7 @@ def build_finetune_data_module(
         val_outcomes=val_outcomes,
         predict_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
-        max_len=resolve_finetune_max_len(cfg),
+        max_len=resolve_finetune_max_len(cfg, encoder_max_seqlen),
         train_sampler=get_sampler(
             weight_fn=cfg.training.sampling_weight_fn,
             labels=train_labels,
@@ -154,6 +161,14 @@ def main(cfg: DictConfig) -> None:
         cfg.encoder_ckpt,
         cfg.encoder_source,
         model_config=OmegaConf.to_container(cfg.model, resolve=True),
+    )
+    encoder_model_cfg = (
+        get_saved_encoder_config(pretrain_hparams)
+        if encoder_state
+        else normalize_bonsai_model_config(
+            pretrain_hparams,
+            vocab_size=None,
+        )
     )
 
     vocab = torch.load(cfg.paths.vocabulary)
@@ -227,11 +242,12 @@ def main(cfg: DictConfig) -> None:
         val_outcomes,
         test_outcomes,
         train_labels,
+        encoder_max_seqlen=encoder_model_cfg["max_seqlen"],
     )
 
     # ── Build finetune model and load encoder weights ────────────────
     if encoder_state:
-        model_cfg = get_saved_encoder_config(pretrain_hparams)
+        model_cfg = encoder_model_cfg
     else:
         model_cfg = normalize_bonsai_model_config(
             pretrain_hparams,

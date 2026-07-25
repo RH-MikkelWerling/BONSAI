@@ -736,25 +736,25 @@ outcomes:
 model_variants:
   no_pretraining:
     encoder_source: random_init
-    training_mode: cox
+    training_mode: cox_exact_cached
   base_pretrain:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
-    training_mode: cox
+    training_mode: cox_exact_cached
   daly_care_pretrain:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
     encoder_source: pretrain
     pretraining_scope: daly_care_only
-    training_mode: cox
+    training_mode: cox_exact_cached
   dapt:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
-    training_mode: cox
+    training_mode: cox_exact_cached
   multi_outcome:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/multi_outcome/best.ckpt
     encoder_source: mol
-    training_mode: cox
+    training_mode: cox_exact_cached
   opera:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive/best.ckpt
     encoder_source: contrastive
-    training_mode: cox
+    training_mode: cox_exact_cached

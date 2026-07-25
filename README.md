@@ -220,7 +220,7 @@ Bounded-window validation and test labels require sufficient follow-up by
 default. Finetuning runs write `label_split_summary.csv` with retained subjects,
 events, prevalence, and insufficient-follow-up exclusions by split.
 The locked paper contract is train through 2021, tuning/model selection during
-2022-2023, and one-time held-out evaluation from 2024 onward. General pretraining is
+calendar year 2022, and one-time held-out evaluation from 2023 onward. General pretraining is
 a separate random 90/10 subject split and must use only events strictly before
 2022. Numeric metadata and vocabulary must be fitted on the 90% SSL-training
 view before being frozen and applied elsewhere.

@@ -373,7 +373,13 @@ class VariantSpec:
             )
 
         training_mode = value.get("training_mode")
-        if training_mode not in (None, "cox", "ipcw_bce", "ipcw_cif_bce"):
+        if training_mode not in (
+            None,
+            "cox",
+            "cox_exact_cached",
+            "ipcw_bce",
+            "ipcw_cif_bce",
+        ):
             issues.append(
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
             )
@@ -527,7 +533,8 @@ class SweepConfig:
                 )
         for name, variant in variants.items():
             if (
-                variant.values.get("training_mode") == "cox"
+                variant.values.get("training_mode")
+                in {"cox", "cox_exact_cached"}
                 and variant.values.get("pos_weight") is not None
             ):
                 issues.append(

@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
+import lightning as L
 from torch import nn
+from torch.utils.data import DataLoader, Dataset
 import pytest
 from omegaconf import OmegaConf
 
@@ -12,6 +14,7 @@ from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     SurvivalFinetuneModule,
     cox_batch_signal_counts,
     cox_partial_likelihood_loss,
+    exact_breslow_cox_loss,
 )
 from opera.run.survival_finetune import (
     _validate_cox_support,
@@ -150,6 +153,106 @@ def test_cox_partial_likelihood_loss_rewards_correct_ordering():
     assert correct < incorrect
 
 
+def test_exact_breslow_cox_matches_naive_full_risk_sets_with_ties():
+    risk = torch.tensor([0.7, -0.4, 1.2, 0.1, -0.8], requires_grad=True)
+    times = torch.tensor([10.0, 10.0, 8.0, 5.0, 3.0])
+    # A competing death tied with the first primary event remains in that
+    # event's risk set but never contributes a primary-event numerator.
+    events = torch.tensor([1, 2, 1, 0, 1])
+
+    exact = exact_breslow_cox_loss(risk, times, events)
+    exact_gradient = torch.autograd.grad(exact, risk, retain_graph=True)[0]
+    naive = cox_partial_likelihood_loss(risk, times, events)
+    naive_gradient = torch.autograd.grad(naive, risk)[0]
+
+    assert torch.allclose(exact, naive, atol=1e-6)
+    assert torch.allclose(exact_gradient, naive_gradient, atol=1e-6)
+
+
+def test_cached_score_gradient_matches_direct_full_cohort_model_gradient():
+    features = torch.tensor(
+        [[1.0, 0.2], [0.5, -0.4], [-0.2, 0.7], [0.1, -0.8]]
+    )
+    times = torch.tensor([4.0, 7.0, 11.0, 13.0])
+    events = torch.tensor([1, 2, 1, 0])
+    direct_model = nn.Linear(2, 1, bias=False)
+    cached_model = nn.Linear(2, 1, bias=False)
+    cached_model.load_state_dict(direct_model.state_dict())
+
+    direct_scores = direct_model(features).reshape(-1)
+    direct_loss = exact_breslow_cox_loss(direct_scores, times, events)
+    direct_loss.backward()
+
+    cached_scores = cached_model(features).reshape(-1).detach().requires_grad_(True)
+    score_gradient = torch.autograd.grad(
+        exact_breslow_cox_loss(cached_scores, times, events),
+        cached_scores,
+    )[0]
+    for microbatch in (slice(0, 2), slice(2, 4)):
+        recomputed = cached_model(features[microbatch]).reshape(-1)
+        (recomputed * score_gradient[microbatch]).sum().backward()
+
+    assert torch.allclose(
+        cached_model.weight.grad,
+        direct_model.weight.grad,
+        atol=1e-6,
+    )
+
+
+class _ExactCoxDataset(Dataset):
+    def __init__(self):
+        self.features = torch.tensor(
+            [[1.0, 0.2], [0.5, -0.4], [-0.2, 0.7], [0.1, -0.8]]
+        )
+        self.times = torch.tensor([4.0, 7.0, 11.0, 13.0])
+        self.events = torch.tensor([1, 2, 1, 0])
+
+    def __len__(self):
+        return len(self.times)
+
+    def __getitem__(self, index):
+        return {
+            "features": self.features[index],
+            "subject_id": torch.tensor(index + 1),
+            "target": torch.tensor(0),
+            "time_days": self.times[index],
+            "event": self.events[index],
+        }
+
+
+class _FeatureScoreModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(2, 1, bias=False)
+
+    def forward(self, batch):
+        return self.linear(batch["features"])
+
+
+def test_lightning_exact_cached_cox_runs_two_pass_optimizer_step():
+    loader = DataLoader(_ExactCoxDataset(), batch_size=2, shuffle=False)
+    model = _FeatureScoreModel()
+    initial = model.linear.weight.detach().clone()
+    module = SurvivalFinetuneModule(
+        model,
+        "cox_exact_cached",
+        learning_rate=0.05,
+    )
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+    )
+
+    trainer.fit(module, train_dataloaders=loader, val_dataloaders=loader)
+
+    assert not torch.equal(model.linear.weight.detach(), initial)
+
+
 def test_cox_batch_signal_counts_distinguishes_events_without_comparators():
     n_events, n_comparable = cox_batch_signal_counts(
         torch.tensor([20.0, 10.0, 5.0]),
@@ -260,6 +363,7 @@ def test_ipcw_bce_loss_changes_when_ipcw_weight_is_halved():
     ("training_mode", "expected"),
     [
         ("cox", ("val/concordance_index", "max")),
+        ("cox_exact_cached", ("val/concordance_index", "max")),
         ("ipcw_bce", ("val/loss", "min")),
         ("ipcw_cif_bce", ("val/loss", "min")),
     ],

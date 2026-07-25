@@ -23,18 +23,17 @@ from opera.evaluation.cohort_flow import (
     load_eligibility_frame,
     validate_eligibility_frame,
 )
+from opera.evaluation.split_contract import validate_cross_stage_split_contract
 from opera.evaluation.tasks import (
     competing_outcome_file_path,
     normalize_outcome_config,
     outcome_file_path,
 )
-from opera.evaluation.split_contract import validate_cross_stage_split_contract
 from opera.functional.outcomes import (
     filter_outcome_eligibility,
     filter_registry_eligible_outcomes,
     resolve_registry_start_date,
 )
-
 
 PLACEHOLDER_PREFIXES = ("/ckpts/", "/results/", "/data/")
 _UNRESOLVED_ENVIRONMENT = re.compile(r"\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*|%[^%]+%")
@@ -228,13 +227,17 @@ def check_sweep_config(
         training_mode = variant.get("training_mode")
         if training_mode is not None and training_mode not in {
             "cox",
+            "cox_exact_cached",
             "ipcw_bce",
             "ipcw_cif_bce",
         }:
             issues.append(
                 f"Variant {name!r} has invalid training_mode={training_mode!r}."
             )
-        if training_mode == "cox" and variant.get("pos_weight") is not None:
+        if (
+            training_mode in {"cox", "cox_exact_cached"}
+            and variant.get("pos_weight") is not None
+        ):
             issues.append(
                 f"Variant {name!r} uses Cox training with pos_weight configured."
             )

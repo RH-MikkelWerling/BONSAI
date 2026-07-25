@@ -153,7 +153,7 @@ def _cohorts(registry: dict[str, Any], level: str) -> dict[str, dict[str, Any]]:
 def _outcomes(
     registry: dict[str, Any], *, training_mode: str, horizon_days: int | None
 ) -> dict[str, dict[str, Any]]:
-    if training_mode == "cox" and horizon_days is not None:
+    if training_mode in {"cox", "cox_exact_cached"} and horizon_days is not None:
         raise ValueError("Cox generation does not take a fixed horizon.")
     if training_mode in {"ipcw_bce", "ipcw_cif_bce"} and horizon_days is None:
         raise ValueError("IPCW-BCE generation requires a fixed horizon.")
@@ -187,7 +187,7 @@ def build_sweep_config(
     training_mode: str,
     horizon_days: int | None,
 ) -> dict[str, Any]:
-    if training_mode == "cox":
+    if training_mode in {"cox", "cox_exact_cached"}:
         objective = "cox"
     elif training_mode == "ipcw_cif_bce":
         objective = f"ipcw_cif_{horizon_days}d"
@@ -337,7 +337,7 @@ def generate_configs(
     output.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     objectives = (
-        [("cox", None)]
+        [("cox_exact_cached", None)]
         + [("ipcw_bce", horizon) for horizon in registry["horizons_days"]]
         + [("ipcw_cif_bce", horizon) for horizon in registry["horizons_days"]]
     )

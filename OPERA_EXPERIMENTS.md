@@ -324,7 +324,7 @@ indicators, categorical features keep missingness as a category, and each run
 writes a feature-missingness report.
 
 Binary tabular models fit only the temporal `train` rows. Tuning is enabled by
-default on `tuning` (2022-2023), and each run saves separate tuning predictions
+default on `tuning` (calendar year 2022), and each run saves separate tuning predictions
 before writing the untouched `held_out` (2024+) predictions. Use `--no-tune`
 only for an explicitly prespecified, non-selected ablation.
 
@@ -915,10 +915,25 @@ Checkpoint selection uses weighted tuning log loss; the runner also writes
 percentile weights, and effective sample size. Treat cells with low effective
 sample fractions or extreme weights as positivity/follow-up warnings.
 
-Cox uses coverage-balanced mini-batches to distribute events and later
-comparators without duplicating patients. These are still approximate
-mini-batch risk sets. They become the exact Breslow risk set only when the
-entire training cohort fits in one batch.
+The generated Cox sweeps use `cox_exact_cached`, an exact full-cohort Breslow
+partial likelihood. Lightning first scores every training patient without
+retaining encoder activations, calculates the score derivative using the
+complete risk sets, and then makes a second pass that propagates those
+derivatives through the encoder in memory-safe microbatches. Consequently,
+`training.batch_size` controls memory and throughput but does not approximate
+or change the risk sets. Every patient must occur exactly once per pass,
+`limit_train_batches` must be `1.0`, gradient accumulation must be `1`, and the
+current implementation requires one Lightning process. Dropout is disabled
+during both passes so their scores describe the same deterministic network.
+
+The older `training_mode=cox` remains available as a faster sensitivity
+analysis. It uses coverage-balanced mini-batches and therefore approximates the
+partial likelihood with batch-local risk sets.
+
+Cause-specific Cox produces relative-risk scores and discrimination metrics;
+it does not by itself identify an absolutely calibrated survival curve or
+cumulative incidence. The fixed-horizon IPCW/CIF analyses remain the
+corresponding absolute-risk analyses.
 
 The generated paths use three server environment variables:
 

@@ -90,8 +90,8 @@ subject_id,split,index_date,outcome_date,censor_date
 The prospective values are:
 
 - `train`: index date through 2021-12-31;
-- `tuning`: index date from 2022-01-01 through 2023-12-31;
-- `held_out`: index date from 2024-01-01 onward.
+- `tuning`: index date from 2022-01-01 through 2022-12-31;
+- `held_out`: index date from 2023-01-01 onward.
 
 An absent `outcome_date` must mean an eligible censored/non-event observation.
 Optional eligibility sidecars are needed only when an outcome parquet is not
@@ -323,21 +323,26 @@ Require:
 - a `best.ckpt` and checkpoint metadata sidecar;
 - no missing-token, subject-ID, CUDA, or dataloader errors.
 
-Repeat with the intended production backend:
+Then test the intended production sequence length and SDPA backend. Start with
+the collaborator batch size; if it runs out of memory, halve the physical batch
+and increase gradient accumulation so their product remains 128:
 
 ```bash
 python -m opera.run.daly_care_pretrain \
-  model.attn_type=flash \
-  model.max_seqlen=512 \
-  training.max_len=512 \
-  training.batch_size=2 \
+  training.batch_size=128 \
   training.accumulate_grad_batches=1 \
   training.epochs=1 \
   training.limit_train_batches=2 \
   training.limit_val_batches=2 \
   hardware.num_workers=0 \
-  hydra.run.dir="$BONSAI_RESULTS_ROOT/smoke/daly_care_pretrain_flash"
+  hydra.run.dir="$BONSAI_RESULTS_ROOT/smoke/daly_care_pretrain_full_shape_b128"
 ```
+
+Use a new smoke output directory for each attempted batch size. Examples with
+the same effective batch are `64 × 2`, `32 × 4`, `16 × 8`, and `8 × 16`.
+Physical batching is the closer match, so use the largest value that is stable
+on the allocated GPU. FlashAttention is not part of this matched configuration;
+both runs use SDPA.
 
 Do not use the production held-out split for iterative supervised smoke tests.
 If an end-to-end supervised infrastructure test is needed, create a dedicated
@@ -363,9 +368,14 @@ are present. A run from scratch is:
 python -m opera.run.daly_care_pretrain
 ```
 
-This config enforces the exclusive 2022 cutoff. Promote the selected checkpoint
-to the corresponding stable path under `$BONSAI_CHECKPOINT_ROOT`; retain its
-`checkpoint_metadata.json` beside it.
+This config matches the collaborator reference in architecture and core
+optimization settings: sequence length 3372, hidden size 64, four layers, four
+heads, SDPA, effective batch 128, ten epochs, learning rate `3e-4`, and
+0.1-epoch warmup. It enforces the exclusive 2022 cutoff. On the V100 it uses
+FP16 mixed precision rather than the BF16 typically used on A100s. If batch 128
+does not fit, override physical batch size and accumulation as described above.
+Promote the selected checkpoint to the corresponding stable path under
+`$BONSAI_CHECKPOINT_ROOT`; retain its `checkpoint_metadata.json` beside it.
 
 Checkpoint-producing OPERA commands are resumable when they use the same Hydra
 output directory. A successful run writes:
@@ -375,6 +385,88 @@ best.ckpt
 checkpoint_metadata.json
 training_complete.json
 ```
+
+If a DALY-CARE pretraining process is interrupted before completion, resume the
+same run explicitly from its last checkpoint:
+
+```bash
+RUN_DIR="$BONSAI_MODELS/daly_care/daly_care_pretrain_b4"
+
+python -m opera.run.daly_care_pretrain \
+  training.batch_size=4 \
+  training.accumulate_grad_batches=32 \
+  paths.ckpt_path="$RUN_DIR/last.ckpt" \
+  hydra.run.dir="$RUN_DIR"
+```
+
+Do not omit `paths.ckpt_path` when recovering an interrupted run; its default is
+`null`, which starts from random initialization.
+
+After training completes, extract generic first-line patient representations
+from the validation-selected checkpoint. The table must contain exactly one row
+per patient and, by default, the columns `subject_id` and `index_date`. If
+`split` is absent, the extractor derives train before 2022-01-01, tuning during
+calendar year 2022, and held-out from 2023-01-01 onward:
+
+```bash
+RUN_DIR="$BONSAI_MODELS/daly_care/daly_care_pretrain_b4"
+
+python -m opera.run.extract_patient_embeddings \
+  --checkpoint "$RUN_DIR/best.ckpt" \
+  --checkpoint-metadata "$RUN_DIR/checkpoint_metadata.json" \
+  --vocabulary "$BONSAI_PROCESSED_DATA/daly_care/vocabulary.pt" \
+  --subject-data-dir "$BONSAI_PROCESSED_DATA/daly_care" \
+  --index-table "$BONSAI_PROCESSED_DATA/daly_care/population_full.csv" \
+  --tuning-start-date 2022-01-01 \
+  --held-out-start-date 2023-01-01 \
+  --expected-training-stage daly_care_only_pretraining \
+  --batch-size 16 \
+  --output "$BONSAI_RESULTS_ROOT/embeddings/daly_care_pretrain.npz"
+```
+
+Use `--subject-col` or `--index-date-col` when the population table uses
+different names. If a split column is present, it is respected instead; use
+`--split-col`, `--train-key`, `--tuning-key`, and `--held-out-key` for custom
+names. Extraction stores the resolved split with every embedding and records
+the derivation boundaries in the provenance sidecar
+`daly_care_pretrain.metadata.json`.
+
+Create a shared patient projection after extraction. Metadata files may be CSV
+or Parquet and can be supplied more than once; each must contain one row per
+patient. For an initial descriptive check, color the same coordinates by
+prospective split, fine disease cohort, and sex:
+
+```bash
+python -m opera.run.plot_patient_embeddings \
+  --embeddings "$BONSAI_RESULTS_ROOT/embeddings/daly_care_pretrain.npz" \
+  --metadata "$BONSAI_PROCESSED_DATA/daly_care/population_full.csv" \
+  --color-by split \
+  --color-by cohort_fine \
+  --color-by sex \
+  --method umap \
+  --output-dir "$BONSAI_RESULTS_ROOT/embeddings/daly_care_pretrain_plots"
+```
+
+If UMAP is unavailable in the offline environment, use `--method pca`
+immediately; this still provides a useful deterministic smoke check. Add
+`--split held_out` for a held-out-only map. The command writes the reusable
+coordinates CSV as well as one PNG per color variable.
+
+Do not replace the processed `population_full.csv` when `create_data` has
+reduced it to the operational subject-membership column. Keep enriched,
+one-row-per-patient information in a separate file such as
+`population_metadata.csv`, including the first-line index date and any
+available cohort/demographic columns. Use that enriched file as both
+`extract_patient_embeddings --index-table` and
+`plot_patient_embeddings --metadata`.
+
+The plotting command also supports `--method tsne`. For large cohorts,
+`--max-points 20000` provides a reproducible descriptive subsample and avoids a
+slow full-cohort t-SNE. `--index-date-col firstline_date` derives
+`treatment_year`; adding `--birth-date-col birth_date` also derives
+`age_at_index`. Both derived columns may then be supplied through `--color-by`.
+Treatment metadata such as `arm_primary` and `arm_day1_primary` can be plotted
+directly; the latter isolates treatment actually recorded on the index date.
 
 On a later invocation with the same resolved training configuration, these
 artifacts cause training to be skipped. A changed configuration in the same
@@ -513,6 +605,15 @@ genuinely comparable primary event.
 The runner skips completed cells on restart. Fix the cause, rerun readiness, and
 submit the same command. Use `--overwrite` only for cells whose existing results
 must be replaced.
+
+Generated Cox cells use `cox_exact_cached`. They deliberately make two encoder
+passes per epoch to optimize the full-cohort Breslow likelihood. On this mode,
+reduce `training.batch_size` until it fits the GPU without changing the Cox
+estimand; the exact risk sets remain full-cohort. Keep
+`hardware.num_nodes=1`, `hardware.num_devices=1`,
+`training.accumulate_grad_batches=1`, and `training.limit_train_batches=1.0`.
+The batch-local approximation is still available explicitly as
+`training_mode=cox`, but it is not the primary generated analysis.
 
 ## 10. Final release gate
 

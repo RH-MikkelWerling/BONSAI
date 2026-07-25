@@ -467,12 +467,13 @@ def main(cfg: DictConfig) -> None:
                 min_events=int(stratified_cfg.get("min_events", 10)),
             ),
         }
-    if training_mode == "cox":
+    if training_mode in {"cox", "cox_exact_cached"}:
         mark_probability_metrics_not_applicable(report)
     report["evaluation_notes"] = {
         "training_mode": training_mode,
         "survival_estimand": {
             "cox": "cause_specific_hazard",
+            "cox_exact_cached": "cause_specific_hazard",
             "ipcw_bce": "net_risk",
             "ipcw_cif_bce": "cumulative_incidence",
         }.get(training_mode),
@@ -481,7 +482,7 @@ def main(cfg: DictConfig) -> None:
             "Cox checkpoints output relative risk scores. Binary AUROC/AUPRC "
             "and survival ranking metrics are meaningful; calibration, Brier, "
             "threshold, and decision-curve metrics are not reported for Cox."
-            if training_mode == "cox"
+            if training_mode in {"cox", "cox_exact_cached"}
             else None
         ),
     }
@@ -490,7 +491,7 @@ def main(cfg: DictConfig) -> None:
     # Print summary
     summary = (
         format_cox_evaluation_summary(report)
-        if training_mode == "cox"
+        if training_mode in {"cox", "cox_exact_cached"}
         else format_evaluation_summary(report)
     )
     print(summary.encode("ascii", errors="replace").decode("ascii"))
@@ -561,7 +562,7 @@ def main(cfg: DictConfig) -> None:
     # ── Generate plots ───────────────────────────────────────────────
     print("Generating plots...")
     window_days = (n_hours_end / 24.0) if n_hours_end is not None else None
-    if training_mode != "cox":
+    if training_mode not in {"cox", "cox_exact_cached"}:
         plot_full_evaluation(
             labels_bin,
             probs_bin,

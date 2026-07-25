@@ -16,6 +16,7 @@ from bonsai.modules.networks.bonsai_nets import (
     pack_valid_tokens,
     unpack_valid_tokens,
 )
+from bonsai.modules.networks.components.embeddings import Time2Vec
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.run.evaluate import extract_patient_embeddings
 
@@ -33,6 +34,17 @@ def _small_model_config():
         "causal": False,
         "attn_type": "sdpa",
     }
+
+
+def test_time2vec_stays_finite_for_epoch_hours_under_fp16_autocast():
+    layer = Time2Vec(output_dim=8, clip_range=100)
+    epoch_hours = torch.tensor([[500_000.0]])
+
+    with torch.autocast(device_type="cpu", dtype=torch.float16):
+        output = layer(epoch_hours)
+
+    assert output.dtype == torch.float32
+    assert torch.isfinite(output).all()
 
 
 def test_legacy_yaml_names_translate_to_native_flash_config():
@@ -201,11 +213,15 @@ def test_primary_training_configs_default_to_flash_attention():
     paths = [
         root / "configs" / "pretrain.yaml",
         root / "configs" / "finetune.yaml",
-        root / "opera" / "configs" / "daly_care_pretrain.yaml",
         root / "opera" / "configs" / "finetune.yaml",
     ]
     for path in paths:
         assert "attn_type: flash" in path.read_text(encoding="utf-8")
+
+    # The local DALY-CARE V100 cannot run FlashAttention; SDPA is the
+    # architecture-equivalent operational fallback for this one config.
+    daly = root / "opera" / "configs" / "daly_care_pretrain.yaml"
+    assert "attn_type: sdpa" in daly.read_text(encoding="utf-8")
 
 
 def test_autoregressive_pretraining_rejects_noncausal_attention():

@@ -1526,7 +1526,9 @@ def format_evaluation_summary(report: Dict) -> str:
     lines.append("=" * 70)
 
     d = report["discrimination"]
-    risk_score_only = report.get("evaluation_notes", {}).get("training_mode") == "cox"
+    risk_score_only = report.get("evaluation_notes", {}).get(
+        "training_mode"
+    ) in {"cox", "cox_exact_cached"}
     lines.append(f"\n── Discrimination (threshold={d['threshold']:.2f}) ──")
     lines.append(f"  AUROC:        {d['auroc']:.4f}")
     lines.append(f"  AUPRC:        {d['auprc']:.4f}")

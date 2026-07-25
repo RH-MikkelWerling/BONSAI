@@ -129,14 +129,26 @@ class Time2Vec(nn.Module):
         self.phi = torch.nn.Parameter(torch.randn(output_dim - 1))
 
     def forward(self, tau: torch.Tensor) -> torch.Tensor:
-        tau = tau.unsqueeze(2)  # (batch_size, sequence_length, 1)
+        # Absolute position is expressed in hours since the Unix epoch and is
+        # therefore around 450,000 for contemporary records. FP16 cannot
+        # represent values above 65,504, so autocasting this small transform to
+        # FP16 produces ``inf`` before the cosine and consequently NaN model
+        # losses on Volta GPUs. Keep Time2Vec in FP32; the surrounding
+        # transformer can still use mixed precision.
+        output_dtype = self.w.dtype
+        with torch.autocast(device_type=tau.device.type, enabled=False):
+            tau_float = tau.float().unsqueeze(2)
+            linear_1 = torch.matmul(tau_float, self.w0.float()) + self.phi0.float()
+            linear_2 = torch.matmul(tau_float, self.w.float())
 
-        linear_1 = torch.matmul(tau, self.w0) + self.phi0
-        linear_2 = torch.matmul(tau, self.w)
+            if self.clip_range is not None:
+                linear_1 = torch.clamp(
+                    linear_1,
+                    -self.clip_range,
+                    self.clip_range,
+                )
 
-        if self.clip_range is not None:
-            linear_1 = torch.clamp(linear_1, -self.clip_range, self.clip_range)
+            periodic = self.f(linear_2 + self.phi.float())
+            output = torch.cat((linear_1, periodic), dim=-1)
 
-        periodic = self.f(linear_2 + self.phi)
-
-        return torch.cat((linear_1, periodic), dim=-1)
+        return output.to(dtype=output_dtype)

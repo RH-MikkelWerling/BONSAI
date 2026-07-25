@@ -11,7 +11,10 @@ encoder_ckpt: ???
 encoder_source: contrastive
 dataset: ???
 outcome: ???
-training_mode: cox
+# Primary cause-specific survival objective. This evaluates the Cox partial
+# likelihood over the complete cohort while recomputing encoder gradients in
+# memory-safe microbatches. Use `cox` only for the mini-batch approximation.
+training_mode: cox_exact_cached
 
 cohort_scope:
   name: null
@@ -51,10 +54,10 @@ training:
   max_len: ${model.max_seqlen}
   batch_size: 128
   batch_sampling:
-    # Cox: spread real events across batches while preserving once-per-epoch
-    # patient coverage. Both IPCW-BCE modes use ordinary random batches so the weighted
-    # additive objective remains representative. Event-aware oversampling is
-    # available only as a deliberately biased ablation.
+    # Exact cached Cox visits every patient exactly once in deterministic order;
+    # batch_size then controls memory only, not the statistical risk set.
+    # Mini-batch `cox` spreads real events while preserving once-per-epoch
+    # coverage. IPCW-BCE modes use ordinary random batches.
     type: auto
     seed: 0
   accumulate_grad_batches: 1

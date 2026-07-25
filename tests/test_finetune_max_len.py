@@ -46,6 +46,23 @@ def test_finetune_runner_datamodule_threads_configured_max_len(tmp_path):
     assert datamodule.max_len == 23
 
 
+def test_finetune_runner_caps_length_at_checkpoint_encoder_limit(tmp_path):
+    cfg = _base_cfg(tmp_path, max_len=8192)
+    outcomes = {1: {"label": 0}, 2: {"label": 1}}
+
+    datamodule = build_finetune_data_module(
+        cfg,
+        {"[CLS]": 1},
+        outcomes,
+        outcomes,
+        outcomes,
+        [0, 1],
+        encoder_max_seqlen=3372,
+    )
+
+    assert datamodule.max_len == 3372
+
+
 def test_survival_finetune_runner_datamodule_threads_configured_max_len(tmp_path):
     cfg = _base_cfg(tmp_path, max_len=31)
     outcomes = {
@@ -62,6 +79,25 @@ def test_survival_finetune_runner_datamodule_threads_configured_max_len(tmp_path
     )
 
     assert datamodule.max_len == 31
+
+
+def test_survival_runner_caps_length_at_checkpoint_encoder_limit(tmp_path):
+    cfg = _base_cfg(tmp_path, max_len=8192)
+    outcomes = {
+        1: {"label": 0, "time_days": 5.0, "event": 0},
+        2: {"label": 1, "time_days": 2.0, "event": 1},
+    }
+
+    datamodule = build_survival_finetune_data_module(
+        cfg,
+        {"[CLS]": 1},
+        outcomes,
+        outcomes,
+        outcomes,
+        encoder_max_seqlen=3372,
+    )
+
+    assert datamodule.max_len == 3372
 
 
 def test_hybrid_datamodule_uses_explicit_encoder_sequence_limit(tmp_path):

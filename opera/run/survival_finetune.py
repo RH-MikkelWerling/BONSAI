@@ -1,6 +1,7 @@
 """OPERA survival and IPCW-BCE finetuning runner."""
 
 import logging
+from typing import Optional
 
 import hydra
 import lightning as L
@@ -63,12 +64,18 @@ def _validate_encoder_load(missing, unexpected) -> None:
         )
 
 
-def resolve_survival_finetune_max_len(cfg: DictConfig) -> int:
-    """Resolve the sequence length used by the survival finetune datamodule."""
+def resolve_survival_finetune_max_len(
+    cfg: DictConfig,
+    encoder_max_seqlen: Optional[int] = None,
+) -> int:
+    """Resolve a sequence length that does not exceed the saved encoder limit."""
     value = cfg.training.get("max_len")
     if value is None:
         value = cfg.model.get("max_seqlen", 8192)
-    return int(value)
+    value = int(value)
+    if encoder_max_seqlen is not None:
+        value = min(value, int(encoder_max_seqlen))
+    return value
 
 
 def resolve_survival_monitor(cfg: DictConfig) -> tuple[str, str]:
@@ -77,7 +84,7 @@ def resolve_survival_monitor(cfg: DictConfig) -> tuple[str, str]:
     if configured != "auto":
         mode = "max" if configured in {"val/AUROC", "val/concordance_index"} else "min"
         return configured, mode
-    if cfg.training_mode == "cox":
+    if cfg.training_mode in {"cox", "cox_exact_cached"}:
         return "val/concordance_index", "max"
     return "val/loss", "min"
 
@@ -161,6 +168,7 @@ def build_survival_finetune_data_module(
     train_outcomes: dict,
     val_outcomes: dict,
     test_outcomes: dict,
+    encoder_max_seqlen: Optional[int] = None,
 ) -> SurvivalFinetuneDataModule:
     """Construct the datamodule exactly as the survival runner uses it."""
     return SurvivalFinetuneDataModule(
@@ -175,7 +183,7 @@ def build_survival_finetune_data_module(
         val_outcomes=val_outcomes,
         predict_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
-        max_len=resolve_survival_finetune_max_len(cfg),
+        max_len=resolve_survival_finetune_max_len(cfg, encoder_max_seqlen),
         train_sampler=None,
         batch_sampling=cfg.training.get("batch_sampling", {}),
         training_mode=cfg.get("training_mode", "cox"),
@@ -189,6 +197,29 @@ def build_survival_finetune_data_module(
 )
 def main(cfg: DictConfig) -> None:
     L.seed_everything(int(cfg.seed), workers=True)
+    if (
+        cfg.training_mode == "cox_exact_cached"
+        and int(cfg.training.accumulate_grad_batches) != 1
+    ):
+        raise ValueError(
+            "cox_exact_cached performs its own full-cohort gradient accumulation; "
+            "training.accumulate_grad_batches must be 1."
+        )
+    if cfg.training_mode == "cox_exact_cached" and (
+        int(cfg.hardware.num_nodes) != 1 or int(cfg.hardware.num_devices) != 1
+    ):
+        raise ValueError(
+            "cox_exact_cached currently requires one process (num_nodes=1 and "
+            "num_devices=1) so every exact risk set contains the full cohort."
+        )
+    if (
+        cfg.training_mode == "cox_exact_cached"
+        and float(cfg.training.limit_train_batches) != 1.0
+    ):
+        raise ValueError(
+            "cox_exact_cached requires training.limit_train_batches=1.0; "
+            "subsampling would no longer produce full-cohort risk sets."
+        )
     logger = CSVLogger(get_experiment_output_path(), name="survival_finetune_runs")
     model_save_dir = get_experiment_output_path()
     if should_skip_completed_training(model_save_dir, cfg):
@@ -198,6 +229,7 @@ def main(cfg: DictConfig) -> None:
         cfg.encoder_ckpt,
         cfg.encoder_source,
     )
+    model_cfg = get_saved_encoder_config(pretrain_hparams)
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
@@ -282,9 +314,10 @@ def main(cfg: DictConfig) -> None:
             f"{model_save_dir}/ipcw_weight_summary.csv",
             index=False,
         )
-    elif cfg.training_mode != "cox":
+    elif cfg.training_mode not in {"cox", "cox_exact_cached"}:
         raise ValueError(
-            "training_mode must be one of {'cox', 'ipcw_bce', 'ipcw_cif_bce'}."
+            "training_mode must be one of {'cox', 'cox_exact_cached', "
+            "'ipcw_bce', 'ipcw_cif_bce'}."
         )
     else:
         cox_diagnostics = [
@@ -320,9 +353,9 @@ def main(cfg: DictConfig) -> None:
         train_outcomes,
         val_outcomes,
         test_outcomes,
+        encoder_max_seqlen=model_cfg["max_seqlen"],
     )
 
-    model_cfg = get_saved_encoder_config(pretrain_hparams)
     if cfg.get("model"):
         for key, value in cfg.model.items():
             if key not in model_cfg:
@@ -353,6 +386,7 @@ def main(cfg: DictConfig) -> None:
             "training_mode": cfg.training_mode,
             "survival_estimand": {
                 "cox": "cause_specific_hazard",
+                "cox_exact_cached": "cause_specific_hazard",
                 "ipcw_bce": "net_risk",
                 "ipcw_cif_bce": "cumulative_incidence",
             }[cfg.training_mode],
@@ -372,7 +406,7 @@ def main(cfg: DictConfig) -> None:
         pos_weight=None,
         horizon_days=(
             None
-            if cfg.training_mode == "cox"
+            if cfg.training_mode in {"cox", "cox_exact_cached"}
             else float(cfg.labels.n_hours_end_include) / 24.0
         ),
     )

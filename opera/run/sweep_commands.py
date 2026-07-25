@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Optional
 
 # Training modes that route to the survival finetune entry point and config.
-SURVIVAL_TRAINING_MODES: frozenset[str] = frozenset({"cox", "ipcw_bce", "ipcw_cif_bce"})
+SURVIVAL_TRAINING_MODES: frozenset[str] = frozenset(
+    {"cox", "cox_exact_cached", "ipcw_bce", "ipcw_cif_bce"}
+)
 
 
 def build_finetune_cmd(

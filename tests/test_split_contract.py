@@ -17,13 +17,13 @@ def _subject(subject_id: int) -> dict:
     }
 
 
-def test_canonical_temporal_contract_assigns_2021_2022to2023_2024_splits():
+def test_canonical_temporal_contract_assigns_2021_2022_2023plus_splits():
     contract = load_temporal_split_contract()
     outcomes = pd.DataFrame(
         {
             "subject_id": [1, 2, 3, 4],
             "index_date": pd.to_datetime(
-                ["2021-12-31", "2022-06-01", "2023-12-31", "2024-01-01"]
+                ["2021-12-31", "2022-06-01", "2022-12-31", "2023-01-01"]
             ),
         }
     )

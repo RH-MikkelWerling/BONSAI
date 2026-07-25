@@ -1313,6 +1313,7 @@ def _run_variant_cell(
     training_mode = variant_cfg.get("training_mode")
     if training_mode is not None and training_mode not in {
         "cox",
+        "cox_exact_cached",
         "ipcw_bce",
         "ipcw_cif_bce",
     }:
@@ -1349,7 +1350,8 @@ def _run_variant_cell(
             if encoder_source == "joint"
             else (
                 f"{training_mode} finetune and evaluate"
-                if training_mode in {"cox", "ipcw_bce", "ipcw_cif_bce"}
+                if training_mode
+                in {"cox", "cox_exact_cached", "ipcw_bce", "ipcw_cif_bce"}
                 else "finetune and evaluate"
             )
         )
@@ -1463,7 +1465,8 @@ def _run_variant_cell(
         model_family=result_variant,
         training_stage=(
             "survival_finetuning"
-            if training_mode in {"cox", "ipcw_bce", "ipcw_cif_bce"}
+            if training_mode
+            in {"cox", "cox_exact_cached", "ipcw_bce", "ipcw_cif_bce"}
             else variant_cfg.get("training_stage", "per_task_finetuning")
         ),
         encoder_frozen=(
