@@ -24,6 +24,7 @@ OPERA_CONFIGS = [
     "joint_finetune",
     "mol",
     "survival_finetune",
+    "daly_care_survival_finetune",
     "generated/joint_opera_full_panel",
     "generated/multi_outcome_full_panel",
 ]
@@ -41,6 +42,10 @@ def config_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("BONSAI_CONFIG_PATH", str(ROOT / "configs"))
     monkeypatch.setenv("BONSAI_MODELS", str(tmp_path / "models"))
     monkeypatch.setenv("BONSAI_PROCESSED_DATA", str(tmp_path / "processed"))
+    monkeypatch.setenv("BONSAI_CHECKPOINT_ROOT", str(tmp_path / "checkpoints"))
+    monkeypatch.setenv(
+        "BONSAI_COHORT_MEMBERSHIP", str(tmp_path / "processed" / "population_full.csv")
+    )
     monkeypatch.setenv("BONSAI_PREDICTIONS", str(tmp_path / "predictions"))
 
 
@@ -84,6 +89,17 @@ def test_opera_hydra_configs_compose(config_environment, config_name):
         assert cfg.training.batch_sampling.type == "auto"
         assert cfg.training.eval_monitor_metric == "auto"
         assert cfg.seed == 42
+    if config_name == "daly_care_survival_finetune":
+        assert cfg.dataset == "daly_care"
+        assert cfg.encoder_source == "pretrain"
+        assert cfg.outcome == "overall_survival"
+        assert cfg.training_mode == "cox_exact_cached"
+        assert cfg.hardware.precision == "16-mixed"
+        assert cfg.hardware.compile_mode is None
+        assert cfg.cohort_fine_col is None
+        assert cfg.cohort_fine_value is None
+        assert cfg.paths.competing_outcome is None
+        assert str(cfg.encoder_ckpt).endswith("daly_care_pretrain/best.ckpt")
     if config_name in {"daly_care_pretrain", "dapt"}:
         assert dict(cfg.training.cutoff_date) == {
             "year": 2022,

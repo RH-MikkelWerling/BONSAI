@@ -301,6 +301,24 @@ class SurvivalFinetuneModule(L.LightningModule):
                 f"missing examples={missing[:10]}."
             )
         optimizer.step()
+        # Lightning's manual-optimization step counter (trainer.global_step)
+        # only advances when optimizer.step() is called inside training_step's
+        # dynamic scope -- lightning/pytorch/loops/optimization/manual.py installs
+        # its _on_before_step/_on_after_step hooks around that call specifically
+        # and tears them down immediately after. Our real optimizer step happens
+        # here instead, once per epoch, so global_step would otherwise stay 0 for
+        # the entire run. ModelCheckpoint's save-best guard
+        # (_last_global_step_saved == trainer.global_step) is then trivially
+        # true forever, silently skipping every "best" checkpoint save (confirmed
+        # by direct reproduction; save_last is unaffected since it isn't gated on
+        # that check). Increment the same progress counter Lightning's own hooks
+        # would have, so global_step -- and everything that depends on it --
+        # reflects the step that actually happened.
+        manual_opt_progress = (
+            self.trainer.fit_loop.epoch_loop.manual_optimization.optim_step_progress
+        )
+        manual_opt_progress.increment_ready()
+        manual_opt_progress.increment_completed()
         scheduler = self.lr_schedulers()
         if scheduler is not None:
             scheduler.step()

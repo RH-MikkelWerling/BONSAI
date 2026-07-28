@@ -104,8 +104,17 @@ class BonsaiBase(nn.Module):
             "value_embedding_mode": value_embedding_mode,
         }
 
-    def encode(self, batch):
-        """Encode a padded batch and return ``(batch, sequence, hidden)`` states."""
+    def encode(self, batch, output_hidden_states: bool = False):
+        """Encode a padded batch and return ``(batch, sequence, hidden)`` states.
+
+        When ``output_hidden_states`` is True, also return the per-layer
+        residual-stream outputs (pre-final-layernorm, one per transformer
+        layer, unpacked to the padded ``(batch, sequence, hidden)`` layout)
+        as a list, for inference-time pooling experiments over intermediate
+        depths. This is additive: existing callers are unaffected because
+        the default is False and the single-tensor return type is unchanged
+        in that case.
+        """
         if "token_embeddings" in batch:
             x = batch["token_embeddings"]
             if x.shape[:2] != batch["code"].shape:
@@ -130,12 +139,12 @@ class BonsaiBase(nn.Module):
 
         attention_mask = batch["attention_mask"].bool()
         use_flash = self.hparams["attn_type"] == "flash"
+        hidden_size = x.shape[-1]
 
         # FlashAttention varlen operates on packed tokens. Packing once around
         # the transformer stack makes dynamically padded batches exact and
         # avoids spending attention compute on padding.
         if use_flash:
-            hidden_size = x.shape[-1]
             x, cu_seqlens = pack_valid_tokens(x, attention_mask)
             attn_mask = None
         # SDPA requires a broadcasted boolean attention mask.
@@ -147,12 +156,20 @@ class BonsaiBase(nn.Module):
             cu_seqlens = None
 
         x = self.drop(x)
+        hidden_states = [] if output_hidden_states else None
         for layer in self.layers:
             x = layer(
                 x,
                 attn_mask=attn_mask,
                 cu_seqlens=cu_seqlens,
             )
+            if output_hidden_states:
+                layer_output = (
+                    unpack_valid_tokens(x, attention_mask, hidden_size=hidden_size)
+                    if use_flash
+                    else x
+                )
+                hidden_states.append(layer_output)
         x = self.layernorm(x)
 
         if use_flash:
@@ -162,6 +179,8 @@ class BonsaiBase(nn.Module):
                 hidden_size=hidden_size,
             )
 
+        if output_hidden_states:
+            return x, hidden_states
         return x
 
     def forward(self, batch):

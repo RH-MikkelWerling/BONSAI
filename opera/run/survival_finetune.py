@@ -10,7 +10,7 @@ import torch
 from dotenv import load_dotenv
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
@@ -25,6 +25,7 @@ from bonsai.functional.outcomes import (
     split_and_binarize_outcomes,
 )
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.versioning import generate_unused_run_id
 from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.ipcw import (
     attach_ipcw_weights,
@@ -47,6 +48,16 @@ from opera.run.finetune import load_encoder_state_dict
 from opera.evaluation.cohorts import population_subject_ids
 
 LOGGER = logging.getLogger(__name__)
+
+# configs/core/base_train.yaml's default `run_id: ${version:}` needs this
+# resolver. bonsai/run/{pretrain,finetune,train}.py each register it as an
+# import-time side effect, but none of those modules are imported by this
+# entry point (or by any other opera/run/*.py Hydra script), so running this
+# script directly without an explicit `run_id=...` CLI override previously
+# raised `UnsupportedInterpolationType` before any config could be read.
+OmegaConf.register_new_resolver(
+    "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
+)
 
 load_dotenv()
 

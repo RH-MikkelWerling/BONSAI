@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 import pytest
@@ -251,6 +252,46 @@ def test_lightning_exact_cached_cox_runs_two_pass_optimizer_step():
     trainer.fit(module, train_dataloaders=loader, val_dataloaders=loader)
 
     assert not torch.equal(model.linear.weight.detach(), initial)
+
+
+def test_lightning_exact_cached_cox_writes_monitor_based_best_checkpoint(tmp_path):
+    """Regression test for a reproduced bug: cox_exact_cached's epoch-end-only
+    optimizer.step() left trainer.global_step stuck at 0 (Lightning's manual-
+    optimization step counter only advances for steps taken inside
+    training_step's scope), so ModelCheckpoint's save-best guard
+    (_last_global_step_saved == trainer.global_step) was trivially always true
+    and silently never wrote a monitor-selected checkpoint -- only save_last
+    (unaffected by that guard) ever produced a file.
+    """
+    loader = DataLoader(_ExactCoxDataset(), batch_size=2, shuffle=False)
+    model = _FeatureScoreModel()
+    module = SurvivalFinetuneModule(model, "cox_exact_cached", learning_rate=0.05)
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=str(tmp_path),
+        monitor="val/concordance_index",
+        mode="max",
+        save_top_k=1,
+        filename="best",
+        enable_version_counter=False,
+        save_last=True,
+    )
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=2,
+        logger=False,
+        callbacks=[checkpoint_callback],
+        enable_model_summary=False,
+        enable_progress_bar=False,
+    )
+
+    trainer.fit(module, train_dataloaders=loader, val_dataloaders=loader)
+
+    assert trainer.global_step > 0
+    assert checkpoint_callback.best_model_path != ""
+    assert checkpoint_callback.best_model_score is not None
+    assert (tmp_path / "best.ckpt").is_file()
 
 
 def test_cox_batch_signal_counts_distinguishes_events_without_comparators():

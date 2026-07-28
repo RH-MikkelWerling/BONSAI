@@ -1,0 +1,146 @@
+# DALY-CARE-only survival finetuning, pooling every diagnosis subgroup into
+# one training run (no cohort_fine/cohort_grouped restriction).
+#
+# Motivation (see AUDIT_FINDINGS.md): the frozen daly_care_pretrain CLS
+# embedding encodes calendar era but not disease, because (1) the
+# appended [CLS]/predict-token position never appears in any pretraining
+# sequence, and (2) calendar time is injected directly into every token's
+# embedding via Time2Vec(abspos). Finetuning end-to-end on a supervised task
+# forces the model to actually optimize a patient-level representation at
+# that position, which the frozen checkpoint never did. This config is the
+# most direct way to test whether that fixes the representation: one Cox
+# survival model trained on every DALY-CARE patient at once.
+#
+# "Across all cohorts" here means the fine-grained diagnosis subgroups
+# (cohort_fine / cohort_grouped) are pooled, not filtered to one -- this
+# repo's "joint multi-cohort" configs (joint_finetune.yaml,
+# contrastive_multicohort.yaml) instead pool SEPARATE disease directories
+# (dlbcl/cll/mds/...), which is a different axis and not what DALY-CARE uses.
+# opera.evaluation.cohorts.population_subject_ids only restricts membership
+# when BOTH cohort_fine_col and cohort_fine_value are set (see
+# opera/evaluation/cohorts.py:105-117); leaving both null, as below, means
+# every patient in the population file enters training.
+#
+# Run with:
+#   python -m opera.run.survival_finetune --config-name daly_care_survival_finetune
+#
+# Before running, check these env vars point at real paths:
+#   BONSAI_CHECKPOINT_ROOT  -> must contain daly_care_pretrain/best.ckpt
+#   BONSAI_PROCESSED_DATA   -> must contain daly_care/{subject_data_train.pt,
+#                              subject_data_tuning.pt, vocabulary.pt,
+#                              outcomes/overall_survival.parquet}
+#   BONSAI_COHORT_MEMBERSHIP -> the enriched population CSV/parquet with
+#                              subject_id (+ cohort_grouped/cohort_fine, kept
+#                              for post-hoc stratified evaluation even though
+#                              this run does not filter on them)
+#   BONSAI_MODELS, BONSAI_CONFIG_PATH -> as for every other run in this repo
+
+defaults:
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+hydra:
+  searchpath:
+    - file://${oc.env:BONSAI_CONFIG_PATH}
+
+# Match daly_care_pretrain.yaml's hardware block exactly. The /hardware/
+# 1gpu6cpu default is precision: bf16-mixed, compile_mode: default -- wrong
+# for this V100 (no native bf16, and no fast/flash SDPA kernel support at
+# all on Volta), which silently forces scaled_dot_product_attention onto its
+# O(batch * heads * seq_len^2) math fallback and OOMs at this max_seqlen.
+hardware:
+  accelerator: "auto"
+  num_nodes: 1
+  num_devices: 1
+  num_workers: 6
+  precision: "16-mixed"
+  strategy: "auto"
+  compile_mode: null
+
+encoder_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
+encoder_source: pretrain
+dataset: daly_care
+# overall_survival is the one endpoint with no per-diagnosis exclusions and
+# no competing event (death cannot compete with itself) in the existing
+# production outcome set (opera/configs/generated/grouped_cox.yaml,
+# fine_cox.yaml) -- the natural first check across every patient. Swap to
+# any other outcomes/{name}.parquet in $BONSAI_PROCESSED_DATA/daly_care if
+# you want a different endpoint; add `competing_outcome` below if it needs one.
+outcome: overall_survival
+training_mode: cox_exact_cached
+
+# Explicit, not just absent: no diagnosis-subgroup restriction. See the
+# header comment above for why this is what makes it "all cohorts."
+cohort_fine_col: null
+cohort_fine_value: null
+
+# Informational bookkeeping only -- opera/run/survival_finetune.py does not
+# read cohort_scope itself (only opera/evaluation/cohort_scope.py, used by
+# the adaptation-breadth-ladder tooling, does). Kept here so the run's saved
+# config self-documents what this run is.
+cohort_scope:
+  name: daly_care_all_cohorts
+  general_pretraining: frozen
+  adaptation_cohorts: []
+  finetune_cohort: null
+
+paths:
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  subject_data_paths:
+    - ${paths.train_split}
+    - ${paths.val_split}
+  vocabulary: ${paths.dir}/vocabulary.pt
+  population: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+  outcome: ${paths.dir}/outcomes/${outcome}.parquet
+  competing_outcome: null
+  eligibility: null
+
+labels:
+  train_key: train
+  val_key: tuning
+  test_key: held_out
+  n_hours_start_include: 1
+  n_hours_end_include: null
+  registry_start_date: null
+  require_min_followup_train: false
+  require_min_followup_val: false
+  require_min_followup_test: false
+
+# causal/max_seqlen here are only a fallback for architecture keys absent
+# from the checkpoint's own saved config; build_survival_finetune's merge
+# (opera/run/survival_finetune.py:359-362) only fills keys the checkpoint
+# didn't already save, and daly_care_pretrain's checkpoint already saved
+# causal=true, max_seqlen=3372 -- those are what actually get used.
+model:
+  causal: false
+  max_seqlen: 8192
+
+training:
+  max_len: ${model.max_seqlen}
+  # Lower than daly_care_pretrain's 128 as a safety margin, not because 128
+  # is known to be wrong: pretraining already ran batch_size=128 at this same
+  # max_seqlen=3372 on this V100 with correct precision, so that scale is
+  # provably workable here. This is a hedge against the precision fix above
+  # NOT being sufficient by itself (see the comment on `hardware.precision`);
+  # cox_exact_cached documents batch_size as memory-only, not a statistical
+  # choice, so lowering it has no effect on what the model is trained on --
+  # raise it back toward 128 once a run confirms headroom.
+  batch_size: 32
+  batch_sampling:
+    # Exact cached Cox visits every patient exactly once in deterministic
+    # order; batch_size then controls memory only, not the statistical risk
+    # set (see opera/configs/survival_finetune.yaml).
+    type: auto
+    seed: 0
+  accumulate_grad_batches: 1
+  epochs: 20
+  learning_rate: 5e-4
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 1
+  eval_monitor_metric: auto
+  early_stopping_patience: 5
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0
