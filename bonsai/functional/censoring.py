@@ -77,10 +77,16 @@ def append_predict_token(
     )
     for field in extra_sequence_fields:
         value = subject[field]
+        if field in {"numeric_value", "numeric_target"}:
+            appended = torch.full(
+                (1,), float("nan"), dtype=value.dtype, device=value.device
+            )
+        else:
+            appended = torch.zeros(1, dtype=value.dtype, device=value.device)
         subject[field] = torch.cat(
             (
                 value,
-                torch.zeros(1, dtype=value.dtype, device=value.device),
+                appended,
             )
         )
     return subject

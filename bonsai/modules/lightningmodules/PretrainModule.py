@@ -1,4 +1,5 @@
 import lightning as L
+import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
@@ -37,13 +38,17 @@ def compute_pretrain_loss(
     logits, labels = unpack_pretrain_output(output)
     loss = code_loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
     losses = {"code": loss}
-    if isinstance(output, dict) and output["target_value_bin"].numel() > 0:
+    if (
+        isinstance(output, dict)
+        and "target_value_normalized" in output
+        and output["target_value_normalized"].numel() > 0
+    ):
         value_regression_loss = value_regression_loss_fn(
             output["value_prediction"].view(-1),
             output["target_value_normalized"].view(-1),
         )
         losses["value_regression"] = value_regression_loss
-        if output.get("value_embedding_mode") == "combined_binning":
+        if output.get("value_embedding_mode") in {"combined_binning", "film"}:
             loss = loss + float(value_regression_loss_weight) * value_regression_loss
         else:
             value_bin_loss = value_bin_loss_fn(
@@ -83,6 +88,10 @@ class PretrainModule(L.LightningModule):
 
         self.model = model
         if compile_mode is not None:
+            # Sparse concept/value prediction uses boolean indexing whose
+            # output size varies with each batch. Dynamo can keep this in one
+            # graph when dynamic output shapes are explicitly captured.
+            torch._dynamo.config.capture_dynamic_output_shape_ops = True
             self.model.compile(mode=compile_mode)
 
         self.train_loss = loss_types[self.model.hparams["attn_type"]]()

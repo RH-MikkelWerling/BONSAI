@@ -7,6 +7,7 @@ When no expansion is used, this behaves identically to the base module.
 """
 
 import lightning as L
+import torch
 from torch import nn
 from torch.optim import AdamW
 from torchmetrics import MetricCollection, Precision
@@ -30,6 +31,8 @@ class DAPTPretrainModule(L.LightningModule):
         old_vocab_size: int = 0,
         new_embed_lr_multiplier: float = 5.0,
         freeze_pretrained_embeds: bool = False,
+        value_bin_loss_weight: float = 1.0,
+        value_regression_loss_weight: float = 1.0,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -39,12 +42,15 @@ class DAPTPretrainModule(L.LightningModule):
         self.old_vocab_size = old_vocab_size
         self.new_embed_lr_multiplier = new_embed_lr_multiplier
         self.freeze_pretrained_embeds = freeze_pretrained_embeds
+        self.value_bin_loss_weight = value_bin_loss_weight
+        self.value_regression_loss_weight = value_regression_loss_weight
 
         self.save_hyperparameters(dict(model.hparams), ignore=["model"])
         attach_model_config(self, model)
         attach_checkpoint_metadata(self, checkpoint_metadata)
         self.model = model
         if compile_mode is not None:
+            torch._dynamo.config.capture_dynamic_output_shape_ops = True
             self.model.compile(mode=compile_mode)
 
         # Optionally freeze pretrained embedding rows via gradient hooks
@@ -83,12 +89,15 @@ class DAPTPretrainModule(L.LightningModule):
             self.train_loss,
             self.value_bin_loss,
             self.value_regression_loss,
+            value_bin_loss_weight=self.value_bin_loss_weight,
+            value_regression_loss_weight=self.value_regression_loss_weight,
         )
         self.train_metrics(logits, labels)
         self.log("train/loss", loss, prog_bar=True)
-        if "value_bin" in losses:
+        if "value_regression" in losses:
             self.log("train/code_loss", losses["code"], prog_bar=False)
-            self.log("train/value_bin_loss", losses["value_bin"], prog_bar=False)
+            if "value_bin" in losses:
+                self.log("train/value_bin_loss", losses["value_bin"], prog_bar=False)
             self.log(
                 "train/value_regression_loss",
                 losses["value_regression"],
@@ -104,11 +113,14 @@ class DAPTPretrainModule(L.LightningModule):
             self.val_loss,
             self.value_bin_loss,
             self.value_regression_loss,
+            value_bin_loss_weight=self.value_bin_loss_weight,
+            value_regression_loss_weight=self.value_regression_loss_weight,
         )
         self.log("val/loss", loss, prog_bar=True)
-        if "value_bin" in losses:
+        if "value_regression" in losses:
             self.log("val/code_loss", losses["code"], prog_bar=False)
-            self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
+            if "value_bin" in losses:
+                self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
             self.log(
                 "val/value_regression_loss",
                 losses["value_regression"],

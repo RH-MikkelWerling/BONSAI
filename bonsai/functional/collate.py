@@ -7,6 +7,8 @@ def _padding_value(key: str):
         return -100
     if key == "target_value_mask":
         return False
+    if key in {"numeric_value", "numeric_target"}:
+        return float("nan")
     return 0
 
 

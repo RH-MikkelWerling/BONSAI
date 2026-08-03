@@ -96,6 +96,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         value_bin_vocab_size=model_cfg.get("value_bin_vocab_size", 0),
         value_embedding_mode=model_cfg.get("value_embedding_mode", "legacy"),
+        abspos_encoding=model_cfg.get("abspos_encoding", "legacy"),
     )
 
     load_pretrained_encoder_checked(model, ckpt["state_dict"])

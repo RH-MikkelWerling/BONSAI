@@ -424,13 +424,22 @@ first-line treatment start). `ContrastiveDataset` validates the derived
 prediction positions and fails before training when they disagree.
 # Numeric representations
 
-The first production run uses suffix-only binning. ehr2meds emits the joined
-`LAB_CODE//bin_k` code and `configs/daly_care_data.yaml` deliberately sets
-`numeric_value_mode: legacy`. BONSAI therefore consumes the joined code as one
-ordinary categorical token and does not duplicate it with a `[VAL]` position.
-This is the locked initial server path.
+The primary production path uses continuous normalized values. ehr2meds fits
+per-code transforms on SSL-training subjects and, for the prospective run,
+events before the exclusive 2022-01-01 cutoff. It emits the original,
+unsuffixed code plus `numeric_value_normalized` in `[0, 1]` (or null).
+`configs/daly_care_data.yaml` sets `numeric_value_mode: continuous`, which
+stores that model value as `numeric_value` without adding sequence positions.
+The ehr2meds pipeline must omit `join_numeric_bins`; otherwise the categorical
+code duplicates the numeric target.
 
-The optional combined categorical-plus-scalar ablation is enabled with
+With causal pretraining, the hidden state at event *t* predicts both the code
+at *t+1* and, when present, its normalized scalar using MSE. Observed numeric
+inputs are fused with their concept embedding using the collaborator-style
+FiLM path (`value_embedding_mode: film`). Missing values, `[SEP]`, padding, and
+the appended prediction token use NaN and do not activate value fusion or loss.
+
+The optional combined categorical-plus-scalar ablation remains available with
 `numeric_value_mode: combined_binning`. A valid ehr2meds numeric event
 (non-null `numeric_value_bin`) is then expanded into two adjacent positions;
 the clinical code may itself be the joined `LAB_CODE//bin_k` token:

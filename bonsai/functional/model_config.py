@@ -21,10 +21,12 @@ MODEL_CONSTRUCTOR_KEYS = {
     "attn_type",
     "value_bin_vocab_size",
     "value_embedding_mode",
+    "abspos_encoding",
 }
 REQUIRED_MODEL_CONSTRUCTOR_KEYS = MODEL_CONSTRUCTOR_KEYS - {
     "value_bin_vocab_size",
     "value_embedding_mode",
+    "abspos_encoding",
 }
 
 _ALIASES = {
@@ -91,6 +93,7 @@ def normalize_bonsai_model_config(
 
     source.setdefault("value_bin_vocab_size", 0)
     source.setdefault("value_embedding_mode", "legacy")
+    source.setdefault("abspos_encoding", "legacy")
 
     result = {key: source[key] for key in MODEL_CONSTRUCTOR_KEYS if key in source}
     missing = REQUIRED_MODEL_CONSTRUCTOR_KEYS - set(result)
@@ -100,6 +103,14 @@ def normalize_bonsai_model_config(
         raise ValueError("hidden_size must be divisible by num_attention_heads.")
     if result["attn_type"] not in {"flash", "sdpa"}:
         raise ValueError("attn_type must be either 'flash' or 'sdpa'.")
+    if result["abspos_encoding"] not in {"legacy", "fourier"}:
+        raise ValueError("abspos_encoding must be either 'legacy' or 'fourier'.")
+    if result["value_embedding_mode"] not in {"legacy", "combined_binning", "film"}:
+        raise ValueError(
+            "value_embedding_mode must be 'legacy', 'combined_binning', or 'film'."
+        )
+    if result["value_embedding_mode"] == "film" and result["value_bin_vocab_size"] != 0:
+        raise ValueError("film value embedding requires value_bin_vocab_size=0.")
     return result
 
 

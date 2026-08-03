@@ -67,7 +67,7 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
         assert cfg.training.value_regression_loss_weight == 0.0
     if config_name == "daly_care_data":
         assert cfg.splits == ["train", "tuning"]
-        assert cfg.numeric_value_mode == "legacy"
+        assert cfg.numeric_value_mode == "continuous"
         assert dict(cfg.vocabulary_cutoff_date) == {
             "year": 2022,
             "month": 1,
@@ -107,6 +107,10 @@ def test_opera_hydra_configs_compose(config_environment, config_name):
             "day": 1,
         }
     if config_name == "daly_care_pretrain":
+        assert cfg.model.value_embedding_mode == "film"
+        assert cfg.model.value_bin_vocab_size == 0
+        assert cfg.model.abspos_encoding == "fourier"
+        assert cfg.training.value_regression_loss_weight == 1.0
         assert cfg.model.hidden_size == 64
         assert cfg.model.num_layers == 4
         assert cfg.model.num_attention_heads == 4

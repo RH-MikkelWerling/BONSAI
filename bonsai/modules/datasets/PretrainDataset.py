@@ -101,6 +101,7 @@ class MLMPretrainDataset(PretrainDataset):
             subject["code"]
         )
         self._prepare_value_targets(subject, selected_indices)
+        self._prepare_continuous_value_targets(subject, selected_indices)
         subject["code"] = masked_codes
         subject["target"] = target
         return subject
@@ -166,6 +167,19 @@ class MLMPretrainDataset(PretrainDataset):
         subject["value_normalized"][value_mask] = 0.0
         subject["value_present"][value_mask] = False
 
+    @staticmethod
+    def _prepare_continuous_value_targets(
+        subject: dict,
+        selected_indices: torch.Tensor,
+    ) -> None:
+        if "numeric_value" not in subject:
+            return
+        numeric_target = subject["numeric_value"].clone()
+        numeric_target[~selected_indices] = float("nan")
+        subject["numeric_target"] = numeric_target
+        subject["numeric_value"] = subject["numeric_value"].clone()
+        subject["numeric_value"][selected_indices] = float("nan")
+
 
 class ARPretrainDataset(PretrainDataset):
     def __init__(
@@ -220,6 +234,8 @@ class ARPretrainDataset(PretrainDataset):
                 subject["target_value_mask"] = value_mask
                 subject["target_value_bin"][~value_mask] = -100
                 subject["target"][subject["code"][1:] == self.val_token_id] = -100
+        if "numeric_value" in subject:
+            subject["numeric_target"] = subject["numeric_value"][1:].clone()
         if truncation_metadata["clinical_window_started_mid_history"]:
             boundary_target = self.background_length - 1
             if 0 <= boundary_target < len(subject["target"]):
@@ -228,6 +244,8 @@ class ARPretrainDataset(PretrainDataset):
                     subject["target_value_mask"][boundary_target] = False
                     subject["target_value_bin"][boundary_target] = -100
                     subject["target_value_normalized"][boundary_target] = 0.0
+                if "numeric_target" in subject:
+                    subject["numeric_target"][boundary_target] = float("nan")
         for key in sequence_tensor_fields(subject):
             subject[key] = subject[key][:-1]
         return subject

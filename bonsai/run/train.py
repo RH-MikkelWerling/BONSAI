@@ -84,6 +84,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
+        abspos_encoding=cfg.model.get("abspos_encoding", "legacy"),
     )
 
     lightning_module = FinetuneModule(

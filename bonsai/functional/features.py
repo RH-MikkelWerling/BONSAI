@@ -12,6 +12,7 @@ OPTIONAL_FEATURE_COLUMNS = (
     "value_normalized",
     "value_bin",
     "value_present",
+    "numeric_value",
 )
 
 

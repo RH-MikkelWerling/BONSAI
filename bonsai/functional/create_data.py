@@ -14,12 +14,40 @@ OPTIONAL_TOKEN_COLUMNS = (
     "numeric_value_bin",
     "numeric_value_binned",
     "numeric_value_present",
+    "numeric_value",
 )
 NUMERIC_COLUMN_ALIASES = {
     "numeric_value_normalized": "value_normalized",
     "numeric_value_bin": "value_bin",
     "numeric_value_present": "value_present",
 }
+
+
+def prepare_continuous_numeric_values(df: pl.DataFrame) -> pl.DataFrame:
+    """Expose ehr2meds' normalized scalar under BONSAI's model column.
+
+    The raw MEDS ``numeric_value`` is intentionally replaced at this boundary:
+    model inputs must use the per-code, train-fitted, clipped [0, 1] value
+    emitted by ehr2meds as ``numeric_value_normalized``.
+    """
+    source = "numeric_value_normalized"
+    if source not in df.columns:
+        raise ValueError(
+            f"continuous numeric_value_mode requires ehr2meds column {source!r}."
+        )
+    invalid = df.filter(
+        pl.col(source).is_not_null()
+        & (
+            ~pl.col(source).is_finite()
+            | ~pl.col(source).is_between(0.0, 1.0, closed="both")
+        )
+    )
+    if invalid.height:
+        raise ValueError(
+            "continuous numeric values must be finite and in [0, 1] when "
+            f"present; found {invalid.height} invalid rows."
+        )
+    return df.with_columns(pl.col(source).cast(pl.Float64).alias("numeric_value"))
 
 
 def create_combined_binning_value_tokens(df: pl.DataFrame) -> pl.DataFrame:
@@ -138,6 +166,8 @@ def process_split(
 
         if numeric_value_mode == "combined_binning":
             shard_df = create_combined_binning_value_tokens(shard_df)
+        elif numeric_value_mode == "continuous":
+            shard_df = prepare_continuous_numeric_values(shard_df)
         elif numeric_value_mode != "legacy":
             raise ValueError(f"Unknown numeric_value_mode: {numeric_value_mode!r}")
 
@@ -178,6 +208,10 @@ def process_split(
             columns.append(pl.col("value_bin").fill_null(0).cast(pl.Int64))
         if "value_present" in tokenized.columns:
             columns.append(pl.col("value_present").fill_null(False).cast(pl.Boolean))
+        if "numeric_value" in tokenized.columns:
+            columns.append(
+                pl.col("numeric_value").fill_null(float("nan")).cast(pl.Float32)
+            )
         tokenized = tokenized.select(*columns)
         tokenized.write_parquet(path_output_dir_split / f"{shard.stem}.parquet")
 

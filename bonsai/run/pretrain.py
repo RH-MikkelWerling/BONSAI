@@ -65,6 +65,7 @@ def main(cfg: DictConfig) -> None:
         attn_type=cfg.model.attn_type,
         value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
+        abspos_encoding=cfg.model.get("abspos_encoding", "legacy"),
     )
 
     ckpt_callback = ModelCheckpoint(

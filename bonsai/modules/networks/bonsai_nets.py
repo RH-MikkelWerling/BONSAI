@@ -57,6 +57,7 @@ class BonsaiBase(nn.Module):
         attn_type,
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
+        abspos_encoding="legacy",
     ):
         if attn_type == "flash" and not _FLASH_ATTENTION_AVAILABLE:
             raise ImportError(
@@ -69,6 +70,7 @@ class BonsaiBase(nn.Module):
             max_seqlen=max_seqlen,
             value_bin_vocab_size=value_bin_vocab_size,
             value_embedding_mode=value_embedding_mode,
+            abspos_encoding=abspos_encoding,
         )
         self.drop = nn.Dropout(dropout)
         self.layers = nn.ModuleList(
@@ -102,6 +104,7 @@ class BonsaiBase(nn.Module):
             "attn_type": attn_type,
             "value_bin_vocab_size": int(value_bin_vocab_size),
             "value_embedding_mode": value_embedding_mode,
+            "abspos_encoding": abspos_encoding,
         }
 
     def encode(self, batch, output_hidden_states: bool = False):
@@ -135,6 +138,7 @@ class BonsaiBase(nn.Module):
                 value_bin=batch.get("value_bin"),
                 value_normalized=batch.get("value_normalized"),
                 value_present=batch.get("value_present"),
+                numeric_value=batch.get("numeric_value"),
             )
 
         attention_mask = batch["attention_mask"].bool()
@@ -205,6 +209,7 @@ class BonsaiPretrain(BonsaiBase):
         attn_type,
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
+        abspos_encoding="legacy",
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -219,6 +224,7 @@ class BonsaiPretrain(BonsaiBase):
             attn_type=attn_type,
             value_bin_vocab_size=value_bin_vocab_size,
             value_embedding_mode=value_embedding_mode,
+            abspos_encoding=abspos_encoding,
         )
         self.pretrain_head = nn.Linear(hidden_size, vocab_size, bias=bias)
         self.value_embedding_mode = value_embedding_mode
@@ -230,6 +236,8 @@ class BonsaiPretrain(BonsaiBase):
                 int(value_bin_vocab_size),
                 bias=bias,
             )
+            self.value_head = nn.Linear(hidden_size, 1, bias=bias)
+        elif value_embedding_mode == "film":
             self.value_head = nn.Linear(hidden_size, 1, bias=bias)
 
         # Weight tying (shares weights from code embedding to pretrain head)
@@ -245,6 +253,19 @@ class BonsaiPretrain(BonsaiBase):
         code_labels = labels[mask]
 
         logits = self.pretrain_head(code_hidden_state)
+        continuous_targets = batch.get("numeric_target")
+        if self.value_embedding_mode == "film" and continuous_targets is not None:
+            value_mask = torch.isfinite(continuous_targets)
+            output = {
+                "logits": logits,
+                "labels": code_labels,
+                "value_embedding_mode": self.value_embedding_mode,
+            }
+            value_hidden = last_hidden_state[value_mask]
+            output["value_prediction"] = self.value_head(value_hidden).squeeze(-1)
+            output["target_value_normalized"] = continuous_targets[value_mask].float()
+            return output
+
         if (
             self.value_bin_head is None
             or "target_value_mask" not in batch
@@ -300,6 +321,7 @@ class BonsaiFinetune(BonsaiBase):
         predict_token_id,
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
+        abspos_encoding="legacy",
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -314,6 +336,7 @@ class BonsaiFinetune(BonsaiBase):
             attn_type=attn_type,
             value_bin_vocab_size=value_bin_vocab_size,
             value_embedding_mode=value_embedding_mode,
+            abspos_encoding=abspos_encoding,
         )
         self.hparams["predict_token_id"] = predict_token_id
         self.finetune_head = nn.Linear(hidden_size, 1, bias=bias)

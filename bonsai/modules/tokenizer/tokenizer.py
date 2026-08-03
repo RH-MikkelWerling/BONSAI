@@ -105,6 +105,13 @@ class EHRTokenizer:
                 .otherwise(pl.col("value_present"))
                 .alias("value_present")
             )
+        if "numeric_value" in df.columns:
+            sep_updates.append(
+                pl.when(pl.col("_sep_offset") == 1)
+                .then(pl.lit(None).cast(df.schema["numeric_value"]))
+                .otherwise(pl.col("numeric_value"))
+                .alias("numeric_value")
+            )
         return df.with_columns(sep_updates).drop(
             "_token_order", "_insert_sep", "_sep_offset"
         )

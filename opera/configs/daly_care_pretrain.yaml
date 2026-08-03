@@ -52,9 +52,13 @@ model:
   attention_dropout: 0.0
   causal: true
   attn_type: sdpa
-  # ehr2meds joined lab-bin suffixes enter through the ordinary code vocabulary.
+  # Continuous values use ehr2meds' per-code, train-fitted [0, 1] normalization
+  # and collaborator-style FiLM fusion on the original concept token.
   value_bin_vocab_size: 0
-  value_embedding_mode: legacy
+  value_embedding_mode: film
+  # Fourier mode changes the pretraining input distribution. Checkpoints are
+  # not transferable between legacy and fourier modes; re-pretraining is required.
+  abspos_encoding: fourier
 
 training:
   # Exclusive calendar boundary: neither SSL training nor validation sees
@@ -73,6 +77,6 @@ training:
   learning_rate: 3e-4
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 0.1
-  value_regression_loss_weight: 0.0
+  value_regression_loss_weight: 1.0
   limit_val_batches: 1.0
   limit_train_batches: 1.0

@@ -220,6 +220,8 @@ def extract_encoder_state_dict(state_dict: dict, prefix: str = "model.") -> dict
         "cls.",
         "classifier.",
         "pretrain_head.",
+        "value_head.",
+        "value_bin_head.",
         "finetune_head.",
     )
     encoder_state = {}

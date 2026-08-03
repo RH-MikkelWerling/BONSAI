@@ -10,9 +10,9 @@ paths:
   input_dir: ${oc.env:EHR2MEDS_OUTPUT}
   output_dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
 
-# ehr2meds owns event ordering and has already rewritten numeric events as
-# joined LAB_CODE//bin_k codes.
-numeric_value_mode: legacy
+# Consume ehr2meds' train-fitted numeric_value_normalized on the original,
+# unsuffixed concept row. The ehr2meds pipeline must omit join_numeric_bins.
+numeric_value_mode: continuous
 
 # Vocabulary fitting uses only physical SSL-train subjects and pre-2022 events.
 vocabulary_cutoff_date:

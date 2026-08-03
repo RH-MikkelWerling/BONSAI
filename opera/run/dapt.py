@@ -201,6 +201,10 @@ def main(cfg: DictConfig) -> None:
             freeze_pretrained_embeds=cfg.vocab_expansion.get(
                 "freeze_pretrained_embeds", False
             ),
+            value_bin_loss_weight=cfg.training.get("value_bin_loss_weight", 1.0),
+            value_regression_loss_weight=cfg.training.get(
+                "value_regression_loss_weight", 1.0
+            ),
             checkpoint_metadata={
                 "training_stage": "hematology_domain_adaptation",
                 "source_checkpoint": cfg.pretrain_ckpt,
@@ -218,6 +222,10 @@ def main(cfg: DictConfig) -> None:
             learning_rate=cfg.training.learning_rate,
             optimizer_epsilon=cfg.training.optimizer_epsilon,
             scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
+            value_bin_loss_weight=cfg.training.get("value_bin_loss_weight", 1.0),
+            value_regression_loss_weight=cfg.training.get(
+                "value_regression_loss_weight", 1.0
+            ),
             checkpoint_metadata={
                 "training_stage": "hematology_domain_adaptation",
                 "source_checkpoint": cfg.pretrain_ckpt,
