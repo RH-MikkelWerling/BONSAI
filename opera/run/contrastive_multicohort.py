@@ -22,6 +22,7 @@ from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.functional.checkpointing import (
     extract_encoder_state_dict,
     get_saved_encoder_config,
@@ -44,6 +45,9 @@ from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
 )
 
 load_dotenv()
+OmegaConf.register_new_resolver(
+    "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
+)
 
 
 # These are deliberately kept in the contrastive entry point rather than only
@@ -321,6 +325,7 @@ def main(cfg: DictConfig) -> None:
         ),
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
+        logical_batch_size=cfg.training.get("logical_batch_size"),
     )
     data_module.setup("fit")
 
@@ -384,6 +389,7 @@ def main(cfg: DictConfig) -> None:
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
+        gradient_cache=cfg.training.get("logical_batch_size") is not None,
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,
@@ -403,7 +409,11 @@ def main(cfg: DictConfig) -> None:
 
     trainer = L.Trainer(
         accelerator=cfg.hardware.accelerator,
-        accumulate_grad_batches=cfg.training.accumulate_grad_batches,
+        accumulate_grad_batches=(
+            1
+            if cfg.training.get("logical_batch_size") is not None
+            else cfg.training.accumulate_grad_batches
+        ),
         devices=cfg.hardware.num_devices,
         limit_val_batches=cfg.training.limit_val_batches,
         limit_train_batches=cfg.training.limit_train_batches,

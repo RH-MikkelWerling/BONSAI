@@ -217,17 +217,21 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             cumulative_hazard = (exposure * total_hazard).sum(dim=1)
             interval = torch.bucketize(times / self.time_scale_days, self.boundaries)
             row = torch.arange(times.numel(), device=times.device)
-            event_term = cumulative_hazard.new_zeros(times.numel())
             target = events == 1
             competing = events == 2
-            if target.any():
-                event_term[target] = safe_log_hazards[valid, outcome_index, 0][
-                    row[target], interval[target]
-                ]
-            if competing.any():
-                event_term[competing] = safe_log_hazards[valid, outcome_index, 1][
-                    row[competing], interval[competing]
-                ]
+            active_log_hazards = safe_log_hazards[valid, outcome_index]
+            target_log_hazard = active_log_hazards[row, 0, interval]
+            competing_log_hazard = active_log_hazards[row, 1, interval]
+            # Autocast may promote the cumulative-hazard reduction to float32
+            # while leaving the selected log hazards in float16/bfloat16.
+            # Constructing the term functionally avoids dtype-sensitive indexed
+            # assignment and keeps this path friendly to torch.compile.
+            event_term = (
+                target.to(cumulative_hazard.dtype)
+                * target_log_hazard.to(cumulative_hazard.dtype)
+                + competing.to(cumulative_hazard.dtype)
+                * competing_log_hazard.to(cumulative_hazard.dtype)
+            )
 
             outcome_loss = (cumulative_hazard - event_term).mean()
             if self.smoothness_weight and self.n_intervals > 1:

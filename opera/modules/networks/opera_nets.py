@@ -1118,6 +1118,10 @@ class OperaContrastiveModel(nn.Module):
         self.pooling = pooling
         if pooling == "bigru":
             self.pooler = BiGRU(hidden_size)
+        elif pooling not in {"cls_last", "mean_last_128"}:
+            raise ValueError(
+                "pooling must be one of: 'cls_last', 'mean_last_128', 'bigru'."
+            )
 
         self.projection = ProjectionHead(
             input_dim=hidden_size,
@@ -1195,6 +1199,13 @@ class OperaContrastiveModel(nn.Module):
             return self.pooler(hidden, batch["attention_mask"], return_embedding=True)
 
         lengths = batch["attention_mask"].sum(dim=1) - 1
+        if self.pooling == "mean_last_128":
+            positions = torch.arange(hidden.size(1), device=hidden.device).unsqueeze(0)
+            starts = (lengths - 128).clamp_min(0).unsqueeze(1)
+            content_ends = lengths.unsqueeze(1)
+            recent_content = (positions >= starts) & (positions < content_ends)
+            weights = recent_content.unsqueeze(-1).to(hidden.dtype)
+            return (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1.0)
         return hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]
 
     def get_embeddings(
@@ -1288,8 +1299,18 @@ class OperaContrastiveModel(nn.Module):
                                {"times": (B,) float, "events": (B,) int}.
         """
         pooled = self._pool(batch)
+        return self.forward_from_pooled(
+            pooled, outcome_survival, batch.get("subject_id", None)
+        )
+
+    def forward_from_pooled(
+        self,
+        pooled: torch.Tensor,
+        outcome_survival: Dict[str, Dict[str, torch.Tensor]],
+        subject_ids: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute all OPERA objectives from cached pooled representations."""
         embeddings = self.projection(pooled)
-        subject_ids = batch.get("subject_id", None)
         log_dict = self.contrastive_loss(
             embeddings,
             outcome_survival,

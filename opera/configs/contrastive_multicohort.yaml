@@ -144,6 +144,9 @@ training:
   require_all_configured_cells: true
   require_dapt_embedding_store: false
   batch_size: 128               # larger = more cross-disease pairs per step
+  # Optional exact two-pass cache: compare this many patients while encoding
+  # only batch_size patients at once. Start with 512 on memory-limited GPUs.
+  logical_batch_size: null
   batch_sampling:
     # Preserve the natural cohort distribution for the competing-risk
     # likelihood. Event-aware enrichment is a contrastive-only ablation.

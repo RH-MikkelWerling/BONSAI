@@ -30,6 +30,7 @@ from bonsai.functional.checkpointing import (
     extract_encoder_state_dict,
     get_saved_encoder_config,
 )
+from bonsai.functional.versioning import generate_unused_run_id
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.functional.extract import build_dapt_embedding_store
 from opera.modules.datamodules.ContrastiveDataModule import contrastive_collate
@@ -39,6 +40,9 @@ from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 
 load_dotenv()
+OmegaConf.register_new_resolver(
+    "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
+)
 
 
 @hydra.main(

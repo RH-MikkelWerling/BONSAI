@@ -42,6 +42,14 @@ def contrastive_collate(batch):
     return base
 
 
+def logical_contrastive_collate(batch, physical_batch_size: int):
+    """Keep a logical batch as independently padded encoder microbatches."""
+    return [
+        contrastive_collate(batch[start : start + physical_batch_size])
+        for start in range(0, len(batch), physical_batch_size)
+    ]
+
+
 def _eligibility_path(outcome_config: dict, outcome_path: str):
     raw = outcome_config.get("eligibility_path") or outcome_config.get(
         "eligibility_file"

@@ -120,6 +120,8 @@ def _extract_backbone_state_dict(
             "cls.",
             "classifier.",
             "pretrain_head.",
+            "value_head.",
+            "value_bin_head.",
             "finetune_head.",
         )
         result = {

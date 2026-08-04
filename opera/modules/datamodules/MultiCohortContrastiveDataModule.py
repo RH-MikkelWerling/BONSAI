@@ -427,6 +427,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         eligibility_scope: str = "ascertainment",
         max_len: int = 8192,
         batch_sampling: Optional[Dict[str, object]] = None,
+        logical_batch_size: Optional[int] = None,
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -434,6 +435,9 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
+        self.logical_batch_size = int(logical_batch_size or batch_size)
+        if self.logical_batch_size < self.batch_size:
+            raise ValueError("logical_batch_size must be at least batch_size.")
         self.num_workers = num_workers
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
@@ -699,6 +703,16 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         print(self.train_batch_sampler.summary())
 
     def train_dataloader(self):
+        from functools import partial
+        from opera.modules.datamodules.ContrastiveDataModule import logical_contrastive_collate
+
+        collate = contrastive_collate
+        loader_batch_size = self.batch_size
+        if self.logical_batch_size > self.batch_size:
+            loader_batch_size = self.logical_batch_size
+            collate = partial(
+                logical_contrastive_collate, physical_batch_size=self.batch_size
+            )
         if self.train_batch_sampler is not None:
             return DataLoader(
                 self.train_dataset,
@@ -706,18 +720,18 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 pin_memory=True,
                 persistent_workers=self.num_workers > 0,
                 batch_sampler=self.train_batch_sampler,
-                collate_fn=contrastive_collate,
+                collate_fn=collate,
             )
         return DataLoader(
             self.train_dataset,
             num_workers=self.num_workers,
-            batch_size=self.batch_size,
+            batch_size=loader_batch_size,
             pin_memory=True,
             persistent_workers=self.num_workers > 0,
             drop_last=True,
             sampler=self.train_sampler,
             shuffle=self.train_sampler is None,
-            collate_fn=contrastive_collate,
+            collate_fn=collate,
         )
 
     def val_dataloader(self):

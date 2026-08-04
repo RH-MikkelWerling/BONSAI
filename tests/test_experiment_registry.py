@@ -45,6 +45,10 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     grouped = yaml.safe_load((tmp_path / "grouped_cox.yaml").read_text())
     assert set(grouped["cohorts"]["BL_LBL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES
     assert set(grouped["cohorts"]["HCL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES
+    assert (
+        set(grouped["cohorts"]["AMYLOIDOSIS"]["exclude_outcomes"])
+        == SECOND_LINE_OUTCOMES
+    )
     assert "exclude_outcomes" not in grouped["cohorts"]["MM"]
     assert grouped["outcomes"]["overall_survival"].get("competing_outcome_path") is None
     assert (
@@ -61,6 +65,10 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert fine["cohorts"]["MCL"]["population_file"] == "${BONSAI_COHORT_MEMBERSHIP}"
     assert fine["cohorts"]["SolM"]["cohort_fine_value"] == "SolM"
     assert set(fine["cohorts"]["BL"]["exclude_outcomes"]) == SECOND_LINE_OUTCOMES
+    assert (
+        set(fine["cohorts"]["AMYLOIDOSIS"]["exclude_outcomes"])
+        == SECOND_LINE_OUTCOMES
+    )
     assert fine["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
     assert "eligibility_file" not in fine["outcomes"]["sepsis"]
 
@@ -75,7 +83,8 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert joint["training"]["require_dapt_embedding_store"] is True
     assert joint["model"]["competing_event_handling"] == "exclude"
     assert joint["model"]["dapt_anchor_weight"] > 0
-    assert joint["model"]["dapt_lambda_floor"] < 1
+    assert joint["model"]["dapt_lambda_floor"] == 1.0
+    assert joint["model"]["pooling"] == "mean_last_128"
     assert joint["competing_risk"]["loss_weight"] > 0
     assert joint["competing_risk"]["interval_boundaries_days"] == [
         3,

@@ -34,6 +34,7 @@ class OperaContrastiveModule(L.LightningModule):
         optimizer_epsilon: float = 1e-6,
         scheduler_warmup_epochs: int = 1,
         dapt_anchor_weight: float = 0.2,
+        gradient_cache: bool = False,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -57,6 +58,68 @@ class OperaContrastiveModule(L.LightningModule):
         self.encoder_lr_multiplier = encoder_lr_multiplier
         self.optimizer_epsilon = optimizer_epsilon
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
+        self.gradient_cache = bool(gradient_cache)
+        if self.gradient_cache:
+            self.automatic_optimization = False
+
+    def transfer_batch_to_device(self, batch, device, dataloader_idx):
+        # Logical batches are lists of independently padded CPU microbatches.
+        # Moving the complete list here would defeat gradient caching's memory bound.
+        if self.gradient_cache and self.training and isinstance(batch, list):
+            return batch
+        return super().transfer_batch_to_device(batch, device, dataloader_idx)
+
+    def _to_device(self, value):
+        if isinstance(value, torch.Tensor):
+            return value.to(self.device, non_blocking=True)
+        if isinstance(value, dict):
+            return {key: self._to_device(item) for key, item in value.items()}
+        return value
+
+    def _cached_training_step(self, microbatches: list[dict]) -> torch.Tensor:
+        """Exact logical-batch gradient using memory-sized encoder passes."""
+        optimizer = self.optimizers()
+        optimizer.zero_grad()
+        self.model.eval()  # both encoder passes must describe the same network
+        pooled_parts = []
+        survival_parts = {name: {"times": [], "events": []} for name in self.outcome_names}
+        subject_parts = []
+        with torch.no_grad():
+            for cpu_batch in microbatches:
+                batch = self._to_device(cpu_batch)
+                pooled_parts.append(self.model._pool(batch))
+                survival = self._build_outcome_survival(batch)
+                for name in self.outcome_names:
+                    if name in survival:
+                        survival_parts[name]["times"].append(survival[name]["times"])
+                        survival_parts[name]["events"].append(survival[name]["events"])
+                subject_parts.append(batch["subject_id"])
+        pooled = torch.cat(pooled_parts).detach().requires_grad_(True)
+        outcome_survival = {
+            name: {key: torch.cat(parts) for key, parts in fields.items()}
+            for name, fields in survival_parts.items()
+            if fields["times"]
+        }
+        result = self.model.forward_from_pooled(
+            pooled, outcome_survival, torch.cat(subject_parts)
+        )
+        loss = result["loss"]
+        self.manual_backward(loss)
+        pooled_grad = pooled.grad.detach()
+        offset = 0
+        for cpu_batch in microbatches:
+            batch = self._to_device(cpu_batch)
+            recomputed = self.model._pool(batch)
+            count = recomputed.shape[0]
+            self.manual_backward((recomputed * pooled_grad[offset : offset + count]).sum())
+            offset += count
+        optimizer.step()
+        self.log("train/loss", loss.detach(), prog_bar=True)
+        self.log("train/logical_batch_size", float(len(pooled)), on_step=True)
+        for key, value in result.items():
+            if key != "loss":
+                self.log(f"train/{key}", value)
+        return loss.detach()
 
     def _build_outcome_survival(
         self, batch: dict
@@ -101,6 +164,8 @@ class OperaContrastiveModule(L.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        if self.gradient_cache:
+            return self._cached_training_step(batch)
         return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pytest
 
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 
@@ -22,6 +23,45 @@ def test_dapt_anchor_defaults_to_production_value():
     )
 
     assert model.dapt_anchor_weight == 0.2
+
+
+def test_mean_last_128_excludes_prediction_token_and_padding():
+    hidden = torch.tensor(
+        [
+            [[1.0], [3.0], [99.0], [0.0]],
+            [[2.0], [4.0], [6.0], [99.0]],
+        ]
+    )
+    model = OperaContrastiveModel(
+        encoder=_StubEncoder(),
+        outcome_names=["mortality"],
+        hidden_size=1,
+        projection_hidden_dim=2,
+        projection_dim=1,
+        outcome_sorted_event_times={"mortality": torch.tensor([10.0, 20.0])},
+        pooling="mean_last_128",
+    )
+    batch = {
+        "input_emb": hidden,
+        "attention_mask": torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]),
+    }
+
+    pooled = model._pool(batch)
+
+    torch.testing.assert_close(pooled, torch.tensor([[2.0], [4.0]]))
+
+
+def test_unknown_opera_pooling_is_rejected():
+    with pytest.raises(ValueError, match="pooling must be one of"):
+        OperaContrastiveModel(
+            encoder=_StubEncoder(),
+            outcome_names=["mortality"],
+            hidden_size=1,
+            projection_hidden_dim=2,
+            projection_dim=1,
+            outcome_sorted_event_times={"mortality": torch.tensor([10.0])},
+            pooling="unsupported",
+        )
 
 
 def _make_minimal_opera_model(dapt_anchor_weight=0.0, store=None):

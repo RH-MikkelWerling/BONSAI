@@ -889,7 +889,7 @@ The locked production inventory lives in
 the 10 grouped cohorts, 24 fine cohorts, 87 outcomes, five IPCW horizons,
 outcome families, seeds, checkpoint variants, and structural availability
 rules. In particular, the three second-line-dependent outcomes are excluded
-for `BL_LBL` and `HCL` (and therefore their fine cohorts); low sample size does
+for `AMYLOIDOSIS`, `BL_LBL`, and `HCL` (and therefore their fine cohorts); low sample size does
 not otherwise remove a cohort/outcome cell.
 
 Regenerate the executable configs after changing the registry:

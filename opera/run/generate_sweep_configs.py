@@ -223,10 +223,14 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
         "defaults": ["/core/base_train@", "/hardware/1gpu6cpu@hardware", "_self_"],
         "hydra": {"searchpath": ["file://${oc.env:BONSAI_CONFIG_PATH}"]},
         "dataset": "daly_care_joint_opera",
-        "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt",
+        "dapt_ckpt": "${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt",
         "dapt_embedding_store": (
-            "${oc.env:BONSAI_CHECKPOINT_ROOT}/dapt/dapt_embeddings.pt"
+            "${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/"
+            "opera_reference_mean_last_128.pt"
         ),
+        # Used only by build_dapt_embedding_store; harmless to training runners.
+        "output_path": None,
+        "overwrite": False,
         "paths": {
             "vocabulary": f"{registry['paths']['shared_data_dir']}/vocabulary.pt"
         },
@@ -237,13 +241,15 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
             "projection_dim": 128,
             "temperature": 0.07,
             "km_time_scale": 0.25,
-            "dapt_lambda_floor": 0.55,
-            "dapt_anchor_weight": 0.2,
+            # First-pass OPERA adaptation: preserve pretrained content geometry
+            # only weakly, without using embedding proximity to reweight pairs.
+            "dapt_lambda_floor": 1.0,
+            "dapt_anchor_weight": 0.02,
             "competing_event_handling": "exclude",
             "competing_event_weight": 0.0,
             "effective_pair_normalization": True,
             "freeze_encoder": False,
-            "pooling": "cls_last",
+            "pooling": "mean_last_128",
         },
         "competing_risk": {
             "loss_weight": 1.0,

@@ -74,7 +74,13 @@ def extract_pooled_variants(
     num_workers: int,
     device: torch.device,
     last_k: int = 128,
-) -> tuple[np.ndarray, np.ndarray, dict[tuple[str, str], np.ndarray], dict[str, Any]]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[tuple[str, str], np.ndarray],
+    dict[str, Any],
+]:
     """Pool physical SSL shards once, computing every (layer, pooling) variant.
 
     Mirrors ``extract_outcome_transfer_embeddings.extract_shared_split_embeddings``
@@ -111,6 +117,7 @@ def extract_pooled_variants(
     ]
     subject_ids_per_split: list[np.ndarray] = []
     splits_per_split: list[np.ndarray] = []
+    sequence_lengths_per_split: list[np.ndarray] = []
     embeddings: dict[tuple[str, str], list[np.ndarray]] = {
         key: [] for key in variant_keys
     }
@@ -156,6 +163,7 @@ def extract_pooled_variants(
             collate_fn=dynamic_padding,
         )
         split_ids: list[np.ndarray] = []
+        split_sequence_lengths: list[np.ndarray] = []
         split_variant_embeddings: dict[tuple[str, str], list[np.ndarray]] = {
             key: [] for key in variant_keys
         }
@@ -176,6 +184,10 @@ def extract_pooled_variants(
                     label: hidden_by_index[idx] for label, idx in target_layers.items()
                 }
                 predict_mask = predict_token_mask(device_batch["code"], predict_token_id)
+                content_mask = device_batch["attention_mask"].bool() & ~predict_mask
+                split_sequence_lengths.append(
+                    content_mask.sum(dim=1).detach().cpu().numpy().astype(np.int32)
+                )
                 variants = pool_variants(
                     hidden_by_label,
                     attention_mask=device_batch["attention_mask"],
@@ -199,6 +211,7 @@ def extract_pooled_variants(
                 f"Duplicate subject IDs were emitted while extracting split {split!r}."
             )
         subject_ids_per_split.append(split_subject_ids)
+        sequence_lengths_per_split.append(np.concatenate(split_sequence_lengths))
         splits_per_split.append(
             np.full(len(split_subject_ids), str(split_keys[split]))
         )
@@ -208,6 +221,7 @@ def extract_pooled_variants(
 
     all_ids = np.concatenate(subject_ids_per_split)
     all_splits = np.concatenate(splits_per_split)
+    all_sequence_lengths = np.concatenate(sequence_lengths_per_split)
     if len(np.unique(all_ids)) != len(all_ids):
         raise OutcomeTransferExtractionError(
             "A subject appeared in multiple shared subject splits; extraction is unsafe."
@@ -231,7 +245,7 @@ def extract_pooled_variants(
             "without reimplementing the attention math."
         ),
     }
-    return all_ids, all_splits, all_embeddings, stats
+    return all_ids, all_splits, all_sequence_lengths, all_embeddings, stats
 
 
 def _assert_matches_reference_cls_npz(
@@ -345,7 +359,7 @@ def main() -> None:
         raise OutcomeTransferExtractionError("--last-k must be positive.")
     paths = _subject_paths(args.subject_data_dir)
 
-    subject_ids, splits, embeddings, stats = extract_pooled_variants(
+    subject_ids, splits, sequence_lengths, embeddings, stats = extract_pooled_variants(
         encoder,
         reference=reference,
         subject_split_paths=paths,
@@ -394,6 +408,7 @@ def main() -> None:
                 subject_ids=subject_ids,
                 embeddings=variant_embeddings,
                 splits=splits,
+                sequence_length=sequence_lengths,
             )
             written.append(str(output_path))
 
@@ -416,6 +431,11 @@ def main() -> None:
             "last_k": args.last_k,
             "split_counts": stats["split_counts"],
             "n_subjects": int(len(subject_ids)),
+            "sequence_length": {
+                "minimum": int(sequence_lengths.min()),
+                "median": float(np.median(sequence_lengths)),
+                "maximum": int(sequence_lengths.max()),
+            },
             "wall_time_seconds": stats["wall_time_seconds"],
             "peak_gpu_memory_bytes": stats["peak_gpu_memory_bytes"],
             "device": stats["device"],

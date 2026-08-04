@@ -13,6 +13,10 @@ cohorts:
     clinical_group: AMYLOIDOSIS
     ipi_score_col: null
     registry_start_date: null
+    exclude_outcomes:
+    - second_line_treatment
+    - treatment_failure
+    - treatment_failure_transformation
     cohort_fine_col: cohort_grouped
     cohort_fine_value: AMYLOIDOSIS
   BL_LBL:

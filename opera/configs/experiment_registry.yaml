@@ -57,7 +57,7 @@ availability_rules:
       - second_line_treatment
       - treatment_failure
       - treatment_failure_transformation
-    excluded_grouped: [BL_LBL, HCL]
+    excluded_grouped: [AMYLOIDOSIS, BL_LBL, HCL]
 
 outcomes:
   - aki_first_documented

@@ -118,6 +118,27 @@ def test_piecewise_exponential_masks_missing_outcomes_and_backpropagates():
     assert torch.isfinite(log_hazards.grad).all()
 
 
+def test_piecewise_exponential_supports_mixed_precision_log_hazards():
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["endpoint"],
+        [30.0, 90.0],
+        no_competing_outcomes=[],
+    )
+    log_hazards = torch.zeros(3, 1, 2, 3, dtype=torch.float16, requires_grad=True)
+
+    loss, diagnostics = loss_fn(
+        log_hazards,
+        _survival([15.0, 45.0, 100.0], [1, 2, 0]),
+    )
+    loss.backward()
+
+    assert torch.isfinite(loss)
+    assert diagnostics["cr/n_target/endpoint"].item() == 1
+    assert diagnostics["cr/n_death/endpoint"].item() == 1
+    assert log_hazards.grad is not None
+    assert torch.isfinite(log_hazards.grad).all()
+
+
 @pytest.mark.parametrize(
     "boundaries",
     [[0.0, 30.0], [30.0, 30.0], [90.0, 30.0]],

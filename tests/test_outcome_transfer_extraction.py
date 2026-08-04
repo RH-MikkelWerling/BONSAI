@@ -5,12 +5,27 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+import torch
 
 from opera.functional.outcome_transfer import resolve_transfer_manifest
 from opera.run.extract_outcome_transfer_embeddings import (
     OutcomeTransferExtractionError,
+    _extract_backbone_state_dict,
     _validate_checkpoint_identity,
 )
+
+
+def test_pretraining_numeric_heads_are_excluded_from_frozen_encoder() -> None:
+    state_dict = {
+        "model.embeddings.code_embedding.weight": torch.ones(3, 2),
+        "model.pretrain_head.weight": torch.ones(3, 2),
+        "model.value_head.weight": torch.ones(1, 2),
+        "model.value_bin_head.weight": torch.ones(4, 2),
+    }
+
+    extracted = _extract_backbone_state_dict(state_dict)
+
+    assert set(extracted) == {"embeddings.code_embedding.weight"}
 
 
 def _tagged_checkpoint_metadata(plan, condition: str, seed: int) -> dict:

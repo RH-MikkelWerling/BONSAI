@@ -229,7 +229,7 @@ def test_extract_pooled_variants_schema_and_ordering(tmp_path):
     encoder = BonsaiBase(**_small_config(num_layers=num_layers)).eval()
     fixture = _build_fixture(tmp_path)
 
-    subject_ids, splits, embeddings, stats = extract_pooled_variants(
+    subject_ids, splits, sequence_lengths, embeddings, stats = extract_pooled_variants(
         encoder,
         reference=fixture["reference"],
         subject_split_paths=fixture["paths"],
@@ -246,6 +246,8 @@ def test_extract_pooled_variants_schema_and_ordering(tmp_path):
     # (1, 2, 3 in physical-pool order), then tuning (4), then held_out (5).
     assert subject_ids.tolist() == [1, 2, 3, 4, 5]
     assert splits.tolist() == ["train", "train", "train", "tuning", "held_out"]
+    assert sequence_lengths.shape == (5,)
+    assert (sequence_lengths > 0).all()
 
     expected_layers = {"final": 4, "d75": 3, "d50": 2, "d25": 1}
     assert stats["resolved_layers"] == expected_layers
@@ -264,7 +266,7 @@ def test_extract_pooled_variants_final_cls_matches_existing_cls_last_convention(
     encoder = BonsaiBase(**config).eval()
     fixture = _build_fixture(tmp_path)
 
-    _, _, embeddings, _ = extract_pooled_variants(
+    _, _, _, embeddings, _ = extract_pooled_variants(
         encoder,
         reference=fixture["reference"],
         subject_split_paths=fixture["paths"],
@@ -330,7 +332,7 @@ def test_extract_pooled_variants_reports_timing_and_zero_gpu_memory_on_cpu(tmp_p
     encoder = BonsaiBase(**_small_config(num_layers=2)).eval()
     fixture = _build_fixture(tmp_path)
 
-    _, _, _, stats = extract_pooled_variants(
+    _, _, _, _, stats = extract_pooled_variants(
         encoder,
         reference=fixture["reference"],
         subject_split_paths=fixture["paths"],
