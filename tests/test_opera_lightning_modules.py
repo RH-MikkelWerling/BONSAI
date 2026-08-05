@@ -291,6 +291,55 @@ def test_cached_opera_runs_through_lightning_manual_optimization():
     assert trainer.global_step == 1
 
 
+def test_cached_opera_skips_second_encoder_pass_when_frozen():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    model = _make_opera_model(freeze_encoder=True)
+    calls = 0
+    original_pool = model._pool
+
+    def counted_pool(batch, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_pool(batch, *args, **kwargs)
+
+    model._pool = counted_pool
+    module = OperaContrastiveModule(
+        model,
+        OUTCOMES,
+        gradient_cache=True,
+        scheduler_warmup_epochs=0,
+    )
+    loader = DataLoader(LogicalDataset(), batch_size=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+
+    trainer.fit(module, train_dataloaders=loader)
+
+    assert trainer.global_step == 1
+    assert calls == 2
+
+
 def test_cached_opera_advances_step_warmup_per_logical_batch():
     class LogicalDataset(Dataset):
         def __len__(self):

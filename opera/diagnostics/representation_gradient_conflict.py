@@ -514,6 +514,7 @@ def diagnose_checkpoint(
     event_count = np.zeros(n_outcomes, dtype=float)
     batch_pair_records: list[dict[str, Any]] = []
     outcome_batch_records: list[dict[str, Any]] = []
+    projection_geometry_records: list[dict[str, Any]] = []
     family_by_outcome = {
         outcome: family
         for family, members in dict(
@@ -554,6 +555,38 @@ def diagnose_checkpoint(
         with torch.enable_grad():
             representation = pooled.detach().clone().requires_grad_(True)
             projected = model.projection(representation)
+            projected_spaces = (
+                {"shared": projected}
+                if isinstance(projected, torch.Tensor)
+                else projected
+            )
+            for space, values in projected_spaces.items():
+                similarities = values @ values.T
+                off_diagonal = ~torch.eye(
+                    values.shape[0], dtype=torch.bool, device=values.device
+                )
+                projection_geometry_records.append(
+                    {
+                        "checkpoint": str(checkpoint),
+                        "batch_index": batch_index,
+                        "projection_space": space,
+                        "coordinate_std_mean": float(
+                            values.std(dim=0, unbiased=False).mean().detach().item()
+                        ),
+                        "coordinate_std_min": float(
+                            values.std(dim=0, unbiased=False).min().detach().item()
+                        ),
+                        "mean_off_diagonal_cosine": float(
+                            similarities[off_diagonal].mean().detach().item()
+                        ),
+                        "std_off_diagonal_cosine": float(
+                            similarities[off_diagonal]
+                            .std(unbiased=False)
+                            .detach()
+                            .item()
+                        ),
+                    }
+                )
             terms, _ = model.contrastive_loss.compute_per_outcome_losses(
                 projected,
                 survival,
@@ -730,6 +763,17 @@ def diagnose_checkpoint(
             ),
             encoding="utf-8",
         )
+    geometry_frame = pd.DataFrame(projection_geometry_records)
+    geometry_frame.to_csv(output_dir / "projection_geometry_batches.csv", index=False)
+    if not geometry_frame.empty:
+        geometry_frame.groupby("projection_space", as_index=False)[
+            [
+                "coordinate_std_mean",
+                "coordinate_std_min",
+                "mean_off_diagonal_cosine",
+                "std_off_diagonal_cosine",
+            ]
+        ].mean().to_csv(output_dir / "projection_geometry.csv", index=False)
     pair_frame = pd.DataFrame(batch_pair_records)
     if not pair_frame.empty and family_by_outcome:
         pair_frame["family_a"] = pair_frame["outcome_a"].map(family_by_outcome)

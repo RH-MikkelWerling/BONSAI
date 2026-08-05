@@ -113,7 +113,9 @@ class OperaContrastiveModule(L.LightningModule):
         optimizer.zero_grad()
         self.model.eval()  # both encoder passes must describe the same network
         pooled_parts = []
-        survival_parts = {name: {"times": [], "events": []} for name in self.outcome_names}
+        survival_parts = {
+            name: {"times": [], "events": []} for name in self.outcome_names
+        }
         subject_parts = []
         with torch.no_grad():
             for cpu_batch in microbatches:
@@ -136,14 +138,17 @@ class OperaContrastiveModule(L.LightningModule):
         )
         loss = result["loss"]
         self.manual_backward(loss)
-        pooled_grad = pooled.grad.detach()
-        offset = 0
-        for cpu_batch in microbatches:
-            batch = self._to_device(cpu_batch)
-            recomputed = self.model._pool(batch)
-            count = recomputed.shape[0]
-            self.manual_backward((recomputed * pooled_grad[offset : offset + count]).sum())
-            offset += count
+        if not self.model.freeze_encoder:
+            pooled_grad = pooled.grad.detach()
+            offset = 0
+            for cpu_batch in microbatches:
+                batch = self._to_device(cpu_batch)
+                recomputed = self.model._pool(batch)
+                count = recomputed.shape[0]
+                self.manual_backward(
+                    (recomputed * pooled_grad[offset : offset + count]).sum()
+                )
+                offset += count
         optimizer.step()
         scheduler = self.lr_schedulers()
         if scheduler is not None:
@@ -152,12 +157,19 @@ class OperaContrastiveModule(L.LightningModule):
             scheduler.step()
         logical_size = len(pooled)
         self.log(
-            "train/loss", loss.detach(), prog_bar=True,
-            on_step=True, on_epoch=True, batch_size=logical_size,
+            "train/loss",
+            loss.detach(),
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            batch_size=logical_size,
         )
         self.log(
-            "train/logical_batch_size", float(logical_size),
-            on_step=True, on_epoch=True, batch_size=logical_size,
+            "train/logical_batch_size",
+            float(logical_size),
+            on_step=True,
+            on_epoch=True,
+            batch_size=logical_size,
         )
         auxiliary_metrics = {
             f"train/{key}": value
@@ -222,7 +234,9 @@ class OperaContrastiveModule(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         if self.gradient_cache and isinstance(batch, list):
             pooled_parts, subject_parts = [], []
-            survival_parts = {name: {"times": [], "events": []} for name in self.outcome_names}
+            survival_parts = {
+                name: {"times": [], "events": []} for name in self.outcome_names
+            }
             with torch.no_grad():
                 for cpu_batch in batch:
                     microbatch = self._to_device(cpu_batch)
@@ -235,8 +249,11 @@ class OperaContrastiveModule(L.LightningModule):
                 pooled = torch.cat(pooled_parts)
                 result = self.model.forward_from_pooled(
                     pooled,
-                    {name: {key: torch.cat(values) for key, values in fields.items()}
-                     for name, fields in survival_parts.items() if fields["times"]},
+                    {
+                        name: {key: torch.cat(values) for key, values in fields.items()}
+                        for name, fields in survival_parts.items()
+                        if fields["times"]
+                    },
                     torch.cat(subject_parts),
                 )
             self.log("val/loss", result["loss"], prog_bar=True, batch_size=len(pooled))
@@ -249,7 +266,9 @@ class OperaContrastiveModule(L.LightningModule):
                 self._val_probe_embs = {name: [] for name in self.outcome_names}
                 self._val_probe_labels = {name: [] for name in self.outcome_names}
                 self._val_probe_emb_store = []
-            self._val_probe_emb_store.append(self.model.projection(pooled).detach().cpu())
+            self._val_probe_emb_store.append(
+                self.model.projection(pooled).detach().cpu()
+            )
             for name in self.outcome_names:
                 key = f"outcome_{name}"
                 labels = [micro[key].detach().cpu() for micro in batch if key in micro]
@@ -291,9 +310,8 @@ class OperaContrastiveModule(L.LightningModule):
 
         is_last_epoch = self.current_epoch + 1 >= self.trainer.max_epochs
         should_probe = (
-            (self.current_epoch + 1) % self.probe_every_n_epochs == 0
-            or is_last_epoch
-        )
+            self.current_epoch + 1
+        ) % self.probe_every_n_epochs == 0 or is_last_epoch
         if not should_probe:
             self._val_probe_emb_store = []
             self._val_probe_embs = {n: [] for n in self.outcome_names}
