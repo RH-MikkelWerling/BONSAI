@@ -128,6 +128,10 @@ def _load_model(
     cross_outcome = resolve_outcome_reference_scales(
         _checkpoint_weighter(clean_state, configured_weighter)
     )
+    competing_risk_config = model_init.get(
+        "competing_risk_config",
+        OmegaConf.to_container(cfg.get("competing_risk", {}), resolve=True),
+    )
 
     dapt_store = None
     if cfg.get("dapt_embedding_store") is not None:
@@ -202,6 +206,7 @@ def _load_model(
             )
         ),
         dapt_embedding_store=dapt_store,
+        competing_risk_config=competing_risk_config,
     )
     if is_opera_checkpoint:
         load_state_dict_checked(model, clean_state, strict=True)
