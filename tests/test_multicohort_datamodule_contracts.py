@@ -62,20 +62,21 @@ def test_multicohort_datamodule_can_explicitly_allow_missing_outcome(tmp_path):
     assert outcomes == {"aki_30d": {}}
 
 
-def test_validation_loader_uses_physical_batch_size_with_logical_caching():
+def test_validation_loader_uses_logical_batch_size_with_physical_microbatches():
     module = MultiCohortContrastiveDataModule(
         cohort_configs={},
         outcome_configs={},
         predict_token_id=1,
         batch_size=8,
         logical_batch_size=32,
+        logical_val_batch_size=24,
         num_workers=0,
     )
     module.val_dataset = [{}] * 17
 
     loader = module.val_dataloader()
 
-    assert loader.batch_size == 8
+    assert loader.batch_size == 24
 
 
 def test_compute_pooled_class_counts_uses_training_labels(tmp_path):

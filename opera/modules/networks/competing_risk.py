@@ -99,6 +99,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         no_competing_outcomes: Sequence[str] = ("overall_survival",),
         time_scale_days: float = 365.25,
         smoothness_weight: float = 0.0,
+        cross_outcome_config: Mapping[str, object] | None = None,
     ):
         super().__init__()
         boundaries = torch.as_tensor(interval_boundaries_days, dtype=torch.float32)
@@ -129,6 +130,16 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self.no_competing_outcomes = set(no_competing_outcomes)
         self.time_scale_days = float(time_scale_days)
         self.smoothness_weight = float(smoothness_weight)
+        settings = dict(cross_outcome_config or {})
+        self.aggregation = str(settings.get("aggregation", "macro"))
+        self.outcome_family = {
+            outcome: family
+            for family, members in dict(settings.get("outcome_families", {})).items()
+            for outcome in members
+        }
+        self.family_weights = dict(settings.get("family_weights", {}))
+        self.support_tau_locations = float(settings.get("support_tau_locations", 100.0))
+        self.event_location_counts = dict(settings.get("event_location_counts", {}))
         self.register_buffer(
             "boundaries",
             boundaries / self.time_scale_days,
@@ -183,6 +194,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         safe_log_hazards = log_hazards.clamp(min=-12.0, max=6.0)
         hazards = torch.exp(safe_log_hazards)
         losses: list[torch.Tensor] = []
+        loss_names: list[str] = []
         diagnostics: dict[str, torch.Tensor] = {}
 
         for name, outcome_index in self.outcome_index.items():
@@ -243,6 +255,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 diagnostics[f"cr/smoothness/{name}"] = smoothness.detach()
 
             losses.append(outcome_loss)
+            loss_names.append(name)
             diagnostics[f"cr/loss/{name}"] = outcome_loss.detach()
             diagnostics[f"cr/n_valid/{name}"] = valid.sum().float().detach()
             diagnostics[f"cr/n_target/{name}"] = target.sum().float().detach()
@@ -253,7 +266,32 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             diagnostics["cr/n_active_outcomes"] = zero.detach()
             return zero, diagnostics
 
-        total = torch.stack(losses).mean()
+        if self.aggregation == "hierarchical_support":
+            active_families = sorted({self.outcome_family[name] for name in loss_names})
+            family_denominator = sum(float(self.family_weights.get(family, 1.0)) for family in active_families)
+            total = losses[0] * 0.0
+            for family in active_families:
+                indices = [i for i, name in enumerate(loss_names) if self.outcome_family[name] == family]
+                support = losses[0].new_tensor([
+                    (float(self.event_location_counts.get(loss_names[i], 0.0)) /
+                     (float(self.event_location_counts.get(loss_names[i], 0.0)) + self.support_tau_locations)) ** 0.5
+                    for i in indices
+                ])
+                if float(support.sum().item()) <= 0:
+                    support = torch.ones_like(support)
+                support = support / support.sum()
+                family_weight = float(self.family_weights.get(family, 1.0)) / family_denominator
+                family_loss = torch.sum(
+                    support * torch.stack([losses[i] for i in indices])
+                )
+                total = total + family_weight * family_loss
+                family_key = family.lower().replace(" ", "_").replace("&", "and")
+                diagnostics[f"cr/family_loss/{family_key}"] = family_loss.detach()
+                diagnostics[f"cr/family_weight/{family_key}"] = losses[0].new_tensor(
+                    family_weight
+                )
+        else:
+            total = torch.stack(losses).mean()
         diagnostics["cr/n_active_outcomes"] = torch.tensor(
             float(len(losses)),
             device=log_hazards.device,

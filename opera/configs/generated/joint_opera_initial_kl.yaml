@@ -768,7 +768,8 @@ cross_outcome:
     Treatment trajectory: 2.0
   support_tau_locations: 100.0
   contrastive_term: kl
-  outcome_scale_mode: none
+  outcome_scale_mode: initial_kl
+  outcome_reference_scale_file: ${oc.env:OPERA_KL_REFERENCE_FILE}
 training:
   require_all_configured_cells: true
   require_min_followup_train: false

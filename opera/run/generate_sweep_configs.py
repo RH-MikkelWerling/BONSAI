@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from pathlib import Path
 from typing import Any
 import re
@@ -247,7 +248,8 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
             "dapt_anchor_weight": 0.02,
             "competing_event_handling": "exclude",
             "competing_event_weight": 0.0,
-            "effective_pair_normalization": True,
+            "effective_pair_normalization": False,
+            "projection_mode": "shared",
             "freeze_encoder": False,
             "pooling": "mean_last_128",
         },
@@ -273,25 +275,53 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
         },
         "cross_outcome": {
             "weighter": "uniform",
-            "aggregation": "macro",
+            "aggregation": "hierarchical_support",
             "class_balanced": False,
+            "outcome_families": registry["outcome_families"],
+            "family_weights": {
+                "Disease control & survival": 2.0,
+                "Treatment trajectory": 2.0,
+            },
+            "support_tau_locations": 100.0,
+            "contrastive_term": "kl",
+            "outcome_scale_mode": "none",
         },
         "training": {
             "require_all_configured_cells": True,
             "require_min_followup_train": False,
             "require_dapt_embedding_store": True,
-            "batch_size": 128,
+            "batch_size": 8,
+            "logical_batch_size": 256,
+            "logical_val_batch_size": 256,
             "batch_sampling": {"type": "random"},
-            "accumulate_grad_batches": 2,
+            "accumulate_grad_batches": 1,
             "epochs": 20,
             "learning_rate": 5e-5,
             "encoder_lr_multiplier": 0.1,
             "optimizer_epsilon": 1e-6,
             "scheduler_warmup_epochs": 2,
+            "log_every_n_steps": 10,
+            "probe_every_n_epochs": 5,
+            "enable_validation_probe": False,
+            "log_per_outcome_metrics": False,
             "limit_val_batches": 1.0,
             "limit_train_batches": 1.0,
         },
     }
+
+
+def build_joint_opera_ablation_config(
+    registry: dict[str, Any], *, projection_mode: str, initial_kl_scaling: bool
+) -> dict[str, Any]:
+    """Build a diagnostic-gated OPERA projection/scaling ablation."""
+    config = copy.deepcopy(build_joint_opera_config(registry))
+    config["model"]["projection_mode"] = projection_mode
+    if initial_kl_scaling:
+        config["cross_outcome"]["outcome_scale_mode"] = "initial_kl"
+        config["cross_outcome"]["outcome_reference_scale_file"] = (
+            "${oc.env:OPERA_KL_REFERENCE_FILE}"
+        )
+    return config
 
 
 def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
@@ -386,6 +416,12 @@ def generate_configs(
     written.append(family_path)
     for name, config in {
         "joint_opera_full_panel.yaml": build_joint_opera_config(registry),
+        "joint_opera_initial_kl.yaml": build_joint_opera_ablation_config(
+            registry, projection_mode="shared", initial_kl_scaling=True
+        ),
+        "joint_opera_family_initial_kl.yaml": build_joint_opera_ablation_config(
+            registry, projection_mode="family", initial_kl_scaling=True
+        ),
         "multi_outcome_full_panel.yaml": build_multi_outcome_config(registry),
     }.items():
         path = output / name

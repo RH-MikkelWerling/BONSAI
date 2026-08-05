@@ -247,11 +247,38 @@ def test_production_contrastive_configs_use_uniform_macro():
     for path in (
         "opera/configs/contrastive.yaml",
         "opera/configs/contrastive_multicohort.yaml",
-        "opera/configs/generated/joint_opera_full_panel.yaml",
     ):
         config = OmegaConf.load(path)
         assert config.cross_outcome.weighter == "uniform"
         assert config.cross_outcome.aggregation == "macro"
+    production = OmegaConf.load("opera/configs/generated/joint_opera_full_panel.yaml")
+    assert production.cross_outcome.weighter == "uniform"
+    assert production.cross_outcome.aggregation == "hierarchical_support"
+
+
+def test_hierarchical_support_balances_families_and_shrinks_sparse_outcomes():
+    loss_fn = MultiOutcomeSurvivalLoss(
+        ["central", "common", "rare"],
+        outcome_sorted_event_times={name: torch.tensor([1.0]) for name in ("central", "common", "rare")},
+        cross_outcome_config={
+            "weighter": "uniform",
+            "aggregation": "hierarchical_support",
+            "outcome_families": {"central_family": ["central"], "toxicity": ["common", "rare"]},
+            "family_weights": {"central_family": 2.0},
+            "support_tau_locations": 100.0,
+            "event_location_counts": {"central": 100, "common": 100, "rare": 1},
+        },
+    )
+    embeddings = torch.ones(4, 3, requires_grad=True)
+    def fake_terms(self, values, *args, **kwargs):
+        return {name: {"aggregation_loss": values[:, i].mean(), "n_effective_pairs": torch.tensor(1.0)}
+                for i, name in enumerate(self.outcome_names)}, {}
+    loss_fn.compute_per_outcome_losses = MethodType(fake_terms, loss_fn)
+    result = loss_fn(embeddings, {})
+    gradient = torch.autograd.grad(result["loss"], embeddings)[0].abs().sum(dim=0)
+    assert gradient[0] == pytest.approx(2.0 / 3.0)
+    assert gradient[1] + gradient[2] == pytest.approx(1.0 / 3.0)
+    assert gradient[1] > gradient[2]
 
 
 def test_production_joint_config_matches_contrastive_task_balancing():

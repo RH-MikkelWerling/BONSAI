@@ -108,6 +108,103 @@ def test_signal_weighted_loss_is_finite_and_has_gradient():
     assert result.item() > 0
 
 
+def test_contrastive_cross_entropy_decomposes_into_entropy_and_kl():
+    sorted_et = torch.tensor([30.0, 90.0, 180.0, 365.0])
+    times = torch.tensor([30.0, 90.0, 180.0, 365.0])
+    events = torch.ones(4, dtype=torch.long)
+    emb = _norm(torch.randn(4, 8, generator=torch.Generator().manual_seed(19)))
+    loss_fn = SurvivalSoftContrastiveLoss(km_time_scale=0.25)
+
+    cross_entropy, diagnostics = loss_fn(
+        emb,
+        times,
+        events,
+        sorted_event_times=sorted_et,
+        return_diagnostics=True,
+    )
+
+    assert diagnostics["excess_loss"].item() >= -1e-6
+    assert cross_entropy.item() == pytest.approx(
+        diagnostics["target_entropy"].item() + diagnostics["excess_loss"].item(),
+        abs=1e-6,
+    )
+    assert diagnostics["uniform_baseline"] >= diagnostics["target_entropy"]
+
+
+def test_kl_and_cross_entropy_terms_have_identical_embedding_gradients():
+    sorted_et = {"mortality": torch.tensor([30.0, 90.0, 180.0, 365.0])}
+    survival = {
+        "mortality": {
+            "times": torch.tensor([30.0, 90.0, 180.0, 365.0]),
+            "events": torch.ones(4, dtype=torch.long),
+        }
+    }
+    base = _norm(torch.randn(4, 8, generator=torch.Generator().manual_seed(23)))
+
+    def gradient(term):
+        emb = base.detach().clone().requires_grad_(True)
+        loss_fn = MultiOutcomeSurvivalLoss(
+            outcome_names=["mortality"],
+            outcome_sorted_event_times=sorted_et,
+            effective_pair_normalization=False,
+            cross_outcome_config={
+                "weighter": "uniform",
+                "aggregation": "macro",
+                "contrastive_term": term,
+            },
+        )
+        result = loss_fn(emb, survival)
+        return result["loss"].detach(), torch.autograd.grad(result["loss"], emb)[0]
+
+    ce_loss, ce_gradient = gradient("cross_entropy")
+    kl_loss, kl_gradient = gradient("kl")
+
+    assert kl_loss < ce_loss
+    assert torch.allclose(ce_gradient, kl_gradient, atol=1e-6, rtol=1e-5)
+
+
+def test_initial_kl_scaling_uses_fixed_reference_without_detaching_loss():
+    embeddings = _norm(torch.randn(4, 8)).requires_grad_(True)
+    survival = {
+        "mortality": {
+            "times": torch.tensor([30.0, 90.0, 180.0, 365.0]),
+            "events": torch.ones(4, dtype=torch.long),
+        }
+    }
+    loss_fn = MultiOutcomeSurvivalLoss(
+        outcome_names=["mortality"],
+        outcome_sorted_event_times={"mortality": survival["mortality"]["times"]},
+        effective_pair_normalization=False,
+        cross_outcome_config={
+            "weighter": "uniform",
+            "aggregation": "macro",
+            "contrastive_term": "kl",
+            "outcome_scale_mode": "initial_kl",
+            "outcome_reference_scales": {"mortality": 2.0},
+        },
+    )
+    terms, logs = loss_fn.compute_per_outcome_losses(embeddings, survival)
+
+    assert torch.allclose(
+        terms["mortality"]["aggregation_loss"],
+        terms["mortality"]["excess_loss"] / 2.0,
+    )
+    assert logs["outcome_scale_factor/mortality"].item() == pytest.approx(0.5)
+    torch.autograd.grad(terms["mortality"]["aggregation_loss"], embeddings)
+
+
+def test_initial_kl_scaling_requires_complete_positive_references():
+    with pytest.raises(ValueError, match="finite positive reference"):
+        MultiOutcomeSurvivalLoss(
+            outcome_names=["mortality"],
+            outcome_sorted_event_times={"mortality": torch.tensor([1.0])},
+            cross_outcome_config={
+                "outcome_scale_mode": "initial_kl",
+                "outcome_reference_scales": {},
+            },
+        )
+
+
 def test_noisy_anchor_perturb_moves_loss_less_than_signal_rich():
     sorted_et = torch.tensor([10.0, 30.0, 90.0, 180.0, 365.0, 730.0])
     times = torch.tensor([180.0, 2.0, 30.0, 90.0, 365.0, 730.0])

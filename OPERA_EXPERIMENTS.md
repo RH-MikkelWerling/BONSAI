@@ -846,8 +846,11 @@ for every configured endpoint, and missing labels are represented by sentinel
 values. For large endpoint panels, use the same task-balancing philosophy in
 contrastive and joint fine-tuning:
 
-- primary contrastive and joint runs should use uniform macro aggregation, so
-  common endpoints do not dominate by sheer support;
+- primary full-panel OPERA runs use hierarchical support aggregation: outcome
+  families receive prespecified weights, while outcomes within a family are
+  shrunk by their distinct training event-time support. This prevents the
+  largest family from dominating while avoiding equal trust in extremely
+  sparse endpoints;
 - joint fine-tuning uses the shared cross-outcome weighter and can auto-fill
   train-set class counts from the configured cohort/outcome files;
 - capped positive-class weighting is enabled for joint BCE by default, so rare
@@ -857,21 +860,24 @@ contrastive and joint fine-tuning:
 - real-rare cells should still be flagged by train/test event support before
   paper aggregation.
 
-The production joint config mirrors the contrastive setting:
+The production OPERA contrastive config uses:
 
 ```yaml
 cross_outcome:
   weighter: uniform
-  aggregation: macro
+  aggregation: hierarchical_support
   class_balanced: false
-  positive_class_weighted: true
-  positive_class_weight_cap: 50.0
-  require_both_classes_per_batch: true
+  outcome_families: ...
+  family_weights:
+    Disease control & survival: 2.0
+    Treatment trajectory: 2.0
+  support_tau_locations: 100.0
 ```
 
-Use `class_balanced: true` only as a sensitivity run unless the analysis plan
-explicitly wants an additional outcome-level rare-task boost on top of BCE
-positive weighting.
+Uniform macro aggregation remains a required sensitivity analysis. Joint BCE
+fine-tuning separately uses capped positive-class weighting and skips
+one-class minibatch contributions; those BCE-specific settings do not apply to
+the OPERA survival-contrastive objective.
 
 ## Manifests
 

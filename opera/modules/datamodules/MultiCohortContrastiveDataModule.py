@@ -428,6 +428,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         max_len: int = 8192,
         batch_sampling: Optional[Dict[str, object]] = None,
         logical_batch_size: Optional[int] = None,
+        logical_val_batch_size: Optional[int] = None,
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -436,8 +437,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
         self.logical_batch_size = int(logical_batch_size or batch_size)
+        self.logical_val_batch_size = int(logical_val_batch_size or batch_size)
         if self.logical_batch_size < self.batch_size:
             raise ValueError("logical_batch_size must be at least batch_size.")
+        if self.logical_val_batch_size < self.batch_size:
+            raise ValueError("logical_val_batch_size must be at least batch_size.")
         self.num_workers = num_workers
         self.require_min_followup_train = require_min_followup_train
         self.require_min_followup_val = require_min_followup_val
@@ -679,10 +683,13 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.train_sampler = None
         min_valid = self.batch_sampling.get("min_valid_per_batch")
         batches_per_epoch = self.batch_sampling.get("batches_per_epoch")
+        logical_batch_size = int(
+            getattr(self, "logical_batch_size", self.batch_size)
+        )
         self.train_batch_sampler = build_event_aware_batch_sampler(
             self.train_dataset,
             self.outcome_names,
-            batch_size=self.batch_size,
+            batch_size=logical_batch_size,
             n_quantiles=int(self.batch_sampling.get("n_quantiles", 4)),
             min_events_per_batch=int(
                 self.batch_sampling.get("min_events_per_batch", 4)
@@ -708,8 +715,11 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
 
         collate = contrastive_collate
         loader_batch_size = self.batch_size
-        if self.logical_batch_size > self.batch_size:
-            loader_batch_size = self.logical_batch_size
+        logical_batch_size = int(
+            getattr(self, "logical_batch_size", self.batch_size)
+        )
+        if logical_batch_size > self.batch_size:
+            loader_batch_size = logical_batch_size
             collate = partial(
                 logical_contrastive_collate, physical_batch_size=self.batch_size
             )
@@ -737,13 +747,18 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
     def val_dataloader(self):
         if self.val_dataset is None:
             return None
+        from functools import partial
+        from opera.modules.datamodules.ContrastiveDataModule import logical_contrastive_collate
+        collate = contrastive_collate
+        if self.logical_val_batch_size > self.batch_size:
+            collate = partial(logical_contrastive_collate, physical_batch_size=self.batch_size)
         return DataLoader(
             self.val_dataset,
             num_workers=self.num_workers,
-            batch_size=self.batch_size,
+            batch_size=self.logical_val_batch_size,
             pin_memory=True,
             persistent_workers=self.num_workers > 0,
             drop_last=False,
             shuffle=False,
-            collate_fn=contrastive_collate,
+            collate_fn=collate,
         )

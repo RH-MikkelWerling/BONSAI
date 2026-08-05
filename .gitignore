@@ -37,3 +37,4 @@ paper/*.log
 paper/*.out
 paper/*.pdf
 paper/*.synctex.gz
+.pytest_*/

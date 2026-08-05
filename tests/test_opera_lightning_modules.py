@@ -10,9 +10,12 @@ is not attached to a ``Trainer`` (as here), Lightning treats ``self.log`` as a
 no-op that only emits a warning, so the steps can be invoked directly.
 """
 
+import copy
 import pytest
 import torch
 import torch.nn as nn
+import lightning as L
+from torch.utils.data import DataLoader, Dataset
 
 from opera.modules.lightningmodules.OperaContrastiveModule import (
     OperaContrastiveModule,
@@ -85,6 +88,7 @@ def _make_opera_model(
     dapt_anchor_weight: float = 0.0,
     store=None,
     competing_risk_config=None,
+    **model_kwargs,
 ):
     return OperaContrastiveModel(
         encoder=_StubEncoder(),
@@ -99,6 +103,7 @@ def _make_opera_model(
         dapt_embedding_store=store,
         competing_risk_config=competing_risk_config,
         pooling="cls_last",
+        **model_kwargs,
     )
 
 
@@ -159,6 +164,174 @@ def test_opera_combines_contrastive_and_competing_risk_losses():
     assert result["loss"].item() == pytest.approx(
         result["contrastive_loss"].item() + 0.5 * result["cr/loss"].item()
     )
+
+
+def test_family_projection_uses_auxiliary_spaces_but_preserves_pooled_representation():
+    model = _make_opera_model(
+        cross_outcome_config={
+            "outcome_families": {"survival": ["mortality"], "disease": ["relapse"]}
+        },
+        projection_mode="family",
+    )
+    batch = _batch()
+    pooled = model.get_embeddings(batch, return_pre_projection=True)
+    projected = model.get_embeddings(batch)
+
+    assert pooled.shape[-1] == 8
+    assert set(projected) == {"survival", "disease"}
+    assert projected["survival"].shape[-1] == 4
+    with pytest.raises(ValueError, match="family is required"):
+        model.get_contrastive_embeddings(batch)
+    assert model.get_contrastive_embeddings(batch, family="survival").shape[-1] == 4
+    full_batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": full_batch[f"time_{name}"],
+            "events": full_batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+    assert torch.isfinite(model(full_batch, survival)["loss"])
+
+
+def test_two_pass_pooled_gradient_matches_direct_logical_batch_gradient():
+    direct = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 0.5,
+            "contrastive_loss_weight": 1.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+        }
+    ).eval()
+    cached = copy.deepcopy(direct).eval()
+    batch = _opera_survival_batch()
+    survival = {
+        name: {"times": batch[f"time_{name}"], "events": batch[f"event_{name}"]}
+        for name in OUTCOMES
+    }
+    direct(batch, survival)["loss"].backward()
+
+    microbatches = [
+        {
+            key: value[start : start + 2] if torch.is_tensor(value) else value
+            for key, value in batch.items()
+        }
+        for start in (0, 2)
+    ]
+    with torch.no_grad():
+        pooled_parts = [cached._pool(micro) for micro in microbatches]
+    pooled = torch.cat(pooled_parts).detach().requires_grad_(True)
+    cached.forward_from_pooled(pooled, survival, batch["subject_id"])["loss"].backward()
+    pooled_gradient = pooled.grad.detach()
+    for index, micro in enumerate(microbatches):
+        recomputed = cached._pool(micro)
+        (recomputed * pooled_gradient[index * 2 : (index + 1) * 2]).sum().backward()
+
+    for (name, direct_parameter), (cached_name, cached_parameter) in zip(
+        direct.named_parameters(), cached.named_parameters()
+    ):
+        assert name == cached_name
+        assert torch.allclose(
+            direct_parameter.grad, cached_parameter.grad, atol=1e-6, rtol=1e-5
+        ), name
+
+
+def test_cached_logical_validation_matches_direct_full_batch_loss():
+    model = _make_opera_model().eval()
+    module = OperaContrastiveModule(model, OUTCOMES, gradient_cache=True).eval()
+    batch = _opera_survival_batch()
+    survival = module._build_outcome_survival(batch)
+    expected = model(batch, survival)["loss"].detach()
+    microbatches = [
+        {
+            key: value[start : start + 2] if torch.is_tensor(value) else value
+            for key, value in batch.items()
+        }
+        for start in (0, 2)
+    ]
+    actual = module.validation_step(microbatches, 0)
+    assert torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
+
+
+def test_cached_opera_runs_through_lightning_manual_optimization():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    store = {subject_id: torch.randn(HIDDEN) for subject_id in range(1, BATCH + 1)}
+    module = OperaContrastiveModule(
+        _make_opera_model(dapt_anchor_weight=0.02, store=store),
+        OUTCOMES,
+        gradient_cache=True,
+        dapt_anchor_weight=0.02,
+        scheduler_warmup_epochs=0,
+    )
+    loader = DataLoader(LogicalDataset(), batch_size=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+    trainer.fit(module, train_dataloaders=loader, val_dataloaders=loader)
+    assert trainer.global_step == 1
+
+
+def test_cached_opera_advances_step_warmup_per_logical_batch():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 2
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    base_lr = 1e-4
+    encoder_multiplier = 0.1
+    module = OperaContrastiveModule(
+        _make_opera_model(),
+        OUTCOMES,
+        learning_rate=base_lr,
+        encoder_lr_multiplier=encoder_multiplier,
+        gradient_cache=True,
+        scheduler_warmup_epochs=1,
+    )
+    loader = DataLoader(LogicalDataset(), batch_size=None)
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+    trainer.fit(module, train_dataloaders=loader)
+
+    assert trainer.global_step == 2
+    final_lrs = [group["lr"] for group in trainer.optimizers[0].param_groups]
+    assert final_lrs == pytest.approx([base_lr, base_lr * encoder_multiplier], rel=1e-6)
 
 
 def test_opera_contrastive_requires_dapt_ckpt_or_none():

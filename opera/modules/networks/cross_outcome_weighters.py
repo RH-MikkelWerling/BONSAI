@@ -239,8 +239,11 @@ def build_cross_outcome_weighter(
     settings = dict(config or {})
     name = str(settings.get("weighter", "kendall")).lower()
     aggregation = str(settings.get("aggregation", "pooled")).lower()
-    if aggregation not in {"macro", "pooled"}:
-        raise ValueError("cross_outcome.aggregation must be one of: macro, pooled.")
+    if aggregation not in {"macro", "pooled", "hierarchical_support"}:
+        raise ValueError(
+            "cross_outcome.aggregation must be one of: macro, pooled, "
+            "hierarchical_support."
+        )
 
     n_outcomes = len(outcome_names)
     if name == "uniform":

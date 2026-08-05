@@ -32,6 +32,7 @@ from omegaconf import DictConfig, OmegaConf
 from bonsai.functional.checkpointing import (
     MODEL_INIT_CONFIG_KEY,
     clean_lightning_state_dict,
+    extract_encoder_state_dict,
     get_saved_encoder_config,
     load_state_dict_checked,
 )
@@ -48,6 +49,7 @@ from opera.modules.networks.opera_nets import (
     OperaContrastiveModel,
     outcome_eligibility_mask,
 )
+from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 
 
 def _move_to_device(value: Any, device: torch.device) -> Any:
@@ -100,6 +102,7 @@ def _load_model(
     time_grids: dict[str, torch.Tensor],
     probability_grids: dict[str, torch.Tensor],
     device: torch.device,
+    seed: int = 17,
 ) -> OperaContrastiveModel:
     checkpoint = torch.load(
         checkpoint_path,
@@ -122,7 +125,9 @@ def _load_model(
             resolve=True,
         ),
     )
-    cross_outcome = _checkpoint_weighter(clean_state, configured_weighter)
+    cross_outcome = resolve_outcome_reference_scales(
+        _checkpoint_weighter(clean_state, configured_weighter)
+    )
 
     dapt_store = None
     if cfg.get("dapt_embedding_store") is not None:
@@ -132,7 +137,14 @@ def _load_model(
             weights_only=False,
         )
 
+    torch.manual_seed(seed)
     encoder = build_bonsai_encoder(model_config)
+    is_opera_checkpoint = any(key.startswith("projection.") for key in clean_state)
+    if not is_opera_checkpoint:
+        encoder.load_state_dict(
+            extract_encoder_state_dict(checkpoint["state_dict"]),
+            strict=True,
+        )
     model = OperaContrastiveModel(
         encoder=encoder,
         outcome_names=outcome_names,
@@ -172,6 +184,11 @@ def _load_model(
             )
         ),
         cross_outcome_config=cross_outcome,
+        projection_mode=str(
+            model_init.get(
+                "projection_mode", cfg.model.get("projection_mode", "shared")
+            )
+        ),
         freeze_encoder=bool(
             model_init.get(
                 "freeze_encoder",
@@ -186,7 +203,8 @@ def _load_model(
         ),
         dapt_embedding_store=dapt_store,
     )
-    load_state_dict_checked(model, clean_state, strict=True)
+    if is_opera_checkpoint:
+        load_state_dict_checked(model, clean_state, strict=True)
     model.to(device)
     model.eval()
     return model
@@ -195,6 +213,7 @@ def _load_model(
 def _build_data(
     cfg: DictConfig,
     batch_size: int | None,
+    logical_batch_size: int | None,
     num_workers: int,
     max_len: int,
 ):
@@ -222,6 +241,7 @@ def _build_data(
             outcome_configs=outcome_configs,
             predict_token_id=vocabulary["[CLS]"],
             batch_size=chosen_batch_size,
+            logical_batch_size=logical_batch_size,
             num_workers=num_workers,
             require_all_configured_cells=require_all,
             max_len=max_len,
@@ -478,6 +498,7 @@ def diagnose_checkpoint(
         time_grids,
         probability_grids,
         device,
+        seed,
     )
     n_outcomes = len(outcome_names)
     cosine_sum = np.zeros((n_outcomes, n_outcomes), dtype=float)
@@ -487,6 +508,14 @@ def diagnose_checkpoint(
     event_sum = np.zeros(n_outcomes, dtype=float)
     event_count = np.zeros(n_outcomes, dtype=float)
     batch_pair_records: list[dict[str, Any]] = []
+    outcome_batch_records: list[dict[str, Any]] = []
+    family_by_outcome = {
+        outcome: family
+        for family, members in dict(
+            cfg.get("cross_outcome", {}).get("outcome_families", {})
+        ).items()
+        for outcome in members
+    }
 
     torch.manual_seed(seed)
     loader = data_module.train_dataloader()
@@ -494,17 +523,36 @@ def diagnose_checkpoint(
     for batch_index, cpu_batch in enumerate(loader):
         if batch_index >= n_batches:
             break
-        batch = _move_to_device(cpu_batch, device)
-        survival = _outcome_survival(batch, outcome_names)
+        microbatches = cpu_batch if isinstance(cpu_batch, list) else [cpu_batch]
+        embedding_parts = []
+        subject_parts = []
+        survival_parts = {name: {"times": [], "events": []} for name in outcome_names}
         with torch.no_grad():
-            embedding = model.get_embeddings(batch)
+            for cpu_microbatch in microbatches:
+                microbatch = _move_to_device(cpu_microbatch, device)
+                embedding_parts.append(
+                    model.get_embeddings(microbatch, return_pre_projection=True)
+                )
+                subject_parts.append(microbatch["subject_id"])
+                micro_survival = _outcome_survival(microbatch, outcome_names)
+                for name, fields in micro_survival.items():
+                    survival_parts[name]["times"].append(fields["times"])
+                    survival_parts[name]["events"].append(fields["events"])
+        pooled = torch.cat(embedding_parts)
+        subject_ids = torch.cat(subject_parts)
+        survival = {
+            name: {key: torch.cat(values) for key, values in fields.items()}
+            for name, fields in survival_parts.items()
+            if fields["times"]
+        }
 
         with torch.enable_grad():
-            representation = embedding.detach().clone().requires_grad_(True)
+            representation = pooled.detach().clone().requires_grad_(True)
+            projected = model.projection(representation)
             terms, _ = model.contrastive_loss.compute_per_outcome_losses(
-                representation,
+                projected,
                 survival,
-                subject_ids=batch.get("subject_id"),
+                subject_ids=subject_ids,
                 dapt_embedding_store=model.dapt_embedding_store,
             )
             active_names = [
@@ -520,6 +568,43 @@ def diagnose_checkpoint(
                     retain_graph=term_index < len(active_names) - 1,
                 )[0]
                 gradients[name] = gradient.detach()
+
+            for name, term in terms.items():
+                outcome = survival[name]
+                valid = outcome_eligibility_mask(outcome["times"], outcome["events"])
+                events = outcome["events"][valid]
+                outcome_batch_records.append(
+                    {
+                        "checkpoint": str(checkpoint),
+                        "batch_index": batch_index,
+                        "outcome": name,
+                        "family": family_by_outcome.get(name, "unassigned"),
+                        "n_valid": int(valid.sum().item()),
+                        "n_event": int((events == 1).sum().item()),
+                        "n_censored": int((events == 0).sum().item()),
+                        "n_competing": int((events == 2).sum().item()),
+                        "event_rate": float((events == 1).float().mean().item()),
+                        "cross_entropy": float(term["loss"].detach().item()),
+                        "target_entropy": float(term["target_entropy"].detach().item()),
+                        "kl": float(term["excess_loss"].detach().item()),
+                        "headroom": float(term["contrastive_headroom"].detach().item()),
+                        "relative_kl": float(
+                            (
+                                term["excess_loss"]
+                                / term["contrastive_headroom"].clamp_min(1e-6)
+                            )
+                            .detach()
+                            .item()
+                        ),
+                        "n_effective_pairs": float(
+                            term["n_effective_pairs"].detach().item()
+                        ),
+                        "effective_pair_fraction": float(
+                            term["effective_pair_fraction"].detach().item()
+                        ),
+                        "gradient_norm": float(gradients[name].norm().item()),
+                    }
+                )
 
         for index, name in enumerate(outcome_names):
             outcome = survival.get(name)
@@ -608,6 +693,74 @@ def diagnose_checkpoint(
         negative_threshold,
         batch_pair_records,
     )
+    outcome_frame = pd.DataFrame(outcome_batch_records)
+    outcome_frame.to_csv(output_dir / "outcome_batch_diagnostics.csv", index=False)
+    if not outcome_frame.empty:
+        numeric_columns = [
+            column
+            for column in outcome_frame.select_dtypes(include=[np.number]).columns
+            if column != "batch_index"
+        ]
+        outcome_summary = outcome_frame.groupby(["outcome", "family"], as_index=False)[
+            numeric_columns
+        ].median()
+        outcome_summary.to_csv(output_dir / "outcome_diagnostics.csv", index=False)
+        family_summary = outcome_summary.groupby("family", as_index=False)[
+            numeric_columns
+        ].mean()
+        family_summary.to_csv(output_dir / "family_diagnostics.csv", index=False)
+        references = {
+            row["outcome"]: row["kl"]
+            for row in outcome_summary.to_dict(orient="records")
+            if np.isfinite(row["kl"]) and row["kl"] > 0
+        }
+        (output_dir / "normalization_references.json").write_text(
+            json.dumps(
+                {
+                    "scale": "median_initial_kl",
+                    "checkpoint": str(checkpoint),
+                    "outcome_reference_scales": references,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    pair_frame = pd.DataFrame(batch_pair_records)
+    if not pair_frame.empty and family_by_outcome:
+        pair_frame["family_a"] = pair_frame["outcome_a"].map(family_by_outcome)
+        pair_frame["family_b"] = pair_frame["outcome_b"].map(family_by_outcome)
+        pair_frame["relationship"] = np.where(
+            pair_frame["family_a"] == pair_frame["family_b"],
+            "within_family",
+            "between_family",
+        )
+        pair_frame.to_csv(output_dir / "gradient_pair_batches.csv", index=False)
+        valid_pairs = pair_frame[pair_frame["cosine"].notna()]
+        if not valid_pairs.empty:
+            conflict_summary = valid_pairs.groupby("relationship", as_index=False).agg(
+                mean_cosine=("cosine", "mean"),
+                median_cosine=("cosine", "median"),
+                n=("cosine", "size"),
+            )
+            conflict_summary.to_csv(
+                output_dir / "family_gradient_conflict.csv", index=False
+            )
+            family_pairs = valid_pairs.copy()
+            family_pairs[["family_low", "family_high"]] = family_pairs.apply(
+                lambda row: sorted([row["family_a"], row["family_b"]]),
+                axis=1,
+                result_type="expand",
+            )
+            (
+                family_pairs.groupby(["family_low", "family_high"], as_index=False)
+                .agg(
+                    mean_cosine=("cosine", "mean"),
+                    median_cosine=("cosine", "median"),
+                    n_outcome_batch_pairs=("cosine", "size"),
+                    mean_joint_support=("joint_support", "mean"),
+                )
+                .to_csv(output_dir / "family_pair_gradient_conflict.csv", index=False)
+            )
     print(
         f"{checkpoint}: {summary['n_supported_pairs']} supported outcome pairs, "
         f"fraction below zero={summary['fraction_below_zero']}, "
@@ -645,6 +798,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--batches", type=int, default=16)
     parser.add_argument("--batch-size", type=int)
+    parser.add_argument(
+        "--logical-batch-size",
+        type=int,
+        help="Pairwise diagnostic batch assembled from physical encoder microbatches",
+    )
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--min-overlap", type=int, default=8)
     parser.add_argument("--negative-threshold", type=float, default=-0.1)
@@ -678,6 +836,7 @@ def main() -> None:
     data_module, outcome_names, time_grids, probability_grids = _build_data(
         cfg,
         args.batch_size,
+        args.logical_batch_size,
         args.num_workers,
         max_len,
     )

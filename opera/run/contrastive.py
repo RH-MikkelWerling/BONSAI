@@ -30,6 +30,7 @@ from bonsai.functional.checkpointing import (
 )
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 from opera.modules.networks.competing_risk import (
     validate_competing_risk_sampling,
 )
@@ -118,10 +119,10 @@ def main(cfg: DictConfig) -> None:
         effective_pair_normalization=cfg.model.get(
             "effective_pair_normalization", True
         ),
-        cross_outcome_config=OmegaConf.to_container(
-            cfg.get("cross_outcome", {}),
-            resolve=True,
+        cross_outcome_config=resolve_outcome_reference_scales(
+            OmegaConf.to_container(cfg.get("cross_outcome", {}), resolve=True)
         ),
+        projection_mode=cfg.model.get("projection_mode", "shared"),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,

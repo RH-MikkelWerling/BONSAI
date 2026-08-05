@@ -19,7 +19,7 @@ import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import CSVLogger
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.versioning import generate_unused_run_id
@@ -34,6 +34,7 @@ from bonsai.functional.checkpointing import (
 )
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 from opera.modules.networks.competing_risk import (
     summarize_competing_risk_support,
     validate_competing_risk_sampling,
@@ -280,6 +281,16 @@ def main(cfg: DictConfig) -> None:
     for name, t in outcome_sorted_event_times.items():
         print(f"  {name}: {len(t)} pooled KM-weighted training event locations")
 
+    cross_outcome_config = OmegaConf.to_container(
+        cfg.get("cross_outcome", {}), resolve=True
+    )
+    cross_outcome_config = resolve_outcome_reference_scales(cross_outcome_config)
+    if cross_outcome_config.get("aggregation") == "hierarchical_support":
+        cross_outcome_config["event_location_counts"] = {
+            name: int(times.numel())
+            for name, times in outcome_sorted_event_times.items()
+        }
+
     model = OperaContrastiveModel(
         encoder=encoder,
         outcome_names=outcome_names,
@@ -299,10 +310,8 @@ def main(cfg: DictConfig) -> None:
         effective_pair_normalization=cfg.model.get(
             "effective_pair_normalization", True
         ),
-        cross_outcome_config=OmegaConf.to_container(
-            cfg.get("cross_outcome", {}),
-            resolve=True,
-        ),
+        cross_outcome_config=cross_outcome_config,
+        projection_mode=cfg.model.get("projection_mode", "shared"),
         freeze_encoder=cfg.model.freeze_encoder,
         pooling=cfg.model.pooling,
         dapt_embedding_store=dapt_embedding_store,
@@ -326,6 +335,7 @@ def main(cfg: DictConfig) -> None:
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
         logical_batch_size=cfg.training.get("logical_batch_size"),
+        logical_val_batch_size=cfg.training.get("logical_val_batch_size"),
     )
     data_module.setup("fit")
 
@@ -390,6 +400,9 @@ def main(cfg: DictConfig) -> None:
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         gradient_cache=cfg.training.get("logical_batch_size") is not None,
+        probe_every_n_epochs=cfg.training.get("probe_every_n_epochs", 1),
+        enable_validation_probe=cfg.training.get("enable_validation_probe", True),
+        log_per_outcome_metrics=cfg.training.get("log_per_outcome_metrics", True),
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,
@@ -417,11 +430,12 @@ def main(cfg: DictConfig) -> None:
         devices=cfg.hardware.num_devices,
         limit_val_batches=cfg.training.limit_val_batches,
         limit_train_batches=cfg.training.limit_train_batches,
-        callbacks=[ckpt_callback],
+        callbacks=[ckpt_callback, LearningRateMonitor(logging_interval="step")],
         logger=[logger],
         max_epochs=cfg.training.epochs,
         num_nodes=cfg.hardware.num_nodes,
         precision=cfg.hardware.precision,
+        log_every_n_steps=int(cfg.training.get("log_every_n_steps", 10)),
     )
 
     trainer.fit(model=lightning_module, datamodule=data_module)

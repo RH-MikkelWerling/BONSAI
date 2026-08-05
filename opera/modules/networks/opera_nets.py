@@ -19,7 +19,7 @@ NOTE: The projection dimension (default 128) and the number / identity of
 outcomes are the main knobs to tune.  Search for "# TUNE:" comments below.
 """
 
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -64,6 +64,27 @@ class ProjectionHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.normalize(self.net(x), dim=-1)
+
+
+class FamilyProjectionHead(nn.Module):
+    """Shared projection trunk with a small final head per outcome family."""
+
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, families):
+        super().__init__()
+        family_names = list(dict.fromkeys(str(name) for name in families))
+        if not family_names:
+            raise ValueError("Family projection requires at least one family.")
+        self.trunk = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.GELU())
+        self.heads = nn.ModuleDict(
+            {name: nn.Linear(hidden_dim, output_dim) for name in family_names}
+        )
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        shared = self.trunk(x)
+        return {
+            family: F.normalize(head(shared), dim=-1)
+            for family, head in self.heads.items()
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -493,7 +514,13 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         if valid.sum() == 0:
             zero = torch.tensor(0.0, device=device, requires_grad=True)
             if return_diagnostics:
-                return zero, {"n_effective_pairs": n_eff}
+                return zero, {
+                    "n_effective_pairs": n_eff,
+                    "target_entropy": zero.detach(),
+                    "excess_loss": zero,
+                    "uniform_baseline": zero.detach(),
+                    "contrastive_headroom": zero.detach(),
+                }
             return zero
 
         pair_weights = pair_weights / (row_sum.unsqueeze(1) + 1e-12)
@@ -505,10 +532,26 @@ class SurvivalSoftContrastiveLoss(nn.Module):
         per_anchor_loss = -(pair_weights[valid] * log_softmax[valid]).sum(dim=1)
         anchor_weights = row_sum[valid] / (row_sum[valid].sum() + 1e-12)
         loss = (anchor_weights * per_anchor_loss).sum()
+        target_entropy_per_anchor = -(
+            pair_weights[valid] * torch.log(pair_weights[valid].clamp_min(1e-12))
+        ).sum(dim=1)
+        target_entropy = (anchor_weights * target_entropy_per_anchor).sum()
+        candidate_counts = (~excluded_pairs[valid]).sum(dim=1).clamp_min(1)
+        uniform_baseline = (
+            anchor_weights * torch.log(candidate_counts.to(loss.dtype))
+        ).sum()
+        excess_loss = loss - target_entropy
+        contrastive_headroom = (uniform_baseline - target_entropy).clamp_min(0.0)
         if not loss.requires_grad:
             loss.requires_grad_()
         if return_diagnostics:
-            return loss, {"n_effective_pairs": n_eff}
+            return loss, {
+                "n_effective_pairs": n_eff,
+                "target_entropy": target_entropy.detach(),
+                "excess_loss": excess_loss,
+                "uniform_baseline": uniform_baseline.detach(),
+                "contrastive_headroom": contrastive_headroom.detach(),
+            }
         return loss
 
 
@@ -767,6 +810,65 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             self.aggregation,
             class_balance_factors,
         ) = build_cross_outcome_weighter(outcome_names, cross_outcome_config)
+        settings = dict(cross_outcome_config or {})
+        families = settings.get("outcome_families", {})
+        self.outcome_family = {
+            outcome: family
+            for family, members in families.items()
+            for outcome in members
+        }
+        self.family_weights = dict(settings.get("family_weights", {}))
+        self.support_tau_locations = float(settings.get("support_tau_locations", 100.0))
+        self.event_location_counts = dict(settings.get("event_location_counts", {}))
+        self.contrastive_term = str(
+            settings.get("contrastive_term", "cross_entropy")
+        ).lower()
+        if self.contrastive_term not in {"cross_entropy", "kl"}:
+            raise ValueError(
+                "cross_outcome.contrastive_term must be 'cross_entropy' or 'kl'."
+            )
+        default_scale_mode = (
+            "effective_pairs" if effective_pair_normalization else "none"
+        )
+        self.outcome_scale_mode = str(
+            settings.get("outcome_scale_mode", default_scale_mode)
+        ).lower()
+        if self.outcome_scale_mode not in {"none", "effective_pairs", "initial_kl"}:
+            raise ValueError(
+                "cross_outcome.outcome_scale_mode must be one of: none, "
+                "effective_pairs, initial_kl."
+            )
+        reference_scales = settings.get("outcome_reference_scales", {})
+        if not isinstance(reference_scales, Mapping):
+            raise ValueError(
+                "cross_outcome.outcome_reference_scales must be a mapping."
+            )
+        self.outcome_reference_scales = {
+            str(name): float(value) for name, value in reference_scales.items()
+        }
+        if self.outcome_scale_mode == "initial_kl":
+            missing_scales = sorted(
+                set(outcome_names) - set(self.outcome_reference_scales)
+            )
+            invalid_scales = sorted(
+                name
+                for name, value in self.outcome_reference_scales.items()
+                if name in outcome_names
+                and (not torch.isfinite(torch.tensor(value)) or value <= 0)
+            )
+            if missing_scales or invalid_scales:
+                raise ValueError(
+                    "initial_kl scaling requires one finite positive reference per "
+                    f"outcome; missing={missing_scales}, invalid={invalid_scales}."
+                )
+        if self.aggregation == "hierarchical_support":
+            missing = set(outcome_names) - set(self.outcome_family)
+            extra = set(self.outcome_family) - set(outcome_names)
+            if missing or extra:
+                raise ValueError(
+                    f"outcome_families must cover configured outcomes exactly; "
+                    f"missing={sorted(missing)}, extra={sorted(extra)}"
+                )
         self.register_buffer(
             "class_balance_factors",
             class_balance_factors,
@@ -814,13 +916,18 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
 
     def compute_per_outcome_losses(
         self,
-        embeddings: torch.Tensor,
+        embeddings: Union[torch.Tensor, Mapping[str, torch.Tensor]],
         outcome_survival: Dict[str, Dict[str, torch.Tensor]],
         subject_ids: Optional[torch.Tensor] = None,
         dapt_embedding_store: Optional[Dict] = None,
     ) -> tuple[Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]:
         """Return differentiable outcome terms before final aggregation."""
-        device = embeddings.device
+        template_embedding = (
+            embeddings
+            if isinstance(embeddings, torch.Tensor)
+            else next(iter(embeddings.values()))
+        )
+        device = template_embedding.device
         terms: Dict[str, Dict[str, torch.Tensor]] = {}
         log_dict: Dict[str, torch.Tensor] = {}
 
@@ -863,8 +970,13 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
                     f"No sorted_event_times provided for outcome {name!r}. "
                     "Pass outcome_sorted_event_times to MultiOutcomeSurvivalLoss."
                 )
+            outcome_embeddings = (
+                embeddings
+                if isinstance(embeddings, torch.Tensor)
+                else embeddings[self.outcome_family[name]]
+            )
             loss, diagnostics = self.survival_con(
-                embeddings[valid_mask],
+                outcome_embeddings[valid_mask],
                 times[valid_mask],
                 events[valid_mask],
                 sorted_event_times=sorted_event_times,
@@ -880,29 +992,47 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             n_valid = int(valid_mask.sum().item())
             max_pairs = max(float(n_valid * (n_valid - 1)), 1.0)
             effective_pair_fraction = (n_effective_pairs / max_pairs).clamp(1e-6, 1.0)
-            aggregation_loss = (
-                loss * torch.sqrt(effective_pair_fraction)
-                if self.effective_pair_normalization
-                else loss
-            )
+            excess_loss = diagnostics["excess_loss"].to(device)
+            objective_loss = excess_loss if self.contrastive_term == "kl" else loss
+            scale_mode = self.outcome_scale_mode
+            if scale_mode == "effective_pairs":
+                scale_factor = torch.sqrt(effective_pair_fraction)
+            elif scale_mode == "initial_kl":
+                scale_factor = objective_loss.new_tensor(
+                    1.0 / self.outcome_reference_scales[name]
+                )
+            else:
+                scale_factor = objective_loss.new_tensor(1.0)
+            aggregation_loss = objective_loss * scale_factor
             terms[name] = {
                 "loss": loss,
+                "target_entropy": diagnostics["target_entropy"].to(device),
+                "excess_loss": excess_loss,
+                "uniform_baseline": diagnostics["uniform_baseline"].to(device),
+                "contrastive_headroom": diagnostics["contrastive_headroom"].to(device),
                 "aggregation_loss": aggregation_loss,
                 "valid_mask": valid_mask,
                 "n_effective_pairs": n_effective_pairs,
                 "effective_pair_fraction": effective_pair_fraction,
+                "outcome_scale_factor": scale_factor,
             }
             log_dict[f"loss/{name}"] = loss.detach()
+            log_dict[f"target_entropy/{name}"] = terms[name]["target_entropy"].detach()
+            log_dict[f"excess_loss/{name}"] = excess_loss.detach()
+            log_dict[f"contrastive_headroom/{name}"] = terms[name][
+                "contrastive_headroom"
+            ].detach()
             log_dict[f"loss_sigma_input/{name}"] = aggregation_loss.detach()
             log_dict[f"n_effective_pairs/{name}"] = n_effective_pairs.detach()
             log_dict[f"effective_pair_fraction/{name}"] = (
                 effective_pair_fraction.detach()
             )
+            log_dict[f"outcome_scale_factor/{name}"] = scale_factor.detach()
         return terms, log_dict
 
     def forward(
         self,
-        embeddings: torch.Tensor,
+        embeddings: Union[torch.Tensor, Mapping[str, torch.Tensor]],
         outcome_survival: Dict[str, Dict[str, torch.Tensor]],
         subject_ids: Optional[torch.Tensor] = None,
         dapt_embedding_store: Optional[Dict] = None,
@@ -914,12 +1044,17 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             subject_ids=subject_ids,
             dapt_embedding_store=dapt_embedding_store,
         )
-        device = embeddings.device
+        template_embedding = (
+            embeddings
+            if isinstance(embeddings, torch.Tensor)
+            else next(iter(embeddings.values()))
+        )
+        device = template_embedding.device
         per_outcome_losses = torch.full(
             (self.n_outcomes,),
             float("nan"),
             device=device,
-            dtype=embeddings.dtype,
+            dtype=template_embedding.dtype,
         )
 
         for index, name in enumerate(self.outcome_names):
@@ -930,7 +1065,7 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
                 continue
             factor = self.class_balance_factors[index].to(
                 device=device,
-                dtype=embeddings.dtype,
+                dtype=template_embedding.dtype,
             )
             per_outcome_losses[index] = term["aggregation_loss"] * factor
             log_dict[f"class_balance_factor/{name}"] = factor.detach()
@@ -943,7 +1078,95 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             torch.zeros_like(per_outcome_losses),
         )
 
-        if active_mask.any():
+        if active_mask.any() and self.aggregation == "hierarchical_support":
+            total_loss = template_embedding.sum() * 0.0
+            active_families = sorted(
+                {
+                    self.outcome_family[name]
+                    for index, name in enumerate(self.outcome_names)
+                    if active_mask[index]
+                }
+            )
+            family_denominator = sum(
+                float(self.family_weights.get(family, 1.0))
+                for family in active_families
+            )
+            effective_weights = torch.zeros_like(per_outcome_losses)
+            for family in active_families:
+                indices = [
+                    index
+                    for index, name in enumerate(self.outcome_names)
+                    if active_mask[index] and self.outcome_family[name] == family
+                ]
+                support = per_outcome_losses.new_tensor(
+                    [
+                        (
+                            float(
+                                self.event_location_counts.get(
+                                    self.outcome_names[index], 0.0
+                                )
+                            )
+                            / (
+                                float(
+                                    self.event_location_counts.get(
+                                        self.outcome_names[index], 0.0
+                                    )
+                                )
+                                + self.support_tau_locations
+                            )
+                        )
+                        ** 0.5
+                        for index in indices
+                    ]
+                )
+                if float(support.sum().item()) <= 0:
+                    support = torch.ones_like(support)
+                support = support / support.sum()
+                family_weight = (
+                    float(self.family_weights.get(family, 1.0)) / family_denominator
+                )
+                index_tensor = torch.tensor(indices, device=device)
+                effective_weights[index_tensor] = family_weight * support
+                total_loss = total_loss + family_weight * torch.sum(
+                    support * per_outcome_losses[index_tensor]
+                )
+                family_key = family.lower().replace(" ", "_").replace("&", "and")
+                log_dict[f"family_weight/{family_key}"] = per_outcome_losses.new_tensor(
+                    family_weight
+                )
+                log_dict[f"family_loss/{family_key}"] = torch.sum(
+                    support * per_outcome_losses[index_tensor]
+                ).detach()
+                for diagnostic_name in (
+                    "loss",
+                    "target_entropy",
+                    "excess_loss",
+                    "uniform_baseline",
+                    "contrastive_headroom",
+                ):
+                    values = torch.stack(
+                        [
+                            terms[self.outcome_names[index]].get(
+                                diagnostic_name,
+                                terms[self.outcome_names[index]]["aggregation_loss"],
+                            )
+                            for index in indices
+                        ]
+                    )
+                    log_dict[f"family_{diagnostic_name}/{family_key}"] = torch.sum(
+                        support * values
+                    ).detach()
+                family_headroom = log_dict[f"family_contrastive_headroom/{family_key}"]
+                log_dict[f"family_relative_excess/{family_key}"] = (
+                    log_dict[f"family_excess_loss/{family_key}"]
+                    / family_headroom.clamp_min(1e-6)
+                ).detach()
+                for local_index, outcome_index in enumerate(indices):
+                    log_dict[f"support_weight/{self.outcome_names[outcome_index]}"] = (
+                        support[local_index].detach()
+                    )
+            outcome_weights = effective_weights
+        elif active_mask.any():
             total_loss = torch.sum(outcome_weights * finite_losses)
             total_loss = total_loss + self.weighter.regularizer(active_mask)
             if self.aggregation == "macro":
@@ -952,7 +1175,9 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
             # No valid pairs in any outcome. Apply regularizer so learnable
             # sigma/precision parameters still receive a gradient, and add
             # an embeddings anchor so embeddings.grad is not None.
-            total_loss = self.weighter.regularizer(active_mask) + embeddings.sum() * 0.0
+            total_loss = (
+                self.weighter.regularizer(active_mask) + template_embedding.sum() * 0.0
+            )
 
         for index, name in enumerate(self.outcome_names):
             log_dict[f"cross_outcome_weight/{name}"] = outcome_weights[index].detach()
@@ -961,6 +1186,28 @@ class MultiOutcomeSurvivalLoss(_LegacyMultiOutcomeSurvivalLoss):
                     self.weighter.log_sigma[index]
                 ).detach()
                 log_dict[f"precision/{name}"] = outcome_weights[index].detach()
+
+        for diagnostic_name in (
+            "loss",
+            "target_entropy",
+            "excess_loss",
+            "uniform_baseline",
+            "contrastive_headroom",
+        ):
+            diagnostic_values = torch.zeros_like(per_outcome_losses)
+            for index, name in enumerate(self.outcome_names):
+                if active_mask[index]:
+                    diagnostic_values[index] = terms[name].get(
+                        diagnostic_name,
+                        terms[name]["aggregation_loss"],
+                    )
+            log_dict[f"contrastive/{diagnostic_name}"] = torch.sum(
+                outcome_weights * diagnostic_values
+            ).detach()
+        headroom = log_dict["contrastive/contrastive_headroom"]
+        log_dict["contrastive/relative_excess"] = (
+            log_dict["contrastive/excess_loss"] / headroom.clamp_min(1e-6)
+        ).detach()
 
         log_dict["loss"] = total_loss
         return log_dict
@@ -1071,6 +1318,7 @@ class OperaContrastiveModel(nn.Module):
         competing_event_handling: str = "hard_negative",
         effective_pair_normalization: bool = True,
         cross_outcome_config: Optional[Mapping[str, object]] = None,
+        projection_mode: str = "shared",
         freeze_encoder: bool = False,
         pooling: str = "cls_last",
         dapt_embedding_store: Optional[Dict] = None,
@@ -1106,6 +1354,7 @@ class OperaContrastiveModel(nn.Module):
             "competing_event_handling": competing_event_handling,
             "effective_pair_normalization": effective_pair_normalization,
             "cross_outcome_config": dict(cross_outcome_config or {}),
+            "projection_mode": projection_mode,
             "freeze_encoder": freeze_encoder,
             "pooling": pooling,
             "competing_risk_config": competing_risk_settings,
@@ -1123,11 +1372,35 @@ class OperaContrastiveModel(nn.Module):
                 "pooling must be one of: 'cls_last', 'mean_last_128', 'bigru'."
             )
 
-        self.projection = ProjectionHead(
-            input_dim=hidden_size,
-            hidden_dim=projection_hidden_dim,
-            output_dim=projection_dim,
-        )
+        self.projection_mode = str(projection_mode).lower()
+        cross_outcome_settings = dict(cross_outcome_config or {})
+        outcome_families = cross_outcome_settings.get("outcome_families", {})
+        if self.projection_mode == "shared":
+            self.projection = ProjectionHead(
+                input_dim=hidden_size,
+                hidden_dim=projection_hidden_dim,
+                output_dim=projection_dim,
+            )
+        elif self.projection_mode == "family":
+            family_by_outcome = {
+                outcome: family
+                for family, members in outcome_families.items()
+                for outcome in members
+            }
+            missing = sorted(set(outcome_names) - set(family_by_outcome))
+            if missing:
+                raise ValueError(
+                    "Family projection requires outcome_families to cover every "
+                    f"configured outcome; missing={missing}."
+                )
+            self.projection = FamilyProjectionHead(
+                input_dim=hidden_size,
+                hidden_dim=projection_hidden_dim,
+                output_dim=projection_dim,
+                families=outcome_families,
+            )
+        else:
+            raise ValueError("projection_mode must be 'shared' or 'family'.")
 
         self.contrastive_loss = MultiOutcomeSurvivalLoss(
             outcome_names=outcome_names,
@@ -1167,6 +1440,7 @@ class OperaContrastiveModel(nn.Module):
                 smoothness_weight=float(
                     competing_risk_settings.get("smoothness_weight", 0.0)
                 ),
+                cross_outcome_config=cross_outcome_config,
             )
             n_outputs = len(outcome_names) * 2 * self.competing_risk_loss.n_intervals
             self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
@@ -1180,7 +1454,7 @@ class OperaContrastiveModel(nn.Module):
         self,
         batch: dict,
         enable_dropout: bool = False,
-    ) -> torch.Tensor:
+    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         """Return the pooled encoder representation before projection."""
         if enable_dropout:
             # Temporarily set encoder to train mode to activate dropout
@@ -1233,6 +1507,23 @@ class OperaContrastiveModel(nn.Module):
             return pooled
 
         return self.projection(pooled)
+
+    def get_contrastive_embeddings(
+        self,
+        batch: dict,
+        *,
+        family: Optional[str] = None,
+        enable_dropout: bool = False,
+    ) -> torch.Tensor:
+        """Return a specific contrastive space while keeping pooled embeddings canonical."""
+        projected = self.get_embeddings(batch, enable_dropout=enable_dropout)
+        if isinstance(projected, torch.Tensor):
+            return projected
+        if family is None:
+            raise ValueError("family is required when projection_mode='family'.")
+        if family not in projected:
+            raise KeyError(f"Unknown projection family {family!r}.")
+        return projected[family]
 
     def _compute_anchor_loss(
         self,
