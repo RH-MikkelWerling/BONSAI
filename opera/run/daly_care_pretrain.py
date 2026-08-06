@@ -57,6 +57,7 @@ def main(cfg: DictConfig) -> None:
         ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
+        numeric_value_control=cfg.training.get("numeric_value_control", "observed"),
     )
 
     model = build_bonsai_pretrain(

@@ -21,6 +21,7 @@ class PretrainDataset(Dataset):
         truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
         generator: Optional[torch.Generator] = None,
+        numeric_value_control: str = "observed",
     ):
         self.subjects = subjects
         self.max_len = max_len
@@ -28,6 +29,11 @@ class PretrainDataset(Dataset):
         self.truncation_strategy = truncation_strategy
         self.tail_window_probability = tail_window_probability
         self.generator = generator
+        if numeric_value_control not in {"observed", "masked"}:
+            raise ValueError(
+                "numeric_value_control must be 'observed' or 'masked'."
+            )
+        self.numeric_value_control = numeric_value_control
         self.cutoff_date = (
             compute_abspos(datetime(**cutoff_date)) if cutoff_date is not None else None
         )
@@ -49,6 +55,13 @@ class PretrainDataset(Dataset):
             len(truncated_subject["code"]), dtype=torch.bool
         )
         truncated_subject["segment"] = normalize_segments(truncated_subject["segment"])
+        if (
+            self.numeric_value_control == "masked"
+            and "numeric_value" in truncated_subject
+        ):
+            truncated_subject["numeric_value"] = torch.full_like(
+                truncated_subject["numeric_value"], float("nan")
+            )
         return truncated_subject, truncation_metadata
 
     def __getitem__(self, index: int) -> dict:
@@ -74,6 +87,7 @@ class MLMPretrainDataset(PretrainDataset):
         truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
         generator: Optional[torch.Generator] = None,
+        numeric_value_control: str = "observed",
     ):
         super().__init__(
             subjects,
@@ -83,6 +97,7 @@ class MLMPretrainDataset(PretrainDataset):
             truncation_strategy=truncation_strategy,
             tail_window_probability=tail_window_probability,
             generator=generator,
+            numeric_value_control=numeric_value_control,
         )
         self.vocabulary = vocabulary
 
@@ -193,6 +208,7 @@ class ARPretrainDataset(PretrainDataset):
         generator: Optional[torch.Generator] = None,
         vocabulary: Optional[Dict[str, int]] = None,
         value_embedding_mode: str = "legacy",
+        numeric_value_control: str = "observed",
     ):
         super().__init__(
             subjects,
@@ -202,6 +218,7 @@ class ARPretrainDataset(PretrainDataset):
             truncation_strategy=truncation_strategy,
             tail_window_probability=tail_window_probability,
             generator=generator,
+            numeric_value_control=numeric_value_control,
         )  # +1 because we shift by one token in __getitem__
         self.val_token_id = None if vocabulary is None else vocabulary.get("[VAL]")
         self.value_embedding_mode = value_embedding_mode

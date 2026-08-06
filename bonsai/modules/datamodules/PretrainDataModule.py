@@ -28,6 +28,7 @@ class PretrainDataModule(L.LightningDataModule):
         val_truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
         value_embedding_mode: str = "legacy",
+        numeric_value_control: str = "observed",
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -46,6 +47,7 @@ class PretrainDataModule(L.LightningDataModule):
         self.val_truncation_strategy = val_truncation_strategy
         self.tail_window_probability = tail_window_probability
         self.value_embedding_mode = value_embedding_mode
+        self.numeric_value_control = numeric_value_control
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -85,6 +87,7 @@ class PretrainDataModule(L.LightningDataModule):
                 masking_ignore_special_tokens=self.masking_config.masking_ignore_special_tokens,
                 truncation_strategy=self.train_truncation_strategy,
                 tail_window_probability=self.tail_window_probability,
+                numeric_value_control=self.numeric_value_control,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -98,6 +101,7 @@ class PretrainDataModule(L.LightningDataModule):
                 masking_ignore_special_tokens=self.masking_config.masking_ignore_special_tokens,
                 truncation_strategy=self.val_truncation_strategy,
                 tail_window_probability=1.0,
+                numeric_value_control=self.numeric_value_control,
             )
         elif issubclass(self.dataset_class, ARPretrainDataset):
             self.train_dataset = self.dataset_class(
@@ -109,6 +113,7 @@ class PretrainDataModule(L.LightningDataModule):
                 tail_window_probability=self.tail_window_probability,
                 vocabulary=self.vocabulary,
                 value_embedding_mode=self.value_embedding_mode,
+                numeric_value_control=self.numeric_value_control,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -119,6 +124,7 @@ class PretrainDataModule(L.LightningDataModule):
                 tail_window_probability=1.0,
                 vocabulary=self.vocabulary,
                 value_embedding_mode=self.value_embedding_mode,
+                numeric_value_control=self.numeric_value_control,
             )
         else:
             raise ValueError(f"Unexpected dataset class. Got: {self.dataset_class}")

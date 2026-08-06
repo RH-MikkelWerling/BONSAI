@@ -171,6 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
+        "--pooling",
+        choices=("cls_last", "mean_last_128"),
+        default="cls_last",
+        help="Pooling used by the checkpoint's downstream objective.",
+    )
+    parser.add_argument(
         "--attention-backend",
         choices=["auto", "checkpoint", "sdpa", "flash"],
         default="auto",
@@ -219,7 +225,7 @@ def main() -> None:
             "max-len and batch-size must be positive; num-workers non-negative."
         )
     paths = _subject_paths(args.subject_data_dir)
-    subject_ids, embeddings, split_counts = extract_shared_split_embeddings(
+    subject_ids, embeddings, sequence_lengths, split_counts = extract_shared_split_embeddings(
         encoder,
         reference=reference,
         subject_split_paths=paths,
@@ -229,6 +235,7 @@ def main() -> None:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         device=device,
+        pooling=args.pooling,
     )
 
     output = Path(args.output)
@@ -242,6 +249,7 @@ def main() -> None:
         subject_ids=subject_ids,
         embeddings=embeddings,
         splits=extracted_splits,
+        sequence_length=sequence_lengths,
     )
     metadata: dict[str, Any] = {
         "checkpoint_metadata": checkpoint_metadata,
@@ -251,7 +259,7 @@ def main() -> None:
             "vocabulary": str(Path(args.vocabulary)),
             "index_table": str(Path(args.index_table)),
             "index_table_hash": file_hash(args.index_table),
-            "pooling": "cls_last",
+            "pooling": args.pooling,
             "encoder_frozen": True,
             "max_len": max_len,
             "attention_backend": str(encoder.hparams["attn_type"]),

@@ -1577,6 +1577,10 @@ def run_sweep(
     dry_run: bool = False,
     overwrite: bool = False,
     fail_fast: bool = False,
+    only_cohorts: set[str] | None = None,
+    only_outcomes: set[str] | None = None,
+    only_variants: set[str] | None = None,
+    only_seeds: set[int] | None = None,
 ):
     cfg = load_sweep_config(config_path).to_mapping()
 
@@ -1604,6 +1608,16 @@ def run_sweep(
     rarity_mode = cfg.get("rarity_mode", rarity_cfg.get("mode", "none"))
     baseline_model = cfg.get("baseline_model", rarity_cfg.get("baseline_model"))
     seeds = cfg.get("seeds", [cfg.get("seed", 42)])
+    if only_cohorts is not None:
+        cohorts = {name: value for name, value in cohorts.items() if name in only_cohorts}
+    if only_variants is not None:
+        model_variants = {
+            name: value for name, value in model_variants.items() if name in only_variants
+        }
+    if only_seeds is not None:
+        seeds = [seed for seed in seeds if int(seed) in only_seeds]
+    if not cohorts or not model_variants or not seeds:
+        raise ValueError("Sweep filters removed every cohort, variant, or seed.")
     subgroup_path = (cfg.get("paths", {}) or {}).get("subgroups") or (
         cfg.get("subgroups", {}) or {}
     ).get("path")
@@ -1624,6 +1638,12 @@ def run_sweep(
     # outcomes: dict of {name: {n_hours_start_include, n_hours_end_include}}
     # Accept either the old list format (no windows → open-ended) or the new dict format.
     outcomes = normalize_outcome_config(cfg["outcomes"])
+    if only_outcomes is not None:
+        outcomes = {
+            name: value for name, value in outcomes.items() if name in only_outcomes
+        }
+        if not outcomes:
+            raise ValueError("Sweep outcome filter removed every outcome.")
 
     all_results = []
     tracker = StatusTracker()
@@ -1776,6 +1796,10 @@ def main():
         action="store_true",
         help="Stop on the first failed or missing sweep cell instead of recording and continuing.",
     )
+    parser.add_argument("--cohorts", help="Comma-separated cohort names to run.")
+    parser.add_argument("--outcomes", help="Comma-separated outcome names to run.")
+    parser.add_argument("--variants", help="Comma-separated model variants to run.")
+    parser.add_argument("--seeds", help="Comma-separated configured seeds to run.")
     args = parser.parse_args()
 
     run_sweep(
@@ -1783,6 +1807,10 @@ def main():
         dry_run=args.dry_run,
         overwrite=args.overwrite,
         fail_fast=args.fail_fast,
+        only_cohorts=set(args.cohorts.split(",")) if args.cohorts else None,
+        only_outcomes=set(args.outcomes.split(",")) if args.outcomes else None,
+        only_variants=set(args.variants.split(",")) if args.variants else None,
+        only_seeds={int(value) for value in args.seeds.split(",")} if args.seeds else None,
     )
 
 

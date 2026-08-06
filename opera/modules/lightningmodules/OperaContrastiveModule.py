@@ -110,6 +110,10 @@ class OperaContrastiveModule(L.LightningModule):
     def _cached_training_step(self, microbatches: list[dict]) -> torch.Tensor:
         """Exact logical-batch gradient using memory-sized encoder passes."""
         optimizer = self.optimizers()
+        if self.model.competing_risk_loss is not None:
+            self.model.competing_risk_loss.set_curriculum_state(
+                self.current_epoch, training=True
+            )
         optimizer.zero_grad()
         self.model.eval()  # both encoder passes must describe the same network
         pooled_parts = []
@@ -215,6 +219,10 @@ class OperaContrastiveModule(L.LightningModule):
         return outcome_survival
 
     def _shared_step(self, batch: dict, prefix: str) -> torch.Tensor:
+        if self.model.competing_risk_loss is not None:
+            self.model.competing_risk_loss.set_curriculum_state(
+                self.current_epoch, training=prefix == "train"
+            )
         outcome_survival = self._build_outcome_survival(batch)
         log_dict = self.model(batch, outcome_survival)
         loss = log_dict["loss"]
@@ -232,6 +240,10 @@ class OperaContrastiveModule(L.LightningModule):
         return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
+        if self.model.competing_risk_loss is not None:
+            self.model.competing_risk_loss.set_curriculum_state(
+                self.current_epoch, training=False
+            )
         if self.gradient_cache and isinstance(batch, list):
             pooled_parts, subject_parts = [], []
             survival_parts = {

@@ -1,0 +1,801 @@
+# @package _global_
+defaults:
+- /core/base_train@
+- /hardware/1gpu6cpu@hardware
+- _self_
+hydra:
+  searchpath:
+  - file://${oc.env:BONSAI_CONFIG_PATH}
+dataset: daly_care_direct_competing_risk
+dapt_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
+dapt_embedding_store: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/opera_reference_mean_last_128.pt
+output_path: null
+overwrite: false
+paths:
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care/vocabulary.pt
+cohorts:
+  AMYLOIDOSIS:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: AMYLOIDOSIS
+    ipi_score_col: null
+    registry_start_date: null
+    exclude_outcomes:
+    - second_line_treatment
+    - treatment_failure
+    - treatment_failure_transformation
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: AMYLOIDOSIS
+  BL_LBL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: BL_LBL
+    ipi_score_col: null
+    registry_start_date: null
+    exclude_outcomes:
+    - second_line_treatment
+    - treatment_failure
+    - treatment_failure_transformation
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: BL_LBL
+  CLL_SLL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: CLL_SLL
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: CLL_SLL
+  DLBCL_like:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: DLBCL_like
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: DLBCL_like
+  HCL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: HCL
+    ipi_score_col: null
+    registry_start_date: null
+    exclude_outcomes:
+    - second_line_treatment
+    - treatment_failure
+    - treatment_failure_transformation
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: HCL
+  HL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: HL
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: HL
+  Indolent_B_NHL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: Indolent_B_NHL
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: Indolent_B_NHL
+  MCL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: MCL
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: MCL
+  MM:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: MM
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: MM
+  T_NHL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    clinical_group: T_NHL
+    ipi_score_col: null
+    registry_start_date: null
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: T_NHL
+outcomes:
+  aki_first_documented:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/aki_first_documented.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  ALP_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/ALP_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  ALP_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/ALP_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  ALT_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/ALT_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  ALT_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/ALT_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  anemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  anemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  antibiotics:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/antibiotics.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  any_transfusion:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/any_transfusion.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  AST_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/AST_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  AST_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/AST_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  atrial_fibrillation:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/atrial_fibrillation.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  bilirubin_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/bilirubin_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  bilirubin_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/bilirubin_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  bone_fracture:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/bone_fracture.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  creatinine_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  creatinine_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  dialysis:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/dialysis.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  dic_like_coagulopathy:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/dic_like_coagulopathy.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  emergency_stay:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/emergency_stay.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  eosinophilia:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/eosinophilia.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  haptoglobin_decreased:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/haptoglobin_decreased.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  heart_failure:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/heart_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hepatotoxicity:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hepatotoxicity.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  herpes_zoster:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/herpes_zoster.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hospitalisation:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hospitalisation.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypercalcemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypercalcemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypercalcemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypercalcemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyperkalemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyperkalemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyperkalemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyperkalemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypermagnesemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypermagnesemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypernatremia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypernatremia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypernatremia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypernatremia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyperphosphatemia:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyperphosphatemia.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypertriglyceridemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypertriglyceridemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypertriglyceridemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypertriglyceridemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyperuricemia:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyperuricemia.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypoalbuminemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypoalbuminemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypoalbuminemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypoalbuminemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypocalcemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypocalcemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypocalcemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypocalcemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypofibrinogenemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypofibrinogenemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypofibrinogenemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypofibrinogenemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypoglycemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypoglycemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypoglycemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypoglycemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypokalemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypokalemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypokalemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypokalemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypomagnesemia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypomagnesemia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hypomagnesemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hypomagnesemia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyponatremia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyponatremia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hyponatremia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hyponatremia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  hys_law_dili:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/hys_law_dili.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  infections_all_definitions:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_all_definitions.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  infections_IV_based:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_IV_based.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  infections_prescription_based:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_prescription_based.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  INR_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/INR_increased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  INR_increased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/INR_increased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  invasive_fungal:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/invasive_fungal.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  LDH_increased:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/LDH_increased.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  leukocytosis_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/leukocytosis_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  lymphocytosis_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/lymphocytosis_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  lymphocytosis_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/lymphocytosis_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  lymphopenia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/lymphopenia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  lymphopenia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/lymphopenia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  MACE_composite:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/MACE_composite.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  myocardial_infarction:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/myocardial_infarction.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  neutropenia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/neutropenia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  neutropenia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/neutropenia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  next_hematological_malignancy:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/next_hematological_malignancy.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  next_malignancy:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/next_malignancy.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  overall_survival:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+  platelet_transfusion:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/platelet_transfusion.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  RBC_transfusion:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/RBC_transfusion.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  respiratory_support:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/respiratory_support.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  second_line_treatment:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/second_line_treatment.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  sepsis:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/sepsis.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  serious_infection_composite:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/serious_infection_composite.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  severe_cytopenia:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/severe_cytopenia.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  stroke_TIA:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/stroke_TIA.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  thrombocytopenia_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/thrombocytopenia_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  thrombocytopenia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/thrombocytopenia_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  treatment_failure_transformation:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/treatment_failure_transformation.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  treatment_failure:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/treatment_failure.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  tumor_lysis_syndrome:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/tumor_lysis_syndrome.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  VTE:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/VTE.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  WBC_decreased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/WBC_decreased_g2plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+  WBC_decreased_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/WBC_decreased_g3plus.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+    registry_start_date: null
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+model:
+  projection_hidden_dim: 256
+  projection_dim: 128
+  temperature: 0.07
+  km_time_scale: 0.25
+  dapt_lambda_floor: 1.0
+  dapt_anchor_weight: 0.02
+  competing_event_handling: exclude
+  competing_event_weight: 0.0
+  effective_pair_normalization: false
+  projection_mode: shared
+  freeze_encoder: false
+  pooling: mean_last_128
+competing_risk:
+  loss_weight: 1.0
+  contrastive_loss_weight: 0.0
+  interval_boundaries_days:
+  - 3
+  - 7
+  - 14
+  - 30
+  - 60
+  - 90
+  - 180
+  - 365
+  - 730
+  - 1460
+  time_scale_days: 365.25
+  initial_log_hazard: -2.3
+  smoothness_weight: 0.01
+  no_competing_outcomes:
+  - overall_survival
+  head_mode: linear
+  family_trunk_hidden_dim: 128
+  family_trunk_dropout: 0.1
+  curriculum:
+    enabled: true
+    n_support_tiers: 5
+    warmup_epochs: 1
+    stage_epochs: 1
+    ramp_epochs: 2
+cross_outcome:
+  weighter: uniform
+  aggregation: hierarchical_support
+  class_balanced: false
+  outcome_families:
+    Disease control & survival:
+    - overall_survival
+    - treatment_failure
+    - treatment_failure_transformation
+    Treatment trajectory:
+    - second_line_treatment
+    Infection:
+    - antibiotics
+    - herpes_zoster
+    - infections_all_definitions
+    - infections_IV_based
+    - infections_prescription_based
+    - invasive_fungal
+    - sepsis
+    - serious_infection_composite
+    Hematologic toxicity & support:
+    - anemia_g2plus
+    - anemia_g3plus
+    - any_transfusion
+    - eosinophilia
+    - haptoglobin_decreased
+    - leukocytosis_g2plus
+    - lymphocytosis_g2plus
+    - lymphocytosis_g3plus
+    - lymphopenia_g2plus
+    - lymphopenia_g3plus
+    - neutropenia_g2plus
+    - neutropenia_g3plus
+    - platelet_transfusion
+    - RBC_transfusion
+    - severe_cytopenia
+    - thrombocytopenia_g2plus
+    - thrombocytopenia_g3plus
+    - WBC_decreased_g2plus
+    - WBC_decreased_g3plus
+    Renal toxicity:
+    - aki_first_documented
+    - creatinine_increased_g2plus
+    - creatinine_increased_g3plus
+    - dialysis
+    Hepatic & coagulation toxicity:
+    - ALP_increased_g2plus
+    - ALP_increased_g3plus
+    - ALT_increased_g2plus
+    - ALT_increased_g3plus
+    - AST_increased_g2plus
+    - AST_increased_g3plus
+    - bilirubin_increased_g2plus
+    - bilirubin_increased_g3plus
+    - dic_like_coagulopathy
+    - hepatotoxicity
+    - hypofibrinogenemia_g2plus
+    - hypofibrinogenemia_g3plus
+    - hys_law_dili
+    - INR_increased_g2plus
+    - INR_increased_g3plus
+    Electrolyte & metabolic toxicity:
+    - hypercalcemia_g2plus
+    - hypercalcemia_g3plus
+    - hyperkalemia_g2plus
+    - hyperkalemia_g3plus
+    - hypermagnesemia_g3plus
+    - hypernatremia_g2plus
+    - hypernatremia_g3plus
+    - hyperphosphatemia
+    - hypertriglyceridemia_g2plus
+    - hypertriglyceridemia_g3plus
+    - hyperuricemia
+    - hypoalbuminemia_g2plus
+    - hypoalbuminemia_g3plus
+    - hypocalcemia_g2plus
+    - hypocalcemia_g3plus
+    - hypoglycemia_g2plus
+    - hypoglycemia_g3plus
+    - hypokalemia_g2plus
+    - hypokalemia_g3plus
+    - hypomagnesemia_g2plus
+    - hypomagnesemia_g3plus
+    - hyponatremia_g2plus
+    - hyponatremia_g3plus
+    - LDH_increased
+    - tumor_lysis_syndrome
+    Cardiovascular & thrombotic:
+    - atrial_fibrillation
+    - heart_failure
+    - MACE_composite
+    - myocardial_infarction
+    - stroke_TIA
+    - VTE
+    Acute care utilization:
+    - emergency_stay
+    - hospitalisation
+    - respiratory_support
+    Subsequent malignancy:
+    - next_hematological_malignancy
+    - next_malignancy
+    Skeletal complications:
+    - bone_fracture
+  family_weights:
+    Disease control & survival: 2.0
+    Treatment trajectory: 2.0
+  support_tau_locations: 100.0
+  contrastive_term: kl
+  outcome_scale_mode: none
+training:
+  require_all_configured_cells: true
+  require_min_followup_train: false
+  require_dapt_embedding_store: true
+  batch_size: 8
+  logical_batch_size: 256
+  logical_val_batch_size: 256
+  batch_sampling:
+    type: random
+  accumulate_grad_batches: 1
+  epochs: 12
+  learning_rate: 0.0002
+  encoder_lr_multiplier: 0.1
+  optimizer_epsilon: 1.0e-06
+  scheduler_warmup_epochs: 1
+  log_every_n_steps: 10
+  probe_every_n_epochs: 5
+  enable_validation_probe: false
+  log_per_outcome_metrics: false
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0

@@ -102,6 +102,17 @@ def test_ar_continuous_targets_are_shifted_without_leaking_future_value():
     )
 
 
+def test_pretraining_numeric_mask_control_removes_inputs_and_targets():
+    sample = ARPretrainDataset(
+        [_subject()],
+        max_len=3,
+        background_length=0,
+        numeric_value_control="masked",
+    )[0]
+    assert torch.isnan(sample["numeric_value"]).all()
+    assert torch.isnan(sample["numeric_target"]).all()
+
+
 def test_mlm_continuous_target_is_hidden_at_selected_positions():
     dataset = MLMPretrainDataset(
         [_subject()],

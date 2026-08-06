@@ -78,5 +78,9 @@ training:
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 0.1
   value_regression_loss_weight: 1.0
+  # observed: FiLM consumes normalized values and predicts the next value.
+  # masked: retain identical event sequences/model parameters but remove every
+  # numeric scalar from both inputs and auxiliary targets.
+  numeric_value_control: observed
   limit_val_batches: 1.0
   limit_train_batches: 1.0

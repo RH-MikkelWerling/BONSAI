@@ -209,3 +209,74 @@ def test_likelihood_is_batch_partition_invariant():
 
     partitioned = (3 * first + 5 * second) / 8
     assert partitioned.item() == pytest.approx(full.item(), rel=1e-6)
+
+
+def test_support_curriculum_renormalizes_training_and_validation_uses_all_outcomes():
+    settings = {
+        "aggregation": "hierarchical_support",
+        "outcome_families": {"rich": ["a"], "middle": ["b"], "rare": ["c"]},
+        "event_location_counts": {"a": 100, "b": 50, "c": 10},
+        "curriculum": {
+            "enabled": True,
+            "n_support_tiers": 3,
+            "warmup_epochs": 1,
+            "stage_epochs": 1,
+            "ramp_epochs": 1,
+        },
+    }
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["a", "b", "c"], [30.0], no_competing_outcomes=[], cross_outcome_config=settings
+    )
+    hazards = torch.zeros(2, 3, 2, 2)
+    survival = {
+        name: {
+            "times": torch.tensor([10.0, 40.0]),
+            "events": torch.tensor([1, 0]),
+        }
+        for name in ("a", "b", "c")
+    }
+
+    loss_fn.set_curriculum_state(0, training=True)
+    _, warmup = loss_fn(hazards, survival)
+    assert warmup["cr/family_weight/rich"].item() == pytest.approx(1.0)
+    assert "cr/family_weight/middle" not in warmup
+    assert "cr/family_weight/rare" not in warmup
+
+    loss_fn.set_curriculum_state(1, training=True)
+    _, ramp = loss_fn(hazards, survival)
+    assert ramp["cr/curriculum/tier_1_multiplier"].item() == pytest.approx(1.0)
+    assert "cr/family_weight/middle" in ramp
+    assert "cr/family_weight/rare" not in ramp
+    assert sum(
+        ramp[key].item() for key in ramp if key.startswith("cr/family_weight/")
+    ) == pytest.approx(1.0)
+
+    loss_fn.set_curriculum_state(0, training=False)
+    _, validation = loss_fn(hazards, survival)
+    assert set(
+        key.removeprefix("cr/family_weight/")
+        for key in validation
+        if key.startswith("cr/family_weight/")
+    ) == {"rich", "middle", "rare"}
+
+
+def test_competing_risk_can_return_differentiable_per_outcome_terms():
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["a", "b"], [30.0], no_competing_outcomes=[]
+    )
+    hazards = torch.zeros(3, 2, 2, 2, requires_grad=True)
+    survival = {
+        name: {
+            "times": torch.tensor([10.0, 40.0, 20.0]),
+            "events": torch.tensor([1, 0, 2]),
+        }
+        for name in ("a", "b")
+    }
+
+    _, _, terms = loss_fn(hazards, survival, return_per_outcome=True)
+    gradient = torch.autograd.grad(terms["a"]["loss"], hazards)[0]
+
+    assert set(terms) == {"a", "b"}
+    assert terms["a"]["valid_mask"].tolist() == [True, True, True]
+    assert torch.isfinite(gradient).all()
+    assert gradient[:, 1].abs().sum().item() == 0.0

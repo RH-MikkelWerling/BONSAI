@@ -4,6 +4,71 @@ This document records the checks required for the current full-panel OPERA run
 and the scientific questions that must remain visible after it finishes. It is
 a decision register, not evidence that an unchecked item has passed.
 
+## Locked direct competing-risk adaptation ladder
+
+The universal contrastive geometry is now a diagnostic/legacy arm rather than
+the assumed primary adaptation mechanism. The generator writes four matched
+direct-likelihood configs, all initialized from the same BONSAI checkpoint,
+using the same 87 outcomes, natural-distribution batches, weak anchor, pooling,
+hierarchical family normalization, optimizer, and validation objective:
+
+- `generated/direct_cr_full_panel`: linear outcome heads; primary baseline.
+- `generated/direct_cr_family_trunks`: residual family prediction trunks.
+- `generated/direct_cr_curriculum`: five training-support quantiles introduced
+  progressively, with a smooth two-epoch ramp for every newly active tier.
+- `generated/direct_cr_family_trunks_curriculum`: interaction arm; run only
+  after the two one-factor ablations unless compute is abundant.
+
+The family curriculum changes training weights only. Validation always scores
+the complete 87-outcome objective, and active family weights are renormalized
+to sum to one. This prevents a lower loss caused merely by omitting difficult
+families from being mistaken for improved validation.
+
+Do not divide the encoder loss by 87 on top of hierarchical aggregation. The
+current loss already allocates a normalized budget across families and then a
+normalized support-smoothed budget within each family. A further constant
+division only changes the effective learning rate. Before adding GradNorm or
+gradient surgery, measure per-family encoder-gradient norms and conflicts under
+the direct likelihood; loss magnitude alone is not the quantity to equalize.
+
+## Pretraining audit and locked ablations
+
+The current DALY-CARE checkpoint uses causal autoregressive pretraining. At
+position `t`, the encoder receives only tokens and numeric values through `t`
+and predicts the code and (when present) normalized numeric value at `t+1`.
+The numeric target is shifted independently and is not exposed through FiLM.
+Calendar censoring is exclusive at 2022-01-01, split files are separate, causal
+attention is enforced for AR datasets, Fourier absolute time stays finite in
+mixed precision, and ehr2meds' train-fitted normalized values are validated in
+`[0, 1]`. No direct future-value leakage was found in this path.
+
+The audit nevertheless identifies four scientific limitations:
+
+- Tail-only windows emphasize recent calendar time, utilization, and long-record
+  structure; this is a plausible contributor to the observed UMAP geometry.
+- Next-token prediction can exploit deterministic ordering among simultaneous
+  events. It is a valid sequence objective but not proof of clinical semantics.
+- Code cross-entropy and numeric MSE are separately averaged and then added.
+  `value_regression_loss_weight=1.0` is explicit, but does not equalize their
+  encoder-gradient contributions.
+- A hidden-64, four-layer model may encode useful prediction signal without
+  producing visually disease-clustered mean-pooled embeddings.
+
+Two matched pretraining configs are now available in addition to the observed
+tail baseline:
+
+- `daly_care_pretrain_no_values`: identical event sequence and FiLM parameter
+  structure, but all scalar inputs/targets are masked and numeric loss is zero.
+- `daly_care_pretrain_mixed_window`: 50% tail and 50% random clinical windows in
+  training, with deterministic tail validation.
+
+Use downstream frozen probes and fine-tuning—not pretraining loss or UMAP
+alone—to select among these checkpoints. The decisive numeric experiment must
+also include future lab endpoints, a last-observed-value baseline, and a
+within-concept value-permutation control materialized independently within each
+data split. Do not shuffle values globally across lab concepts or across
+train/tuning/test boundaries.
+
 ## Before starting the production run
 
 - [ ] Synchronize the complete modified files rather than merging individual
@@ -244,3 +309,64 @@ an efficiency improvement, not required for the scientific comparison.
   so repeated smoke tests avoid safe-but-expensive regeneration.
 - [ ] Run multiple seeds for final comparisons and preserve configs, software
   versions, checkpoint hashes, split hashes, and complete evaluation artifacts.
+# Gradient-aligned scaffolding roadmap
+
+The next transfer experiment should treat scaffolding as a measured training
+intervention, not as another representation objective.  For target outcome
+`t`, train with `L_t + lambda * sum_s w[s,t] L_s`, where the auxiliary weights
+are estimated before the scaffolded run from representation-gradient cosine
+on training-fold patients.  This resolves the apparent circularity: use a
+fixed starting checkpoint to estimate the scaffold map, freeze that map, and
+then start a fresh scaffolded run from the same checkpoint.  The held-out test
+split must never determine weights.  Online EMA weights are a later ablation,
+not the first implementation.
+
+Required controls are target-only, all-auxiliary, gradient-aligned,
+support-matched random, and anti-aligned auxiliaries.  Positive cosine is a
+hypothesis about optimization compatibility, not evidence of transfer until
+these controls improve target survival metrics.
+
+Analyse scaffolds hierarchically:
+
+1. outcome-to-outcome gives maximum resolution but is noisy;
+2. outcome-family-to-target is the stable, interpretable default;
+3. source-disease-by-family-to-target is the central cross-disease transfer
+   map and directly tests the data-scarcity/scaffolding thesis;
+4. patient-specific gates and encoder-layer-specific maps are deferred until
+   the static maps are validated.
+
+Estimate each cell over multiple logical batches and report mean cosine,
+bootstrap interval, event support, joint patient support, and gradient norm.
+Shrink noisy outcome cells toward their family and disease-family means.
+Candidate weights should use only stable positive alignment (for example the
+positive lower confidence bound) multiplied by a capped support-reliability
+term, then be normalized so the total auxiliary gradient scale is controlled.
+
+The existing representation diagnostic now accepts
+`--objective competing_risk`; run the conflict verdict on its pair-batch output
+before choosing auxiliaries.  Disease-by-family restriction and the frozen-map
+training consumer remain explicit implementation gates before claiming a
+scaffolded model result.
+
+# Remaining validation and ablations
+
+- Finish the direct competing-risk run and select by survival validation loss;
+  do not infer convergence from three or four epochs.
+- Run random initialization versus standard pretraining versus direct CR for
+  DLBCL treatment failure and for a deliberately numeric-dependent laboratory
+  endpoint.
+- Run value ablations (FiLM/numeric values on versus off) and masked-value
+  pretraining; verify numeric value perturbations change predictions in the
+  expected direction.
+- Compare linear shared head, family-specific prediction trunks, and the
+  support-tier curriculum.  The curriculum ranks individual outcomes by
+  training event-location support: high support first, then medium, then all.
+  It no longer hand-picks infection, hematologic, or electrolyte families.
+- Add functional preservation as an optional teacher-student penalty over the
+  heads' full native interval distributions, with a low default coefficient.
+  Do not reduce each head to arbitrary 30/90-day risk tokens.
+- Measure discrimination and calibration with survival-native metrics by
+  outcome and compact family summaries; retain AUROC only as a secondary probe.
+- Quantify sequence truncation, compare clinical-code-only versus numeric-full
+  input, and test a larger encoder only after the low-level representation and
+  numeric checks pass.

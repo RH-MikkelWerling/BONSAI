@@ -140,6 +140,35 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self.family_weights = dict(settings.get("family_weights", {}))
         self.support_tau_locations = float(settings.get("support_tau_locations", 100.0))
         self.event_location_counts = dict(settings.get("event_location_counts", {}))
+        curriculum = dict(settings.get("curriculum", {}))
+        self.curriculum_enabled = bool(curriculum.get("enabled", False))
+        self.curriculum_n_tiers = int(curriculum.get("n_support_tiers", 3))
+        self.curriculum_warmup_epochs = int(curriculum.get("warmup_epochs", 0))
+        self.curriculum_ramp_epochs = int(curriculum.get("ramp_epochs", 0))
+        self.curriculum_stage_epochs = int(
+            curriculum.get("stage_epochs", self.curriculum_warmup_epochs)
+        )
+        if self.curriculum_n_tiers < 1:
+            raise ValueError("n_support_tiers must be positive.")
+        if min(
+            self.curriculum_warmup_epochs,
+            self.curriculum_ramp_epochs,
+            self.curriculum_stage_epochs,
+        ) < 0:
+            raise ValueError("Curriculum epoch counts must be non-negative.")
+        ranked = sorted(
+            self.outcome_names,
+            key=lambda name: (-float(self.event_location_counts.get(name, 0.0)), name),
+        )
+        self.curriculum_tier = {
+            name: min(
+                self.curriculum_n_tiers - 1,
+                index * self.curriculum_n_tiers // max(1, len(ranked)),
+            )
+            for index, name in enumerate(ranked)
+        }
+        self._curriculum_epoch = 0
+        self._curriculum_training = False
         self.register_buffer(
             "boundaries",
             boundaries / self.time_scale_days,
@@ -149,6 +178,29 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
     @property
     def n_intervals(self) -> int:
         return int(self.boundaries.numel()) + 1
+
+    def set_curriculum_state(self, epoch: int, *, training: bool) -> None:
+        """Set curriculum state explicitly for gradient-cached training."""
+        self._curriculum_epoch = max(0, int(epoch))
+        self._curriculum_training = bool(training)
+
+    def _curriculum_outcome_multiplier(self, outcome: str) -> float:
+        """Stage outcomes by empirical training support, never clinical labels."""
+        if not self.curriculum_enabled or not self._curriculum_training:
+            return 1.0
+        tier = self.curriculum_tier[outcome]
+        if tier == 0:
+            return 1.0
+        start = self.curriculum_warmup_epochs + (tier - 1) * self.curriculum_stage_epochs
+        if self._curriculum_epoch < start:
+            return 0.0
+        if self.curriculum_ramp_epochs == 0:
+            return 1.0
+        return min(
+            1.0,
+            float(self._curriculum_epoch - start + 1)
+            / float(self.curriculum_ramp_epochs),
+        )
 
     def _exposure(self, times: torch.Tensor) -> torch.Tensor:
         """Return exact time at risk in every interval, in scaled time units."""
@@ -171,7 +223,16 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self,
         log_hazards: torch.Tensor,
         outcome_survival: Mapping[str, Mapping[str, torch.Tensor]],
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        *,
+        return_per_outcome: bool = False,
+    ) -> (
+        tuple[torch.Tensor, dict[str, torch.Tensor]]
+        | tuple[
+            torch.Tensor,
+            dict[str, torch.Tensor],
+            dict[str, dict[str, torch.Tensor]],
+        ]
+    ):
         """Return macro-average likelihood and per-outcome diagnostics.
 
         ``log_hazards`` has shape ``(batch, outcomes, 2, intervals)``.
@@ -196,6 +257,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         losses: list[torch.Tensor] = []
         loss_names: list[str] = []
         diagnostics: dict[str, torch.Tensor] = {}
+        per_outcome: dict[str, dict[str, torch.Tensor]] = {}
 
         for name, outcome_index in self.outcome_index.items():
             survival = outcome_survival.get(name)
@@ -256,6 +318,12 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
 
             losses.append(outcome_loss)
             loss_names.append(name)
+            per_outcome[name] = {
+                "loss": outcome_loss,
+                "valid_mask": valid,
+                "target_mask": target,
+                "competing_mask": competing,
+            }
             diagnostics[f"cr/loss/{name}"] = outcome_loss.detach()
             diagnostics[f"cr/n_valid/{name}"] = valid.sum().float().detach()
             diagnostics[f"cr/n_target/{name}"] = target.sum().float().detach()
@@ -264,23 +332,56 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         if not losses:
             zero = log_hazards.sum() * 0.0
             diagnostics["cr/n_active_outcomes"] = zero.detach()
+            if return_per_outcome:
+                return zero, diagnostics, per_outcome
             return zero, diagnostics
 
         if self.aggregation == "hierarchical_support":
-            active_families = sorted({self.outcome_family[name] for name in loss_names})
-            family_denominator = sum(float(self.family_weights.get(family, 1.0)) for family in active_families)
+            outcome_multipliers = {
+                name: self._curriculum_outcome_multiplier(name) for name in loss_names
+            }
+            active_families = sorted(
+                {
+                    self.outcome_family[name]
+                    for name in loss_names
+                    if outcome_multipliers[name] > 0.0
+                }
+            )
+            curriculum_multipliers = {family: 1.0 for family in active_families}
+            weighted_families = [
+                family
+                for family in active_families
+                if curriculum_multipliers[family] > 0.0
+            ]
+            if not weighted_families:
+                raise RuntimeError("Curriculum disabled every active outcome family.")
+            family_denominator = sum(
+                float(self.family_weights.get(family, 1.0))
+                * curriculum_multipliers[family]
+                for family in weighted_families
+            )
             total = losses[0] * 0.0
-            for family in active_families:
-                indices = [i for i, name in enumerate(loss_names) if self.outcome_family[name] == family]
+            for family in weighted_families:
+                indices = [
+                    i
+                    for i, name in enumerate(loss_names)
+                    if self.outcome_family[name] == family
+                    and outcome_multipliers[name] > 0.0
+                ]
                 support = losses[0].new_tensor([
-                    (float(self.event_location_counts.get(loss_names[i], 0.0)) /
-                     (float(self.event_location_counts.get(loss_names[i], 0.0)) + self.support_tau_locations)) ** 0.5
+                    ((float(self.event_location_counts.get(loss_names[i], 0.0)) /
+                      (float(self.event_location_counts.get(loss_names[i], 0.0)) + self.support_tau_locations)) ** 0.5)
+                    * outcome_multipliers[loss_names[i]]
                     for i in indices
                 ])
                 if float(support.sum().item()) <= 0:
                     support = torch.ones_like(support)
                 support = support / support.sum()
-                family_weight = float(self.family_weights.get(family, 1.0)) / family_denominator
+                family_weight = (
+                    float(self.family_weights.get(family, 1.0))
+                    * curriculum_multipliers[family]
+                    / family_denominator
+                )
                 family_loss = torch.sum(
                     support * torch.stack([losses[i] for i in indices])
                 )
@@ -290,6 +391,16 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 diagnostics[f"cr/family_weight/{family_key}"] = losses[0].new_tensor(
                     family_weight
                 )
+            for tier in range(self.curriculum_n_tiers):
+                tier_values = [
+                    outcome_multipliers[name]
+                    for name in loss_names
+                    if self.curriculum_tier[name] == tier
+                ]
+                if tier_values:
+                    diagnostics[f"cr/curriculum/tier_{tier}_multiplier"] = losses[
+                        0
+                    ].new_tensor(sum(tier_values) / len(tier_values))
         else:
             total = torch.stack(losses).mean()
         diagnostics["cr/n_active_outcomes"] = torch.tensor(
@@ -297,4 +408,6 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             device=log_hazards.device,
         )
         diagnostics["cr/loss"] = total.detach()
+        if return_per_outcome:
+            return total, diagnostics, per_outcome
         return total, diagnostics

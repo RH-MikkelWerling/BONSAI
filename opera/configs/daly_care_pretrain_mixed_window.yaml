@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - daly_care_pretrain
+  - _self_
+
+training_stage: daly_care_only_pretraining_mixed_window
+
+training:
+  truncation_strategy: mixed_window
+  tail_window_probability: 0.5

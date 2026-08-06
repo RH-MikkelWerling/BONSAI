@@ -496,6 +496,31 @@ def _pool_cls_last(
     ]
 
 
+def _pool_prediction_origin(
+    encoder: torch.nn.Module,
+    batch: Mapping[str, torch.Tensor],
+    pooling: str,
+) -> torch.Tensor:
+    """Pool the censored sequence exactly as the selected OPERA representation."""
+    if pooling == "cls_last":
+        return _pool_cls_last(encoder, batch)
+    if pooling != "mean_last_128":
+        raise OutcomeTransferExtractionError(
+            "Prediction-origin extraction supports cls_last and mean_last_128."
+        )
+    hidden = encoder_hidden_state(encoder(batch))
+    lengths = batch["attention_mask"].sum(dim=1) - 1
+    if torch.any(lengths <= 0):
+        raise OutcomeTransferExtractionError(
+            "mean_last_128 requires at least one clinical token before [CLS]."
+        )
+    positions = torch.arange(hidden.size(1), device=hidden.device).unsqueeze(0)
+    starts = (lengths - 128).clamp_min(0).unsqueeze(1)
+    clinical = (positions >= starts) & (positions < lengths.unsqueeze(1))
+    weights = clinical.unsqueeze(-1).to(hidden.dtype)
+    return (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1.0)
+
+
 def extract_shared_split_embeddings(
     encoder: torch.nn.Module,
     *,
@@ -507,7 +532,8 @@ def extract_shared_split_embeddings(
     batch_size: int,
     num_workers: int,
     device: torch.device,
-) -> tuple[np.ndarray, np.ndarray, dict[str, int]]:
+    pooling: str = "cls_last",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
     """Pool physical SSL shards, then select temporal outcome splits."""
     if "[CLS]" not in vocabulary:
         raise OutcomeTransferExtractionError(
@@ -530,6 +556,7 @@ def extract_shared_split_embeddings(
 
     subject_ids: list[np.ndarray] = []
     embeddings: list[np.ndarray] = []
+    sequence_lengths: list[np.ndarray] = []
     counts: dict[str, int] = {}
     for split in ("train", "tuning", "held_out"):
         records = _reference_records(reference, str(split_keys[split]))
@@ -566,16 +593,20 @@ def extract_shared_split_embeddings(
         )
         split_ids: list[np.ndarray] = []
         split_embeddings: list[np.ndarray] = []
+        split_lengths: list[np.ndarray] = []
         with torch.inference_mode():
             for batch in loader:
                 device_batch = {
                     key: value.to(device) if isinstance(value, torch.Tensor) else value
                     for key, value in batch.items()
                 }
-                pooled = _pool_cls_last(encoder, device_batch)
+                pooled = _pool_prediction_origin(encoder, device_batch, pooling)
                 split_ids.append(device_batch["subject_id"].detach().cpu().numpy())
                 split_embeddings.append(
                     pooled.detach().cpu().numpy().astype(np.float32)
+                )
+                split_lengths.append(
+                    device_batch["attention_mask"].sum(dim=1).detach().cpu().numpy()
                 )
         if not split_ids:
             raise OutcomeTransferExtractionError(
@@ -588,6 +619,7 @@ def extract_shared_split_embeddings(
             )
         subject_ids.append(split_subject_ids)
         embeddings.append(np.concatenate(split_embeddings))
+        sequence_lengths.append(np.concatenate(split_lengths))
         counts[split] = int(len(split_subject_ids))
     all_ids = np.concatenate(subject_ids)
     all_embeddings = np.concatenate(embeddings)
@@ -595,7 +627,7 @@ def extract_shared_split_embeddings(
         raise OutcomeTransferExtractionError(
             "A subject appeared in multiple shared subject splits; extraction is unsafe."
         )
-    return all_ids, all_embeddings, counts
+    return all_ids, all_embeddings, np.concatenate(sequence_lengths), counts
 
 
 def _subject_paths(args: argparse.Namespace) -> dict[str, Path]:
@@ -727,7 +759,7 @@ def main() -> None:
             "max-len and batch-size must be positive; num-workers non-negative."
         )
     paths = _subject_paths(args)
-    subject_ids, embeddings, split_counts = extract_shared_split_embeddings(
+    subject_ids, embeddings, sequence_lengths, split_counts = extract_shared_split_embeddings(
         encoder,
         reference=reference,
         subject_split_paths=paths,
@@ -740,7 +772,12 @@ def main() -> None:
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(output, subject_ids=subject_ids, embeddings=embeddings)
+    np.savez_compressed(
+        output,
+        subject_ids=subject_ids,
+        embeddings=embeddings,
+        sequence_length=sequence_lengths,
+    )
     resolved_condition_metadata: dict[str, Any] = {}
     if args.representation != DAPT_REPRESENTATION:
         condition = plan["conditions"][args.representation]

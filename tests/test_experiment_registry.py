@@ -37,7 +37,7 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 25
+    assert len(paths) == 31
     assert len(sweep_paths) == 22
     for path in sweep_paths:
         load_sweep_config(path)
@@ -112,3 +112,18 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         "MM",
         "T_NHL",
     }
+
+    direct = yaml.safe_load((tmp_path / "direct_cr_full_panel.yaml").read_text())
+    family = yaml.safe_load((tmp_path / "direct_cr_family_trunks.yaml").read_text())
+    curriculum = yaml.safe_load((tmp_path / "direct_cr_curriculum.yaml").read_text())
+    combined = yaml.safe_load(
+        (tmp_path / "direct_cr_family_trunks_curriculum.yaml").read_text()
+    )
+    for config in (direct, family, curriculum, combined):
+        assert config["competing_risk"]["contrastive_loss_weight"] == 0.0
+        assert config["cross_outcome"]["aggregation"] == "hierarchical_support"
+    assert direct["competing_risk"]["head_mode"] == "linear"
+    assert family["competing_risk"]["head_mode"] == "family_trunks"
+    assert curriculum["competing_risk"]["curriculum"]["enabled"] is True
+    assert combined["competing_risk"]["head_mode"] == "family_trunks"
+    assert combined["competing_risk"]["curriculum"]["enabled"] is True

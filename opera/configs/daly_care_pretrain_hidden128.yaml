@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - daly_care_pretrain
+  - _self_
+
+# Width-only capacity ablation: every architecture and training choice other
+# than hidden width is inherited from the hidden-64 baseline.
+training_stage: daly_care_only_pretraining_hidden128
+
+model:
+  hidden_size: 128
+
+# Start conservatively on the V100. This preserves the baseline's effective
+# batch of 128 through accumulation while halving the physical batch.
+training:
+  batch_size: 64
+  accumulate_grad_batches: 2

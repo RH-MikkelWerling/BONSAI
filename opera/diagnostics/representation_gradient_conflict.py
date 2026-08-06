@@ -494,6 +494,7 @@ def diagnose_checkpoint(
     negative_threshold: float,
     device: torch.device,
     seed: int,
+    objective: str = "contrastive",
 ) -> dict[str, Any]:
     """Run the representation-gradient diagnostic for one checkpoint."""
     model = _load_model(
@@ -587,17 +588,33 @@ def diagnose_checkpoint(
                         ),
                     }
                 )
-            terms, _ = model.contrastive_loss.compute_per_outcome_losses(
-                projected,
-                survival,
-                subject_ids=subject_ids,
-                dapt_embedding_store=model.dapt_embedding_store,
-            )
-            active_names = [
-                name
-                for name, term in terms.items()
-                if float(term["n_effective_pairs"].detach().item()) > 0.0
-            ]
+            if objective == "competing_risk":
+                if model.competing_risk_head is None:
+                    raise ValueError(
+                        f"Checkpoint {checkpoint} has no competing-risk head."
+                    )
+                log_hazards = model.competing_risk_head(representation).reshape(
+                    representation.shape[0],
+                    len(outcome_names),
+                    2,
+                    model.competing_risk_loss.n_intervals,
+                )
+                _, _, terms = model.competing_risk_loss(
+                    log_hazards, survival, return_per_outcome=True
+                )
+                active_names = list(terms)
+            else:
+                terms, _ = model.contrastive_loss.compute_per_outcome_losses(
+                    projected,
+                    survival,
+                    subject_ids=subject_ids,
+                    dapt_embedding_store=model.dapt_embedding_store,
+                )
+                active_names = [
+                    name
+                    for name, term in terms.items()
+                    if float(term["n_effective_pairs"].detach().item()) > 0.0
+                ]
             gradients: dict[str, torch.Tensor] = {}
             for term_index, name in enumerate(active_names):
                 gradient = torch.autograd.grad(
@@ -611,9 +628,9 @@ def diagnose_checkpoint(
                 outcome = survival[name]
                 valid = outcome_eligibility_mask(outcome["times"], outcome["events"])
                 events = outcome["events"][valid]
-                outcome_batch_records.append(
-                    {
+                record = {
                         "checkpoint": str(checkpoint),
+                        "objective": objective,
                         "batch_index": batch_index,
                         "outcome": name,
                         "family": family_by_outcome.get(name, "unassigned"),
@@ -622,7 +639,11 @@ def diagnose_checkpoint(
                         "n_censored": int((events == 0).sum().item()),
                         "n_competing": int((events == 2).sum().item()),
                         "event_rate": float((events == 1).float().mean().item()),
-                        "cross_entropy": float(term["loss"].detach().item()),
+                        "loss": float(term["loss"].detach().item()),
+                        "gradient_norm": float(gradients[name].norm().item()),
+                    }
+                if objective == "contrastive":
+                    record.update({
                         "target_entropy": float(term["target_entropy"].detach().item()),
                         "kl": float(term["excess_loss"].detach().item()),
                         "headroom": float(term["contrastive_headroom"].detach().item()),
@@ -640,9 +661,8 @@ def diagnose_checkpoint(
                         "effective_pair_fraction": float(
                             term["effective_pair_fraction"].detach().item()
                         ),
-                        "gradient_norm": float(gradients[name].norm().item()),
-                    }
-                )
+                    })
+                outcome_batch_records.append(record)
 
         for index, name in enumerate(outcome_names):
             outcome = survival.get(name)
@@ -747,22 +767,23 @@ def diagnose_checkpoint(
             numeric_columns
         ].mean()
         family_summary.to_csv(output_dir / "family_diagnostics.csv", index=False)
-        references = {
-            row["outcome"]: row["kl"]
-            for row in outcome_summary.to_dict(orient="records")
-            if np.isfinite(row["kl"]) and row["kl"] > 0
-        }
-        (output_dir / "normalization_references.json").write_text(
-            json.dumps(
-                {
-                    "scale": "median_initial_kl",
-                    "checkpoint": str(checkpoint),
-                    "outcome_reference_scales": references,
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        if "kl" in outcome_summary:
+            references = {
+                row["outcome"]: row["kl"]
+                for row in outcome_summary.to_dict(orient="records")
+                if np.isfinite(row["kl"]) and row["kl"] > 0
+            }
+            (output_dir / "normalization_references.json").write_text(
+                json.dumps(
+                    {
+                        "scale": "median_initial_kl",
+                        "checkpoint": str(checkpoint),
+                        "outcome_reference_scales": references,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
     geometry_frame = pd.DataFrame(projection_geometry_records)
     geometry_frame.to_csv(output_dir / "projection_geometry_batches.csv", index=False)
     if not geometry_frame.empty:
@@ -856,6 +877,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-overlap", type=int, default=8)
     parser.add_argument("--negative-threshold", type=float, default=-0.1)
     parser.add_argument(
+        "--objective",
+        choices=("contrastive", "competing_risk"),
+        default="contrastive",
+        help="Objective whose per-outcome representation gradients are compared.",
+    )
+    parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
@@ -913,6 +940,7 @@ def main() -> None:
                 negative_threshold=args.negative_threshold,
                 device=device,
                 seed=args.seed,
+                objective=args.objective,
             )
         )
 

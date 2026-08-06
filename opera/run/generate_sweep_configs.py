@@ -324,6 +324,40 @@ def build_joint_opera_ablation_config(
     return config
 
 
+def build_direct_cr_config(
+    registry: dict[str, Any], *, family_trunks: bool = False, curriculum: bool = False
+) -> dict[str, Any]:
+    """Direct multi-outcome competing-risk adaptation ablation."""
+    config = copy.deepcopy(build_joint_opera_config(registry))
+    config["dataset"] = "daly_care_direct_competing_risk"
+    config["competing_risk"]["contrastive_loss_weight"] = 0.0
+    config["competing_risk"]["head_mode"] = (
+        "family_trunks" if family_trunks else "linear"
+    )
+    config["competing_risk"]["family_trunk_hidden_dim"] = 128
+    config["competing_risk"]["family_trunk_dropout"] = 0.1
+    config["competing_risk"]["curriculum"] = {
+        "enabled": bool(curriculum),
+        # Rank outcomes using training-split event-location support. This avoids
+        # privileging hand-picked clinical families and preserves every family.
+        "n_support_tiers": 5,
+        "warmup_epochs": 1,
+        "stage_epochs": 1,
+        "ramp_epochs": 2,
+    }
+    config["training"].update(
+        {
+            "epochs": 12,
+            "learning_rate": 2e-4,
+            "encoder_lr_multiplier": 0.1,
+            "scheduler_warmup_epochs": 1,
+            "enable_validation_probe": False,
+            "log_per_outcome_metrics": False,
+        }
+    )
+    return config
+
+
 def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
     """Shared-data full-panel direct multi-outcome ablation configuration."""
     return {
@@ -421,6 +455,16 @@ def generate_configs(
         ),
         "joint_opera_family_initial_kl.yaml": build_joint_opera_ablation_config(
             registry, projection_mode="family", initial_kl_scaling=True
+        ),
+        "direct_cr_full_panel.yaml": build_direct_cr_config(registry),
+        "direct_cr_family_trunks.yaml": build_direct_cr_config(
+            registry, family_trunks=True
+        ),
+        "direct_cr_curriculum.yaml": build_direct_cr_config(
+            registry, curriculum=True
+        ),
+        "direct_cr_family_trunks_curriculum.yaml": build_direct_cr_config(
+            registry, family_trunks=True, curriculum=True
         ),
         "multi_outcome_full_panel.yaml": build_multi_outcome_config(registry),
     }.items():

@@ -87,6 +87,70 @@ class FamilyProjectionHead(nn.Module):
         }
 
 
+class FamilyCompetingRiskHead(nn.Module):
+    """Family-specific residual trunks with an outcome head per endpoint."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        trunk_dim: int,
+        outcome_names: List[str],
+        outcome_families: Mapping[str, object],
+        outputs_per_outcome: int,
+        *,
+        dropout: float = 0.1,
+        initial_bias: float = -2.3,
+    ):
+        super().__init__()
+        family_by_outcome = {
+            outcome: family
+            for family, members in outcome_families.items()
+            for outcome in members
+        }
+        missing = sorted(set(outcome_names) - set(family_by_outcome))
+        if missing:
+            raise ValueError(
+                "Family competing-risk heads require complete outcome-family "
+                f"coverage; missing={missing}."
+            )
+        self.outcome_names = list(outcome_names)
+        self.family_by_outcome = family_by_outcome
+        family_names = list(dict.fromkeys(family_by_outcome.values()))
+        self.trunks = nn.ModuleDict(
+            {
+                family: nn.Sequential(
+                    nn.Linear(input_dim, trunk_dim),
+                    nn.GELU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(trunk_dim, input_dim),
+                    nn.LayerNorm(input_dim),
+                )
+                for family in family_names
+            }
+        )
+        self.heads = nn.ModuleDict(
+            {
+                outcome: nn.Linear(input_dim, outputs_per_outcome)
+                for outcome in self.outcome_names
+            }
+        )
+        for head in self.heads.values():
+            nn.init.normal_(head.weight, mean=0.0, std=0.01)
+            nn.init.constant_(head.bias, initial_bias)
+
+    def forward(self, pooled: torch.Tensor) -> torch.Tensor:
+        family_states = {
+            family: pooled + trunk(pooled) for family, trunk in self.trunks.items()
+        }
+        return torch.stack(
+            [
+                self.heads[outcome](family_states[self.family_by_outcome[outcome]])
+                for outcome in self.outcome_names
+            ],
+            dim=1,
+        )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Multi-outcome contrastive loss (SupCon + Kendall weighting)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1401,6 +1465,9 @@ class OperaContrastiveModel(nn.Module):
             )
         else:
             raise ValueError("projection_mode must be 'shared' or 'family'.")
+        if self.contrastive_loss_weight == 0.0:
+            for parameter in self.projection.parameters():
+                parameter.requires_grad = False
 
         self.contrastive_loss = MultiOutcomeSurvivalLoss(
             outcome_names=outcome_names,
@@ -1442,13 +1509,33 @@ class OperaContrastiveModel(nn.Module):
                 ),
                 cross_outcome_config=cross_outcome_config,
             )
-            n_outputs = len(outcome_names) * 2 * self.competing_risk_loss.n_intervals
-            self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
-            nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
-            nn.init.constant_(
-                self.competing_risk_head.bias,
-                float(competing_risk_settings.get("initial_log_hazard", -2.3)),
+            outputs_per_outcome = 2 * self.competing_risk_loss.n_intervals
+            head_mode = str(competing_risk_settings.get("head_mode", "linear"))
+            initial_bias = float(
+                competing_risk_settings.get("initial_log_hazard", -2.3)
             )
+            if head_mode == "linear":
+                n_outputs = len(outcome_names) * outputs_per_outcome
+                self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
+                nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
+                nn.init.constant_(self.competing_risk_head.bias, initial_bias)
+            elif head_mode == "family_trunks":
+                self.competing_risk_head = FamilyCompetingRiskHead(
+                    hidden_size,
+                    int(competing_risk_settings.get("family_trunk_hidden_dim", 128)),
+                    outcome_names,
+                    outcome_families,
+                    outputs_per_outcome,
+                    dropout=float(
+                        competing_risk_settings.get("family_trunk_dropout", 0.1)
+                    ),
+                    initial_bias=initial_bias,
+                )
+            else:
+                raise ValueError(
+                    "competing_risk.head_mode must be 'linear' or "
+                    "'family_trunks'."
+                )
 
     def _pool(
         self,
@@ -1601,16 +1688,21 @@ class OperaContrastiveModel(nn.Module):
         subject_ids: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Compute all OPERA objectives from cached pooled representations."""
-        embeddings = self.projection(pooled)
-        log_dict = self.contrastive_loss(
-            embeddings,
-            outcome_survival,
-            subject_ids=subject_ids,
-            dapt_embedding_store=self.dapt_embedding_store,
-        )
-        contrastive_loss = log_dict["loss"]
+        if self.contrastive_loss_weight > 0.0:
+            embeddings = self.projection(pooled)
+            log_dict = self.contrastive_loss(
+                embeddings,
+                outcome_survival,
+                subject_ids=subject_ids,
+                dapt_embedding_store=self.dapt_embedding_store,
+            )
+            contrastive_loss = log_dict["loss"]
+            total_loss = self.contrastive_loss_weight * contrastive_loss
+        else:
+            total_loss = pooled.sum() * 0.0
+            contrastive_loss = total_loss
+            log_dict = {}
         log_dict["contrastive_loss"] = contrastive_loss.detach()
-        total_loss = self.contrastive_loss_weight * contrastive_loss
 
         if self.competing_risk_head is not None:
             n_intervals = self.competing_risk_loss.n_intervals

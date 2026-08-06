@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - daly_care_pretrain_hidden128
+  - _self_
+
+training_stage: daly_care_only_pretraining_hidden128_no_values
+
+training:
+  numeric_value_control: masked
+  value_regression_loss_weight: 0.0

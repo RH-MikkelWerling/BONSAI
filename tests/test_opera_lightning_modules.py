@@ -166,6 +166,78 @@ def test_opera_combines_contrastive_and_competing_risk_losses():
     )
 
 
+def test_direct_competing_risk_mode_skips_and_freezes_contrastive_projection():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+        }
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Contrastive loss must not run in direct-only mode")
+
+    model.contrastive_loss.forward = fail_if_called
+    batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+
+    result = model(batch, survival)
+
+    assert all(
+        not parameter.requires_grad for parameter in model.projection.parameters()
+    )
+    assert result["contrastive_loss"].item() == pytest.approx(0.0)
+    assert torch.allclose(result["loss"], result["cr/loss"])
+    result["loss"].backward()
+    assert model.competing_risk_head.weight.grad is not None
+
+
+def test_family_competing_risk_trunks_keep_outcomes_separate_and_backpropagate():
+    families = {"survival": ["mortality"], "disease": ["relapse"]}
+    model = _make_opera_model(
+        cross_outcome_config={
+            "aggregation": "hierarchical_support",
+            "outcome_families": families,
+        },
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "family_trunks",
+            "family_trunk_hidden_dim": 6,
+            "family_trunk_dropout": 0.0,
+        },
+    )
+    batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+
+    result = model(batch, survival)
+    result["loss"].backward()
+
+    assert torch.isfinite(result["loss"])
+    assert set(model.competing_risk_head.trunks) == {"survival", "disease"}
+    assert set(model.competing_risk_head.heads) == set(OUTCOMES)
+    assert all(
+        head.weight.grad is not None
+        for head in model.competing_risk_head.heads.values()
+    )
+
+
 def test_family_projection_uses_auxiliary_spaces_but_preserves_pooled_representation():
     model = _make_opera_model(
         cross_outcome_config={

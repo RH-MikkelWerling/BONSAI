@@ -750,6 +750,56 @@ model_variants:
     encoder_source: pretrain
     pretraining_scope: daly_care_only
     training_mode: ipcw_bce
+  daly_care_pretrain_frozen:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
+    encoder_source: pretrain
+    pretraining_scope: daly_care_only
+    training_stage: linear_probe
+    extra_overrides:
+    - model.freeze_encoder=true
+    - model.head_type=linear_probe
+    - training_stage=linear_probe
+    training_mode: ipcw_bce
+  daly_care_pretrain_no_values:
+    encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_no_values
+    training_mode: ipcw_bce
+  daly_care_pretrain_no_values_frozen:
+    encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_no_values
+    training_stage: linear_probe
+    extra_overrides:
+    - model.freeze_encoder=true
+    - model.head_type=linear_probe
+    - training_stage=linear_probe
+    training_mode: ipcw_bce
+  daly_care_pretrain_mixed_window:
+    encoder_ckpt: ${BONSAI_PRETRAIN_MIXED_WINDOW_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_mixed_window
+    training_mode: ipcw_bce
+  daly_care_pretrain_hidden128:
+    encoder_ckpt: ${BONSAI_PRETRAIN_HIDDEN128_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_hidden128
+    training_mode: ipcw_bce
+  daly_care_pretrain_hidden128_frozen:
+    encoder_ckpt: ${BONSAI_PRETRAIN_HIDDEN128_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_hidden128
+    training_stage: linear_probe
+    extra_overrides:
+    - model.freeze_encoder=true
+    - model.head_type=linear_probe
+    - training_stage=linear_probe
+    training_mode: ipcw_bce
+  daly_care_pretrain_hidden128_no_values:
+    encoder_ckpt: ${BONSAI_PRETRAIN_HIDDEN128_NO_VALUES_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_hidden128_no_values
+    training_mode: ipcw_bce
   dapt:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/dapt/best.ckpt
     encoder_source: dapt
@@ -761,4 +811,22 @@ model_variants:
   opera:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/leukemia_contrastive/best.ckpt
     encoder_source: contrastive
+    training_mode: ipcw_bce
+  direct_cr:
+    encoder_ckpt: ${BONSAI_DIRECT_CR_CKPT}
+    encoder_source: contrastive
+    training_stage: direct_competing_risk_adaptation
+    model_family: direct_cr
+    training_mode: ipcw_bce
+  direct_cr_family_trunks:
+    encoder_ckpt: ${BONSAI_DIRECT_CR_FAMILY_CKPT}
+    encoder_source: contrastive
+    training_stage: direct_competing_risk_family_trunks
+    model_family: direct_cr_family_trunks
+    training_mode: ipcw_bce
+  direct_cr_curriculum:
+    encoder_ckpt: ${BONSAI_DIRECT_CR_CURRICULUM_CKPT}
+    encoder_source: contrastive
+    training_stage: direct_competing_risk_curriculum
+    model_family: direct_cr_curriculum
     training_mode: ipcw_bce

@@ -40,6 +40,18 @@ stages:
   - name: opera_contrastive_adaptation
     script: opera.run.contrastive_multicohort
     artifact: checkpoint
+  - name: direct_multioutcome_competing_risk_adaptation
+    script: opera.run.contrastive_multicohort
+    config: opera/configs/generated/direct_cr_full_panel.yaml
+    artifact: checkpoint
+  - name: direct_multioutcome_family_trunks
+    script: opera.run.contrastive_multicohort
+    config: opera/configs/generated/direct_cr_family_trunks.yaml
+    artifact: checkpoint
+  - name: direct_multioutcome_curriculum
+    script: opera.run.contrastive_multicohort
+    config: opera/configs/generated/direct_cr_curriculum.yaml
+    artifact: checkpoint
   - name: per_task_finetuning
     script: opera.run.finetune
     artifact: checkpoint
@@ -73,6 +85,15 @@ comparisons:
     opera_scope: joint
   - name: opera_joint
     encoder_source: joint
+  - name: direct_competing_risk
+    encoder_source: contrastive
+    adaptation_objective: direct_competing_risk
+  - name: direct_competing_risk_family_trunks
+    encoder_source: contrastive
+    adaptation_objective: direct_competing_risk_family_trunks
+  - name: direct_competing_risk_curriculum
+    encoder_source: contrastive
+    adaptation_objective: direct_competing_risk_curriculum
 
 transfer_contrasts:
   - name: daly_care_only_minus_general_pretraining
