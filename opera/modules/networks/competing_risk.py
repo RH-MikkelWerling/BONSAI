@@ -347,21 +347,14 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                     if outcome_multipliers[name] > 0.0
                 }
             )
-            curriculum_multipliers = {family: 1.0 for family in active_families}
-            weighted_families = [
-                family
-                for family in active_families
-                if curriculum_multipliers[family] > 0.0
-            ]
-            if not weighted_families:
+            if not active_families:
                 raise RuntimeError("Curriculum disabled every active outcome family.")
             family_denominator = sum(
                 float(self.family_weights.get(family, 1.0))
-                * curriculum_multipliers[family]
-                for family in weighted_families
+                for family in active_families
             )
             total = losses[0] * 0.0
-            for family in weighted_families:
+            for family in active_families:
                 indices = [
                     i
                     for i, name in enumerate(loss_names)
@@ -379,7 +372,6 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 support = support / support.sum()
                 family_weight = (
                     float(self.family_weights.get(family, 1.0))
-                    * curriculum_multipliers[family]
                     / family_denominator
                 )
                 family_loss = torch.sum(
