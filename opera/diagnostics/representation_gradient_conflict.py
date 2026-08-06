@@ -50,6 +50,18 @@ from opera.modules.networks.opera_nets import (
     outcome_eligibility_mask,
 )
 from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
+from opera.diagnostics.endpoint_dependencies import (
+    classify_endpoint_pairs,
+    dependency_config,
+)
+
+
+_CR_COMPONENT_KEYS = {
+    "full_likelihood": "full_likelihood_loss",
+    "exposure": "exposure_loss",
+    "primary_event": "primary_event_loss",
+    "competing_death": "competing_event_loss",
+}
 
 
 def _move_to_device(value: Any, device: torch.device) -> Any:
@@ -305,6 +317,101 @@ def _gradient_cosine(
     return float(torch.dot(first_flat, second_flat).div(denominator).item())
 
 
+def _cohort_by_subject(data_module) -> dict[int, str]:
+    dataset = getattr(data_module, "train_dataset", None)
+    datasets = getattr(dataset, "datasets", None)
+    labels = getattr(data_module, "train_cohort_labels", None)
+    if datasets is None or labels is None:
+        return {}
+    result: dict[int, str] = {}
+    offset = 0
+    for child in datasets:
+        label = str(labels[offset])
+        for subject in child.subjects:
+            result[int(subject["subject_id"])] = label
+        offset += len(child)
+    return result
+
+
+def _followup_strata(times: torch.Tensor, events: torch.Tensor) -> np.ndarray:
+    time_values = times.detach().cpu().numpy()
+    event_values = events.detach().cpu().numpy().astype(int)
+    valid_times = time_values[np.isfinite(time_values) & (time_values >= 0)]
+    cuts = (
+        np.unique(np.quantile(valid_times, [0.25, 0.5, 0.75]))
+        if valid_times.size >= 4
+        else np.array([])
+    )
+    return event_values * 10 + np.digitize(time_values, cuts)
+
+
+def _permuted_gradient(
+    gradient: torch.Tensor,
+    valid: torch.Tensor,
+    times: torch.Tensor,
+    events: torch.Tensor,
+    cohorts: np.ndarray,
+    rng: np.random.Generator,
+) -> torch.Tensor:
+    """Permute rows within cohort, event-status, and follow-up strata."""
+    result = gradient.clone()
+    strata = _followup_strata(times, events)
+    valid_np = valid.detach().cpu().numpy().astype(bool)
+    for cohort in np.unique(cohorts):
+        for stratum in np.unique(strata[valid_np]):
+            indices = np.flatnonzero(valid_np & (cohorts == cohort) & (strata == stratum))
+            if indices.size > 1:
+                shuffled = rng.permutation(indices)
+                target = torch.as_tensor(indices, device=result.device)
+                source = torch.as_tensor(shuffled, device=result.device)
+                result[target] = gradient[source]
+    return result
+
+
+def _write_component_outputs(
+    output_dir: Path,
+    records: list[dict[str, Any]],
+    outcome_names: list[str],
+    dependencies: list[dict[str, Any]],
+) -> None:
+    dependency_frame = pd.DataFrame(dependencies)
+    dependency_frame.to_csv(output_dir / "endpoint_dependencies.csv", index=False)
+    frame = pd.DataFrame(records)
+    if frame.empty:
+        return
+    frame = frame.merge(dependency_frame, on=["outcome_a", "outcome_b"], how="left")
+    frame.to_csv(output_dir / "gradient_components_batches.csv", index=False)
+    aggregate = frame.groupby(
+        ["gradient_component", "outcome_a", "outcome_b", "relationship", "scaffold_eligible"],
+        as_index=False,
+        dropna=False,
+    ).agg(
+        mean_cosine=("cosine", "mean"),
+        mean_null_cosine=("null_cosine", "mean"),
+        mean_excess_alignment=("excess_alignment", "mean"),
+        mean_joint_support=("joint_support", "mean"),
+        supported_batches=("cosine", "count"),
+    )
+    aggregate.to_csv(output_dir / "gradient_components.csv", index=False)
+    atomic = aggregate[
+        (aggregate["gradient_component"] == "full_likelihood")
+        & aggregate["scaffold_eligible"].fillna(False)
+    ].sort_values("mean_excess_alignment", ascending=False)
+    atomic.to_csv(output_dir / "atomic_scaffold_candidates.csv", index=False)
+    atomic_matrix = pd.DataFrame(np.nan, index=outcome_names, columns=outcome_names)
+    for row in atomic.itertuples():
+        atomic_matrix.loc[row.outcome_a, row.outcome_b] = row.mean_excess_alignment
+        atomic_matrix.loc[row.outcome_b, row.outcome_a] = row.mean_excess_alignment
+    atomic_matrix.to_csv(output_dir / "atomic_scaffold_matrix.csv")
+    for component, component_frame in aggregate.groupby("gradient_component"):
+        matrix = pd.DataFrame(np.nan, index=outcome_names, columns=outcome_names)
+        for row in component_frame.itertuples():
+            matrix.loc[row.outcome_a, row.outcome_b] = row.mean_cosine
+            matrix.loc[row.outcome_b, row.outcome_a] = row.mean_cosine
+        np.fill_diagonal(matrix.values, 1.0)
+        matrix.to_csv(output_dir / f"gradient_cosine_{component}.csv")
+
+
 def _checkpoint_output_dir(base: Path, checkpoint: Path, index: int) -> Path:
     safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", checkpoint.stem)
     output = base / f"{index:02d}_{safe_stem}"
@@ -495,6 +602,9 @@ def diagnose_checkpoint(
     device: torch.device,
     seed: int,
     objective: str = "contrastive",
+    gradient_components: tuple[str, ...] = ("full_likelihood",),
+    null_permutations: int = 0,
+    endpoint_dependency_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the representation-gradient diagnostic for one checkpoint."""
     model = _load_model(
@@ -516,6 +626,11 @@ def diagnose_checkpoint(
     batch_pair_records: list[dict[str, Any]] = []
     outcome_batch_records: list[dict[str, Any]] = []
     projection_geometry_records: list[dict[str, Any]] = []
+    component_pair_records: list[dict[str, Any]] = []
+    composites, aliases = dependency_config(endpoint_dependency_config)
+    endpoint_dependencies = classify_endpoint_pairs(
+        outcome_names, composites=composites, aliases=aliases
+    )
     family_by_outcome = {
         outcome: family
         for family, members in dict(
@@ -526,6 +641,8 @@ def diagnose_checkpoint(
 
     torch.manual_seed(seed)
     loader = data_module.train_dataloader()
+    cohort_lookup = _cohort_by_subject(data_module)
+    null_rng = np.random.default_rng(seed)
     processed_batches = 0
     for batch_index, cpu_batch in enumerate(loader):
         if batch_index >= n_batches:
@@ -615,14 +732,51 @@ def diagnose_checkpoint(
                     for name, term in terms.items()
                     if float(term["n_effective_pairs"].detach().item()) > 0.0
                 ]
-            gradients: dict[str, torch.Tensor] = {}
-            for term_index, name in enumerate(active_names):
+            requested_components = (
+                gradient_components if objective == "competing_risk" else ("full_likelihood",)
+            )
+            gradient_jobs = [
+                (component, name)
+                for component in requested_components
+                for name in active_names
+            ]
+            gradients_by_component: dict[str, dict[str, torch.Tensor]] = {
+                component: {} for component in requested_components
+            }
+            for term_index, (component, name) in enumerate(gradient_jobs):
+                loss_key = (
+                    _CR_COMPONENT_KEYS[component]
+                    if objective == "competing_risk"
+                    else "loss"
+                )
                 gradient = torch.autograd.grad(
-                    terms[name]["loss"],
+                    terms[name][loss_key],
                     representation,
-                    retain_graph=term_index < len(active_names) - 1,
+                    retain_graph=term_index < len(gradient_jobs) - 1,
                 )[0]
-                gradients[name] = gradient.detach()
+                gradients_by_component[component][name] = gradient.detach()
+            gradients = gradients_by_component[requested_components[0]]
+            null_gradient_cache: dict[
+                tuple[str, str], list[torch.Tensor]
+            ] = {}
+            if null_permutations > 0:
+                cohorts = np.asarray([
+                    cohort_lookup.get(int(sid), "unknown")
+                    for sid in subject_ids.detach().cpu().tolist()
+                ])
+                for component, component_gradients in gradients_by_component.items():
+                    for name, gradient in component_gradients.items():
+                        outcome = survival[name]
+                        valid = outcome_eligibility_mask(
+                            outcome["times"], outcome["events"]
+                        )
+                        null_gradient_cache[(component, name)] = [
+                            _permuted_gradient(
+                                gradient, valid, outcome["times"], outcome["events"],
+                                cohorts, null_rng,
+                            )
+                            for _ in range(null_permutations)
+                        ]
 
             for name, term in terms.items():
                 outcome = survival[name]
@@ -725,6 +879,43 @@ def diagnose_checkpoint(
                             "meets_min_overlap": support >= min_overlap,
                         }
                     )
+                    for component, component_gradients in gradients_by_component.items():
+                        component_cosine = None
+                        if (
+                            support > 0
+                            and first_name in component_gradients
+                            and second_name in component_gradients
+                        ):
+                            component_cosine = _gradient_cosine(
+                                component_gradients[first_name],
+                                component_gradients[second_name],
+                                joint,
+                            )
+                        null_values: list[float] = []
+                        if component_cosine is not None and null_permutations > 0:
+                            first_nulls = null_gradient_cache[(component, first_name)]
+                            second_nulls = null_gradient_cache[(component, second_name)]
+                            for first_null, second_null in zip(first_nulls, second_nulls):
+                                value = _gradient_cosine(first_null, second_null, joint)
+                                if value is not None:
+                                    null_values.append(value)
+                        null_mean = float(np.mean(null_values)) if null_values else 0.0
+                        component_pair_records.append({
+                            "checkpoint": str(checkpoint),
+                            "batch_index": batch_index,
+                            "gradient_component": component,
+                            "outcome_a": first_name,
+                            "outcome_b": second_name,
+                            "cosine": component_cosine,
+                            "null_cosine": null_mean if null_permutations > 0 else np.nan,
+                            "excess_alignment": (
+                                component_cosine - null_mean
+                                if component_cosine is not None and null_permutations > 0
+                                else np.nan
+                            ),
+                            "joint_support": support,
+                            "null_permutations": null_permutations,
+                        })
                 if support < min_overlap or cosine is None:
                     continue
                 cosine_sum[first, second] += cosine
@@ -750,6 +941,12 @@ def diagnose_checkpoint(
         min_overlap,
         negative_threshold,
         batch_pair_records,
+    )
+    _write_component_outputs(
+        output_dir,
+        component_pair_records,
+        outcome_names,
+        endpoint_dependencies,
     )
     outcome_frame = pd.DataFrame(outcome_batch_records)
     outcome_frame.to_csv(output_dir / "outcome_batch_diagnostics.csv", index=False)
@@ -887,6 +1084,24 @@ def _parse_args() -> argparse.Namespace:
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
     parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument(
+        "--gradient-components",
+        nargs="+",
+        choices=tuple(_CR_COMPONENT_KEYS),
+        default=["full_likelihood"],
+        help="Competing-risk likelihood components to diagnose.",
+    )
+    parser.add_argument(
+        "--null-permutations",
+        type=int,
+        default=0,
+        help="Within-cohort/status/follow-up permutations per batch and pair.",
+    )
+    parser.add_argument(
+        "--dependency-config",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "configs" / "endpoint_dependencies.yaml",
+    )
     return parser.parse_args()
 
 
@@ -896,6 +1111,10 @@ def main() -> None:
         raise ValueError("--batches must be positive.")
     if args.min_overlap < 2:
         raise ValueError("--min-overlap must be at least 2.")
+    if args.null_permutations < 0:
+        raise ValueError("--null-permutations must be non-negative.")
+    if args.objective == "competing_risk" and "full_likelihood" not in args.gradient_components:
+        raise ValueError("--gradient-components must include full_likelihood.")
 
     load_dotenv()
     GlobalHydra.instance().clear()
@@ -918,6 +1137,9 @@ def main() -> None:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
+    dependency_cfg = OmegaConf.to_container(
+        OmegaConf.load(args.dependency_config), resolve=True
+    )
 
     summaries = []
     for index, checkpoint in enumerate(args.checkpoints):
@@ -941,6 +1163,9 @@ def main() -> None:
                 device=device,
                 seed=args.seed,
                 objective=args.objective,
+                gradient_components=tuple(args.gradient_components),
+                null_permutations=args.null_permutations,
+                endpoint_dependency_config=dependency_cfg,
             )
         )
 

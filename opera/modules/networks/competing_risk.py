@@ -307,19 +307,41 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 * competing_log_hazard.to(cumulative_hazard.dtype)
             )
 
-            outcome_loss = (cumulative_hazard - event_term).mean()
+            # Components share the same valid-observation denominator, so they
+            # sum exactly to the unsmoothed full likelihood.  This is important
+            # for gradient diagnostics: event-conditional means would silently
+            # rescale rare outcomes and manufacture apparent alignment.
+            exposure_loss = cumulative_hazard.mean()
+            primary_event_loss = -(
+                target.to(cumulative_hazard.dtype)
+                * target_log_hazard.to(cumulative_hazard.dtype)
+            ).mean()
+            competing_event_loss = -(
+                competing.to(cumulative_hazard.dtype)
+                * competing_log_hazard.to(cumulative_hazard.dtype)
+            ).mean()
+            outcome_loss = (
+                exposure_loss + primary_event_loss + competing_event_loss
+            )
+            smoothness_loss = outcome_loss * 0.0
             if self.smoothness_weight and self.n_intervals > 1:
                 active_log_hazards = log_hazards[valid, outcome_index]
                 if name in self.no_competing_outcomes:
                     active_log_hazards = active_log_hazards[:, :1]
                 smoothness = active_log_hazards.diff(dim=-1).square().mean()
-                outcome_loss = outcome_loss + self.smoothness_weight * smoothness
+                smoothness_loss = self.smoothness_weight * smoothness
+                outcome_loss = outcome_loss + smoothness_loss
                 diagnostics[f"cr/smoothness/{name}"] = smoothness.detach()
 
             losses.append(outcome_loss)
             loss_names.append(name)
             per_outcome[name] = {
                 "loss": outcome_loss,
+                "full_likelihood_loss": outcome_loss,
+                "exposure_loss": exposure_loss,
+                "primary_event_loss": primary_event_loss,
+                "competing_event_loss": competing_event_loss,
+                "smoothness_loss": smoothness_loss,
                 "valid_mask": valid,
                 "target_mask": target,
                 "competing_mask": competing,

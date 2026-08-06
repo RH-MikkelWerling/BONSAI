@@ -280,3 +280,19 @@ def test_competing_risk_can_return_differentiable_per_outcome_terms():
     assert terms["a"]["valid_mask"].tolist() == [True, True, True]
     assert torch.isfinite(gradient).all()
     assert gradient[:, 1].abs().sum().item() == 0.0
+# Component losses must retain the full-likelihood scale used by the model.
+def test_per_outcome_competing_risk_components_sum_to_full_likelihood():
+    from opera.modules.networks.competing_risk import PiecewiseExponentialCompetingRiskLoss
+
+    objective = PiecewiseExponentialCompetingRiskLoss(
+        ["lab"], [30.0], no_competing_outcomes=(), time_scale_days=1.0
+    )
+    hazards = torch.tensor(
+        [[[[0.0, -0.2], [-0.4, -0.5]]], [[[0.1, 0.2], [-0.3, -0.1]]]],
+        requires_grad=True,
+    )
+    survival = {"lab": {"times": torch.tensor([10.0, 45.0]), "events": torch.tensor([1, 2])}}
+    _, _, terms = objective(hazards, survival, return_per_outcome=True)
+    term = terms["lab"]
+    expected = term["exposure_loss"] + term["primary_event_loss"] + term["competing_event_loss"]
+    assert torch.allclose(term["full_likelihood_loss"], expected)

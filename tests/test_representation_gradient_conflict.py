@@ -10,6 +10,10 @@ from opera.diagnostics.representation_gradient_conflict import (
 )
 from opera.diagnostics.conflict_verdict import run_conflict_verdict
 from opera.modules.networks.opera_nets import outcome_eligibility_mask
+from opera.diagnostics.endpoint_dependencies import (
+    classify_endpoint_pair,
+    classify_endpoint_pairs,
+)
 
 
 def test_gradient_cosine_uses_only_jointly_eligible_rows():
@@ -20,6 +24,22 @@ def test_gradient_cosine_uses_only_jointly_eligible_rows():
     cosine = _gradient_cosine(first, second, joint)
 
     assert cosine == pytest.approx(1.0)
+
+
+def test_endpoint_dependencies_keep_nested_thresholds_as_ineligible_controls():
+    relationship = classify_endpoint_pair("anemia_g2plus", "anemia_g3plus")
+    assert relationship.relationship == "nested_threshold_control"
+    assert not relationship.scaffold_eligible
+
+
+def test_composite_is_removed_but_atomic_pair_remains_eligible():
+    rows = classify_endpoint_pairs(
+        ["sepsis", "infections_IV_based", "serious_infection_composite"],
+        composites={"serious_infection_composite": ["sepsis", "infections_IV_based"]},
+    )
+    indexed = {(row["outcome_a"], row["outcome_b"]): row for row in rows}
+    assert indexed[("sepsis", "infections_IV_based")]["scaffold_eligible"]
+    assert not indexed[("sepsis", "serious_infection_composite")]["scaffold_eligible"]
 
 
 def test_diagnostic_joint_support_excludes_sentinel_rows():

@@ -1,0 +1,14 @@
+# Label-construction dependencies used only for diagnostic/scaffold discovery.
+# Extend this file when outcome definitions change; do not infer components from
+# gradient similarity or prevalence.
+endpoint_dependencies:
+  composites:
+    any_transfusion: [RBC_transfusion, platelet_transfusion]
+    serious_infection_composite: [sepsis, infections_IV_based, infections_prescription_based]
+    infections_all_definitions: [infections_IV_based, infections_prescription_based]
+    MACE_composite: [myocardial_infarction, stroke_TIA]
+    severe_cytopenia: [anemia_g3plus, neutropenia_g3plus, thrombocytopenia_g3plus]
+    treatment_failure: [overall_survival, second_line_treatment]
+    treatment_failure_transformation: [overall_survival, second_line_treatment]
+  aliases:
+    treatment_failure: [treatment_failure_transformation]
