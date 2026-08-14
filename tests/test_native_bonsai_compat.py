@@ -111,6 +111,29 @@ def test_sdpa_valid_representations_are_invariant_to_extra_right_padding():
     assert torch.allclose(short_rep, padded_rep, atol=1e-6)
 
 
+def test_causal_sdpa_prevents_future_tokens_from_changing_prefix_states():
+    """Regression test for upstream #349's causal-SDPA contract."""
+    torch.manual_seed(9)
+    config = _small_model_config()
+    config["causal"] = True
+    model = BonsaiBase(**config).eval()
+    common = {
+        "age": torch.tensor([[40.0, 41.0, 42.0, 43.0, 44.0]]),
+        "abspos": torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]]),
+        "segment": torch.tensor([[0, 1, 1, 1, 1]]),
+        "attention_mask": torch.ones((1, 5), dtype=torch.bool),
+    }
+    first = {**common, "code": torch.tensor([[2, 3, 4, 5, 6]])}
+    changed_future = {**common, "code": torch.tensor([[2, 3, 4, 10, 11]])}
+
+    with torch.no_grad():
+        first_states = model(first)
+        changed_states = model(changed_future)
+
+    assert torch.allclose(first_states[:, :3], changed_states[:, :3], atol=1e-6)
+    assert not torch.allclose(first_states[:, 3:], changed_states[:, 3:])
+
+
 def test_evaluation_extracts_native_prediction_token_representation():
     model = BonsaiFinetune(**_small_model_config(), predict_token_id=1).eval()
     batch = {
