@@ -429,6 +429,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         batch_sampling: Optional[Dict[str, object]] = None,
         logical_batch_size: Optional[int] = None,
         logical_val_batch_size: Optional[int] = None,
+        numeric_value_control: str = "observed",
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -454,6 +455,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.max_len = max_len
         self.batch_sampling = dict(batch_sampling or {})
         self.outcome_names = sorted(outcome_configs.keys())
+        self.numeric_value_control = numeric_value_control
         self.train_batch_sampler = None
 
     # ── Internal helpers ──────────────────────────────────────────────
@@ -609,6 +611,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
 
     # ── Lightning interface ───────────────────────────────────────────

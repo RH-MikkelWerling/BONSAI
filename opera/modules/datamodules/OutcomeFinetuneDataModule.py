@@ -99,6 +99,7 @@ class OutcomeFinetuneDataModule(FinetuneDataModule):
                 "predict_token_id": self.predict_token_id,
                 "background_length": background_length,
                 "max_len": self.max_len,
+                "numeric_value_control": self.numeric_value_control,
             }
             self.train_dataset = FinetuneDataset(
                 train_data, outcomes=self.train_outcomes, **common
@@ -118,6 +119,7 @@ class OutcomeFinetuneDataModule(FinetuneDataModule):
                 predict_token_id=self.predict_token_id,
                 background_length=background_length,
                 max_len=self.max_len,
+                numeric_value_control=self.numeric_value_control,
             )
             return
         raise NotImplementedError("Test stage is not supported for finetuning.")

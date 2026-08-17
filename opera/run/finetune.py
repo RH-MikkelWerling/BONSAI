@@ -48,6 +48,10 @@ from bonsai.functional.checkpointing import (
     should_skip_completed_training,
 )
 from bonsai.functional.model_config import normalize_bonsai_model_config
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.linear_probe import freeze_encoder_for_linear_probe
 from opera.functional.outcomes import (
@@ -123,6 +127,7 @@ def build_finetune_data_module(
     test_outcomes: dict,
     train_labels: list[int],
     encoder_max_seqlen: Optional[int] = None,
+    numeric_value_control: str = "observed",
 ) -> OutcomeFinetuneDataModule:
     """Construct the datamodule exactly as the finetune runner uses it."""
     return OutcomeFinetuneDataModule(
@@ -142,6 +147,7 @@ def build_finetune_data_module(
             weight_fn=cfg.training.sampling_weight_fn,
             labels=train_labels,
         ),
+        numeric_value_control=numeric_value_control,
     )
 
 
@@ -170,6 +176,11 @@ def main(cfg: DictConfig) -> None:
             vocab_size=None,
         )
     )
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"),
+        pretrain_hparams if encoder_state else None,
+    )
+    print(f"Resolved input contract: numeric_value_control={numeric_value_control}")
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
@@ -243,6 +254,7 @@ def main(cfg: DictConfig) -> None:
         test_outcomes,
         train_labels,
         encoder_max_seqlen=encoder_model_cfg["max_seqlen"],
+        numeric_value_control=numeric_value_control,
     )
 
     # ── Build finetune model and load encoder weights ────────────────
@@ -340,6 +352,7 @@ def main(cfg: DictConfig) -> None:
             "selection_mode": (
                 "max" if "AUROC" in cfg.training.eval_monitor_metric else "min"
             ),
+            **input_contract_metadata(numeric_value_control),
             **linear_probe_metadata,
         },
         pos_weight=get_loss_weight(

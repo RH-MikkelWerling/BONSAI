@@ -24,6 +24,10 @@ from bonsai.functional.checkpointing import (
     get_saved_encoder_config,
     save_checkpoint_metadata_sidecar,
 )
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from bonsai.functional.checkpointing import (
     mark_training_complete,
     should_skip_completed_training,
@@ -57,6 +61,9 @@ def main(cfg: DictConfig) -> None:
     # ── Load encoder from DAPT checkpoint ────────────────────────────
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"), pretrain_hparams
+    )
 
     vocab = torch.load(cfg.paths.vocabulary)
 
@@ -144,6 +151,7 @@ def main(cfg: DictConfig) -> None:
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling=cfg.training.get("batch_sampling", {}),
         subject_data_paths=cfg.paths.get("subject_data_paths"),
+        numeric_value_control=numeric_value_control,
     )
 
     # ── Lightning ────────────────────────────────────────────────────
@@ -160,6 +168,7 @@ def main(cfg: DictConfig) -> None:
             "source_checkpoint": cfg.dapt_ckpt,
             "dataset": cfg.dataset,
             "outcome_set": outcome_names,
+            **input_contract_metadata(numeric_value_control),
         },
     )
 

@@ -48,6 +48,10 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.model_config import validate_pretraining_attention
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from bonsai.functional.checkpointing import (
     clean_lightning_state_dict,
     get_saved_encoder_config,
@@ -78,6 +82,9 @@ def main(cfg: DictConfig) -> None:
     ckpt = torch.load(cfg.pretrain_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
     model_cfg = get_saved_encoder_config(pretrain_hparams)
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"), pretrain_hparams
+    )
 
     # ── Vocabulary handling ──────────────────────────────────────────
     base_vocab = torch.load(cfg.paths.vocab)
@@ -166,6 +173,7 @@ def main(cfg: DictConfig) -> None:
         ),
         tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
         value_embedding_mode=model_cfg.get("value_embedding_mode", "legacy"),
+        numeric_value_control=numeric_value_control,
     )
 
     # ── Model ────────────────────────────────────────────────────────
@@ -211,6 +219,7 @@ def main(cfg: DictConfig) -> None:
                 "dataset": cfg.dataset,
                 "tokenizer_vocab_path": vocab_path_for_dm,
                 "vocab_expanded": True,
+                **input_contract_metadata(numeric_value_control),
             },
         )
     else:
@@ -232,6 +241,7 @@ def main(cfg: DictConfig) -> None:
                 "dataset": cfg.dataset,
                 "tokenizer_vocab_path": vocab_path_for_dm,
                 "vocab_expanded": False,
+                **input_contract_metadata(numeric_value_control),
             },
         )
 

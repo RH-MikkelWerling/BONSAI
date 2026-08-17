@@ -245,6 +245,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         max_len: int = 8192,
         batch_sampling: Optional[Dict[str, object]] = None,
         subject_data_paths: Optional[List[str]] = None,
+        numeric_value_control: str = "observed",
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -268,6 +269,7 @@ class ContrastiveDataModule(L.LightningDataModule):
         self.max_len = max_len
         self.batch_sampling = dict(batch_sampling or {})
         self.outcome_names = sorted(outcome_configs.keys())
+        self.numeric_value_control = numeric_value_control
         self.train_batch_sampler = None
 
     def _load_outcomes(self, split_key: str) -> Dict[str, Dict[int, dict]]:
@@ -357,6 +359,7 @@ class ContrastiveDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
         self.val_dataset = ContrastiveDataset(
             val_data,
@@ -364,6 +367,7 @@ class ContrastiveDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
 
         print(

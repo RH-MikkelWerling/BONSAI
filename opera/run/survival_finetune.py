@@ -25,6 +25,10 @@ from bonsai.functional.outcomes import (
     split_and_binarize_outcomes,
 )
 from bonsai.functional.pathing import get_experiment_output_path
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from bonsai.functional.versioning import generate_unused_run_id
 from opera.compat.bonsai import build_bonsai_finetune
 from opera.functional.ipcw import (
@@ -184,6 +188,7 @@ def build_survival_finetune_data_module(
     val_outcomes: dict,
     test_outcomes: dict,
     encoder_max_seqlen: Optional[int] = None,
+    numeric_value_control: str = "observed",
 ) -> SurvivalFinetuneDataModule:
     """Construct the datamodule exactly as the survival runner uses it."""
     return SurvivalFinetuneDataModule(
@@ -202,6 +207,7 @@ def build_survival_finetune_data_module(
         train_sampler=None,
         batch_sampling=cfg.training.get("batch_sampling", {}),
         training_mode=cfg.get("training_mode", "cox"),
+        numeric_value_control=numeric_value_control,
     )
 
 
@@ -252,6 +258,14 @@ def main(cfg: DictConfig) -> None:
         # the complete random-init architecture mapping here; the model
         # builder normalizes it together with the actual vocabulary size.
         else dict(pretrain_hparams)
+    )
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"),
+        pretrain_hparams if encoder_state else None,
+    )
+    LOGGER.info(
+        "Resolved input contract: numeric_value_control=%s",
+        numeric_value_control,
     )
 
     vocab = torch.load(cfg.paths.vocabulary)
@@ -377,6 +391,7 @@ def main(cfg: DictConfig) -> None:
         val_outcomes,
         test_outcomes,
         encoder_max_seqlen=model_cfg["max_seqlen"],
+        numeric_value_control=numeric_value_control,
     )
 
     if cfg.get("model"):
@@ -424,6 +439,7 @@ def main(cfg: DictConfig) -> None:
             "selection_split": cfg.labels.val_key,
             "selection_metric": monitor,
             "selection_mode": monitor_mode,
+            **input_contract_metadata(numeric_value_control),
             "seed": int(cfg.seed),
         },
         pos_weight=None,

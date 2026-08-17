@@ -7,6 +7,7 @@ from bonsai.functional.censoring import censor_subject
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
 from bonsai.functional.truncation import truncate_subject
+from bonsai.functional.input_contract import validate_numeric_value_control
 
 
 class FinetuneDataset(Dataset):
@@ -17,15 +18,26 @@ class FinetuneDataset(Dataset):
         predict_token_id: int,
         background_length: int,
         max_len: int,
+        numeric_value_control: str = "observed",
     ):
         self.subjects = subjects
         self.outcomes = outcomes
         self.predict_token_id = predict_token_id
         self.background_length = background_length
         self.max_len = max_len
+        self.numeric_value_control = validate_numeric_value_control(
+            numeric_value_control
+        )
 
     def __getitem__(self, index: int) -> dict:
         subject = clone_subject(self.subjects[index])
+        if (
+            self.numeric_value_control == "masked"
+            and "numeric_value" in subject
+        ):
+            subject["numeric_value"] = torch.full_like(
+                subject["numeric_value"], float("nan")
+            )
         subject_outcome = self.outcomes[subject["subject_id"]]
 
         subject["target"] = torch.tensor([subject_outcome["label"]], dtype=torch.long)

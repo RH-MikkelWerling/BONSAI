@@ -94,6 +94,7 @@ cross_outcome:
   class_counts: {}
 
 training:
+  numeric_value_control: inherit
   require_dapt_embedding_store: false
   batch_size: 64                # larger batches → better contrastive learning
   batch_sampling:

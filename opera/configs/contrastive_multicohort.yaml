@@ -141,6 +141,7 @@ cross_outcome:
   class_counts: {}
 
 training:
+  numeric_value_control: inherit
   require_all_configured_cells: true
   require_dapt_embedding_store: false
   batch_size: 128               # larger = more cross-disease pairs per step

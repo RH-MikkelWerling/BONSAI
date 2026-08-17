@@ -623,6 +623,15 @@ model_variants:
   no_pretraining:
     encoder_source: random_init
     extra_overrides:
+    - model.hidden_size=64
+    - model.num_layers=4
+    - model.num_attention_heads=4
+    - model.bias=false
+    - model.dropout=0.1
+    - model.attention_dropout=0.0
+    - model.causal=true
+    - model.attn_type=sdpa
+    - model.abspos_encoding=fourier
     - model.value_embedding_mode=film
     - model.value_bin_vocab_size=0
     - model.max_seqlen=3372
@@ -635,6 +644,8 @@ model_variants:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
     encoder_source: pretrain
     pretraining_scope: daly_care_only
+    extra_overrides:
+    - training.numeric_value_control=observed
     training_mode: ipcw_bce
   daly_care_pretrain_frozen:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
@@ -650,6 +661,29 @@ model_variants:
     encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}
     encoder_source: pretrain
     pretraining_scope: daly_care_no_values
+    extra_overrides:
+    - training.numeric_value_control=masked
+    training_mode: ipcw_bce
+  daly_care_pretrain_no_values_strict:
+    encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_no_values
+    extra_overrides:
+    - training.numeric_value_control=masked
+    training_mode: ipcw_bce
+  daly_care_pretrain_no_values_observed_finetune:
+    encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}
+    encoder_source: pretrain
+    pretraining_scope: daly_care_no_values
+    extra_overrides:
+    - training.numeric_value_control=observed
+    training_mode: ipcw_bce
+  daly_care_pretrain_masked_finetune:
+    encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
+    encoder_source: pretrain
+    pretraining_scope: daly_care_only
+    extra_overrides:
+    - training.numeric_value_control=masked
     training_mode: ipcw_bce
   daly_care_pretrain_no_values_frozen:
     encoder_ckpt: ${BONSAI_PRETRAIN_NO_VALUES_CKPT}

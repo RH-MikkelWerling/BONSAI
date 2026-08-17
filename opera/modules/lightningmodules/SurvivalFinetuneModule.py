@@ -154,6 +154,8 @@ class SurvivalFinetuneModule(L.LightningModule):
         self._val_risk_scores: List[torch.Tensor] = []
         self._val_times: List[torch.Tensor] = []
         self._val_events: List[torch.Tensor] = []
+        self._val_labels: List[torch.Tensor] = []
+        self._val_ipcw_weights: List[torch.Tensor] = []
         self._train_risk_scores: List[torch.Tensor] = []
         self._train_times: List[torch.Tensor] = []
         self._train_events: List[torch.Tensor] = []
@@ -216,7 +218,14 @@ class SurvivalFinetuneModule(L.LightningModule):
             return None
 
         loss = self._loss(batch)
-        self.log("train/loss", loss, prog_bar=True)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            batch_size=len(batch["target"]),
+        )
         if self.training_mode == "cox":
             n_events, n_comparable = cox_batch_signal_counts(
                 batch["time_days"], batch["event"]
@@ -356,6 +365,11 @@ class SurvivalFinetuneModule(L.LightningModule):
         self._val_risk_scores.append(logits.detach().float().cpu())
         self._val_times.append(batch["time_days"].reshape(-1).detach().cpu())
         self._val_events.append(batch["event"].reshape(-1).detach().cpu())
+        self._val_labels.append(batch["target"].reshape(-1).detach().cpu())
+        if self.training_mode not in {"cox", "cox_exact_cached"}:
+            self._val_ipcw_weights.append(
+                batch["ipcw_weight"].reshape(-1).detach().cpu()
+            )
         if loss is not None:
             self.log("val/loss", loss, prog_bar=True, batch_size=len(logits))
         return loss
@@ -391,6 +405,42 @@ class SurvivalFinetuneModule(L.LightningModule):
                 )
             else:
                 probabilities = torch.sigmoid(torch.from_numpy(logits)).numpy()
+                labels = torch.cat(self._val_labels).float()
+                weights = torch.cat(self._val_ipcw_weights).float()
+                total_weight = weights.sum()
+                if total_weight > 0:
+                    prevalence = (weights * labels).sum() / total_weight
+                    clipped = prevalence.clamp(1e-6, 1.0 - 1e-6)
+                    null_logit = torch.logit(clipped).expand_as(labels)
+                    null_loss = (
+                        F.binary_cross_entropy_with_logits(
+                            null_logit, labels, reduction="none"
+                        )
+                        * weights
+                    ).mean()
+                    fitted_loss = (
+                        F.binary_cross_entropy_with_logits(
+                            torch.from_numpy(logits), labels, reduction="none"
+                        )
+                        * weights
+                    ).mean()
+                    diagnostics = {
+                        "val/null_loss": null_loss,
+                        "val/loss_skill": null_loss - fitted_loss,
+                        "val/weighted_prevalence": prevalence,
+                        "val/probability_mean": torch.from_numpy(probabilities).mean(),
+                        "val/probability_std": torch.from_numpy(probabilities).std(),
+                        "val/fraction_positive_at_0_5": torch.from_numpy(
+                            probabilities >= 0.5
+                        ).float().mean(),
+                        "val/logit_std": torch.from_numpy(logits).std(),
+                    }
+                    self.log_dict(
+                        {
+                            name: value.to(self.device)
+                            for name, value in diagnostics.items()
+                        }
+                    )
                 if self.training_mode == "ipcw_cif_bce":
                     metric = compute_competing_risk_metrics_at_horizon(
                         times,
@@ -416,6 +466,8 @@ class SurvivalFinetuneModule(L.LightningModule):
         self._val_risk_scores.clear()
         self._val_times.clear()
         self._val_events.clear()
+        self._val_labels.clear()
+        self._val_ipcw_weights.clear()
 
     def configure_optimizers(self):
         optimizer = AdamW(

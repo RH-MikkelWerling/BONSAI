@@ -68,6 +68,9 @@ model:
   value_embedding_mode: legacy
 
 training:
+  # Checkpoint-backed runs inherit the source pretraining input contract.
+  # Random-init runs resolve inherit to observed.
+  numeric_value_control: inherit
   max_len: ${model.max_seqlen}
   batch_size: 128
   batch_sampling:

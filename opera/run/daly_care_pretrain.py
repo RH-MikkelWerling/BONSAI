@@ -19,6 +19,7 @@ from bonsai.functional.checkpointing import (
     should_skip_completed_training,
 )
 from bonsai.functional.model_config import validate_pretraining_attention
+from bonsai.functional.input_contract import input_contract_metadata
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
@@ -90,6 +91,9 @@ def main(cfg: DictConfig) -> None:
             "tokenizer_vocab_path": cfg.paths.vocab,
             "split_identifier": "train:tuning",
             "pretraining_scope": "daly_care_only",
+            **input_contract_metadata(
+                cfg.training.get("numeric_value_control", "observed")
+            ),
         },
     )
 

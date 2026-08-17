@@ -23,6 +23,7 @@ class FinetuneDataModule(L.LightningDataModule):
         val_outcomes: Dict[int, dict],
         predict_outcomes: Dict[int, dict],
         train_sampler: Optional[WeightedRandomSampler] = None,
+        numeric_value_control: str = "observed",
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -39,6 +40,7 @@ class FinetuneDataModule(L.LightningDataModule):
         self.val_outcomes = val_outcomes
         self.predict_outcomes = predict_outcomes
         self.train_sampler = train_sampler
+        self.numeric_value_control = numeric_value_control
 
     def setup(self, stage: Literal["fit", "test", "predict"]):
         if stage == "fit":
@@ -77,6 +79,7 @@ class FinetuneDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
         self.val_dataset = FinetuneDataset(
             val_data,
@@ -84,6 +87,7 @@ class FinetuneDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
 
     def setup_predict(self):
@@ -106,6 +110,7 @@ class FinetuneDataModule(L.LightningDataModule):
             predict_token_id=self.predict_token_id,
             background_length=background_length,
             max_len=self.max_len,
+            numeric_value_control=self.numeric_value_control,
         )
 
     def train_dataloader(self):

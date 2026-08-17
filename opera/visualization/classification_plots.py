@@ -24,6 +24,7 @@ from opera.visualization.style import (
     add_panel_label,
     LEGEND_SIZE,
     ANNOT_SIZE,
+    SUPTITLE_SIZE,
 )
 from opera.evaluation.metrics import (
     decision_curve_analysis,
@@ -538,23 +539,29 @@ def plot_evaluation_panel(
     The bottom-right panel shows the time-dependent AUC if survival data
     is provided, otherwise the threshold analysis.
     """
-    fig, axes = plt.subplots(2, 2, figsize=(7.0, 6.0))
+    # Put the endpoint at figure level instead of repeating a long clinical
+    # name in every axes title. This prevents title/panel-label collisions.
+    fig, axes = plt.subplots(
+        2, 2, figsize=(9.2, 7.2), constrained_layout=True
+    )
     (ax_roc, ax_prc), (ax_cal, ax_bot) = axes
 
-    title_sfx = f" — {outcome_name.replace('_', ' ').title()}" if outcome_name else ""
+    display_outcome = outcome_name.replace("_", " ").title()
+    if display_outcome:
+        fig.suptitle(display_outcome, fontsize=SUPTITLE_SIZE, fontweight="bold")
 
     plot_roc_curve(
         labels,
         probabilities,
         ax=ax_roc,
-        title=f"ROC{title_sfx}",
+        title="ROC",
         bootstrap_ci=bootstrap_ci,
     )
     plot_prc(
         labels,
         probabilities,
         ax=ax_prc,
-        title=f"Precision-Recall{title_sfx}",
+        title="Precision–recall",
         bootstrap_ci=bootstrap_ci,
     )
 
@@ -590,7 +597,7 @@ def plot_evaluation_panel(
         )
     ax_cal.set_xlabel("Predicted probability")
     ax_cal.set_ylabel("Observed frequency")
-    ax_cal.set_title(f"Calibration{title_sfx}")
+    ax_cal.set_title("Calibration")
     ax_cal.legend(fontsize=LEGEND_SIZE)
     ax_cal.set_xlim(-0.01, 1.01)
     ax_cal.set_ylim(-0.01, 1.01)
@@ -607,14 +614,14 @@ def plot_evaluation_panel(
             events,
             risk_scores,
             window_days=window_days,
-            title=f"Time-dependent AUC{title_sfx}",
+            title="Time-dependent AUC",
             ax=ax_bot,
         )
     else:
         plot_threshold_analysis(
             labels,
             probabilities,
-            title=f"Threshold analysis{title_sfx}",
+            title="Threshold analysis",
             save_path=None,
         )
         # reuse ax_bot
@@ -637,15 +644,14 @@ def plot_evaluation_panel(
         ax_bot.axhline(0, color=PALETTE["diagonal"], ls=":", lw=1)
         ax_bot.set_xlabel("Decision threshold")
         ax_bot.set_ylabel("Net benefit")
-        ax_bot.set_title(f"Decision Curve{title_sfx}")
+        ax_bot.set_title("Decision curve")
         ax_bot.legend(fontsize=LEGEND_SIZE)
         ax_bot.set_xlim(0, 1)
         despine(ax_bot, "y")
 
     for label, ax in zip("ABCD", axes.flat):
-        add_panel_label(ax, label, x=-0.16, y=1.14)
+        add_panel_label(ax, label, x=-0.13, y=1.08)
 
-    fig.tight_layout(h_pad=3.2, w_pad=2.4)
     save_fig(fig, save_path)
     return fig
 

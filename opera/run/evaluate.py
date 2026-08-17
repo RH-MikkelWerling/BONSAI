@@ -37,6 +37,7 @@ from opera.evaluation.cohorts import (
 )
 from opera.functional.checkpointing import load_opera_finetune_model_from_checkpoint
 from opera.modules.datamodules.OutcomeFinetuneDataModule import load_subject_pool
+from bonsai.functional.input_contract import resolve_numeric_value_control
 
 from opera.evaluation.metrics import (
     compute_macro_stratified_concordance,
@@ -82,6 +83,15 @@ def checkpoint_training_mode(ckpt_path: str) -> str:
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     metadata = ckpt.get("hyper_parameters", {}).get("checkpoint_metadata", {})
     return metadata.get("training_mode", "bce")
+
+
+def checkpoint_input_contract(ckpt_path: str) -> dict:
+    """Return the resolved input contract stored by the fitted checkpoint."""
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    hparams = ckpt.get("hyper_parameters", {})
+    return {
+        "numeric_value_control": resolve_numeric_value_control("inherit", hparams)
+    }
 
 
 def _read_checkpoint_sidecar(run_dir: Path) -> dict:
@@ -277,6 +287,12 @@ def main(cfg: DictConfig) -> None:
         ),
     )
     training_mode = checkpoint_training_mode(str(resolved_ckpt_path))
+    saved_input_contract = checkpoint_input_contract(str(resolved_ckpt_path))
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.get("numeric_value_control", "inherit"),
+        {"checkpoint_metadata": {"input_contract": saved_input_contract}},
+    )
+    print(f"Resolved input contract: numeric_value_control={numeric_value_control}")
     if model.hparams["vocab_size"] != len(vocab):
         raise ValueError(
             f"Checkpoint vocab_size={model.hparams['vocab_size']} does not match "
@@ -343,6 +359,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
         background_length=background_length,
         max_len=int(max_len),
+        numeric_value_control=numeric_value_control,
     )
 
     test_loader = DataLoader(

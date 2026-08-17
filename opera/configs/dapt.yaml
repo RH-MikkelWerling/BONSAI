@@ -137,6 +137,7 @@ vocab_expansion:
   freeze_pretrained_embeds: false  # true for Phase 2 of Strategy D
 
 training:
+  numeric_value_control: inherit
   max_len: 8192
   # Long patients keep background tokens, then use a mix of recent-history
   # and random contiguous clinical windows during training. Validation stays

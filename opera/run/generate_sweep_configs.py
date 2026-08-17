@@ -165,8 +165,8 @@ def _outcomes(
 ) -> dict[str, dict[str, Any]]:
     if training_mode in {"cox", "cox_exact_cached"} and horizon_days is not None:
         raise ValueError("Cox generation does not take a fixed horizon.")
-    if training_mode in {"ipcw_bce", "ipcw_cif_bce"} and horizon_days is None:
-        raise ValueError("IPCW-BCE generation requires a fixed horizon.")
+    if training_mode in {"bce", "ipcw_bce", "ipcw_cif_bce"} and horizon_days is None:
+        raise ValueError("Fixed-horizon BCE generation requires a horizon.")
     death = registry["death_outcome"]
     containing_death = set(registry.get("outcomes_containing_death", [death]))
     result = {}
@@ -200,18 +200,28 @@ def build_sweep_config(
 ) -> dict[str, Any]:
     if training_mode in {"cox", "cox_exact_cached"}:
         objective = "cox"
+    elif training_mode == "bce":
+        objective = f"bce_{horizon_days}d"
     elif training_mode == "ipcw_cif_bce":
         objective = f"ipcw_cif_{horizon_days}d"
     else:
         objective = f"ipcw_{horizon_days}d"
     variants = {
-        name: {**config, "training_mode": training_mode}
+        name: (
+            dict(config)
+            if training_mode == "bce"
+            else {**config, "training_mode": training_mode}
+        )
         for name, config in registry["model_variants"].items()
     }
     return {
         "analysis_level": level,
         "output_dir": f"{registry['paths']['output_root']}/{level}/{objective}",
-        "finetune_base_config": "opera/configs/survival_finetune.yaml",
+        "finetune_base_config": (
+            "opera/configs/finetune.yaml"
+            if training_mode == "bce"
+            else "opera/configs/survival_finetune.yaml"
+        ),
         "seeds": list(registry["seeds"]),
         "rarity_mode": "none",
         "cohorts": _cohorts(registry, level),
@@ -418,6 +428,7 @@ def generate_configs(
     written: list[Path] = []
     objectives = (
         [("cox_exact_cached", None)]
+        + [("bce", horizon) for horizon in registry["horizons_days"]]
         + [("ipcw_bce", horizon) for horizon in registry["horizons_days"]]
         + [("ipcw_cif_bce", horizon) for horizon in registry["horizons_days"]]
     )
@@ -425,6 +436,8 @@ def generate_configs(
         for training_mode, horizon in objectives:
             if horizon is None:
                 label = "cox"
+            elif training_mode == "bce":
+                label = f"bce_{horizon}d"
             elif training_mode == "ipcw_cif_bce":
                 label = f"ipcw_cif_{horizon}d"
             else:

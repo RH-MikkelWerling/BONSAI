@@ -49,6 +49,10 @@ load_dotenv()
 OmegaConf.register_new_resolver(
     "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
 )
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 
 
 # These are deliberately kept in the contrastive entry point rather than only
@@ -167,6 +171,7 @@ def _checkpoint_metadata(
     cfg: DictConfig,
     outcome_names: list[str],
     transfer_metadata: dict | None,
+    numeric_value_control: str,
 ) -> dict:
     """Build inspectable checkpoint provenance for standard and transfer runs."""
     metadata = {
@@ -174,6 +179,7 @@ def _checkpoint_metadata(
         "source_checkpoint": str(cfg.dapt_ckpt),
         "cohort_set": sorted(cfg.cohorts.keys()),
         "outcome_set": outcome_names,
+        **input_contract_metadata(numeric_value_control),
     }
     if transfer_metadata is None:
         return metadata
@@ -241,6 +247,9 @@ def main(cfg: DictConfig) -> None:
     # ── Load encoder from DAPT checkpoint ─────────────────────────────
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"), pretrain_hparams
+    )
 
     vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
 
@@ -336,6 +345,7 @@ def main(cfg: DictConfig) -> None:
         batch_sampling=cfg.training.get("batch_sampling", {}),
         logical_batch_size=cfg.training.get("logical_batch_size"),
         logical_val_batch_size=cfg.training.get("logical_val_batch_size"),
+        numeric_value_control=numeric_value_control,
     )
     data_module.setup("fit")
 
@@ -407,6 +417,7 @@ def main(cfg: DictConfig) -> None:
             cfg,
             outcome_names,
             transfer_metadata,
+            numeric_value_control,
         ),
     )
 

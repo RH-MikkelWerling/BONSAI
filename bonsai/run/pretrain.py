@@ -10,6 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
 from bonsai.functional.model_config import validate_pretraining_attention
+from bonsai.functional.input_contract import input_contract_metadata
 from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
@@ -50,6 +51,7 @@ def main(cfg: DictConfig) -> None:
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
+        numeric_value_control=cfg.training.get("numeric_value_control", "observed"),
     )
 
     model = BonsaiPretrain(
@@ -90,6 +92,9 @@ def main(cfg: DictConfig) -> None:
         checkpoint_metadata={
             "training_stage": "general_pretraining",
             "dataset": cfg.dataset,
+            **input_contract_metadata(
+                cfg.training.get("numeric_value_control", "observed")
+            ),
         },
     )
 

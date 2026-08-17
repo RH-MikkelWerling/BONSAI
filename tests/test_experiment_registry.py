@@ -42,8 +42,8 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 31
-    assert len(sweep_paths) == 22
+    assert len(paths) == 41
+    assert len(sweep_paths) == 32
     for path in sweep_paths:
         load_sweep_config(path)
 
@@ -87,11 +87,23 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     fine_cif = yaml.safe_load((tmp_path / "fine_ipcw_cif_30d.yaml").read_text())
     assert fine_cif["model_variants"]["opera"]["training_mode"] == "ipcw_cif_bce"
     assert fine_cif["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
-    assert set(fine_cif["model_variants"]["no_pretraining"]["extra_overrides"]) == {
+    random_overrides = set(
+        fine_cif["model_variants"]["no_pretraining"]["extra_overrides"]
+    )
+    assert {
         "model.value_embedding_mode=film",
         "model.value_bin_vocab_size=0",
         "model.max_seqlen=3372",
-    }
+        "model.hidden_size=64",
+        "model.num_layers=4",
+        "model.num_attention_heads=4",
+        "model.abspos_encoding=fourier",
+    } <= random_overrides
+
+    fine_bce = yaml.safe_load((tmp_path / "fine_bce_90d.yaml").read_text())
+    assert fine_bce["finetune_base_config"] == "opera/configs/finetune.yaml"
+    assert fine_bce["outcomes"]["sepsis"]["n_hours_end_include"] == 90 * 24
+    assert "training_mode" not in fine_bce["model_variants"]["no_pretraining"]
 
     joint = yaml.safe_load((tmp_path / "joint_opera_full_panel.yaml").read_text())
     mol = yaml.safe_load((tmp_path / "multi_outcome_full_panel.yaml").read_text())

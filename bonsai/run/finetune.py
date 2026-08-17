@@ -21,6 +21,10 @@ from bonsai.functional.outcomes import split_and_binarize_outcomes
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.sampling import get_sampler
 from bonsai.functional.versioning import generate_unused_run_id
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.lightningmodules.FinetuneModule import FinetuneModule
 from bonsai.modules.networks.bonsai_nets import BonsaiFinetune
@@ -48,6 +52,10 @@ def main(cfg: DictConfig) -> None:
 
     ckpt = torch.load(cfg.pretrain_path, map_location="cpu", weights_only=False)
     model_cfg = get_saved_encoder_config(ckpt["hyper_parameters"])
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"),
+        ckpt["hyper_parameters"],
+    )
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pl.read_parquet(cfg.paths.outcome)
@@ -80,6 +88,7 @@ def main(cfg: DictConfig) -> None:
         train_sampler=get_sampler(
             weight_fn=cfg.training.sampling_weight_fn, labels=train_labels
         ),
+        numeric_value_control=numeric_value_control,
     )
 
     model = BonsaiFinetune(
@@ -114,6 +123,7 @@ def main(cfg: DictConfig) -> None:
             "dataset": cfg.dataset,
             "outcome": cfg.outcome,
             "source_checkpoint": cfg.pretrain_path,
+            **input_contract_metadata(numeric_value_control),
         },
     )
 

@@ -22,6 +22,9 @@ num_workers: 4
 threshold: 0.5
 n_bootstrap: 1000
 strict_checkpoint_load: true
+# Inherit preprocessing semantics from the fitted checkpoint. Explicit
+# observed/masked values are reserved for registered crossover ablations.
+numeric_value_control: inherit
 
 # Optional within-cohort survival discrimination. Disabled by default so
 # existing evaluation rows and artifacts remain unchanged.

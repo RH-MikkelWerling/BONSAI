@@ -18,6 +18,7 @@ from bonsai.functional.censoring import censor_subject
 from bonsai.functional.truncation import truncate_subject
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
+from bonsai.functional.input_contract import validate_numeric_value_control
 
 
 class ContrastiveDataset(Dataset):
@@ -52,6 +53,7 @@ class ContrastiveDataset(Dataset):
         predict_token_id: int,
         background_length: int,
         max_len: int = 8192,
+        numeric_value_control: str = "observed",
     ):
         self.subjects = subjects
         self.outcome_dicts = outcome_dicts
@@ -59,6 +61,9 @@ class ContrastiveDataset(Dataset):
         self.predict_token_id = predict_token_id
         self.background_length = background_length
         self.max_len = max_len
+        self.numeric_value_control = validate_numeric_value_control(
+            numeric_value_control
+        )
         self._validate_shared_prediction_origins()
 
     def _validate_shared_prediction_origins(self) -> None:
@@ -84,6 +89,10 @@ class ContrastiveDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         subject = clone_subject(self.subjects[index])
+        if self.numeric_value_control == "masked" and "numeric_value" in subject:
+            subject["numeric_value"] = torch.full_like(
+                subject["numeric_value"], float("nan")
+            )
         sid = subject["subject_id"]
 
         # Use the first available outcome's censor_abspos for sequence censoring
