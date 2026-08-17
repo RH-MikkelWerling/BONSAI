@@ -361,6 +361,7 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
         return LogisticRegression(
             C=0.1,
             solver="saga",
+            penalty="elasticnet",
             l1_ratio=0.5,
             max_iter=5000,
             tol=1e-3,
