@@ -30,7 +30,8 @@ paths:
     - ${paths.train_split}
     - ${paths.val_split}
   vocabulary: ${paths.dir}/vocabulary.pt
-  population: ${paths.dir}/population_full.csv
+  # Enriched cohort membership/metadata used for fine-cohort filtering.
+  population: ${paths.dir}/population_metadata.csv
   outcome: ${paths.dir}/outcomes/${outcome}.parquet
   competing_outcome: null
   eligibility: null
@@ -47,8 +48,24 @@ labels:
   require_min_followup_test: false
 
 model:
-  causal: false
+  # Complete native architecture is required for the random-init control.
+  # Checkpoint-backed variants recover these fields from checkpoint metadata.
+  architecture_version: bonsai-native-rope-v1
+  hidden_size: 64
+  num_layers: 4
+  num_attention_heads: 4
+  bias: false
+  dropout: 0.1
+  attention_dropout: 0.0
+  causal: true
+  attn_type: sdpa
+  abspos_encoding: fourier
   max_seqlen: 8192
+  # Declared here so strict Hydra overrides can configure a fair random-init
+  # numeric control. Checkpoint-backed variants still recover their saved
+  # encoder architecture, including the saved value integration mode.
+  value_bin_vocab_size: 0
+  value_embedding_mode: legacy
 
 training:
   max_len: ${model.max_seqlen}

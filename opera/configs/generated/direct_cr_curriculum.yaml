@@ -597,13 +597,11 @@ outcomes:
     n_hours_start_include: 1
     n_hours_end_include: null
     registry_start_date: null
-    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
   treatment_failure:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/treatment_failure.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
     registry_start_date: null
-    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
   tumor_lysis_syndrome:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/tumor_lysis_syndrome.parquet
     n_hours_start_include: 1
@@ -660,6 +658,8 @@ competing_risk:
   smoothness_weight: 0.01
   no_competing_outcomes:
   - overall_survival
+  - treatment_failure
+  - treatment_failure_transformation
   head_mode: linear
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1

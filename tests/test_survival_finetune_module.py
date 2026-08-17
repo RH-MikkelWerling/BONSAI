@@ -18,9 +18,19 @@ from opera.modules.lightningmodules.SurvivalFinetuneModule import (
     exact_breslow_cox_loss,
 )
 from opera.run.survival_finetune import (
+    _validate_encoder_load,
     _validate_cox_support,
     resolve_survival_monitor,
 )
+
+
+def test_random_init_accepts_intentionally_missing_encoder_weights():
+    _validate_encoder_load(["embeddings.code_embedding.weight"], [], "random_init")
+
+
+def test_checkpoint_backed_encoder_still_rejects_missing_weights():
+    with pytest.raises(RuntimeError, match="Missing non-head keys"):
+        _validate_encoder_load(["embeddings.code_embedding.weight"], [], "pretrain")
 
 
 def _outcomes():
@@ -93,6 +103,23 @@ def test_ipcw_cif_bce_module_uses_weighted_binary_loss():
     assert torch.isfinite(loss)
 
 
+def test_ipcw_cif_bce_loss_has_primary_event_probability_orientation():
+    batch = _batch(weights=[1.0, 1.0, 1.0, 1.0])
+    batch["target"] = torch.tensor([[1], [0], [1], [0]], dtype=torch.long)
+    aligned = SurvivalFinetuneModule(
+        BatchScoreModel([4.0, -4.0, 4.0, -4.0]),
+        "ipcw_cif_bce",
+        horizon_days=20.0,
+    )
+    reversed_model = SurvivalFinetuneModule(
+        BatchScoreModel([-4.0, 4.0, -4.0, 4.0]),
+        "ipcw_cif_bce",
+        horizon_days=20.0,
+    )
+
+    assert aligned._loss(batch) < reversed_model._loss(batch)
+
+
 def test_ipcw_cif_validation_logs_full_cohort_weighted_auc(monkeypatch):
     module = SurvivalFinetuneModule(
         BatchScoreModel([4.0, 1.0, 0.5, 0.0]),
@@ -112,6 +139,22 @@ def test_ipcw_cif_validation_logs_full_cohort_weighted_auc(monkeypatch):
     module.on_validation_epoch_end()
 
     assert captured["val/AUROC"] == pytest.approx(1.0)
+
+
+def test_ipcw_validation_converts_bfloat16_logits_for_numpy_metrics(monkeypatch):
+    model = BatchScoreModel([4.0, 1.0, 0.5, 0.0])
+    module = SurvivalFinetuneModule(model, "ipcw_cif_bce", horizon_days=20.0)
+    monkeypatch.setattr(
+        module,
+        "_logits",
+        lambda batch: model(batch).reshape(-1).to(torch.bfloat16),
+    )
+    monkeypatch.setattr(module, "log", lambda *args, **kwargs: None)
+
+    module.validation_step(_batch(), 0)
+    module.on_validation_epoch_end()
+
+    assert module._val_risk_scores == []
 
 
 def test_cox_partial_likelihood_loss_scalar_grad_and_no_events():

@@ -369,8 +369,8 @@ def main(cfg: DictConfig) -> None:
 
             all_sids.append(batch["subject_id"].cpu().numpy())
             all_labels.append(batch["target"].cpu().numpy().squeeze())
-            all_logits.append(logits.cpu().numpy())
-            all_embeddings.append(emb.cpu().numpy())
+            all_logits.append(logits.float().cpu().numpy())
+            all_embeddings.append(emb.float().cpu().numpy())
 
     labels_all = np.concatenate(all_labels)
     logits_all = np.concatenate(all_logits)

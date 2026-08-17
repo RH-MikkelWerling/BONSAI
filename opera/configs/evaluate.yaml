@@ -39,7 +39,8 @@ paths:
     - ${paths.train_split}
     - ${paths.val_split}
   vocabulary: ${paths.dir}/vocabulary.pt
-  population: ${paths.dir}/population_full.csv
+  # Enriched cohort membership/metadata used for fine-cohort filtering.
+  population: ${paths.dir}/population_metadata.csv
   outcome: ${paths.dir}/outcomes/${outcome}.parquet
   competing_outcome: null
   eligibility: null

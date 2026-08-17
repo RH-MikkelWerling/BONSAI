@@ -503,6 +503,7 @@ def run_evaluate(
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
     eligibility_path: Optional[str] = None,
+    population_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     model_family: Optional[str] = None,
     training_stage: str = "evaluation",
@@ -527,6 +528,7 @@ def run_evaluate(
         n_hours_end_include=n_hours_end_include,
         competing_outcome_path=competing_outcome_path,
         eligibility_path=eligibility_path,
+        population_path=population_path,
         registry_start_date=registry_start_date,
         model_family=model_family,
         training_stage=training_stage,
@@ -1032,6 +1034,7 @@ def _run_variant_cell(
     pop_file: str,
     subgroup_path: Optional[str],
     subgroup_columns: Optional[List[str]],
+    runtime_overrides: Optional[List[str]] = None,
 ) -> Optional[Dict]:
     """Run one (cohort, outcome, variant, seed) cell of the evaluation sweep.
 
@@ -1426,6 +1429,7 @@ def _run_variant_cell(
             cohort_fine_value=cohort_fine_value,
             extra_overrides=[
                 *(variant_cfg.get("extra_overrides") or []),
+                *(runtime_overrides or []),
                 f"seed={seed}",
                 f"overwrite={str(overwrite).lower()}",
             ],
@@ -1461,6 +1465,7 @@ def _run_variant_cell(
         n_hours_end_include=n_hours_end,
         competing_outcome_path=competing_outcome,
         eligibility_path=eligibility,
+        population_path=pop_file,
         registry_start_date=registry_start_date,
         model_family=result_variant,
         training_stage=(
@@ -1483,8 +1488,18 @@ def _run_variant_cell(
     )
 
     if metrics is not None:
-        auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
-        print(f"  Done: AUROC={auroc:.3f}")
+        metric_name = "AUROC"
+        metric_value = metrics.get("discrimination", {}).get("auroc", float("nan"))
+        if training_mode == "ipcw_cif_bce" and n_hours_end is not None:
+            horizon_label = f"{int(float(n_hours_end) / 24.0)}d"
+            metric_name = f"CIF-AUC@{horizon_label}"
+            metric_value = (
+                metrics.get("competing_risk", {})
+                .get("per_horizon", {})
+                .get(horizon_label, {})
+                .get("cif_auc", float("nan"))
+            )
+        print(f"  Done: {metric_name}={metric_value:.3f}")
         tracker.append(
             cohort=cohort_name,
             outcome=outcome_name,
@@ -1581,6 +1596,7 @@ def run_sweep(
     only_outcomes: set[str] | None = None,
     only_variants: set[str] | None = None,
     only_seeds: set[int] | None = None,
+    runtime_overrides: list[str] | None = None,
 ):
     cfg = load_sweep_config(config_path).to_mapping()
 
@@ -1665,7 +1681,7 @@ def run_sweep(
         data_dir = cohort_cfg["data_dir"]
         ipi_col = cohort_cfg.get("ipi_score_col")
         pop_file = cohort_cfg.get(
-            "population_file", str(Path(data_dir) / "population_full.csv")
+            "population_file", str(Path(data_dir) / "population_metadata.csv")
         )
         # cohort_fine_col/cohort_fine_value are the sole population-membership
         # filter: they gate training, validation, evaluation, and checkpoint
@@ -1746,6 +1762,7 @@ def run_sweep(
                     pop_file=pop_file,
                     subgroup_path=subgroup_path,
                     subgroup_columns=subgroup_columns,
+                    runtime_overrides=runtime_overrides,
                 )
                 if result is not None:
                     all_results.append(result)
@@ -1800,6 +1817,16 @@ def main():
     parser.add_argument("--outcomes", help="Comma-separated outcome names to run.")
     parser.add_argument("--variants", help="Comma-separated model variants to run.")
     parser.add_argument("--seeds", help="Comma-separated configured seeds to run.")
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        dest="runtime_overrides",
+        help=(
+            "Hydra override applied to every selected finetuning cell; repeat "
+            "for multiple overrides."
+        ),
+    )
     args = parser.parse_args()
 
     run_sweep(
@@ -1811,6 +1838,7 @@ def main():
         only_outcomes=set(args.outcomes.split(",")) if args.outcomes else None,
         only_variants=set(args.variants.split(",")) if args.variants else None,
         only_seeds={int(value) for value in args.seeds.split(",")} if args.seeds else None,
+        runtime_overrides=args.runtime_overrides,
     )
 
 

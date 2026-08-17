@@ -94,6 +94,7 @@ def build_evaluate_cmd(
     n_hours_end_include: Optional[int] = None,
     competing_outcome_path: Optional[str] = None,
     eligibility_path: Optional[str] = None,
+    population_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
     model_family: Optional[str] = None,
     training_stage: str = "evaluation",
@@ -128,6 +129,8 @@ def build_evaluate_cmd(
         overrides.append(f"paths.competing_outcome={competing_outcome_path}")
     if eligibility_path:
         overrides.append(f"paths.eligibility={eligibility_path}")
+    if population_path:
+        overrides.append(f"paths.population={population_path}")
     if cohort_fine_col and cohort_fine_value:
         overrides.append(f"cohort_fine_col={cohort_fine_col}")
         overrides.append(f"cohort_fine_value={cohort_fine_value}")

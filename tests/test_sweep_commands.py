@@ -330,6 +330,21 @@ def test_build_prediction_evaluate_cmd_optional_flags():
     assert cmd[cmd.index("--risk_col") + 1] == "risk_score"
 
 
+def test_build_evaluate_cmd_propagates_population_path():
+    cmd = build_evaluate_cmd(
+        ckpt_path=Path("/results/best.ckpt"),
+        cohort="DLBCL",
+        cohort_data_dir="/data/daly_care",
+        outcome_name="anemia_g3plus",
+        outcome_path="/data/daly_care/outcomes/anemia_g3plus.parquet",
+        output_dir=Path("/results/evaluation"),
+        population_path="/data/daly_care/population_metadata.csv",
+        cohort_fine_col="cohort_fine",
+        cohort_fine_value="DLBCL",
+    )
+    assert "paths.population=/data/daly_care/population_metadata.csv" in cmd
+
+
 def test_build_prediction_evaluate_cmd_optional_flags_absent_when_unset():
     cmd = build_prediction_evaluate_cmd(
         predictions_path="/results/preds.csv",
@@ -753,6 +768,7 @@ def test_run_variant_cell_finetune_population_is_fine_cohort_only(
     tracker = StatusTracker()
     result = _run_variant_cell(
         tracker=tracker,
+        runtime_overrides=["training.batch_size=8", "hardware.num_workers=6"],
         **_variant_cell_kwargs(
             tmp_path,
             variant_cfg={"encoder_ckpt": "/ckpt/best.ckpt", "training_mode": "cox"},
@@ -770,4 +786,6 @@ def test_run_variant_cell_finetune_population_is_fine_cohort_only(
     assert captured["cohort"] == "RT"
     assert captured["cohort_fine_value"] == "RT"
     assert "overwrite=false" in captured["extra_overrides"]
+    assert "training.batch_size=8" in captured["extra_overrides"]
+    assert "hardware.num_workers=6" in captured["extra_overrides"]
     assert "DLBCL_like" not in captured.values()

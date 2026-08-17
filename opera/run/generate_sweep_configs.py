@@ -58,6 +58,15 @@ def validate_registry(registry: dict[str, Any]) -> None:
         raise ValueError("Experiment registry contains duplicate outcome names.")
     if registry["death_outcome"] not in outcomes:
         raise ValueError("death_outcome must name an outcome in the registry.")
+    containing_death = set(registry.get("outcomes_containing_death", []))
+    unknown_containing_death = sorted(containing_death - set(outcomes))
+    if registry["death_outcome"] not in containing_death:
+        raise ValueError("outcomes_containing_death must include death_outcome.")
+    if unknown_containing_death:
+        raise ValueError(
+            "outcomes_containing_death contains unknown outcomes: "
+            f"{unknown_containing_death}"
+        )
 
     family_members = [
         outcome
@@ -159,6 +168,7 @@ def _outcomes(
     if training_mode in {"ipcw_bce", "ipcw_cif_bce"} and horizon_days is None:
         raise ValueError("IPCW-BCE generation requires a fixed horizon.")
     death = registry["death_outcome"]
+    containing_death = set(registry.get("outcomes_containing_death", [death]))
     result = {}
     eligibility_files = registry.get("eligibility_files", {})
     for outcome in registry["outcomes"]:
@@ -173,7 +183,7 @@ def _outcomes(
         eligibility_file = eligibility_files.get(outcome)
         if eligibility_file:
             config["eligibility_file"] = eligibility_file
-        if outcome != death:
+        if outcome not in containing_death:
             config["competing_outcome_path"] = (
                 f"{registry['paths']['outcomes_dir']}/{death}.parquet"
             )
@@ -271,7 +281,7 @@ def build_joint_opera_config(registry: dict[str, Any]) -> dict[str, Any]:
             "time_scale_days": 365.25,
             "initial_log_hazard": -2.3,
             "smoothness_weight": 0.01,
-            "no_competing_outcomes": ["overall_survival"],
+            "no_competing_outcomes": list(registry["outcomes_containing_death"]),
         },
         "cross_outcome": {
             "weighter": "uniform",

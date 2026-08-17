@@ -29,6 +29,11 @@ def test_production_registry_has_locked_inventory() -> None:
         == 38_905
     )
     assert registry["horizons_days"] == [30, 90, 180, 365, 730]
+    assert set(registry["outcomes_containing_death"]) == {
+        "overall_survival",
+        "treatment_failure",
+        "treatment_failure_transformation",
+    }
 
 
 def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) -> None:
@@ -51,6 +56,13 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     )
     assert "exclude_outcomes" not in grouped["cohorts"]["MM"]
     assert grouped["outcomes"]["overall_survival"].get("competing_outcome_path") is None
+    assert grouped["outcomes"]["treatment_failure"].get("competing_outcome_path") is None
+    assert (
+        grouped["outcomes"]["treatment_failure_transformation"].get(
+            "competing_outcome_path"
+        )
+        is None
+    )
     assert (
         grouped["outcomes"]["sepsis"]["competing_outcome_path"]
         == "${BONSAI_OUTCOMES_DIR}/overall_survival.parquet"
@@ -75,6 +87,11 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     fine_cif = yaml.safe_load((tmp_path / "fine_ipcw_cif_30d.yaml").read_text())
     assert fine_cif["model_variants"]["opera"]["training_mode"] == "ipcw_cif_bce"
     assert fine_cif["outcomes"]["sepsis"]["n_hours_end_include"] == 30 * 24
+    assert set(fine_cif["model_variants"]["no_pretraining"]["extra_overrides"]) == {
+        "model.value_embedding_mode=film",
+        "model.value_bin_vocab_size=0",
+        "model.max_seqlen=3372",
+    }
 
     joint = yaml.safe_load((tmp_path / "joint_opera_full_panel.yaml").read_text())
     mol = yaml.safe_load((tmp_path / "multi_outcome_full_panel.yaml").read_text())
@@ -122,6 +139,11 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     for config in (direct, family, curriculum, combined):
         assert config["competing_risk"]["contrastive_loss_weight"] == 0.0
         assert config["cross_outcome"]["aggregation"] == "hierarchical_support"
+        assert set(config["competing_risk"]["no_competing_outcomes"]) == {
+            "overall_survival",
+            "treatment_failure",
+            "treatment_failure_transformation",
+        }
     assert direct["competing_risk"]["head_mode"] == "linear"
     assert family["competing_risk"]["head_mode"] == "family_trunks"
     assert curriculum["competing_risk"]["curriculum"]["enabled"] is True

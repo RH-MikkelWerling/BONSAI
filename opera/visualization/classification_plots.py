@@ -35,6 +35,14 @@ from opera.evaluation.metrics import (
 )
 
 
+def _integrate_curve(y: np.ndarray, x: np.ndarray) -> float:
+    """Integrate a curve across NumPy 1.x and 2.x installations."""
+    trapezoid = getattr(np, "trapezoid", None)
+    if trapezoid is None:
+        trapezoid = np.trapz
+    return float(trapezoid(y, x))
+
+
 # ═════════════════════════════════════════════════════════════════════
 # 1. ROC Curve
 # ═════════════════════════════════════════════════════════════════════
@@ -59,7 +67,7 @@ def plot_roc_curve(
 
     color = color or PALETTE["opera"]
     fpr, tpr, _ = roc_curve(labels, probabilities)
-    auroc = float(np.trapezoid(tpr, fpr))
+    auroc = _integrate_curve(tpr, fpr)
 
     ci_str = ""
     if bootstrap_ci and "auroc" in bootstrap_ci:
@@ -98,7 +106,7 @@ def plot_roc_comparison(
 
     for (name, (labels, probs)), color in zip(results.items(), CATEGORICAL):
         fpr, tpr, _ = roc_curve(labels, probs)
-        auroc = float(np.trapezoid(tpr, fpr))
+        auroc = _integrate_curve(tpr, fpr)
         ci = bootstrap_cis.get(name, {}).get("auroc", {})
         ci_str = f" [{ci['lower']:.3f}–{ci['upper']:.3f}]" if ci else ""
         display = f"{name.replace('_', ' ').title()}  {auroc:.3f}{ci_str}"

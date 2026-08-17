@@ -143,10 +143,13 @@ def _resolve_outcome_source(registry: Mapping[str, Any], outcome: str) -> Outcom
     outcome_path = _path_from_raw(raw_outcome, outcomes_dir)
 
     death_outcome = registry["death_outcome"]
+    outcomes_containing_death = set(
+        registry.get("outcomes_containing_death", [death_outcome])
+    )
     raw_competing = metadata.get("competing_outcome_path") or metadata.get(
         "competing_outcome_file"
     )
-    if raw_competing in (None, "", "null") and outcome != death_outcome:
+    if raw_competing in (None, "", "null") and outcome not in outcomes_containing_death:
         raw_competing = f"{death_outcome}.parquet"
     competing_path = (
         None

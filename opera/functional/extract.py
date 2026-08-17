@@ -78,17 +78,17 @@ def extract_predictions(
                 mask = batch["attention_mask"].unsqueeze(-1).to(hidden.dtype)
                 emb = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
 
-            all_logits.append(logits.cpu().numpy())
-            all_embeddings.append(emb.cpu().numpy())
+            all_logits.append(logits.float().cpu().numpy())
+            all_embeddings.append(emb.float().cpu().numpy())
 
         elif model_type == "contrastive":
             # OperaContrastiveModel: get embeddings
             emb = model.get_embeddings(batch, return_pre_projection=False)
-            all_embeddings.append(emb.cpu().numpy())
+            all_embeddings.append(emb.float().cpu().numpy())
 
         elif model_type == "hybrid":
             logits = model(batch).squeeze(-1)
-            all_logits.append(logits.cpu().numpy())
+            all_logits.append(logits.float().cpu().numpy())
 
             # Get embeddings: encoder + pool (before MLP)
             with torch.set_grad_enabled(False):
@@ -103,7 +103,7 @@ def extract_predictions(
                 emb = hidden[
                     torch.arange(hidden.size(0), device=hidden.device), lengths
                 ]
-            all_embeddings.append(emb.cpu().numpy())
+            all_embeddings.append(emb.float().cpu().numpy())
 
         all_subject_ids.append(subject_ids)
         all_labels.append(labels)
@@ -148,7 +148,7 @@ def extract_from_finetune_simple(
 
             all_sids.append(batch["subject_id"].cpu().numpy())
             all_labels.append(batch["target"].cpu().numpy().squeeze())
-            all_logits.append(logits.cpu().numpy())
+            all_logits.append(logits.float().cpu().numpy())
 
     logits_arr = np.concatenate(all_logits)
     return {
@@ -232,7 +232,7 @@ def extract_uncertainty(
             }
 
             emb = model.get_embeddings(batch, enable_dropout=True)
-            run_embeddings.append(emb.cpu().numpy())
+            run_embeddings.append(emb.float().cpu().numpy())
 
             if first_pass:
                 all_subject_ids.append(batch["subject_id"].cpu().numpy())

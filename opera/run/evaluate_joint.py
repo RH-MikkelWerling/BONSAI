@@ -194,7 +194,7 @@ def main(cfg: DictConfig) -> None:
             logits = model.predict(batch, outcome_name)
             all_sids.append(batch["subject_id"].cpu().numpy())
             all_labels.append(batch["target"].cpu().numpy().squeeze())
-            all_logits.append(logits.cpu().numpy())
+            all_logits.append(logits.float().cpu().numpy())
 
     labels_all = np.concatenate(all_labels)
     logits_all = np.concatenate(all_logits)

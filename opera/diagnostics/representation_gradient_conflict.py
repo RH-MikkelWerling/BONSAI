@@ -317,6 +317,26 @@ def _gradient_cosine(
     return float(torch.dot(first_flat, second_flat).div(denominator).item())
 
 
+def _batched_gradient_cosines(
+    first: list[torch.Tensor],
+    second: list[torch.Tensor],
+    joint_mask: torch.Tensor,
+) -> list[float]:
+    """Calculate permutation cosines in one device operation and synchronization."""
+    if not first or not second:
+        return []
+    if len(first) != len(second):
+        raise ValueError("Permutation gradient lists must have equal length.")
+    first_flat = torch.stack(first, dim=0)[:, joint_mask].flatten(1)
+    second_flat = torch.stack(second, dim=0)[:, joint_mask].flatten(1)
+    denominator = first_flat.norm(dim=1) * second_flat.norm(dim=1)
+    valid = torch.isfinite(denominator) & (denominator > 1e-12)
+    if not valid.any():
+        return []
+    values = (first_flat[valid] * second_flat[valid]).sum(dim=1) / denominator[valid]
+    return values.detach().cpu().tolist()
+
+
 def _cohort_by_subject(data_module) -> dict[int, str]:
     dataset = getattr(data_module, "train_dataset", None)
     datasets = getattr(dataset, "datasets", None)
@@ -895,10 +915,9 @@ def diagnose_checkpoint(
                         if component_cosine is not None and null_permutations > 0:
                             first_nulls = null_gradient_cache[(component, first_name)]
                             second_nulls = null_gradient_cache[(component, second_name)]
-                            for first_null, second_null in zip(first_nulls, second_nulls):
-                                value = _gradient_cosine(first_null, second_null, joint)
-                                if value is not None:
-                                    null_values.append(value)
+                            null_values = _batched_gradient_cosines(
+                                first_nulls, second_nulls, joint
+                            )
                         null_mean = float(np.mean(null_values)) if null_values else 0.0
                         component_pair_records.append({
                             "checkpoint": str(checkpoint),

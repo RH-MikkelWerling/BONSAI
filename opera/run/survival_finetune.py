@@ -62,8 +62,12 @@ OmegaConf.register_new_resolver(
 load_dotenv()
 
 
-def _validate_encoder_load(missing, unexpected) -> None:
-    """Fail when checkpoint handoff misses anything except the new task head."""
+def _validate_encoder_load(missing, unexpected, encoder_source: str) -> None:
+    """Validate checkpoint handoff, or accept intentional random initialization."""
+    if encoder_source in {"random_init", "none", "scratch", "no_pretraining"}:
+        # An empty state dict is the definition of this control: every model
+        # parameter should retain its freshly initialized value.
+        return
     unexpected = list(unexpected)
     missing = list(missing)
     non_head_missing = [key for key in missing if not key.startswith("finetune_head.")]
@@ -239,8 +243,16 @@ def main(cfg: DictConfig) -> None:
     encoder_state, pretrain_hparams = load_encoder_state_dict(
         cfg.encoder_ckpt,
         cfg.encoder_source,
+        model_config=OmegaConf.to_container(cfg.model, resolve=True),
     )
-    model_cfg = get_saved_encoder_config(pretrain_hparams)
+    model_cfg = (
+        get_saved_encoder_config(pretrain_hparams)
+        if encoder_state
+        # Vocab size is not known until the vocabulary is loaded below. Keep
+        # the complete random-init architecture mapping here; the model
+        # builder normalizes it together with the actual vocabulary size.
+        else dict(pretrain_hparams)
+    )
 
     vocab = torch.load(cfg.paths.vocabulary)
     outcomes = pd.read_parquet(cfg.paths.outcome)
@@ -378,7 +390,7 @@ def main(cfg: DictConfig) -> None:
         predict_token_id=vocab["[CLS]"],
     )
     missing, unexpected = model.load_state_dict(encoder_state, strict=False)
-    _validate_encoder_load(missing, unexpected)
+    _validate_encoder_load(missing, unexpected, str(cfg.encoder_source))
     LOGGER.info(
         "Loaded encoder weights with %d missing and %d unexpected keys.",
         len(missing),

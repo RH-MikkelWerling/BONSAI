@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from opera.diagnostics.representation_gradient_conflict import (
+    _batched_gradient_cosines,
     _gradient_cosine,
     _write_outputs,
 )
@@ -24,6 +25,23 @@ def test_gradient_cosine_uses_only_jointly_eligible_rows():
     cosine = _gradient_cosine(first, second, joint)
 
     assert cosine == pytest.approx(1.0)
+
+
+def test_batched_gradient_cosines_match_scalar_implementation():
+    first = [
+        torch.tensor([[1.0, 0.0], [9.0, 0.0], [0.0, 1.0]]),
+        torch.tensor([[1.0, 1.0], [9.0, 0.0], [1.0, -1.0]]),
+    ]
+    second = [
+        torch.tensor([[1.0, 0.0], [-9.0, 0.0], [0.0, 1.0]]),
+        torch.tensor([[1.0, -1.0], [-9.0, 0.0], [-1.0, -1.0]]),
+    ]
+    joint = torch.tensor([True, False, True])
+
+    observed = _batched_gradient_cosines(first, second, joint)
+    expected = [_gradient_cosine(a, b, joint) for a, b in zip(first, second)]
+
+    assert observed == pytest.approx(expected)
 
 
 def test_endpoint_dependencies_keep_nested_thresholds_as_ineligible_controls():

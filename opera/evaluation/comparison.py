@@ -223,7 +223,7 @@ class TorchMLPPredictor:
         self.model.eval()
         with torch.no_grad():
             logits = self.model(tensor).squeeze(-1)
-            probs = torch.sigmoid(logits).cpu().numpy()
+            probs = torch.sigmoid(logits).float().cpu().numpy()
         return probs.astype(float)
 
     def predict_risk(self, features: pd.DataFrame) -> np.ndarray:

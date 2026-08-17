@@ -351,7 +351,9 @@ class SurvivalFinetuneModule(L.LightningModule):
             )
             loss = (raw_loss * ipcw_weights).mean()
 
-        self._val_risk_scores.append(logits.detach().cpu())
+        # NumPy has no bfloat16 dtype. Store metric inputs as float32 so AMP
+        # validation works identically for BF16 and FP16/FP32 execution.
+        self._val_risk_scores.append(logits.detach().float().cpu())
         self._val_times.append(batch["time_days"].reshape(-1).detach().cpu())
         self._val_events.append(batch["event"].reshape(-1).detach().cpu())
         if loss is not None:
@@ -360,7 +362,7 @@ class SurvivalFinetuneModule(L.LightningModule):
 
     def on_validation_epoch_end(self):
         if self._val_risk_scores:
-            logits = torch.cat(self._val_risk_scores).numpy()
+            logits = torch.cat(self._val_risk_scores).float().numpy()
             times = torch.cat(self._val_times).numpy().astype(float)
             events = torch.cat(self._val_events).numpy().astype(int)
             if self.training_mode in {"cox", "cox_exact_cached"}:

@@ -6,6 +6,13 @@ version: 1
 seeds: [42, 43, 44]
 horizons_days: [30, 90, 180, 365, 730]
 death_outcome: overall_survival
+# Endpoints that already contain death as part of their definition. Treating
+# overall survival as a separate competing event for these endpoints would
+# remove genuine primary events and changes the estimand.
+outcomes_containing_death:
+  - overall_survival
+  - treatment_failure
+  - treatment_failure_transformation
 
 paths:
   # One shared subject-data store. Cohort membership and outcomes are joined by
@@ -258,6 +265,12 @@ outcome_families:
 model_variants:
   no_pretraining:
     encoder_source: random_init
+    # Match the numeric model's input path so this is a true random-weight
+    # control rather than silently disabling scalar values.
+    extra_overrides:
+      - model.value_embedding_mode=film
+      - model.value_bin_vocab_size=0
+      - model.max_seqlen=3372
   base_pretrain:
     encoder_ckpt: ${BONSAI_CHECKPOINT_ROOT}/pretrain/best.ckpt
     encoder_source: pretrain
