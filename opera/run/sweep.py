@@ -149,9 +149,34 @@ def run_logged_subprocess(
     status_path = log_dir / f"{step_name}_status.json"
     with open(command_path, "w") as f:
         json.dump({"cmd": cmd, "started_at": started}, f, indent=2)
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    stdout_path.write_text(result.stdout or "")
-    stderr_path.write_text(result.stderr or "")
+    live_output = os.environ.get("OPERA_SWEEP_LIVE_OUTPUT", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if live_output:
+        # Give Lightning/tqdm the controlling terminal. Piping its output
+        # through this process would make the child non-interactive and lose
+        # the normal in-place progress display.
+        live_result = subprocess.run(cmd, text=True)
+        # Keep the same string-valued stdout/stderr contract as captured mode;
+        # failure-reporting code safely slices these fields for a short tail.
+        result = subprocess.CompletedProcess(
+            args=live_result.args,
+            returncode=live_result.returncode,
+            stdout="",
+            stderr="",
+        )
+        message = (
+            "Live output inherited the parent terminal; "
+            "see the parent sweep transcript.\n"
+        )
+        stdout_path.write_text(message)
+        stderr_path.write_text(message)
+    else:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        stdout_path.write_text(result.stdout or "")
+        stderr_path.write_text(result.stderr or "")
     status = {
         "step": step_name,
         "cmd": cmd,
@@ -1827,7 +1852,18 @@ def main():
             "for multiple overrides."
         ),
     )
+    parser.add_argument(
+        "--live-output",
+        action="store_true",
+        help=(
+            "Let child finetuning/evaluation processes inherit the terminal "
+            "so Lightning progress bars remain visible. Redirect or tee the "
+            "parent sweep when a complete transcript is also required."
+        ),
+    )
     args = parser.parse_args()
+    if args.live_output:
+        os.environ["OPERA_SWEEP_LIVE_OUTPUT"] = "1"
 
     run_sweep(
         args.config,

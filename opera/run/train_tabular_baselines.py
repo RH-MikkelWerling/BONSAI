@@ -495,7 +495,9 @@ def tune_estimator_params(
                 else {}
             )
             pipeline.fit(train_df[feature_columns], y_train, **fit_kwargs)
-            probs = pipeline.predict_proba(val_df[feature_columns])[:, 1]
+            probs = predict_pipeline_probabilities(
+                pipeline, val_df[feature_columns]
+            )
             auroc = float(roc_auc_score(y_val, probs))
         except Exception:
             continue
@@ -504,6 +506,22 @@ def tune_estimator_params(
             best_params = dict(params)
 
     return best_params
+
+
+def predict_pipeline_probabilities(
+    pipeline: Pipeline, features: pd.DataFrame
+) -> np.ndarray:
+    """Predict class-one probabilities without Pipeline's estimator tag check.
+
+    Older XGBoost releases do not provide the ``__sklearn_tags__`` interface
+    required by scikit-learn 1.6's fitted-pipeline check.  Both pipeline steps
+    have already been fitted, so applying the fitted preprocessor and estimator
+    directly is equivalent to ``pipeline.predict_proba`` while remaining
+    compatible with that supported offline-server package combination.
+    """
+    transformed = pipeline.named_steps["preprocess"].transform(features)
+    probabilities = pipeline.named_steps["model"].predict_proba(transformed)
+    return np.asarray(probabilities)[:, 1]
 
 
 def high_dimensional_diagnostics(
@@ -637,7 +655,9 @@ def train_one_model(
     if sample_weight is not None:
         fit_kwargs["model__sample_weight"] = sample_weight
     pipeline.fit(train_df[feature_columns], train_df["label"].astype(int), **fit_kwargs)
-    probabilities = pipeline.predict_proba(test_df[feature_columns])[:, 1]
+    probabilities = predict_pipeline_probabilities(
+        pipeline, test_df[feature_columns]
+    )
     predictions = pd.DataFrame(
         {
             "subject_id": test_df["subject_id"].to_numpy(),
@@ -1117,9 +1137,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             pd.DataFrame(
                 {
                     "subject_id": tune_df["subject_id"].to_numpy(),
-                    "probability": pipeline.predict_proba(
-                        tune_df[model_feature_columns]
-                    )[:, 1].astype(float),
+                    "probability": predict_pipeline_probabilities(
+                        pipeline, tune_df[model_feature_columns]
+                    ).astype(float),
                 }
             ).to_csv(tune_pred_path, index=False)
         if pipeline is not None:

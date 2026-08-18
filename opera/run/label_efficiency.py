@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import yaml
+from omegaconf import OmegaConf
 from opera.compat.bonsai import binarize_outcomes
 from opera.evaluation.tasks import (
     competing_outcome_file_path,
@@ -25,6 +25,7 @@ from opera.evaluation.tasks import (
     parse_task_ref,
 )
 from opera.evaluation.cohort_flow import eligibility_file_path
+from opera.evaluation.cohorts import population_subject_ids
 from opera.functional.outcomes import (
     attach_prediction_censor_abspos,
     filter_outcome_eligibility,
@@ -80,6 +81,7 @@ def subsample_outcome_parquet(
     outcome_name: Optional[str] = None,
     eligibility_path: Optional[str] = None,
     competing_outcome_path: Optional[str] = None,
+    target_subject_ids: Optional[set] = None,
 ) -> str:
     """
     Subsample the training split of an outcome parquet.
@@ -108,6 +110,11 @@ def subsample_outcome_parquet(
         outcome_name=outcome_name,
     )
     train_mask = df["split"] == split
+    if target_subject_ids is not None:
+        # Only reduce labels belonging to the target disease. Retain every
+        # non-target training row so the same artifact supports both local
+        # training (membership-filtered downstream) and pooled scaffolding.
+        train_mask &= df["subject_id"].isin(set(target_subject_ids))
     train_df = df[train_mask]
     other_df = df[~train_mask]
 
@@ -183,6 +190,7 @@ def outcome_split_size_metadata(
     competing_outcome_path: Optional[str] = None,
     n_hours_start_include: int = 1,
     n_hours_end_include=None,
+    allowed_subject_ids: Optional[set] = None,
 ) -> Dict[str, float]:
     df = pd.read_parquet(outcome_path)
     df = filter_outcome_eligibility(
@@ -204,6 +212,8 @@ def outcome_split_size_metadata(
         cohort=cohort,
         outcome_name=outcome_name,
     )
+    if allowed_subject_ids is not None:
+        df = df[df["subject_id"].isin(set(allowed_subject_ids))].copy()
     out: Dict[str, float] = {}
     competing_df = (
         pd.read_parquet(competing_outcome_path) if competing_outcome_path else None
@@ -258,6 +268,13 @@ def run_finetune_and_evaluate(
     registry_start_date: Optional[str] = None,
     eligibility_path: Optional[str] = None,
     competing_outcome_path: Optional[str] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
+    pooled_training: bool = False,
+    seed: int = 42,
+    variant_overrides: Optional[List[str]] = None,
+    training_mode: Optional[str] = None,
 ) -> Dict:
     """Run finetune then evaluate, returning metrics.json contents."""
     ft_overrides = [
@@ -269,15 +286,33 @@ def run_finetune_and_evaluate(
         f"paths.outcome={outcome_parquet}",
         f"labels.registry_start_date={'null' if registry_start_date is None else registry_start_date}",
         f"hydra.run.dir={output_dir}",
+        f"training.seed={seed}",
     ]
+    if training_mode:
+        ft_overrides.append(f"training_mode={training_mode}")
+    ft_overrides.extend(list(variant_overrides or []))
     if eligibility_path:
         ft_overrides.append(f"paths.eligibility={eligibility_path}")
     if competing_outcome_path:
         ft_overrides.append(f"paths.competing_outcome={competing_outcome_path}")
+    if population_path:
+        ft_overrides.append(f"paths.population={population_path}")
+    if cohort_fine_col and cohort_fine_value and not pooled_training:
+        ft_overrides.extend(
+            [
+                f"cohort_fine_col={cohort_fine_col}",
+                f"cohort_fine_value={cohort_fine_value}",
+            ]
+        )
+    runner_module = (
+        "opera.run.survival_finetune"
+        if "survival" in Path(base_config).stem
+        else "opera.run.finetune"
+    )
     ft_cmd = [
         sys.executable,
         "-m",
-        "opera.run.finetune",
+        runner_module,
         f"--config-name={Path(base_config).stem}",
     ] + ft_overrides
     result = subprocess.run(ft_cmd, capture_output=True, text=True)
@@ -300,6 +335,15 @@ def run_finetune_and_evaluate(
         ev_overrides.append(f"paths.eligibility={eligibility_path}")
     if competing_outcome_path:
         ev_overrides.append(f"paths.competing_outcome={competing_outcome_path}")
+    if population_path:
+        ev_overrides.append(f"paths.population={population_path}")
+    if cohort_fine_col and cohort_fine_value:
+        ev_overrides.extend(
+            [
+                f"cohort_fine_col={cohort_fine_col}",
+                f"cohort_fine_value={cohort_fine_value}",
+            ]
+        )
     if baseline_model:
         ev_overrides.append(f"rarity.baseline_model={baseline_model}")
     for key, value in (rarity_metadata or {}).items():
@@ -430,6 +474,11 @@ def build_tabular_fraction_cmd(
     eligibility_path: Optional[str] = None,
     competing_outcome_path: Optional[str] = None,
     registry_start_date: Optional[str] = None,
+    population_path: Optional[str] = None,
+    cohort_fine_col: Optional[str] = None,
+    cohort_fine_value: Optional[str] = None,
+    categorical_columns: Optional[str] = None,
+    model_prefix: Optional[str] = None,
 ) -> List[str]:
     """Build the subprocess command for training tabular baselines at one fraction.
 
@@ -487,6 +536,19 @@ def build_tabular_fraction_cmd(
         cmd += ["--competing_outcome", str(competing_outcome_path)]
     if registry_start_date is not None:
         cmd += ["--registry_start_date", str(registry_start_date)]
+    if population_path:
+        cmd += ["--population", str(population_path)]
+    if cohort_fine_col and cohort_fine_value:
+        cmd += [
+            "--cohort_fine_col",
+            str(cohort_fine_col),
+            "--cohort_fine_value",
+            str(cohort_fine_value),
+        ]
+    if categorical_columns:
+        cmd += ["--categorical_columns", str(categorical_columns)]
+    if model_prefix:
+        cmd += ["--model_prefix", str(model_prefix)]
     if tune:
         cmd += ["--tune", "--tune_split", tune_split]
     return cmd
@@ -548,10 +610,14 @@ def main():
         action="store_true",
         help="Enable validation-based HP tuning for tabular baselines.",
     )
+    parser.add_argument(
+        "--tabular_categorical_columns",
+        default="",
+        help="Categorical columns forwarded to matched tabular baselines.",
+    )
     args = parser.parse_args()
 
-    with open(args.sweep_config) as f:
-        cfg = yaml.safe_load(f)
+    cfg = OmegaConf.to_container(OmegaConf.load(args.sweep_config), resolve=True)
 
     tasks = parse_tasks(args)
     outcomes_cfg = normalize_outcome_config(cfg["outcomes"])
@@ -569,6 +635,14 @@ def main():
         task_key = f"{cohort}:{outcome}"
         cohort_cfg = cfg["cohorts"][cohort]
         data_dir = cohort_cfg["data_dir"]
+        population_path = cohort_cfg.get("population_file")
+        cohort_fine_col = cohort_cfg.get("cohort_fine_col")
+        cohort_fine_value = cohort_cfg.get("cohort_fine_value")
+        target_subject_ids = population_subject_ids(
+            population_path,
+            cohort_fine_col=cohort_fine_col,
+            cohort_fine_value=cohort_fine_value,
+        )
         outcome_cfg = outcomes_cfg.get(outcome, {"outcome_file": f"{outcome}.parquet"})
         registry_start_date = resolve_registry_start_date(cohort_cfg, outcome_cfg)
         outcome_path = outcome_file_path(data_dir, outcome, outcome_cfg)
@@ -618,6 +692,7 @@ def main():
                             outcome_name=outcome,
                             eligibility_path=eligibility,
                             competing_outcome_path=competing_path,
+                            target_subject_ids=target_subject_ids,
                         )
                         metrics = run_finetune_and_evaluate(
                             encoder_ckpt=variant_cfg["encoder_ckpt"],
@@ -641,6 +716,7 @@ def main():
                                 n_hours_end_include=outcome_cfg.get(
                                     "n_hours_end_include"
                                 ),
+                                allowed_subject_ids=target_subject_ids,
                             ),
                             baseline_model=baseline_model,
                             base_config=cfg.get(
@@ -650,6 +726,16 @@ def main():
                             registry_start_date=registry_start_date,
                             eligibility_path=eligibility,
                             competing_outcome_path=competing_path,
+                            population_path=population_path,
+                            cohort_fine_col=cohort_fine_col,
+                            cohort_fine_value=cohort_fine_value,
+                            pooled_training=(
+                                variant_cfg.get("training_population", "local")
+                                == "pooled"
+                            ),
+                            seed=seed,
+                            variant_overrides=variant_cfg.get("extra_overrides", []),
+                            training_mode=variant_cfg.get("training_mode"),
                         )
 
                     auroc = metrics.get("discrimination", {}).get("auroc", float("nan"))
@@ -678,6 +764,26 @@ def main():
                             eligibility_path=eligibility,
                             competing_outcome_path=competing_path,
                             registry_start_date=registry_start_date,
+                            population_path=population_path,
+                            cohort_fine_col=(
+                                None
+                                if variant_cfg.get("training_population", "local")
+                                == "pooled"
+                                else cohort_fine_col
+                            ),
+                            cohort_fine_value=(
+                                None
+                                if variant_cfg.get("training_population", "local")
+                                == "pooled"
+                                else cohort_fine_value
+                            ),
+                            categorical_columns=args.tabular_categorical_columns,
+                            model_prefix=(
+                                "tabular_pooled"
+                                if variant_cfg.get("training_population", "local")
+                                == "pooled"
+                                else "tabular_local"
+                            ),
                         )
                         tab_result = subprocess.run(
                             tab_cmd, capture_output=True, text=True

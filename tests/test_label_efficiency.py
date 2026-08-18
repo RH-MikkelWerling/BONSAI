@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 
 from opera.run.label_efficiency import (
     aggregate_task_results,
@@ -6,6 +7,39 @@ from opera.run.label_efficiency import (
     outcome_split_size_metadata,
     subsample_outcome_parquet,
 )
+
+
+def test_target_cohort_subsampling_retains_non_target_training_rows(tmp_path):
+    from opera.run.label_efficiency import subsample_outcome_parquet
+
+    frame = pd.DataFrame(
+        {
+            "subject_id": range(20),
+            "split": ["train"] * 16 + ["tuning"] * 2 + ["held_out"] * 2,
+            "label": [0, 1] * 10,
+        }
+    )
+    source = tmp_path / "outcomes.parquet"
+    target = tmp_path / "subsampled.parquet"
+    frame.to_parquet(source)
+    target_ids = set(range(8))
+    subsample_outcome_parquet(
+        str(source),
+        0.5,
+        42,
+        str(target),
+        target_subject_ids=target_ids,
+    )
+    result = pd.read_parquet(target)
+    retained_target_train = result[
+        (result["split"] == "train") & result["subject_id"].isin(target_ids)
+    ]
+    retained_other_train = result[
+        (result["split"] == "train") & ~result["subject_id"].isin(target_ids)
+    ]
+    assert len(retained_target_train) == 4
+    assert set(retained_other_train["subject_id"]) == set(range(8, 16))
+    assert set(result[result["split"] != "train"]["subject_id"]) == set(range(16, 20))
 
 
 def test_label_efficiency_outputs_pooled_curves_and_delta_tables():

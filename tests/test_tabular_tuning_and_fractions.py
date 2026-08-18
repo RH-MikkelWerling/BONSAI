@@ -159,6 +159,30 @@ def test_build_tabular_fraction_cmd_threads_outcome_contract(tmp_path):
     assert cmd[cmd.index("--registry_start_date") + 1] == "2010-01-01"
 
 
+def test_build_tabular_fraction_cmd_threads_membership_and_categoricals(tmp_path):
+    from opera.run.label_efficiency import build_tabular_fraction_cmd
+
+    cmd = build_tabular_fraction_cmd(
+        features_path="/data/features.parquet",
+        outcome_parquet="/data/outcome.parquet",
+        output_dir=tmp_path / "cell",
+        cohort="DLBCL",
+        outcome_name="neutropenia_g3plus",
+        seed=42,
+        population_path="/data/population_metadata.csv",
+        cohort_fine_col="cohort_fine",
+        cohort_fine_value="DLBCL",
+        categorical_columns="matched_sex",
+        model_prefix="tabular_local",
+    )
+
+    assert cmd[cmd.index("--population") + 1] == "/data/population_metadata.csv"
+    assert cmd[cmd.index("--cohort_fine_col") + 1] == "cohort_fine"
+    assert cmd[cmd.index("--cohort_fine_value") + 1] == "DLBCL"
+    assert cmd[cmd.index("--categorical_columns") + 1] == "matched_sex"
+    assert cmd[cmd.index("--model_prefix") + 1] == "tabular_local"
+
+
 def test_build_tabular_fraction_cmd_seed_matches_encoder_seed(tmp_path):
     """The tabular cmd seed must exactly match the encoder finetuning seed."""
     from opera.run.label_efficiency import build_tabular_fraction_cmd
