@@ -72,5 +72,5 @@ def test_audit_support_applies_fine_cohort_membership(tmp_path, monkeypatch):
     other = table[table["cohort"] == "OTHER"].iloc[0]
     assert small["n_survival_train"] == 12
     assert small["n_primary_events_train"] == 2
+    assert small["primary_event_rate_train"] == 2 / 12
     assert other["n_survival_train"] == 0
-

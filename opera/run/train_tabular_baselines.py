@@ -29,6 +29,7 @@ from opera.evaluation.cohorts import (
 )
 from opera.evaluation.comparison import fit_cox_survival, fit_xgboost_aft
 from opera.functional.ipcw import compute_ipcw_train_weights
+from opera.functional.tabular_features import prepare_feature_matrix, read_feature_table
 
 
 RESERVED_COLUMNS = {
@@ -190,11 +191,8 @@ def validate_feature_matrix(
 
 
 def read_table(path: str) -> pd.DataFrame:
-    """Read a CSV or parquet table from disk."""
-    source = Path(path)
-    if source.suffix.lower() in {".parquet", ".pq"}:
-        return pd.read_parquet(source)
-    return pd.read_csv(source)
+    """Read a supported feature or metadata table from disk."""
+    return read_feature_table(path)
 
 
 def parse_columns(value: str) -> list[str]:
@@ -727,7 +725,21 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
     """Train requested tabular baselines and write prediction artifacts."""
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    features = read_table(args.features)
+    features_path = Path(args.features)
+    preparation_manifest = None
+    feature_profile = getattr(args, "feature_profile", None)
+    if feature_profile:
+        if not args.population:
+            raise ValueError("--feature_profile requires --population metadata.")
+        features_path, preparation_manifest = prepare_feature_matrix(
+            features_path,
+            profile=feature_profile,
+            population_path=args.population,
+            output_dir=getattr(args, "prepared_features_dir", None),
+            overwrite=getattr(args, "rebuild_prepared_features", False),
+        )
+        print(f"Using prepared feature matrix: {features_path}")
+    features = read_table(str(features_path))
     allowed_subject_ids = population_subject_ids(
         args.population,
         cohort_fine_col=args.cohort_fine_col,
@@ -744,6 +756,8 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         max_missing_fraction=args.max_missing_fraction,
         allow_all_missing_features=args.allow_all_missing_features,
     )
+    if preparation_manifest is not None:
+        contract["feature_preparation"] = preparation_manifest
     structural_failure = (
         "subject_id" not in features.columns
         or not feature_columns
@@ -1167,7 +1181,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "tune_params": tune_params,
             "cohort": args.cohort,
             "outcome_name": args.outcome_name,
-            "features": args.features,
+            "features": str(features_path),
+            "source_features": args.features,
+            "feature_profile": feature_profile,
             "outcome": args.outcome,
             "n_features": len(feature_columns),
             "n_features_used": len(model_feature_columns),
@@ -1208,7 +1224,30 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train OPERA tabular baselines")
-    parser.add_argument("--features", required=True, help="Feature matrix CSV/parquet")
+    parser.add_argument(
+        "--features", required=True, help="Feature matrix pickle/CSV/parquet"
+    )
+    parser.add_argument(
+        "--feature_profile",
+        choices=["sequence_matched"],
+        default=None,
+        help=(
+            "Optional canonical preparation profile. sequence_matched accepts "
+            "pickle/parquet/CSV, removes RKKP and adverse-event predictors, "
+            "adds age and sex from --population, drops unusable predictors, "
+            "and caches a parquet plus manifest."
+        ),
+    )
+    parser.add_argument(
+        "--prepared_features_dir",
+        default=None,
+        help="Cache directory for profile-prepared feature parquets.",
+    )
+    parser.add_argument(
+        "--rebuild_prepared_features",
+        action="store_true",
+        help="Rebuild the prepared parquet even when its cache manifest matches.",
+    )
     parser.add_argument("--outcome", required=True, help="Outcome parquet")
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--cohort", required=True)

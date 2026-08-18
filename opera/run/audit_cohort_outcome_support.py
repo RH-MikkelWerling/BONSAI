@@ -141,6 +141,11 @@ def audit_support(
                         f"n_survival_{split}": len(records),
                         f"n_fixed_{split}": len(fixed.records),
                         f"n_primary_events_{split}": survival.n_events,
+                        f"primary_event_rate_{split}": (
+                            float(survival.n_events / len(records))
+                            if records
+                            else float("nan")
+                        ),
                         f"n_competing_deaths_{split}": int(
                             (survival_frame.get("event", pd.Series(dtype=int)) == 2).sum()
                         ),
@@ -155,6 +160,18 @@ def audit_support(
                 )
             row["candidate_tier"] = _candidate_tier(row)
             row["small_cohort"] = int(row["n_survival_train"]) < 1000
+            row["low_prevalence_train"] = (
+                float(row["primary_event_rate_train"]) < 0.10
+            )
+            row["scarcity_profile"] = (
+                "small_cohort_low_prevalence"
+                if row["small_cohort"] and row["low_prevalence_train"]
+                else "small_cohort_absolute_support"
+                if row["small_cohort"]
+                else "low_prevalence"
+                if row["low_prevalence_train"]
+                else "data_rich"
+            )
             row["held_out_descriptive_support"] = (
                 "adequate"
                 if row["n_primary_events_held_out"] >= 10
@@ -215,6 +232,7 @@ def main() -> None:
             "candidate_tier",
             "n_survival_train",
             "n_primary_events_train",
+            "primary_event_rate_train",
             "n_primary_events_tuning",
             "n_primary_events_held_out",
             "ipcw_effective_n_train",
