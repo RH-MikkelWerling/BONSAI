@@ -38,6 +38,7 @@ def embedding_columns(frame: pd.DataFrame) -> list[str]:
         column
         for column in frame.columns
         if column.startswith("embedding_")
+        and column.removeprefix("embedding_").isdigit()
         and pd.api.types.is_numeric_dtype(frame[column])
     ]
     if not columns:
@@ -45,7 +46,7 @@ def embedding_columns(frame: pd.DataFrame) -> list[str]:
 
     def sort_key(value: str) -> tuple[int, str]:
         suffix = value.removeprefix("embedding_")
-        return (int(suffix), value) if suffix.isdigit() else (10**9, value)
+        return (int(suffix), value)
 
     return sorted(columns, key=sort_key)
 
