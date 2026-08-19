@@ -119,3 +119,28 @@ frequency-stratified tokens. Raise `--max-neighbor-tokens` only if memory and
 runtime permit. The current `token_family` is a source/namespace family, not a
 clinical ontology; merge curated token metadata in a subsequent analysis for
 clinical-family precision.
+## Representation-learning audit and ablations
+
+`python -m opera.run.diagnose_vocabulary_learning` now produces target-loss
+mass tables, a frequency-stratified neighbour permutation null, within-code
+numeric residual probes, linear and nonlinear probes, and mean/last-state
+counterfactual sensitivity. Pass the frozen ehr2meds mapping with
+`--adaptive-mapping PATH` to fingerprint it and verify that every mapped code
+exists in the model vocabulary.
+
+Adaptive consolidation belongs in ehr2meds, before tokenization. The mapping
+must be fitted on training data only, frozen for tuning/held-out data, and
+recorded with the checkpoint. Do not remap data locally when evaluating an
+external PHAIR checkpoint: use the exact vocabulary and mapping under which
+that checkpoint was trained.
+
+The focused causal ablation is available as
+`--config-name pretrain_representation_ablation`. It keeps `[SEP]` in the
+input but excludes it from code loss and excludes exact same-time transitions.
+It retains calendar Fourier time by default to isolate the objective change.
+Orthogonal controls can be run with `model.abspos_encoding=none`,
+`model.abspos_encoding=sequence_relative_fourier`, or a training-only global calendar jitter via
+`training.abspos_subject_jitter_years=5`.
+The optional `sequence_relative_fourier_with_gaps` mode additionally encodes
+`log(1 + days)` since the preceding clinical event group. Age remains a
+separate birth-relative channel in every one of these controls.

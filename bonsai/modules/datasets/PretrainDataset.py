@@ -22,6 +22,7 @@ class PretrainDataset(Dataset):
         tail_window_probability: float = 0.5,
         generator: Optional[torch.Generator] = None,
         numeric_value_control: str = "observed",
+        abspos_subject_jitter_years: float = 0.0,
     ):
         self.subjects = subjects
         self.max_len = max_len
@@ -34,6 +35,9 @@ class PretrainDataset(Dataset):
                 "numeric_value_control must be 'observed' or 'masked'."
             )
         self.numeric_value_control = numeric_value_control
+        if abspos_subject_jitter_years < 0:
+            raise ValueError("abspos_subject_jitter_years must be non-negative.")
+        self.abspos_subject_jitter_years = float(abspos_subject_jitter_years)
         self.cutoff_date = (
             compute_abspos(datetime(**cutoff_date)) if cutoff_date is not None else None
         )
@@ -55,6 +59,14 @@ class PretrainDataset(Dataset):
             len(truncated_subject["code"]), dtype=torch.bool
         )
         truncated_subject["segment"] = normalize_segments(truncated_subject["segment"])
+        if self.abspos_subject_jitter_years:
+            jitter = torch.randn((), generator=self.generator)
+            jitter = jitter * self.abspos_subject_jitter_years * 8766.0
+            valid_time = truncated_subject["code"] != 0
+            truncated_subject["abspos"] = truncated_subject["abspos"].clone()
+            truncated_subject["abspos"][valid_time] += jitter.to(
+                truncated_subject["abspos"].dtype
+            )
         if (
             self.numeric_value_control == "masked"
             and "numeric_value" in truncated_subject
@@ -88,6 +100,7 @@ class MLMPretrainDataset(PretrainDataset):
         tail_window_probability: float = 0.5,
         generator: Optional[torch.Generator] = None,
         numeric_value_control: str = "observed",
+        abspos_subject_jitter_years: float = 0.0,
     ):
         super().__init__(
             subjects,
@@ -98,6 +111,7 @@ class MLMPretrainDataset(PretrainDataset):
             tail_window_probability=tail_window_probability,
             generator=generator,
             numeric_value_control=numeric_value_control,
+            abspos_subject_jitter_years=abspos_subject_jitter_years,
         )
         self.vocabulary = vocabulary
 
@@ -209,6 +223,9 @@ class ARPretrainDataset(PretrainDataset):
         vocabulary: Optional[Dict[str, int]] = None,
         value_embedding_mode: str = "legacy",
         numeric_value_control: str = "observed",
+        abspos_subject_jitter_years: float = 0.0,
+        ignore_target_tokens: Optional[List[str]] = None,
+        ignore_same_time_targets: bool = False,
     ):
         super().__init__(
             subjects,
@@ -219,14 +236,33 @@ class ARPretrainDataset(PretrainDataset):
             tail_window_probability=tail_window_probability,
             generator=generator,
             numeric_value_control=numeric_value_control,
+            abspos_subject_jitter_years=abspos_subject_jitter_years,
         )  # +1 because we shift by one token in __getitem__
         self.val_token_id = None if vocabulary is None else vocabulary.get("[VAL]")
         self.value_embedding_mode = value_embedding_mode
+        ignore_target_tokens = ignore_target_tokens or []
+        if ignore_target_tokens and vocabulary is None:
+            raise ValueError("ignore_target_tokens requires a vocabulary.")
+        missing = [token for token in ignore_target_tokens if token not in vocabulary]
+        if missing:
+            raise ValueError(f"Ignored target tokens are absent from vocabulary: {missing}")
+        self.ignore_target_token_ids = {
+            int(vocabulary[token]) for token in ignore_target_tokens
+        }
+        self.ignore_same_time_targets = bool(ignore_same_time_targets)
 
     def __getitem__(self, index: int) -> dict:
         subject, truncation_metadata = self._prepare_subject(index)
         subject["target"] = subject["code"][1:]
         subject["target"] = subject["target"].masked_fill(subject["target"] == 0, -100)
+        for token_id in self.ignore_target_token_ids:
+            subject["target"].masked_fill_(subject["target"] == token_id, -100)
+        if self.ignore_same_time_targets:
+            # Canonical MEDS order is retained as input context, but predicting
+            # the arbitrary ordering of codes sharing an exact timestamp is
+            # not treated as a learnable clinical objective.
+            same_time = subject["abspos"][:-1] == subject["abspos"][1:]
+            subject["target"].masked_fill_(same_time, -100)
         has_values = {
             "value_bin",
             "value_normalized",

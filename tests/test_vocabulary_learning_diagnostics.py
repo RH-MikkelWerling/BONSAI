@@ -141,9 +141,20 @@ def test_contextual_diagnostics_emit_counterfactuals_and_event_samples():
         "calendar_plus_5y",
         "reverse_event_context",
     }
-    assert len(details) == 6
+    assert set(summary["pooling"]) == {"mean", "last"}
+    assert len(details) == 12
     assert len(events) == 4
     assert {"contextual_0", "raw_0", "numeric_value", "abspos"}.issubset(events)
+
+
+def test_contextual_diagnostics_support_batches_without_subject_ids():
+    batch = _tiny_batch()
+    batch.pop("subject_id")
+    details, summary, _ = contextual_sensitivity(
+        _TinyEncoder(), [batch], device=torch.device("cpu"), max_batches=1
+    )
+    assert set(details["subject_id"]) == {0, 1}
+    assert not summary.empty
 
 
 def test_token_losses_are_grouped_by_target_token():
@@ -156,6 +167,7 @@ def test_token_losses_are_grouped_by_target_token():
     )
     assert set(result["token_id"]) == {1, 2}
     assert result["n_loss_targets"].sum() == 2
+    assert "top1_accuracy" in result
 
 
 def test_contextual_probes_skip_too_small_samples():

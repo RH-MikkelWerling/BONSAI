@@ -218,3 +218,46 @@ def neighbour_coherence(
         )
         .reset_index()
     )
+
+
+def neighbour_permutation_null(
+    neighbours: pd.DataFrame,
+    geometry: pd.DataFrame,
+    *,
+    n_permutations: int = 200,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Frequency-stratified null for broad-family neighbour coherence."""
+    if n_permutations < 1:
+        raise ValueError("n_permutations must be positive.")
+    token_ids = pd.Index(
+        pd.unique(pd.concat([neighbours["token_id"], neighbours["neighbor_token_id"]]))
+    )
+    labels = geometry.set_index("token_id").reindex(token_ids)[
+        ["token_family", "frequency_stratum"]
+    ]
+    observed = float(neighbours["same_family"].mean())
+    rng = np.random.default_rng(seed)
+    null = []
+    source = neighbours["token_id"].map({token: i for i, token in enumerate(token_ids)}).to_numpy()
+    target = neighbours["neighbor_token_id"].map({token: i for i, token in enumerate(token_ids)}).to_numpy()
+    original = labels["token_family"].astype(str).to_numpy()
+    strata = labels["frequency_stratum"].astype(str).to_numpy()
+    for _ in range(n_permutations):
+        permuted = original.copy()
+        for stratum in np.unique(strata):
+            idx = np.flatnonzero(strata == stratum)
+            permuted[idx] = rng.permutation(permuted[idx])
+        null.append(float(np.mean(permuted[source] == permuted[target])))
+    null_values = np.asarray(null)
+    std = float(null_values.std(ddof=1)) if len(null_values) > 1 else np.nan
+    return pd.DataFrame([{
+        "n_edges": len(neighbours),
+        "n_permutations": n_permutations,
+        "observed_same_family_precision": observed,
+        "null_mean": float(null_values.mean()),
+        "null_std": std,
+        "excess_over_null": observed - float(null_values.mean()),
+        "z_score": (observed - float(null_values.mean())) / std if std > 0 else np.nan,
+        "permutation_p_upper": float((1 + np.sum(null_values >= observed)) / (n_permutations + 1)),
+    }])

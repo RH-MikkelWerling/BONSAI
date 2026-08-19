@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from sklearn.linear_model import Ridge
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupShuffleSplit
 
@@ -26,6 +28,7 @@ from opera.evaluation.vocabulary_learning import (
     all_token_neighbours,
     count_token_exposure,
     neighbour_coherence,
+    neighbour_permutation_null,
     stratified_token_sample,
     token_geometry,
     vocabulary_coverage,
@@ -39,6 +42,42 @@ from opera.run.extract_outcome_transfer_embeddings import (
 
 def _comma_ints(value: str) -> list[int]:
     return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def audit_adaptive_mapping(path: str, vocabulary: dict[str, int]) -> tuple[pd.DataFrame, dict]:
+    """Validate a frozen ehr2meds adaptive-code mapping against this vocabulary."""
+    source = Path(path)
+    if source.suffix.lower() in {".parquet", ".pq"}:
+        frame = pd.read_parquet(source)
+    elif source.suffix.lower() == ".json":
+        frame = pd.read_json(source)
+    else:
+        frame = pd.read_csv(source)
+    source_col = next((c for c in ("code", "original_code", "source_code") if c in frame), None)
+    target_col = next((c for c in ("adaptive_code", "mapped_code", "code_adaptive") if c in frame), None)
+    if source_col is None or target_col is None:
+        raise ValueError(
+            "Adaptive mapping must contain a source column (code/original_code/source_code) "
+            "and target column (adaptive_code/mapped_code/code_adaptive)."
+        )
+    audit = frame[[source_col, target_col]].rename(
+        columns={source_col: "source_code", target_col: "mapped_code"}
+    ).copy()
+    audit["changed"] = audit["source_code"] != audit["mapped_code"]
+    audit["mapped_code_in_vocabulary"] = audit["mapped_code"].isin(vocabulary)
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    summary = {
+        "path": str(source),
+        "sha256": digest,
+        "n_source_codes": int(audit["source_code"].nunique()),
+        "n_mapped_codes": int(audit["mapped_code"].nunique()),
+        "fraction_changed": float(audit["changed"].mean()),
+        "all_mapped_codes_in_vocabulary": bool(audit["mapped_code_in_vocabulary"].all()),
+    }
+    if not summary["all_mapped_codes_in_vocabulary"]:
+        missing = audit.loc[~audit["mapped_code_in_vocabulary"], "mapped_code"].unique()[:10]
+        raise ValueError(f"Adaptive mapping outputs are absent from vocabulary: {missing.tolist()}")
+    return audit, summary
 
 
 def _to_device(batch: dict, device: torch.device) -> dict:
@@ -70,8 +109,17 @@ def contextual_sensitivity(
                 break
             original = _to_device(batch, device)
             mask = original["attention_mask"].bool()
+            subject_ids = original.get("subject_id")
+            ids = (
+                subject_ids.detach().cpu().tolist()
+                if isinstance(subject_ids, torch.Tensor)
+                else list(range(mask.shape[0]))
+            )
             baseline_hidden = encoder_hidden_state(encoder(original))
             baseline = _pool_valid(baseline_hidden, mask)
+            last_index = mask.sum(1).long().sub(1).clamp_min(0)
+            batch_rows = torch.arange(len(mask), device=device)
+            baseline_last = baseline_hidden[batch_rows, last_index]
             valid_positions = mask.nonzero(as_tuple=False)
             if len(valid_positions) > max_events_per_batch:
                 selection = torch.linspace(
@@ -84,7 +132,7 @@ def contextual_sensitivity(
             raw_embeddings = encoder.embeddings.code_embedding(original["code"])
             for row, position in valid_positions.tolist():
                 record = {
-                    "subject_id": int(original["subject_id"][row].item()),
+                    "subject_id": int(ids[row]),
                     "token_id": int(original["code"][row, position].item()),
                     "abspos": float(original["abspos"][row, position].item()),
                     "numeric_value": (
@@ -138,31 +186,31 @@ def contextual_sensitivity(
             for name, variant_batch in variants.items():
                 hidden = encoder_hidden_state(encoder(variant_batch))
                 pooled = _pool_valid(hidden, mask)
-                cosine = F.cosine_similarity(baseline.float(), pooled.float(), dim=1)
-                relative_l2 = torch.linalg.vector_norm(
-                    pooled.float() - baseline.float(), dim=1
-                ) / torch.linalg.vector_norm(baseline.float(), dim=1).clamp_min(1e-8)
-                subject_ids = original.get("subject_id")
-                ids = (
-                    subject_ids.detach().cpu().tolist()
-                    if isinstance(subject_ids, torch.Tensor)
-                    else list(range(len(cosine)))
-                )
-                for subject_id, cos, distance in zip(
-                    ids, cosine.cpu().tolist(), relative_l2.cpu().tolist()
+                variant_last = hidden[batch_rows, last_index]
+                for pooling, reference, changed in (
+                    ("mean", baseline, pooled),
+                    ("last", baseline_last, variant_last),
                 ):
-                    per_subject.append(
-                        {
-                            "subject_id": int(subject_id),
-                            "perturbation": name,
-                            "cosine_similarity": float(cos),
-                            "cosine_distance": float(1.0 - cos),
-                            "relative_l2": float(distance),
-                        }
-                    )
+                    cosine = F.cosine_similarity(reference.float(), changed.float(), dim=1)
+                    relative_l2 = torch.linalg.vector_norm(
+                        changed.float() - reference.float(), dim=1
+                    ) / torch.linalg.vector_norm(reference.float(), dim=1).clamp_min(1e-8)
+                    for subject_id, cos, distance in zip(
+                        ids, cosine.cpu().tolist(), relative_l2.cpu().tolist()
+                    ):
+                        per_subject.append(
+                            {
+                                "subject_id": int(subject_id),
+                                "pooling": pooling,
+                                "perturbation": name,
+                                "cosine_similarity": float(cos),
+                                "cosine_distance": float(1.0 - cos),
+                                "relative_l2": float(distance),
+                            }
+                        )
     details = pd.DataFrame(per_subject)
     summary = (
-        details.groupby("perturbation")
+        details.groupby(["pooling", "perturbation"])
         .agg(
             n_subjects=("subject_id", "nunique"),
             mean_cosine_distance=("cosine_distance", "mean"),
@@ -176,7 +224,7 @@ def contextual_sensitivity(
 
 
 def contextual_probes(events: pd.DataFrame, *, seed: int) -> pd.DataFrame:
-    """Compare raw and contextual linear decodability on held-out subjects."""
+    """Compare raw/contextual, linear/nonlinear decodability on held-out subjects."""
     rows = []
     targets = {
         "numeric_value": np.isfinite(events["numeric_value"]),
@@ -193,17 +241,33 @@ def contextual_probes(events: pd.DataFrame, *, seed: int) -> pd.DataFrame:
         )
         y_train = frame.loc[train_index, target_col].to_numpy(float)
         y_test = frame.loc[test_index, target_col].to_numpy(float)
+        target_variants = [(target_name, y_train, y_test)]
+        if target_name == "numeric_value":
+            # Remove code-specific level information using training subjects
+            # only. This asks whether context encodes within-concept magnitude.
+            train_codes = frame.loc[train_index, "token_id"]
+            code_means = pd.Series(y_train).groupby(train_codes.reset_index(drop=True)).mean()
+            fallback = float(np.mean(y_train))
+            train_center = train_codes.map(code_means).fillna(fallback).to_numpy(float)
+            test_center = frame.loc[test_index, "token_id"].map(code_means).fillna(fallback).to_numpy(float)
+            target_variants.append(
+                ("numeric_value_within_code_residual", y_train - train_center, y_test - test_center)
+            )
         for representation in ("raw", "contextual"):
             columns = [
                 column for column in frame if column.startswith(f"{representation}_")
             ]
-            model = Ridge(alpha=1.0)
-            model.fit(frame.loc[train_index, columns], y_train)
-            prediction = model.predict(frame.loc[test_index, columns])
-            rows.append(
-                {
-                    "target": target_name,
+            for resolved_target, resolved_train, resolved_test in target_variants:
+              for probe_name, model in (
+                ("ridge", Ridge(alpha=1.0)),
+                ("hist_gradient_boosting", HistGradientBoostingRegressor(max_iter=100, random_state=seed)),
+              ):
+                model.fit(frame.loc[train_index, columns], resolved_train)
+                prediction = model.predict(frame.loc[test_index, columns])
+                rows.append({
+                    "target": resolved_target,
                     "representation": representation,
+                    "probe": probe_name,
                     "n_train_events": len(train_index),
                     "n_test_events": len(test_index),
                     "n_train_subjects": int(
@@ -212,10 +276,9 @@ def contextual_probes(events: pd.DataFrame, *, seed: int) -> pd.DataFrame:
                     "n_test_subjects": int(
                         frame.loc[test_index, "subject_id"].nunique()
                     ),
-                    "r2": float(r2_score(y_test, prediction)),
-                    "mae": float(mean_absolute_error(y_test, prediction)),
-                }
-            )
+                    "r2": float(r2_score(resolved_test, prediction)),
+                    "mae": float(mean_absolute_error(resolved_test, prediction)),
+                })
     return pd.DataFrame(rows)
 
 
@@ -232,6 +295,7 @@ def token_losses(
     weight = encoder.embeddings.code_embedding.weight
     sums: dict[int, float] = {}
     counts: dict[int, int] = {}
+    correct: dict[int, int] = {}
     with torch.inference_mode():
         for batch_index, batch in enumerate(loader):
             if batch_index >= max_batches:
@@ -250,11 +314,14 @@ def token_losses(
                     output_bias.float() if output_bias is not None else None,
                 )
                 losses = F.cross_entropy(logits, labels[start:stop], reduction="none")
-                for token_id, loss in zip(
-                    labels[start:stop].cpu().tolist(), losses.cpu().tolist()
+                predictions = logits.argmax(dim=1)
+                for token_id, loss, is_correct in zip(
+                    labels[start:stop].cpu().tolist(), losses.cpu().tolist(),
+                    predictions.eq(labels[start:stop]).cpu().tolist(),
                 ):
                     sums[token_id] = sums.get(token_id, 0.0) + float(loss)
                     counts[token_id] = counts.get(token_id, 0) + 1
+                    correct[token_id] = correct.get(token_id, 0) + int(is_correct)
     return pd.DataFrame(
         [
             {
@@ -262,6 +329,7 @@ def token_losses(
                 "n_loss_targets": counts[token_id],
                 "mean_code_ce": sums[token_id] / counts[token_id],
                 "total_code_ce": sums[token_id],
+                "top1_accuracy": correct[token_id] / counts[token_id],
             }
             for token_id in sorted(counts)
         ]
@@ -293,6 +361,7 @@ def main() -> None:
     parser.add_argument("--max-context-batches", type=int, default=32)
     parser.add_argument("--logit-chunk-size", type=int, default=64)
     parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--neighbor-null-permutations", type=int, default=200)
     parser.add_argument(
         "--max-neighbor-tokens",
         type=int,
@@ -305,6 +374,10 @@ def main() -> None:
     )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--attention-backend", default="auto")
+    parser.add_argument(
+        "--adaptive-mapping",
+        help="Optional frozen ehr2meds mapping artifact to validate and fingerprint.",
+    )
     args = parser.parse_args()
 
     output = Path(args.output_dir)
@@ -320,6 +393,12 @@ def main() -> None:
     if not subjects:
         raise ValueError("No subjects were loaded.")
     id_to_token = invert_vocabulary(vocabulary)
+    mapping_summary = None
+    if args.adaptive_mapping:
+        mapping_audit, mapping_summary = audit_adaptive_mapping(
+            args.adaptive_mapping, vocabulary
+        )
+        mapping_audit.to_csv(output / "adaptive_mapping_audit.csv", index=False)
 
     print(f"[1/5] Counting exposure across {len(subjects):,} subjects...", flush=True)
     exposure = count_token_exposure(subjects, id_to_token)
@@ -361,6 +440,12 @@ def main() -> None:
         output / "frequency_stratified_neighbors.csv", index=False
     )
     coherence.to_csv(output / "neighbor_coherence_by_frequency.csv", index=False)
+    neighbour_permutation_null(
+        neighbours,
+        geometry,
+        n_permutations=args.neighbor_null_permutations,
+        seed=args.seed,
+    ).to_csv(output / "neighbor_coherence_permutation_null.csv", index=False)
 
     max_len = int(args.max_len or encoder.hparams["max_seqlen"])
     background_length = (
@@ -403,6 +488,24 @@ def main() -> None:
     )
     geometry = geometry.merge(losses, on="token_id", how="left", validate="one_to_one")
     geometry.to_csv(output / "token_learning_diagnostics.csv", index=False)
+    target_rows = geometry[geometry["n_loss_targets"].fillna(0) > 0].copy()
+    total_targets = target_rows["n_loss_targets"].sum()
+    total_ce = target_rows["total_code_ce"].sum()
+    target_rows["target_fraction"] = target_rows["n_loss_targets"] / total_targets
+    target_rows["loss_mass_fraction"] = target_rows["total_code_ce"] / total_ce
+    target_rows.sort_values("loss_mass_fraction", ascending=False).to_csv(
+        output / "target_loss_mass_by_token.csv", index=False
+    )
+    target_rows.groupby("token_family", dropna=False).agg(
+        n_tokens=("token_id", "nunique"),
+        n_loss_targets=("n_loss_targets", "sum"),
+        total_code_ce=("total_code_ce", "sum"),
+        mean_code_ce=("mean_code_ce", "mean"),
+        mean_top1_accuracy=("top1_accuracy", "mean"),
+    ).assign(
+        target_fraction=lambda x: x.n_loss_targets / total_targets,
+        loss_mass_fraction=lambda x: x.total_code_ce / total_ce,
+    ).reset_index().to_csv(output / "target_loss_mass_by_family.csv", index=False)
 
     print(
         f"[5/5] Running contextual perturbations over {args.max_context_batches} batches...",
@@ -432,6 +535,7 @@ def main() -> None:
                 "max_len": max_len,
                 "background_length": background_length,
                 "checkpoint_metadata": metadata,
+                "adaptive_mapping": mapping_summary,
                 "movement_note": (
                     "Exact checkpoint-to-checkpoint movement included."
                     if initial is not None

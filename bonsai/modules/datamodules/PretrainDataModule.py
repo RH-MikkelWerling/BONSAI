@@ -29,6 +29,9 @@ class PretrainDataModule(L.LightningDataModule):
         tail_window_probability: float = 0.5,
         value_embedding_mode: str = "legacy",
         numeric_value_control: str = "observed",
+        ignore_target_tokens: Optional[list[str]] = None,
+        ignore_same_time_targets: bool = False,
+        abspos_subject_jitter_years: float = 0.0,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -48,6 +51,9 @@ class PretrainDataModule(L.LightningDataModule):
         self.tail_window_probability = tail_window_probability
         self.value_embedding_mode = value_embedding_mode
         self.numeric_value_control = numeric_value_control
+        self.ignore_target_tokens = list(ignore_target_tokens or [])
+        self.ignore_same_time_targets = bool(ignore_same_time_targets)
+        self.abspos_subject_jitter_years = float(abspos_subject_jitter_years)
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -88,6 +94,7 @@ class PretrainDataModule(L.LightningDataModule):
                 truncation_strategy=self.train_truncation_strategy,
                 tail_window_probability=self.tail_window_probability,
                 numeric_value_control=self.numeric_value_control,
+                abspos_subject_jitter_years=self.abspos_subject_jitter_years,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -102,6 +109,7 @@ class PretrainDataModule(L.LightningDataModule):
                 truncation_strategy=self.val_truncation_strategy,
                 tail_window_probability=1.0,
                 numeric_value_control=self.numeric_value_control,
+                abspos_subject_jitter_years=0.0,
             )
         elif issubclass(self.dataset_class, ARPretrainDataset):
             self.train_dataset = self.dataset_class(
@@ -114,6 +122,9 @@ class PretrainDataModule(L.LightningDataModule):
                 vocabulary=self.vocabulary,
                 value_embedding_mode=self.value_embedding_mode,
                 numeric_value_control=self.numeric_value_control,
+                ignore_target_tokens=self.ignore_target_tokens,
+                ignore_same_time_targets=self.ignore_same_time_targets,
+                abspos_subject_jitter_years=self.abspos_subject_jitter_years,
             )
             self.val_dataset = self.dataset_class(
                 val_data,
@@ -125,6 +136,9 @@ class PretrainDataModule(L.LightningDataModule):
                 vocabulary=self.vocabulary,
                 value_embedding_mode=self.value_embedding_mode,
                 numeric_value_control=self.numeric_value_control,
+                ignore_target_tokens=self.ignore_target_tokens,
+                ignore_same_time_targets=self.ignore_same_time_targets,
+                abspos_subject_jitter_years=0.0,
             )
         else:
             raise ValueError(f"Unexpected dataset class. Got: {self.dataset_class}")

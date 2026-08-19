@@ -52,6 +52,11 @@ def main(cfg: DictConfig) -> None:
         max_len=cfg.training.max_len,
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
         numeric_value_control=cfg.training.get("numeric_value_control", "observed"),
+        ignore_target_tokens=cfg.training.get("ignore_target_tokens", []),
+        ignore_same_time_targets=cfg.training.get("ignore_same_time_targets", False),
+        abspos_subject_jitter_years=cfg.training.get(
+            "abspos_subject_jitter_years", 0.0
+        ),
     )
 
     model = BonsaiPretrain(
@@ -95,6 +100,17 @@ def main(cfg: DictConfig) -> None:
             **input_contract_metadata(
                 cfg.training.get("numeric_value_control", "observed")
             ),
+            "pretraining_target_policy": {
+                "ignore_target_tokens": list(
+                    cfg.training.get("ignore_target_tokens", [])
+                ),
+                "ignore_same_time_targets": bool(
+                    cfg.training.get("ignore_same_time_targets", False)
+                ),
+                "abspos_subject_jitter_years": float(
+                    cfg.training.get("abspos_subject_jitter_years", 0.0)
+                ),
+            },
         },
     )
 

@@ -29,6 +29,12 @@ training:
   early_stopping_min_delta: 0.0
   # Joined bin suffixes are ordinary code targets; no scalar auxiliary loss.
   value_regression_loss_weight: 0.0
+  # Keep boundary tokens in the input while optionally removing easy or
+  # arbitrary transitions from the causal code-prediction objective.
+  ignore_target_tokens: []
+  ignore_same_time_targets: false
+  # Training-only patient-level calendar jitter; validation remains observed.
+  abspos_subject_jitter_years: 0.0
   cutoff_date: # Optional
   #   day: 1
   #   month: 1

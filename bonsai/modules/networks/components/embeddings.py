@@ -25,10 +25,24 @@ class EhrEmbeddings(nn.Module):
             self.abspos_embedding = Time2Vec(hidden_size, clip_range=100)
         elif abspos_encoding == "fourier":
             self.abspos_embedding = AbsposFourierEncoding(hidden_size)
+        elif abspos_encoding in {
+            "sequence_relative_fourier",
+            "sequence_relative_fourier_with_gaps",
+        }:
+            self.abspos_embedding = RelativeAbsposFourierEncoding(hidden_size)
+            self.time_gap_embedding = (
+                LogTimeGapEncoding(hidden_size)
+                if abspos_encoding == "sequence_relative_fourier_with_gaps"
+                else None
+            )
+        elif abspos_encoding == "none":
+            self.abspos_embedding = ZeroTimeEncoding(hidden_size)
         else:
             raise ValueError(
                 "Unknown abspos_encoding "
-                f"{abspos_encoding!r}; expected 'legacy' or 'fourier'."
+                f"{abspos_encoding!r}; expected 'legacy', 'fourier', "
+                "'sequence_relative_fourier', "
+                "'sequence_relative_fourier_with_gaps', or 'none'."
             )
         self.abspos_encoding = abspos_encoding
         self.value_bin_vocab_size = int(value_bin_vocab_size)
@@ -76,7 +90,30 @@ class EhrEmbeddings(nn.Module):
             embeddings = self.continuous_value_embedding(numeric_value, embeddings)
 
         embeddings += self.age_embedding(age)
-        embeddings += self.abspos_embedding(abspos)
+        if self.abspos_encoding.startswith("sequence_relative_fourier"):
+            valid = code != 0
+            clinical = valid & (segment > 0)
+            fallback = abspos.masked_fill(~valid, float("inf")).amin(dim=1)
+            anchor = abspos.masked_fill(~clinical, float("inf")).amin(dim=1)
+            anchor = torch.where(torch.isfinite(anchor), anchor, fallback)
+            anchor = torch.where(torch.isfinite(anchor), anchor, torch.zeros_like(anchor))
+            abspos_input = abspos - anchor.unsqueeze(1)
+            # Background tokens describe the patient at birth and already use
+            # the age channel. They are not part of elapsed clinical time.
+            abspos_input = abspos_input.masked_fill(~clinical, 0.0)
+        else:
+            abspos_input = abspos
+        embeddings += self.abspos_embedding(abspos_input)
+        if getattr(self, "time_gap_embedding", None) is not None:
+            delta_hours = torch.zeros_like(abspos)
+            delta_hours[:, 1:] = (abspos[:, 1:] - abspos[:, :-1]).clamp_min(0)
+            previous_clinical = torch.nn.functional.pad(
+                clinical[:, :-1], (1, 0), value=False
+            )
+            delta_hours = delta_hours.masked_fill(
+                ~(clinical & previous_clinical), 0.0
+            )
+            embeddings += self.time_gap_embedding(delta_hours)
         embeddings += self.segment_embedding(segment)
         if value_bin is not None or value_normalized is not None:
             if self.value_bin_embedding is None or self.value_projection is None:
@@ -280,3 +317,42 @@ class AbsposFourierEncoding(nn.Module):
             if output.shape[-1] < self.output_dim:
                 output = torch.cat((output, torch.zeros_like(linear)), dim=-1)
         return output.to(dtype=output_dtype)
+
+
+class RelativeAbsposFourierEncoding(AbsposFourierEncoding):
+    """Fixed Fourier features for hours relative to each sequence endpoint."""
+
+    def forward(self, tau: torch.Tensor) -> torch.Tensor:
+        output_dtype = self.phi.dtype
+        with torch.autocast(device_type=tau.device.type, enabled=False):
+            tau_years = tau.float() / self.hours_per_year.float()
+            linear = (tau_years / self.linear_scale.float()).unsqueeze(-1)
+            angles = tau_years.unsqueeze(-1) * self.frequencies.float() + self.phi.float()
+            periodic = torch.stack((torch.sin(angles), torch.cos(angles)), dim=-1)
+            output = torch.cat((linear, periodic.flatten(start_dim=-2)), dim=-1)
+            if output.shape[-1] < self.output_dim:
+                output = torch.cat((output, torch.zeros_like(linear)), dim=-1)
+        return output.to(dtype=output_dtype)
+
+
+class ZeroTimeEncoding(nn.Module):
+    """A parameter-free absolute-calendar ablation with a stable output shape."""
+
+    def __init__(self, output_dim: int):
+        super().__init__()
+        self.output_dim = int(output_dim)
+
+    def forward(self, tau: torch.Tensor) -> torch.Tensor:
+        return tau.new_zeros((*tau.shape, self.output_dim))
+
+
+class LogTimeGapEncoding(nn.Module):
+    """Trainable encoding of log(1 + days since the preceding event group)."""
+
+    def __init__(self, output_dim: int):
+        super().__init__()
+        self.time2vec = Time2Vec(output_dim, clip_range=20)
+
+    def forward(self, delta_hours: torch.Tensor) -> torch.Tensor:
+        log_days = torch.log1p(delta_hours.float().clamp_min(0) / 24.0)
+        return self.time2vec(log_days)
