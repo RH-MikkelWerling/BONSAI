@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 from torch.utils.data import Dataset
@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from bonsai.functional.censoring import censor_subject
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
-from bonsai.functional.truncation import truncate_subject
+from bonsai.functional.truncation import infer_background_length, truncate_subject
 from bonsai.functional.input_contract import validate_numeric_value_control
 
 
@@ -16,7 +16,7 @@ class FinetuneDataset(Dataset):
         subjects: List[Dict],
         outcomes: Dict[int, dict],
         predict_token_id: int,
-        background_length: int,
+        background_length: Optional[int],
         max_len: int,
         numeric_value_control: str = "observed",
     ):
@@ -31,6 +31,11 @@ class FinetuneDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         subject = clone_subject(self.subjects[index])
+        background_length = (
+            infer_background_length(subject)
+            if self.background_length is None
+            else int(self.background_length)
+        )
         if (
             self.numeric_value_control == "masked"
             and "numeric_value" in subject
@@ -49,7 +54,7 @@ class FinetuneDataset(Dataset):
                 predict_token_id=self.predict_token_id,
             )
         subject = truncate_subject(
-            subject, max_len=self.max_len, background_length=self.background_length
+            subject, max_len=self.max_len, background_length=background_length
         )
 
         subject["segment"] = normalize_segments(subject["segment"])

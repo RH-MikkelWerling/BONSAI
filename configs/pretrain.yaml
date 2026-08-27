@@ -16,6 +16,9 @@ paths:
 
 training:
   max_len: 8192
+  truncation_strategy: tail
+  validation_truncation_strategy: tail
+  tail_window_probability: 1.0
   batch_size: 128
   accumulate_grad_batches: 1
   epochs: 10
@@ -29,6 +32,8 @@ training:
   early_stopping_min_delta: 0.0
   # Joined bin suffixes are ordinary code targets; no scalar auxiliary loss.
   value_regression_loss_weight: 0.0
+  # Input contract shared by pretraining and downstream extraction/finetuning.
+  numeric_value_control: observed
   # Keep boundary tokens in the input while optionally removing easy or
   # arbitrary transitions from the causal code-prediction objective.
   ignore_target_tokens: []

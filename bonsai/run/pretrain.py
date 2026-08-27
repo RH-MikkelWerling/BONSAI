@@ -50,6 +50,11 @@ def main(cfg: DictConfig) -> None:
         masking_config=cfg.training.get("masking"),
         cutoff_date=cfg.training.cutoff_date,
         max_len=cfg.training.max_len,
+        train_truncation_strategy=cfg.training.get("truncation_strategy", "tail"),
+        val_truncation_strategy=cfg.training.get(
+            "validation_truncation_strategy", "tail"
+        ),
+        tail_window_probability=cfg.training.get("tail_window_probability", 1.0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
         numeric_value_control=cfg.training.get("numeric_value_control", "observed"),
         ignore_target_tokens=cfg.training.get("ignore_target_tokens", []),
@@ -110,6 +115,18 @@ def main(cfg: DictConfig) -> None:
                 "abspos_subject_jitter_years": float(
                     cfg.training.get("abspos_subject_jitter_years", 0.0)
                 ),
+            },
+            "pretraining_window_policy": {
+                "training_strategy": str(
+                    cfg.training.get("truncation_strategy", "tail")
+                ),
+                "validation_strategy": str(
+                    cfg.training.get("validation_truncation_strategy", "tail")
+                ),
+                "tail_window_probability": float(
+                    cfg.training.get("tail_window_probability", 1.0)
+                ),
+                "event_boundary_preserving": True,
             },
         },
     )

@@ -71,13 +71,11 @@ class FinetuneDataModule(L.LightningDataModule):
                 "No validation subjects remain after outcome/population filtering."
             )
 
-        background_length = int((train_data[0]["segment"] == 0).sum())
-
         self.train_dataset = FinetuneDataset(
             train_data,
             outcomes=self.train_outcomes,
             predict_token_id=self.predict_token_id,
-            background_length=background_length,
+            background_length=None,
             max_len=self.max_len,
             numeric_value_control=self.numeric_value_control,
         )
@@ -85,7 +83,7 @@ class FinetuneDataModule(L.LightningDataModule):
             val_data,
             outcomes=self.val_outcomes,
             predict_token_id=self.predict_token_id,
-            background_length=background_length,
+            background_length=None,
             max_len=self.max_len,
             numeric_value_control=self.numeric_value_control,
         )
@@ -103,12 +101,11 @@ class FinetuneDataModule(L.LightningDataModule):
             raise ValueError(
                 "No prediction subjects remain after outcome/population filtering."
             )
-        background_length = int((predict_data[0]["segment"] == 0).sum())
         self.predict_dataset = FinetuneDataset(
             predict_data,
             outcomes=self.predict_outcomes,
             predict_token_id=self.predict_token_id,
-            background_length=background_length,
+            background_length=None,
             max_len=self.max_len,
             numeric_value_control=self.numeric_value_control,
         )

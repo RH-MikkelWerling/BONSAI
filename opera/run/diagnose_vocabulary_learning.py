@@ -459,6 +459,22 @@ def main() -> None:
         background_length=background_length,
         vocabulary=vocabulary,
         value_embedding_mode=encoder.hparams.get("value_embedding_mode", "legacy"),
+        ignore_target_tokens=(
+            metadata.get("pretraining_target_policy", {}).get(
+                "ignore_target_tokens", []
+            )
+            if isinstance(metadata.get("pretraining_target_policy", {}), dict)
+            else []
+        ),
+        ignore_same_time_targets=(
+            bool(
+                metadata.get("pretraining_target_policy", {}).get(
+                    "ignore_same_time_targets", False
+                )
+            )
+            if isinstance(metadata.get("pretraining_target_policy", {}), dict)
+            else False
+        ),
     )
     loader = DataLoader(
         dataset,

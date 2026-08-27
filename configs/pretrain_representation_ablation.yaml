@@ -2,11 +2,13 @@ defaults:
   - pretrain
   - _self_
 
-# Focused representation-learning run: retain [SEP] as a boundary input, but
-# do not spend causal loss on predicting it or arbitrary within-time ordering.
+# Focused representation-learning run: retain [SEP] as a boundary input but
+# do not spend causal loss on predicting it. ehr2meds supplies a deterministic
+# within-time order, so retain same-time code targets instead of discarding
+# most of the supervision available at multi-code timestamps.
 training:
   ignore_target_tokens: ["[SEP]"]
-  ignore_same_time_targets: true
+  ignore_same_time_targets: false
   abspos_subject_jitter_years: 0.0
 
 model:

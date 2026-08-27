@@ -77,15 +77,13 @@ class PretrainDataModule(L.LightningDataModule):
                 "No validation subjects remain after population filtering."
             )
 
-        background_length = int((train_data[0]["segment"] == 0).sum())
-
         if issubclass(self.dataset_class, MLMPretrainDataset):
             assert self.masking_config is not None
             self.train_dataset = self.dataset_class(
                 train_data,
                 max_len=self.max_len,
                 cutoff_date=self.cutoff_date,
-                background_length=background_length,
+                background_length=None,
                 vocabulary=self.vocabulary,
                 masking_select_ratio=self.masking_config.masking_select_ratio,
                 masking_mask_ratio=self.masking_config.masking_mask_ratio,
@@ -100,7 +98,7 @@ class PretrainDataModule(L.LightningDataModule):
                 val_data,
                 max_len=self.max_len,
                 cutoff_date=self.cutoff_date,
-                background_length=background_length,
+                background_length=None,
                 vocabulary=self.vocabulary,
                 masking_select_ratio=self.masking_config.masking_select_ratio,
                 masking_mask_ratio=self.masking_config.masking_mask_ratio,
@@ -115,7 +113,7 @@ class PretrainDataModule(L.LightningDataModule):
             self.train_dataset = self.dataset_class(
                 train_data,
                 self.max_len,
-                background_length=background_length,
+                background_length=None,
                 cutoff_date=self.cutoff_date,
                 truncation_strategy=self.train_truncation_strategy,
                 tail_window_probability=self.tail_window_probability,
@@ -129,7 +127,7 @@ class PretrainDataModule(L.LightningDataModule):
             self.val_dataset = self.dataset_class(
                 val_data,
                 self.max_len,
-                background_length=background_length,
+                background_length=None,
                 cutoff_date=self.cutoff_date,
                 truncation_strategy=self.val_truncation_strategy,
                 tail_window_probability=1.0,

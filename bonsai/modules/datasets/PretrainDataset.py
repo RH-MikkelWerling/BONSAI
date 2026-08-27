@@ -8,7 +8,11 @@ from bonsai.functional.censoring import censor_subject
 from bonsai.functional.features import compute_abspos
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
-from bonsai.functional.truncation import sequence_tensor_fields, truncate_subject
+from bonsai.functional.truncation import (
+    infer_background_length,
+    sequence_tensor_fields,
+    truncate_subject,
+)
 
 
 class PretrainDataset(Dataset):
@@ -16,7 +20,7 @@ class PretrainDataset(Dataset):
         self,
         subjects: List[Dict],
         max_len: int,
-        background_length: int,
+        background_length: Optional[int],
         cutoff_date: Optional[dict] = None,
         truncation_strategy: str = "tail",
         tail_window_probability: float = 0.5,
@@ -44,12 +48,17 @@ class PretrainDataset(Dataset):
 
     def _prepare_subject(self, index: int) -> tuple[dict, dict]:
         subject = clone_subject(self.subjects[index])
+        background_length = (
+            infer_background_length(subject)
+            if self.background_length is None
+            else int(self.background_length)
+        )
         if self.cutoff_date is not None:
             subject = censor_subject(subject, self.cutoff_date, inclusive=False)
         truncated_subject, truncation_metadata = truncate_subject(
             subject,
             self.max_len,
-            self.background_length,
+            background_length,
             strategy=self.truncation_strategy,
             tail_window_probability=self.tail_window_probability,
             generator=self.generator,
@@ -290,7 +299,7 @@ class ARPretrainDataset(PretrainDataset):
         if "numeric_value" in subject:
             subject["numeric_target"] = subject["numeric_value"][1:].clone()
         if truncation_metadata["clinical_window_started_mid_history"]:
-            boundary_target = self.background_length - 1
+            boundary_target = int(truncation_metadata["background_length"]) - 1
             if 0 <= boundary_target < len(subject["target"]):
                 subject["target"][boundary_target] = -100
                 if has_values:

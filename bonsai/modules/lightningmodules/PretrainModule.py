@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
-from torchmetrics import MetricCollection
+from torchmetrics import MeanMetric, MetricCollection
 
 from bonsai.modules.metrics.metrics import SharedPrecisionAtK
 from bonsai.functional.checkpointing import (
@@ -99,6 +99,9 @@ class PretrainModule(L.LightningModule):
         self.value_bin_loss = nn.CrossEntropyLoss()
         self.value_regression_loss = nn.MSELoss()
         self.val_metrics = self.configure_metrics("val")
+        self.val_code_loss = MeanMetric()
+        self.val_value_regression_loss = MeanMetric()
+        self._val_has_numeric = False
 
         hparams = self.model.hparams.copy()
         hparams.update(
@@ -168,19 +171,43 @@ class PretrainModule(L.LightningModule):
             value_bin_loss_weight=self.value_bin_loss_weight,
             value_regression_loss_weight=self.value_regression_loss_weight,
         )
-        self.log("val/loss", loss, prog_bar=True)
+        code_count = int(labels.numel())
+        self.val_code_loss.update(losses["code"], weight=code_count)
+        self.log("val/code_loss", self.val_code_loss, on_step=False, on_epoch=True)
         if "value_regression" in losses:
-            self.log("val/code_loss", losses["code"], prog_bar=False)
+            value_count = int(output["target_value_normalized"].numel())
+            self.val_value_regression_loss.update(
+                losses["value_regression"], weight=value_count
+            )
+            self._val_has_numeric = True
             if "value_bin" in losses:
-                self.log("val/value_bin_loss", losses["value_bin"], prog_bar=False)
+                self.log(
+                    "val/value_bin_loss",
+                    losses["value_bin"],
+                    prog_bar=False,
+                    batch_size=value_count,
+                )
             self.log(
                 "val/value_regression_loss",
-                losses["value_regression"],
+                self.val_value_regression_loss,
                 prog_bar=False,
+                on_step=False,
+                on_epoch=True,
             )
         self.val_metrics.update(logits, labels)
         self.log_dict(self.val_metrics)
         return loss
+
+    def on_validation_epoch_end(self):
+        """Log the checkpoint objective from globally target-weighted means."""
+        total = self.val_code_loss.compute()
+        if self._val_has_numeric:
+            total = total + (
+                float(self.value_regression_loss_weight)
+                * self.val_value_regression_loss.compute()
+            )
+        self.log("val/loss", total, prog_bar=True, sync_dist=True)
+        self._val_has_numeric = False
 
     def configure_optimizers(self):
         optimizer = AdamW(
