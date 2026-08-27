@@ -2,6 +2,12 @@ accelerator: "auto"
 num_nodes: 1
 num_devices: 1
 num_workers: 6
-precision: "bf16-mixed"
+# The production GPU is a Volta V100. It has native FP16 tensor cores but no
+# native BF16 support; requesting BF16 causes fallback/conversion paths and can
+# substantially increase memory use.
+precision: "16-mixed"
 strategy: "auto"
-compile_mode: "default"
+# On the V100, torch.compile can lower causal SDPA to a graph that materializes
+# the full [batch, heads, sequence, sequence] attention tensor. Keep eager SDPA
+# so PyTorch can select its memory-efficient fused CUDA implementation.
+compile_mode: null
