@@ -138,6 +138,9 @@ training:
   accumulate_grad_batches: 1
   epochs: 20
   learning_rate: 5e-4
+  # Multiplier applied only to the pretrained encoder; the newly initialized
+  # finetuning head uses learning_rate. Set to 0.1 for discriminative LR.
+  encoder_lr_multiplier: 1.0
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 1
   eval_monitor_metric: auto

@@ -113,6 +113,7 @@ class SurvivalFinetuneModule(L.LightningModule):
         model: nn.Module,
         training_mode: str,
         learning_rate: float = 5e-4,
+        encoder_lr_multiplier: float = 1.0,
         optimizer_epsilon: float = 1e-6,
         scheduler_warmup_epochs: int = 0,
         pos_weight: torch.Tensor = None,
@@ -136,6 +137,8 @@ class SurvivalFinetuneModule(L.LightningModule):
             horizon_days is None or float(horizon_days) <= 0
         ):
             raise ValueError("IPCW survival training requires a positive horizon_days.")
+        if float(encoder_lr_multiplier) < 0:
+            raise ValueError("encoder_lr_multiplier must be non-negative.")
 
         self.save_hyperparameters(ignore=["model"])
         attach_model_config(self, model)
@@ -143,6 +146,7 @@ class SurvivalFinetuneModule(L.LightningModule):
         self.model = model
         self.training_mode = training_mode
         self.learning_rate = learning_rate
+        self.encoder_lr_multiplier = float(encoder_lr_multiplier)
         self.optimizer_epsilon = optimizer_epsilon
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
         self.horizon_days = None if horizon_days is None else float(horizon_days)
@@ -470,9 +474,36 @@ class SurvivalFinetuneModule(L.LightningModule):
         self._val_ipcw_weights.clear()
 
     def configure_optimizers(self):
+        # BonsaiFinetune keeps the pretrained backbone and finetuning head in
+        # one flat module.  Give the newly initialized head the configured
+        # learning rate while allowing the pretrained parameters to move more
+        # conservatively.  Generic test/custom models without a
+        # ``finetune_head`` retain the historical single-group behaviour.
+        head_params = []
+        encoder_params = []
+        has_finetune_head = hasattr(self.model, "finetune_head")
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if has_finetune_head and name.startswith("finetune_head."):
+                head_params.append(param)
+            elif has_finetune_head:
+                encoder_params.append(param)
+            else:
+                head_params.append(param)
+
+        param_groups = []
+        if head_params:
+            param_groups.append({"params": head_params, "lr": self.learning_rate})
+        if encoder_params:
+            param_groups.append(
+                {
+                    "params": encoder_params,
+                    "lr": self.learning_rate * self.encoder_lr_multiplier,
+                }
+            )
         optimizer = AdamW(
-            self.model.parameters(),
-            lr=self.learning_rate,
+            param_groups,
             eps=self.optimizer_epsilon,
         )
         if self.training_mode == "cox_exact_cached":

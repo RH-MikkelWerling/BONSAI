@@ -417,6 +417,7 @@ def main(cfg: DictConfig) -> None:
         model=model,
         training_mode=cfg.training_mode,
         learning_rate=cfg.training.learning_rate,
+        encoder_lr_multiplier=cfg.training.get("encoder_lr_multiplier", 1.0),
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         checkpoint_metadata={
