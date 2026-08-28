@@ -292,10 +292,41 @@ def token_losses(
     output_bias: torch.Tensor | None = None,
 ) -> pd.DataFrame:
     """Compute target-level next-code CE without creating giant 3D logits."""
+    token_frame, _ = token_loss_audit(
+        encoder,
+        loader,
+        device=device,
+        max_batches=max_batches,
+        logit_chunk_size=logit_chunk_size,
+        output_bias=output_bias,
+    )
+    return token_frame
+
+
+def token_loss_audit(
+    encoder: torch.nn.Module,
+    loader: DataLoader,
+    *,
+    device: torch.device,
+    max_batches: int,
+    logit_chunk_size: int,
+    output_bias: torch.Tensor | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute token losses and separate same-time from new-time targets.
+
+    The causal input at position ``j + 1`` is the target at position ``j``.
+    Consequently, adjacent input timestamps classify every target except the
+    final target retained for each sequence.  That final target is reported as
+    ``terminal_unclassified`` instead of being silently assigned to a group.
+    """
     weight = encoder.embeddings.code_embedding.weight
     sums: dict[int, float] = {}
     counts: dict[int, int] = {}
     correct: dict[int, int] = {}
+    transition_stats = {
+        name: {"n_targets": 0, "total_code_ce": 0.0, "top1": 0, "top10": 0, "top100": 0}
+        for name in ("same_timestamp", "new_timestamp", "terminal_unclassified")
+    }
     with torch.inference_mode():
         for batch_index, batch in enumerate(loader):
             if batch_index >= max_batches:
@@ -306,6 +337,14 @@ def token_losses(
             valid = targets != -100
             states = hidden[valid]
             labels = targets[valid].long()
+            transition = torch.zeros_like(targets, dtype=torch.int8)
+            if targets.shape[1] > 1:
+                transition[:, :-1] = torch.where(
+                    device_batch["abspos"][:, :-1] == device_batch["abspos"][:, 1:],
+                    1,
+                    2,
+                )
+            transition_labels = transition[valid]
             for start in range(0, len(labels), logit_chunk_size):
                 stop = min(start + logit_chunk_size, len(labels))
                 logits = F.linear(
@@ -315,6 +354,37 @@ def token_losses(
                 )
                 losses = F.cross_entropy(logits, labels[start:stop], reduction="none")
                 predictions = logits.argmax(dim=1)
+                chunk_labels = labels[start:stop]
+                chunk_transition = transition_labels[start:stop]
+                top_width = min(100, logits.shape[1])
+                top_indices = logits.topk(top_width, dim=1).indices
+                for relation_id, relation_name in (
+                    (0, "terminal_unclassified"),
+                    (1, "same_timestamp"),
+                    (2, "new_timestamp"),
+                ):
+                    relation_mask = chunk_transition == relation_id
+                    if not relation_mask.any():
+                        continue
+                    relation_losses = losses[relation_mask]
+                    relation_labels = chunk_labels[relation_mask]
+                    relation_top = top_indices[relation_mask]
+                    stats = transition_stats[relation_name]
+                    stats["n_targets"] += int(relation_mask.sum().item())
+                    stats["total_code_ce"] += float(relation_losses.sum().item())
+                    stats["top1"] += int(
+                        relation_top[:, :1].eq(relation_labels[:, None]).any(dim=1).sum().item()
+                    )
+                    stats["top10"] += int(
+                        relation_top[:, : min(10, top_width)]
+                        .eq(relation_labels[:, None])
+                        .any(dim=1)
+                        .sum()
+                        .item()
+                    )
+                    stats["top100"] += int(
+                        relation_top.eq(relation_labels[:, None]).any(dim=1).sum().item()
+                    )
                 for token_id, loss, is_correct in zip(
                     labels[start:stop].cpu().tolist(), losses.cpu().tolist(),
                     predictions.eq(labels[start:stop]).cpu().tolist(),
@@ -322,7 +392,7 @@ def token_losses(
                     sums[token_id] = sums.get(token_id, 0.0) + float(loss)
                     counts[token_id] = counts.get(token_id, 0) + 1
                     correct[token_id] = correct.get(token_id, 0) + int(is_correct)
-    return pd.DataFrame(
+    token_frame = pd.DataFrame(
         [
             {
                 "token_id": token_id,
@@ -334,6 +404,22 @@ def token_losses(
             for token_id in sorted(counts)
         ]
     )
+    transition_frame = pd.DataFrame(
+        [
+            {
+                "target_transition": name,
+                "n_targets": stats["n_targets"],
+                "target_fraction": stats["n_targets"]
+                / max(1, sum(item["n_targets"] for item in transition_stats.values())),
+                "mean_code_ce": stats["total_code_ce"] / max(1, stats["n_targets"]),
+                "top1_accuracy": stats["top1"] / max(1, stats["n_targets"]),
+                "top10_accuracy": stats["top10"] / max(1, stats["n_targets"]),
+                "top100_accuracy": stats["top100"] / max(1, stats["n_targets"]),
+            }
+            for name, stats in transition_stats.items()
+        ]
+    )
+    return token_frame, transition_frame
 
 
 def main() -> None:
@@ -353,7 +439,10 @@ def main() -> None:
         "--background-length",
         type=int,
         default=None,
-        help="Defaults to the segment==0 count in the first subject, as in training.",
+        help=(
+            "Optional fixed override. By default the background length is inferred "
+            "independently for each subject, as in training."
+        ),
     )
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=0)
@@ -423,8 +512,12 @@ def main() -> None:
         f"[3/5] Computing exact neighbours for up to {args.max_neighbor_tokens:,} tokens...",
         flush=True,
     )
+    # Special control tokens do not have a clinical/source-family geometry and
+    # would make both observed coherence and its permutation null harder to
+    # interpret.
+    clinical_geometry = geometry.loc[~geometry["is_special"].fillna(False)].copy()
     neighbor_ids = stratified_token_sample(
-        geometry,
+        clinical_geometry,
         max_tokens=args.max_neighbor_tokens,
         seed=args.seed,
     )["token_id"]
@@ -442,16 +535,17 @@ def main() -> None:
     coherence.to_csv(output / "neighbor_coherence_by_frequency.csv", index=False)
     neighbour_permutation_null(
         neighbours,
-        geometry,
+        clinical_geometry,
         n_permutations=args.neighbor_null_permutations,
         seed=args.seed,
     ).to_csv(output / "neighbor_coherence_permutation_null.csv", index=False)
 
     max_len = int(args.max_len or encoder.hparams["max_seqlen"])
+    # Background blocks are not guaranteed to have the same length for every
+    # patient. Passing None preserves the training-data contract: the dataset
+    # infers the boundary independently for each subject.
     background_length = (
-        int(args.background_length)
-        if args.background_length is not None
-        else int((subjects[0]["segment"] == 0).sum())
+        int(args.background_length) if args.background_length is not None else None
     )
     dataset = ARPretrainDataset(
         subjects,
@@ -479,7 +573,11 @@ def main() -> None:
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
-        shuffle=False,
+        # A bounded diagnostic must not depend on the serialization order of
+        # patients.  The fixed generator makes checkpoint comparisons use the
+        # same sampled subject indices when their subject pools align.
+        shuffle=True,
+        generator=torch.Generator().manual_seed(args.seed),
         num_workers=args.num_workers,
         collate_fn=dynamic_padding,
     )
@@ -494,13 +592,16 @@ def main() -> None:
         if key.endswith("pretrain_head.bias")
     ]
     output_bias = bias_candidates[0].to(device) if len(bias_candidates) == 1 else None
-    losses = token_losses(
+    losses, transition_metrics = token_loss_audit(
         encoder,
         loader,
         device=device,
         max_batches=args.max_loss_batches,
         logit_chunk_size=args.logit_chunk_size,
         output_bias=output_bias,
+    )
+    transition_metrics.to_csv(
+        output / "target_performance_by_time_transition.csv", index=False
     )
     geometry = geometry.merge(losses, on="token_id", how="left", validate="one_to_one")
     geometry.to_csv(output / "token_learning_diagnostics.csv", index=False)
@@ -550,6 +651,11 @@ def main() -> None:
                 "n_neighbor_tokens": len(neighbor_frame),
                 "max_len": max_len,
                 "background_length": background_length,
+                "background_length_policy": (
+                    "fixed_override"
+                    if background_length is not None
+                    else "infer_per_subject"
+                ),
                 "checkpoint_metadata": metadata,
                 "adaptive_mapping": mapping_summary,
                 "movement_note": (
