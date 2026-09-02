@@ -9,6 +9,8 @@ def _padding_value(key: str):
         return False
     if key in {"numeric_value", "numeric_target"}:
         return float("nan")
+    if key == "code_loss_weight":
+        return 0.0
     return 0
 
 

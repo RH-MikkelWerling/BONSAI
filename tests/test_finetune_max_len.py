@@ -1,9 +1,14 @@
 from omegaconf import OmegaConf
 import torch
 
-from opera.run.finetune import build_finetune_data_module
+from opera.run.finetune import build_finetune_data_module, resolve_finetune_monitor
 from opera.run.survival_finetune import build_survival_finetune_data_module
 from opera.modules.datamodules.HybridDataModule import HybridDataModule
+
+
+def test_binary_finetune_monitor_auto_resolves_to_auroc():
+    cfg = OmegaConf.create({"training": {"eval_monitor_metric": "auto"}})
+    assert resolve_finetune_monitor(cfg) == ("val/AUROC", "max")
 
 
 def _base_cfg(tmp_path, max_len=17):

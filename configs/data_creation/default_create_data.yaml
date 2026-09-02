@@ -16,8 +16,8 @@ paths:
 
 exclude_regex: 
 
-# Primary production representation: ehr2meds has already rewritten valid
-# numeric events as LAB_CODE//bin_k. BONSAI consumes those as ordinary codes.
+# Numeric modes include continuous FiLM, joined_binning (LAB//bin_k), and the
+# strictly categorical separate_bin_token ablation (LAB, BIN_k).
 numeric_value_mode: legacy
 
 # Fit the hot vocabulary only from events strictly before this boundary. The

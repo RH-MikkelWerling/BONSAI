@@ -273,6 +273,49 @@ class _FeatureScoreModel(nn.Module):
         return self.linear(batch["features"])
 
 
+def test_survival_optimizer_supports_discriminative_encoder_learning_rate():
+    class FinetuneLikeModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embeddings = nn.Linear(2, 2)
+            self.layers = nn.Linear(2, 2)
+            self.finetune_head = nn.Linear(2, 1)
+
+        def forward(self, batch):
+            hidden = self.layers(self.embeddings(batch["features"]))
+            return self.finetune_head(hidden)
+
+    model = FinetuneLikeModel()
+    module = SurvivalFinetuneModule(
+        model,
+        "cox_exact_cached",
+        learning_rate=5e-4,
+        encoder_lr_multiplier=0.1,
+    )
+    optimizer = module.configure_optimizers()
+
+    assert [group["lr"] for group in optimizer.param_groups] == pytest.approx(
+        [5e-4, 5e-5]
+    )
+    head_ids = {id(param) for param in model.finetune_head.parameters()}
+    encoder_ids = {
+        id(param)
+        for name, param in model.named_parameters()
+        if not name.startswith("finetune_head.")
+    }
+    assert {id(param) for param in optimizer.param_groups[0]["params"]} == head_ids
+    assert {id(param) for param in optimizer.param_groups[1]["params"]} == encoder_ids
+
+
+def test_survival_optimizer_rejects_negative_encoder_lr_multiplier():
+    with pytest.raises(ValueError, match="encoder_lr_multiplier"):
+        SurvivalFinetuneModule(
+            nn.Linear(2, 1),
+            "cox",
+            encoder_lr_multiplier=-0.1,
+        )
+
+
 def test_lightning_exact_cached_cox_runs_two_pass_optimizer_step():
     loader = DataLoader(_ExactCoxDataset(), batch_size=2, shuffle=False)
     model = _FeatureScoreModel()

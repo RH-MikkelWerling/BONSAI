@@ -99,6 +99,9 @@ The command writes:
   event mass retained by candidate minimum-frequency thresholds;
 - `token_learning_diagnostics.csv`: exposure, norm, frequency stratum, and
   sampled target-level code loss;
+- `target_performance_by_time_transition.csv`: sampled code loss and top-1,
+  top-10, and top-100 accuracy separated into same-timestamp event completion,
+  new-timestamp prediction, and the final unclassified target per sequence;
 - `frequency_stratified_neighbors.csv` and
   `neighbor_coherence_by_frequency.csv`: an exact-neighbour audit on a bounded,
   frequency-stratified token sample;
@@ -136,7 +139,8 @@ that checkpoint was trained.
 
 The focused causal ablation is available as
 `--config-name pretrain_representation_ablation`. It keeps `[SEP]` in the
-input but excludes it from code loss and excludes exact same-time transitions.
+input but excludes it from code loss while retaining the deterministic
+same-time target order supplied by ehr2meds.
 It retains calendar Fourier time by default to isolate the objective change.
 Orthogonal controls can be run with `model.abspos_encoding=none`,
 `model.abspos_encoding=sequence_relative_fourier`, or a training-only global calendar jitter via

@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from omegaconf import OmegaConf
 
 from bonsai.functional.checkpointing import (
     COMPLETION_MARKER,
@@ -70,3 +71,20 @@ def test_partial_training_is_not_reused(tmp_path):
     (tmp_path / "best.ckpt").write_bytes(b"checkpoint")
 
     assert should_skip_completed_training(tmp_path, {"overwrite": False}) is False
+
+
+def test_completion_marker_ignores_unregistered_run_id_resolver(tmp_path):
+    cfg = OmegaConf.create(
+        {
+            "run_id": "${version:}",
+            "seed": 42,
+            "training": {"epochs": 2},
+            "overwrite": False,
+        }
+    )
+    _write_complete_artifacts(tmp_path)
+
+    marker = mark_training_complete(tmp_path, cfg)
+
+    assert marker.is_file()
+    assert should_skip_completed_training(tmp_path, cfg) is True

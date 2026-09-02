@@ -19,7 +19,7 @@ def _subject():
         "subject_id": 11,
         "code": torch.tensor([5, 6, 7, 8, 9], dtype=torch.long),
         "abspos": torch.tensor([0.0, 1.0, 2.0, 3.0, 4.0]),
-        "segment": torch.tensor([0, 0, 1, 1, 1], dtype=torch.long),
+        "segment": torch.tensor([0, 0, 1, 1, 2], dtype=torch.long),
         "age": torch.tensor([40.0, 40.1, 40.2, 40.3, 40.4]),
     }
 
@@ -176,7 +176,7 @@ def test_random_window_truncation_preserves_background_tokens():
         "subject_id": 22,
         "code": torch.arange(10, 22, dtype=torch.long),
         "abspos": torch.arange(12, dtype=torch.float),
-        "segment": torch.tensor([0, 0] + [1] * 10, dtype=torch.long),
+        "segment": torch.tensor([1, 1] + list(range(2, 12)), dtype=torch.long),
         "age": torch.arange(40, 52, dtype=torch.float),
     }
     generator = torch.Generator().manual_seed(123)
@@ -194,12 +194,27 @@ def test_random_window_truncation_preserves_background_tokens():
     assert torch.equal(truncated["segment"][:2], subject["segment"][:2])
 
 
+def test_pretrain_dataset_infers_one_based_background_per_subject():
+    subjects = [
+        {
+            "subject_id": 23,
+            "code": torch.arange(10, 20, dtype=torch.long),
+            "abspos": torch.arange(10, dtype=torch.float),
+            "segment": torch.tensor([1, 1, 1] + list(range(2, 9))),
+            "age": torch.arange(40, 50, dtype=torch.float),
+        }
+    ]
+    dataset = PretrainDataset(subjects, max_len=6, background_length=None)
+    sample = dataset[0]
+    assert torch.equal(sample["code"][:3], subjects[0]["code"][:3])
+
+
 def test_ar_pretraining_masks_artificial_background_to_window_boundary():
     subject = {
         "subject_id": 33,
         "code": torch.arange(10, 22, dtype=torch.long),
         "abspos": torch.arange(12, dtype=torch.float),
-        "segment": torch.tensor([0, 0] + [1] * 10, dtype=torch.long),
+        "segment": torch.tensor([0, 0] + list(range(1, 11)), dtype=torch.long),
         "age": torch.arange(40, 52, dtype=torch.float),
     }
     dataset = ARPretrainDataset(

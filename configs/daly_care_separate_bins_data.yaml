@@ -1,0 +1,30 @@
+# @package _global_
+# Strictly categorical shared-bin ablation: LAB/NPU_CODE, BIN_k.
+defaults:
+  - data_creation/default_create_data@
+  - _self_
+
+dataset: daly_care_separate_bins
+
+paths:
+  input_dir: ${oc.env:EHR2MEDS_OUTPUT}
+  output_dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+
+# Requires unsuffixed concept codes plus numeric_value_bin from ehr2meds.
+numeric_value_mode: separate_bin_token
+
+vocabulary_cutoff_date:
+  year: 2022
+  month: 1
+  day: 1
+
+splits:
+  - train
+  - tuning
+
+exclude_regex: null
+
+tokenizer:
+  vocabulary: null
+  cutoffs: null
+  sep_tokens: true

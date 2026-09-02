@@ -6,6 +6,8 @@ from typing import Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from opera.evaluation.results_schema import derive_run_identity
+
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +104,25 @@ def validate_compatible_result_rows(
                 }
             )
 
+    if "run_identity_status" in results.columns:
+        ambiguous = results["run_identity_status"].astype(str).eq("ambiguous")
+        if ambiguous.any():
+            warnings.append(
+                {
+                    "severity": "warning",
+                    "category": "ambiguous_run_identity",
+                    "message": "Some legacy rows could not be assigned a complete scientific run identity; inspect run_identity_audit.csv.",
+                    "n_rows": int(ambiguous.sum()),
+                }
+            )
+
     duplicate_cols = [
-        col for col in [*INDEX_COLUMNS, "model_family"] if col in results.columns
+        col
+        for col in [
+            *INDEX_COLUMNS,
+            "run_identity" if "run_identity" in results.columns else "model_family",
+        ]
+        if col in results.columns
     ]
     if duplicate_cols:
         duplicates = results.duplicated(subset=duplicate_cols, keep=False)
@@ -189,7 +208,35 @@ def collect_result_rows(
     rows = []
     for path in Path(results_dir).glob(pattern):
         rows.extend(read_result_jsonl(path))
-    return pd.DataFrame(rows)
+    enriched = []
+    for row in rows:
+        if not row.get("run_identity"):
+            row.update(
+                derive_run_identity(
+                    row,
+                    row.get("checkpoint_path", ""),
+                    model_family=row.get("model_family"),
+                    training_stage=row.get("training_stage"),
+                )
+            )
+        enriched.append(row)
+    return pd.DataFrame(enriched)
+
+
+def build_run_identity_audit(results: pd.DataFrame) -> pd.DataFrame:
+    """Return one human-readable row per distinct scientific run identity."""
+    columns = [
+        "run_identity", "run_identity_status", "model_family", "encoder_source",
+        "numeric_representation", "pretraining_objective", "adaptation_stage",
+        "training_scope", "training_cohort", "evaluation_cohort",
+        "training_stage", "checkpoint_path", "source_checkpoint", "result_path",
+    ]
+    available = [column for column in columns if column in results.columns]
+    if not available:
+        return pd.DataFrame(columns=columns)
+    return results[available].drop_duplicates().sort_values(
+        [column for column in ("run_identity_status", "run_identity") if column in available]
+    ).reset_index(drop=True)
 
 
 def build_wide_metric_table(

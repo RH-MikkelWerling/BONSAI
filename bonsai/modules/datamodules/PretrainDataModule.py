@@ -30,7 +30,9 @@ class PretrainDataModule(L.LightningDataModule):
         value_embedding_mode: str = "legacy",
         numeric_value_control: str = "observed",
         ignore_target_tokens: Optional[list[str]] = None,
+        input_only_target_prefixes: Optional[list[str]] = None,
         ignore_same_time_targets: bool = False,
+        event_normalized_code_loss: bool = False,
         abspos_subject_jitter_years: float = 0.0,
     ):
         super().__init__()
@@ -52,7 +54,9 @@ class PretrainDataModule(L.LightningDataModule):
         self.value_embedding_mode = value_embedding_mode
         self.numeric_value_control = numeric_value_control
         self.ignore_target_tokens = list(ignore_target_tokens or [])
+        self.input_only_target_prefixes = list(input_only_target_prefixes or [])
         self.ignore_same_time_targets = bool(ignore_same_time_targets)
+        self.event_normalized_code_loss = bool(event_normalized_code_loss)
         self.abspos_subject_jitter_years = float(abspos_subject_jitter_years)
 
     def setup(self, stage: str):
@@ -121,7 +125,9 @@ class PretrainDataModule(L.LightningDataModule):
                 value_embedding_mode=self.value_embedding_mode,
                 numeric_value_control=self.numeric_value_control,
                 ignore_target_tokens=self.ignore_target_tokens,
+                input_only_target_prefixes=self.input_only_target_prefixes,
                 ignore_same_time_targets=self.ignore_same_time_targets,
+                event_normalized_code_loss=self.event_normalized_code_loss,
                 abspos_subject_jitter_years=self.abspos_subject_jitter_years,
             )
             self.val_dataset = self.dataset_class(
@@ -135,7 +141,9 @@ class PretrainDataModule(L.LightningDataModule):
                 value_embedding_mode=self.value_embedding_mode,
                 numeric_value_control=self.numeric_value_control,
                 ignore_target_tokens=self.ignore_target_tokens,
+                input_only_target_prefixes=self.input_only_target_prefixes,
                 ignore_same_time_targets=self.ignore_same_time_targets,
+                event_normalized_code_loss=self.event_normalized_code_loss,
                 abspos_subject_jitter_years=0.0,
             )
         else:

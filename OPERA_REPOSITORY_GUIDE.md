@@ -548,6 +548,15 @@ Expected rarity exports:
 - `real_rarity_delta.png`
 - `rarity_delta_combined.png`
 
+Every aggregation also writes `run_identity_audit.csv`. It records, separately,
+the encoder source, numeric representation (continuous FiLM, joined bins, or no
+values), pretraining objective, adaptation stage (including Direct CR), and the
+training and evaluation cohorts. Canonical comparison tables are written as
+`results_wide_by_run_identity.csv` and `model_summary_by_run_identity.csv`.
+Legacy results whose identity can only be reconstructed from paths are marked
+`inferred`; unresolved cases are marked `ambiguous` rather than silently grouped
+under an overloaded `model_family` label.
+
 The minimum-event flags mark unstable real rare-cohort rows as
 `supplement_only`; they do not remove raw results.
 Figure helpers save both raster `.png` files and companion vector `.pdf` files.

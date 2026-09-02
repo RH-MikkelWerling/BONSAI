@@ -1,5 +1,6 @@
 import lightning as L
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
@@ -26,6 +27,13 @@ def unpack_pretrain_output(output):
     return output
 
 
+def pretrain_code_mass(output, labels) -> float:
+    """Return the denominator represented by a reduced code loss."""
+    if isinstance(output, dict) and "code_loss_weight" in output:
+        return float(output["code_loss_weight"].detach().sum())
+    return float(labels.numel())
+
+
 def compute_pretrain_loss(
     output,
     code_loss_fn,
@@ -36,7 +44,20 @@ def compute_pretrain_loss(
     value_regression_loss_weight: float = 1.0,
 ):
     logits, labels = unpack_pretrain_output(output)
-    loss = code_loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
+    flat_logits = logits.view(-1, logits.size(-1))
+    flat_labels = labels.view(-1)
+    code_loss_weight = (
+        output.get("code_loss_weight") if isinstance(output, dict) else None
+    )
+    if code_loss_weight is None:
+        loss = code_loss_fn(flat_logits, flat_labels)
+    else:
+        per_target = F.cross_entropy(flat_logits, flat_labels, reduction="none")
+        weights = code_loss_weight.reshape(-1).to(per_target.dtype)
+        code_loss_mass_tensor = weights.sum()
+        if not bool(code_loss_mass_tensor > 0):
+            raise ValueError("Event-normalized code loss received no eligible events.")
+        loss = (per_target * weights).sum() / code_loss_mass_tensor
     losses = {"code": loss}
     if (
         isinstance(output, dict)
@@ -171,7 +192,7 @@ class PretrainModule(L.LightningModule):
             value_bin_loss_weight=self.value_bin_loss_weight,
             value_regression_loss_weight=self.value_regression_loss_weight,
         )
-        code_count = int(labels.numel())
+        code_count = pretrain_code_mass(output, labels)
         self.val_code_loss.update(losses["code"], weight=code_count)
         self.log("val/code_loss", self.val_code_loss, on_step=False, on_epoch=True)
         if "value_regression" in losses:

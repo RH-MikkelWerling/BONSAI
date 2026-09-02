@@ -11,6 +11,15 @@ REQUIRED_RESULT_FIELDS = [
     "run_id",
     "config_hash",
     "model_family",
+    "run_identity",
+    "run_identity_status",
+    "encoder_source",
+    "numeric_representation",
+    "pretraining_objective",
+    "adaptation_stage",
+    "training_scope",
+    "training_cohort",
+    "evaluation_cohort",
     "training_stage",
     "cohort",
     "analysis_level",
@@ -181,6 +190,107 @@ def _mapping_get(mapping: Any, key: str, default: Any = None) -> Any:
     return getattr(mapping, key, default)
 
 
+def _identity_slug(value: Any) -> str:
+    text = str(value or "unknown").strip().lower()
+    return "_".join(part for part in "".join(
+        ch if ch.isalnum() else " " for ch in text
+    ).split()) or "unknown"
+
+
+def derive_run_identity(
+    cfg: Any,
+    checkpoint_path: str,
+    model_family: Optional[str] = None,
+    training_stage: Optional[str] = None,
+    report: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Resolve a stable scientific identity while retaining legacy labels.
+
+    Explicit checkpoint/config metadata wins. Path and legacy-name inference is
+    retained for old artifacts and is marked as inferred or ambiguous.
+    """
+    report = report or {}
+    provenance = report.get("checkpoint_provenance", {}) or {}
+    metadata = provenance.get("checkpoint_metadata", {}) or {}
+    source_checkpoint = metadata.get("source_checkpoint")
+    evidence = " ".join(
+        str(item or "")
+        for item in (checkpoint_path, source_checkpoint, model_family, training_stage)
+    ).lower().replace("\\", "/")
+
+    encoder_source = metadata.get("encoder_source") or _mapping_get(
+        cfg, "encoder_source", None
+    )
+    input_contract = metadata.get("input_contract", {}) or {}
+    numeric_control = input_contract.get("numeric_value_control") or _mapping_get(
+        _mapping_get(cfg, "training", {}), "numeric_value_control", None
+    )
+    model_cfg = _mapping_get(cfg, "model", {}) or {}
+    value_mode = _mapping_get(model_cfg, "value_embedding_mode", None)
+
+    if any(token in evidence for token in ("joined_bin", "joint_bin")):
+        numeric = "joined_bins"
+    elif "no_values" in evidence or numeric_control == "masked":
+        numeric = "no_values"
+    elif value_mode == "film" or numeric_control == "observed" or any(
+        token in evidence for token in ("numeric_fourier", "continuous", "film")
+    ):
+        numeric = "continuous_film"
+    elif str(encoder_source).lower() in {"random_init", "none", "null"}:
+        numeric = "not_applicable"
+    else:
+        numeric = "unknown"
+
+    if "event_normalized" in evidence:
+        objective = "event_normalized"
+    elif "input_only" in evidence:
+        objective = "input_only"
+    elif "combined" in evidence:
+        objective = "combined"
+    elif str(encoder_source).lower() in {"random_init", "none", "null"}:
+        objective = "not_applicable"
+    else:
+        objective = "next_code"
+
+    if "direct_cr" in evidence:
+        adaptation = "direct_cr"
+    elif str(encoder_source).lower() == "contrastive":
+        adaptation = "contrastive"
+    elif str(encoder_source).lower() in {"random_init", "none", "null"}:
+        adaptation = "not_applicable"
+    else:
+        adaptation = "none"
+
+    training_cohort = metadata.get("dataset") or _mapping_get(cfg, "dataset", None)
+    evaluation_cohort = _mapping_get(cfg, "dataset", _mapping_get(cfg, "cohort", None))
+    if str(training_cohort).upper() in {"ALL", "POOLED"} or "pooled" in evidence:
+        scope = "pooled"
+    elif training_cohort:
+        scope = "cohort_specific"
+    else:
+        scope = "unknown"
+
+    inferred = not bool(metadata)
+    ambiguous = any(value == "unknown" for value in (numeric, scope))
+    status = "ambiguous" if ambiguous else ("inferred" if inferred else "complete")
+    identity = "__".join(
+        _identity_slug(value)
+        for value in (encoder_source or model_family, numeric, objective, adaptation, scope)
+    )
+    return {
+        "run_identity": identity,
+        "run_identity_status": status,
+        "encoder_source": encoder_source,
+        "numeric_representation": numeric,
+        "pretraining_objective": objective,
+        "adaptation_stage": adaptation,
+        "training_scope": scope,
+        "training_cohort": training_cohort,
+        "evaluation_cohort": evaluation_cohort,
+        "source_checkpoint": source_checkpoint,
+    }
+
+
 def _rarity_metadata(cfg: Any, report: Dict[str, Any]) -> Dict[str, Any]:
     rarity_cfg = _mapping_get(cfg, "rarity", {}) or {}
     size_cfg = (
@@ -238,15 +348,17 @@ def build_result_row(
     training_fraction: Optional[float] = None,
 ) -> Dict[str, Any]:
     labels_cfg = cfg.get("labels", {})
+    resolved_model_family = model_family or cfg.get("model_family") or cfg.get(
+        "encoder_source", "unknown"
+    )
+    resolved_stage = canonical_training_stage(
+        training_stage or cfg.get("training_stage", "evaluation")
+    )
     row = {
         "run_id": cfg.get("run_id", config_hash(cfg)),
         "config_hash": config_hash(cfg),
-        "model_family": model_family
-        or cfg.get("model_family")
-        or cfg.get("encoder_source", "unknown"),
-        "training_stage": canonical_training_stage(
-            training_stage or cfg.get("training_stage", "evaluation")
-        ),
+        "model_family": resolved_model_family,
+        "training_stage": resolved_stage,
         "cohort": cfg.get("dataset", cfg.get("cohort", "unknown")),
         "analysis_level": cfg.get("analysis_level"),
         "outcome": cfg.get("outcome", cfg.get("outcome_name", "unknown")),
@@ -281,6 +393,15 @@ def build_result_row(
                 ),
             }
         )
+    row.update(
+        derive_run_identity(
+            cfg,
+            checkpoint_path,
+            model_family=resolved_model_family,
+            training_stage=resolved_stage,
+            report=report,
+        )
+    )
     row.update(flatten_report_metrics(report))
     row.update(_rarity_metadata(cfg, report))
     for field in REQUIRED_RESULT_FIELDS:

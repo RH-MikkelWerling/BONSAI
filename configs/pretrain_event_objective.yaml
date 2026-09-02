@@ -1,0 +1,18 @@
+defaults:
+  - pretrain_representation_ablation
+  - _self_
+
+# Event-aware causal pretraining. Administrative descriptors remain visible
+# context, while eligible clinical targets share unit loss mass per timestamp.
+training:
+  input_only_target_prefixes:
+    - "RC_ADM_TY//"
+    - "RC_PRIO//"
+    - "RC_REASON//"
+    - "RC_REG//"
+    - "RC_SPEC//"
+    - "RC_TYPE//"
+    - "RD_TYPE//"
+    - "RMA_PAT_TY//"
+    - "RPO_TYPE//"
+  event_normalized_code_loss: true

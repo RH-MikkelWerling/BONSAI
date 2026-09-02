@@ -30,6 +30,7 @@ from bonsai.functional.checkpointing import (
     extract_encoder_state_dict,
     get_saved_encoder_config,
 )
+from bonsai.functional.input_contract import resolve_numeric_value_control
 from bonsai.functional.versioning import generate_unused_run_id
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.functional.extract import build_dapt_embedding_store
@@ -72,6 +73,10 @@ def main(cfg: DictConfig) -> None:
     # ── Load encoder from DAPT checkpoint (same path as contrastive*.py) ──
     ckpt = torch.load(cfg.dapt_ckpt, map_location="cpu", weights_only=False)
     pretrain_hparams = ckpt["hyper_parameters"]
+    numeric_value_control = resolve_numeric_value_control(
+        cfg.training.get("numeric_value_control", "inherit"),
+        pretrain_hparams,
+    )
     vocab = torch.load(cfg.paths.vocabulary, weights_only=False)
     model_cfg = get_saved_encoder_config(pretrain_hparams)
     encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
@@ -107,6 +112,7 @@ def main(cfg: DictConfig) -> None:
         ),
         max_len=encoder_hparams(encoder)["max_seqlen"],
         batch_sampling={"type": "none"},
+        numeric_value_control=numeric_value_control,
     )
     data_module.setup("fit")
 

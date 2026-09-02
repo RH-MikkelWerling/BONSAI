@@ -253,6 +253,10 @@ class BonsaiPretrain(BonsaiBase):
         code_labels = labels[mask]
 
         logits = self.pretrain_head(code_hidden_state)
+        code_loss_weight = batch.get("code_loss_weight")
+        code_loss_weight = (
+            None if code_loss_weight is None else code_loss_weight[mask].float()
+        )
         continuous_targets = batch.get("numeric_target")
         if self.value_embedding_mode == "film" and continuous_targets is not None:
             value_mask = torch.isfinite(continuous_targets)
@@ -261,6 +265,8 @@ class BonsaiPretrain(BonsaiBase):
                 "labels": code_labels,
                 "value_embedding_mode": self.value_embedding_mode,
             }
+            if code_loss_weight is not None:
+                output["code_loss_weight"] = code_loss_weight
             value_hidden = last_hidden_state[value_mask]
             output["value_prediction"] = self.value_head(value_hidden).squeeze(-1)
             output["target_value_normalized"] = continuous_targets[value_mask].float()
@@ -272,6 +278,12 @@ class BonsaiPretrain(BonsaiBase):
             or "target_value_bin" not in batch
             or "target_value_normalized" not in batch
         ):
+            if code_loss_weight is not None:
+                return {
+                    "logits": logits,
+                    "labels": code_labels,
+                    "code_loss_weight": code_loss_weight,
+                }
             return logits, code_labels
 
         value_mask = batch["target_value_mask"].bool()
@@ -280,6 +292,8 @@ class BonsaiPretrain(BonsaiBase):
             "labels": code_labels,
             "value_embedding_mode": self.value_embedding_mode,
         }
+        if code_loss_weight is not None:
+            output["code_loss_weight"] = code_loss_weight
         if value_mask.any():
             value_hidden = last_hidden_state[value_mask]
             output["value_bin_logits"] = self.value_bin_head(value_hidden)

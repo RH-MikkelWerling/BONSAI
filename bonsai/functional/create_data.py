@@ -21,6 +21,29 @@ NUMERIC_COLUMN_ALIASES = {
     "numeric_value_bin": "value_bin",
     "numeric_value_present": "value_present",
 }
+NUMERIC_PAYLOAD_COLUMNS = (
+    "value_normalized",
+    "value_bin",
+    "value_present",
+    "numeric_value_normalized",
+    "numeric_value_bin",
+    "numeric_value_binned",
+    "numeric_value_present",
+    "numeric_value",
+)
+
+
+def prepare_joined_binning_tokens(df: pl.DataFrame) -> pl.DataFrame:
+    """Keep joined code/bin tokens while removing every numeric payload.
+
+    ehr2meds may emit codes such as ``LAB/CODE//bin_3`` together with the
+    numeric columns from which the suffix was derived.  This ablation treats
+    the joined string as an ordinary categorical token, so retaining any of
+    those payload columns would accidentally activate (or require) a second
+    numeric input pathway.
+    """
+    payload = [column for column in NUMERIC_PAYLOAD_COLUMNS if column in df.columns]
+    return df.drop(payload) if payload else df
 
 
 def prepare_continuous_numeric_values(df: pl.DataFrame) -> pl.DataFrame:
@@ -48,6 +71,61 @@ def prepare_continuous_numeric_values(df: pl.DataFrame) -> pl.DataFrame:
             f"present; found {invalid.height} invalid rows."
         )
     return df.with_columns(pl.col(source).cast(pl.Float64).alias("numeric_value"))
+
+
+def create_separate_bin_tokens(df: pl.DataFrame) -> pl.DataFrame:
+    """Expand numeric MEDS events into adjacent ``event, BIN_k`` code rows.
+
+    The bin token is deliberately an ordinary, concept-independent vocabulary
+    item.  All numeric payload columns are removed after expansion, making this
+    a strictly categorical ablation with no value embedding or auxiliary
+    numeric target.
+    """
+    rename = {
+        source: target
+        for source, target in NUMERIC_COLUMN_ALIASES.items()
+        if source in df.columns and target not in df.columns
+    }
+    if rename:
+        df = df.rename(rename)
+    if "value_bin" not in df.columns:
+        return prepare_joined_binning_tokens(df)
+
+    present = (
+        pl.col("value_present").fill_null(False)
+        if "value_present" in df.columns
+        else pl.col("value_bin").is_not_null()
+    )
+    numeric_bin = pl.col("value_bin").cast(pl.Float64, strict=False)
+    invalid = df.filter(
+        present
+        & (
+            numeric_bin.is_null()
+            | (numeric_bin < 0)
+            | (numeric_bin != numeric_bin.floor())
+        )
+    )
+    if invalid.height:
+        raise ValueError(
+            "separate_bin_token requires every present numeric value to have "
+            "a non-negative integer bin; "
+            f"found {invalid.height} invalid rows."
+        )
+
+    df = df.with_row_index("_separate_bin_event_order")
+    base = df.with_columns(
+        row_idx=(pl.col("_separate_bin_event_order") * 2).cast(pl.Int64)
+    )
+    bin_rows = df.filter(present).with_columns(
+        code=(pl.lit("BIN_") + pl.col("value_bin").cast(pl.Int64).cast(pl.String)),
+        row_idx=(pl.col("_separate_bin_event_order") * 2 + 1).cast(pl.Int64),
+    )
+    expanded = (
+        pl.concat([base, bin_rows], how="diagonal_relaxed")
+        .sort("row_idx")
+        .drop("_separate_bin_event_order")
+    )
+    return prepare_joined_binning_tokens(expanded)
 
 
 def create_combined_binning_value_tokens(df: pl.DataFrame) -> pl.DataFrame:
@@ -166,6 +244,10 @@ def process_split(
 
         if numeric_value_mode == "combined_binning":
             shard_df = create_combined_binning_value_tokens(shard_df)
+        elif numeric_value_mode == "separate_bin_token":
+            shard_df = create_separate_bin_tokens(shard_df)
+        elif numeric_value_mode == "joined_binning":
+            shard_df = prepare_joined_binning_tokens(shard_df)
         elif numeric_value_mode == "continuous":
             shard_df = prepare_continuous_numeric_values(shard_df)
         elif numeric_value_mode != "legacy":

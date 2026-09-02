@@ -35,9 +35,7 @@ class PretrainDataset(Dataset):
         self.tail_window_probability = tail_window_probability
         self.generator = generator
         if numeric_value_control not in {"observed", "masked"}:
-            raise ValueError(
-                "numeric_value_control must be 'observed' or 'masked'."
-            )
+            raise ValueError("numeric_value_control must be 'observed' or 'masked'.")
         self.numeric_value_control = numeric_value_control
         if abspos_subject_jitter_years < 0:
             raise ValueError("abspos_subject_jitter_years must be non-negative.")
@@ -234,7 +232,9 @@ class ARPretrainDataset(PretrainDataset):
         numeric_value_control: str = "observed",
         abspos_subject_jitter_years: float = 0.0,
         ignore_target_tokens: Optional[List[str]] = None,
+        input_only_target_prefixes: Optional[List[str]] = None,
         ignore_same_time_targets: bool = False,
+        event_normalized_code_loss: bool = False,
     ):
         super().__init__(
             subjects,
@@ -254,17 +254,33 @@ class ARPretrainDataset(PretrainDataset):
             raise ValueError("ignore_target_tokens requires a vocabulary.")
         missing = [token for token in ignore_target_tokens if token not in vocabulary]
         if missing:
-            raise ValueError(f"Ignored target tokens are absent from vocabulary: {missing}")
+            raise ValueError(
+                f"Ignored target tokens are absent from vocabulary: {missing}"
+            )
         self.ignore_target_token_ids = {
             int(vocabulary[token]) for token in ignore_target_tokens
         }
+        self.input_only_target_prefixes = tuple(input_only_target_prefixes or [])
+        if self.input_only_target_prefixes and vocabulary is None:
+            raise ValueError("input_only_target_prefixes requires a vocabulary.")
+        self.input_only_target_ids = {
+            int(token_id)
+            for token, token_id in (vocabulary or {}).items()
+            if any(
+                str(token).startswith(prefix)
+                for prefix in self.input_only_target_prefixes
+            )
+        }
         self.ignore_same_time_targets = bool(ignore_same_time_targets)
+        self.event_normalized_code_loss = bool(event_normalized_code_loss)
 
     def __getitem__(self, index: int) -> dict:
         subject, truncation_metadata = self._prepare_subject(index)
         subject["target"] = subject["code"][1:]
         subject["target"] = subject["target"].masked_fill(subject["target"] == 0, -100)
         for token_id in self.ignore_target_token_ids:
+            subject["target"].masked_fill_(subject["target"] == token_id, -100)
+        for token_id in self.input_only_target_ids:
             subject["target"].masked_fill_(subject["target"] == token_id, -100)
         if self.ignore_same_time_targets:
             # Canonical MEDS order is retained as input context, but predicting
@@ -308,6 +324,19 @@ class ARPretrainDataset(PretrainDataset):
                     subject["target_value_normalized"][boundary_target] = 0.0
                 if "numeric_target" in subject:
                     subject["numeric_target"][boundary_target] = float("nan")
+        if self.event_normalized_code_loss:
+            # A timestamped event contributes unit total code-loss mass,
+            # irrespective of how many eligible serialized targets it owns.
+            # Targets excluded above remain visible inputs but receive no mass.
+            target_abspos = subject["abspos"][1:]
+            eligible = subject["target"] != -100
+            code_loss_weight = torch.zeros_like(target_abspos, dtype=torch.float)
+            if eligible.any():
+                _, inverse, counts = torch.unique(
+                    target_abspos[eligible], return_inverse=True, return_counts=True
+                )
+                code_loss_weight[eligible] = counts[inverse].reciprocal().float()
+            subject["code_loss_weight"] = code_loss_weight
         for key in sequence_tensor_fields(subject):
             subject[key] = subject[key][:-1]
         return subject

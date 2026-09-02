@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BONSAI_CONFIGS = [
     "daly_care_data",
     "pretrain",
+    "pretrain_event_objective",
     "finetune",
 ]
 
@@ -57,7 +58,7 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
     ):
         cfg = compose(config_name=config_name)
     assert cfg is not None
-    if config_name in {"pretrain", "finetune"}:
+    if config_name in {"pretrain", "pretrain_event_objective", "finetune"}:
         assert cfg.overwrite is False
     if config_name == "pretrain":
         assert cfg.paths.dataset_class.endswith("ARPretrainDataset")
@@ -65,6 +66,10 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
         assert cfg.model.value_bin_vocab_size == 0
         assert cfg.model.value_embedding_mode == "legacy"
         assert cfg.training.value_regression_loss_weight == 0.0
+    if config_name == "pretrain_event_objective":
+        assert cfg.training.event_normalized_code_loss is True
+        assert "RC_REASON//" in cfg.training.input_only_target_prefixes
+        assert cfg.training.ignore_target_tokens == ["[SEP]"]
     if config_name == "daly_care_data":
         assert cfg.splits == ["train", "tuning"]
         assert cfg.numeric_value_mode == "continuous"

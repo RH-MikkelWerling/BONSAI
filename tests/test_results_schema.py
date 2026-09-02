@@ -129,6 +129,30 @@ def test_build_result_row_records_checkpoint_provenance():
     assert row["checkpoint_selection_mode"] == "max"
 
 
+def test_build_result_row_distinguishes_joined_bin_pooled_training():
+    cfg = TinyCfg({"dataset": "DLBCL", "labels": {}, "encoder_source": "pretrain"})
+    report = {
+        "discrimination": {},
+        "checkpoint_provenance": {
+            "checkpoint_metadata": {
+                "encoder_source": "pretrain",
+                "source_checkpoint": "/models/t200_joined_bins/best.ckpt",
+                "dataset": "ALL",
+                "input_contract": {"numeric_value_control": "masked"},
+            }
+        },
+    }
+    row = build_result_row(
+        cfg, report, "/runs/pooled/best.ckpt", "held_out", model_family="joined_bins"
+    )
+    assert row["model_family"] == "joined_bins"
+    assert row["numeric_representation"] == "joined_bins"
+    assert row["training_scope"] == "pooled"
+    assert row["training_cohort"] == "ALL"
+    assert row["evaluation_cohort"] == "DLBCL"
+    assert row["run_identity_status"] == "complete"
+
+
 def test_bootstrap_ci_rows_returns_structured_intervals():
     report = {
         "bootstrap_ci": {

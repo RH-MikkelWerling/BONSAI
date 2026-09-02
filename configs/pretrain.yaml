@@ -37,7 +37,11 @@ training:
   # Keep boundary tokens in the input while optionally removing easy or
   # arbitrary transitions from the causal code-prediction objective.
   ignore_target_tokens: []
+  # Namespace prefixes retained as visible context but excluded as targets.
+  input_only_target_prefixes: []
   ignore_same_time_targets: false
+  # Give every timestamped event unit total code-loss mass.
+  event_normalized_code_loss: false
   # Training-only patient-level calendar jitter; validation remains observed.
   abspos_subject_jitter_years: 0.0
   cutoff_date: # Optional

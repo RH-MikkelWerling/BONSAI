@@ -407,6 +407,12 @@ This writes:
 - `all_results.csv`
 - `results_wide.csv`
 - `model_summary.csv`
+- `run_identity_audit.csv`, which separates the legacy display label from the
+  encoder source, numeric representation, pretraining objective, adaptation
+  stage, and training/evaluation cohorts
+- `results_wide_by_run_identity.csv` and
+  `model_summary_by_run_identity.csv`, which use that canonical identity rather
+  than the potentially ambiguous legacy `model_family`
 - `task_size_summary.csv` when `n_total` is present
 - `pretraining_scale_summary.csv` when `pretraining_scale` is present
 - `joint_minus_per_cohort.csv` when baseline/comparator are provided
@@ -418,6 +424,11 @@ This writes:
 Use `--strict_aggregation` for paper outputs. Duplicate
 cohort/outcome/split/seed/model keys are errors because selecting the first row
 would make paired denominators ambiguous.
+
+New evaluations derive run identity from checkpoint metadata. Older artifacts
+are reconstructed from their stored fields and paths where possible and are
+marked `inferred` or `ambiguous` in `run_identity_audit.csv`; inspect ambiguous
+rows before using them in a comparison table.
 
 For task-size binned summaries, the default bins are `<100`, `100-499`,
 `500-999`, `1k-4,999`, and `>=5k` labelled evaluation subjects.

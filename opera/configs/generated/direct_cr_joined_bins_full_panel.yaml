@@ -1,0 +1,51 @@
+# @package _global_
+# Direct multi-outcome competing-risk adaptation of the token-only joined-bin
+# checkpoint. The outcome panel and cohort definitions are inherited from the
+# audited full-panel config; only the encoder/data contract is changed here.
+defaults:
+  - direct_cr_full_panel
+  - _self_
+
+dataset: daly_care_t200_joined_bins_direct_cr
+
+dapt_ckpt: ${oc.env:BONSAI_MODELS}/daly_care_t200_joined_bins/pretrain_joined_bins_token_only_clean/version_0/best.ckpt
+dapt_embedding_store: ${oc.env:BONSAI_MODELS}/daly_care_t200_joined_bins/direct_cr_anchor002_full_joined_bins_v1/reference_mean_last_128.pt
+
+paths:
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins/vocabulary.pt
+
+cohorts:
+  AMYLOIDOSIS:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  BL_LBL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  CLL_SLL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  DLBCL_like:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  HCL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  HL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  Indolent_B_NHL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  MCL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  MM:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+  T_NHL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
+
+# Inherit the token-only numeric contract saved in the source checkpoint.
+training:
+  numeric_value_control: inherit
+
+# Reassert that this is Direct CR, not the earlier contrastive objective.
+competing_risk:
+  loss_weight: 1.0
+  contrastive_loss_weight: 0.0
+
+model:
+  dapt_lambda_floor: 1.0
+  dapt_anchor_weight: 0.02
+  pooling: mean_last_128

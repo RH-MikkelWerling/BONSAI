@@ -67,3 +67,41 @@ class TestTruncation(unittest.TestCase):
             post_subject["value_present"],
             torch.tensor([False, False, False, True, True]),
         )
+
+    def test_random_window_does_not_split_event_groups(self):
+        subject = {
+            "subject_id": 12,
+            "code": torch.arange(10),
+            "abspos": torch.tensor([0, 0, 1, 1, 1, 2, 2, 3, 3, 3]),
+            "age": torch.arange(10),
+            "segment": torch.tensor([1, 1, 2, 2, 2, 3, 3, 4, 4, 4]),
+        }
+        truncated = truncate_subject(
+            subject,
+            max_len=7,
+            background_length=2,
+            strategy="random_window",
+            generator=torch.Generator().manual_seed(4),
+        )
+        # Every retained clinical segment is complete relative to the source.
+        for segment in truncated["segment"][2:].unique():
+            assert int((truncated["segment"] == segment).sum()) == int(
+                (subject["segment"] == segment).sum()
+            )
+
+    def test_zero_background_from_legacy_one_based_caller_is_inferred(self):
+        subject = {
+            "subject_id": 13,
+            "code": torch.arange(8),
+            "abspos": torch.arange(8),
+            "age": torch.arange(8),
+            "segment": torch.tensor([1, 1, 2, 3, 4, 5, 6, 7]),
+        }
+        truncated, metadata = truncate_subject(
+            subject,
+            max_len=5,
+            background_length=0,
+            return_metadata=True,
+        )
+        assert metadata["background_length"] == 2
+        assert torch.equal(truncated["code"][:2], subject["code"][:2])

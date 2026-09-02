@@ -24,7 +24,20 @@ COMPLETION_MARKER = "training_complete.json"
 def _completion_config(cfg: DictConfig | dict) -> dict:
     """Return the stable, resolved config used to identify a completed run."""
     if isinstance(cfg, DictConfig):
-        payload = OmegaConf.to_container(cfg, resolve=True)
+        # Remove invocation-only fields *before* resolving interpolations.  In
+        # particular, the shared training config defines
+        # ``run_id: ${version:}``, while OPERA entry points do not need to
+        # register BONSAI's ``version`` resolver.  Resolving that field only to
+        # discard it made otherwise successful training fail while writing the
+        # completion marker.
+        stable_cfg = OmegaConf.create(
+            {
+                key: value
+                for key, value in cfg.items_ex(resolve=False)
+                if key not in {"overwrite", "run_id"}
+            }
+        )
+        payload = OmegaConf.to_container(stable_cfg, resolve=True)
     else:
         payload = dict(cfg)
     if not isinstance(payload, dict):

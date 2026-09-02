@@ -14,6 +14,7 @@ from typing import Optional
 
 from opera.evaluation.aggregation import (
     build_wide_metric_table,
+    build_run_identity_audit,
     collect_result_rows,
     compute_model_delta_table,
     filter_results_for_paper_aggregates,
@@ -181,6 +182,11 @@ def main():
         return
 
     results.to_csv(output_dir / "all_results.csv", index=False)
+    identity_audit = build_run_identity_audit(results)
+    identity_audit.to_csv(output_dir / "run_identity_audit.csv", index=False)
+    if "run_identity_status" in identity_audit.columns:
+        ambiguous = int(identity_audit["run_identity_status"].eq("ambiguous").sum())
+        print(f"Run identity audit: {output_dir / 'run_identity_audit.csv'} ({ambiguous} ambiguous)")
 
     validation = validate_compatible_result_rows(
         results,
@@ -213,9 +219,23 @@ def main():
 
     wide = build_wide_metric_table(aggregate_results, metrics=metrics)
     wide.to_csv(output_dir / "results_wide.csv", index=False)
+    if "run_identity" in aggregate_results.columns:
+        identity_wide = build_wide_metric_table(
+            aggregate_results, metrics=metrics, model_col="run_identity"
+        )
+        identity_wide.to_csv(output_dir / "results_wide_by_run_identity.csv", index=False)
 
     summary = summarize_by_model(aggregate_results, metrics=metrics)
     summary.to_csv(output_dir / "model_summary.csv", index=False)
+    if "run_identity" in aggregate_results.columns:
+        identity_summary = summarize_by_model(
+            aggregate_results,
+            metrics=metrics,
+            group_cols=("run_identity", "training_stage"),
+        )
+        identity_summary.to_csv(
+            output_dir / "model_summary_by_run_identity.csv", index=False
+        )
 
     seed_stability = _seed_stability(aggregate_results, metrics)
     if not seed_stability.empty:

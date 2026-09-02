@@ -58,7 +58,11 @@ def main(cfg: DictConfig) -> None:
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
         numeric_value_control=cfg.training.get("numeric_value_control", "observed"),
         ignore_target_tokens=cfg.training.get("ignore_target_tokens", []),
+        input_only_target_prefixes=cfg.training.get("input_only_target_prefixes", []),
         ignore_same_time_targets=cfg.training.get("ignore_same_time_targets", False),
+        event_normalized_code_loss=cfg.training.get(
+            "event_normalized_code_loss", False
+        ),
         abspos_subject_jitter_years=cfg.training.get(
             "abspos_subject_jitter_years", 0.0
         ),
@@ -109,8 +113,14 @@ def main(cfg: DictConfig) -> None:
                 "ignore_target_tokens": list(
                     cfg.training.get("ignore_target_tokens", [])
                 ),
+                "input_only_target_prefixes": list(
+                    cfg.training.get("input_only_target_prefixes", [])
+                ),
                 "ignore_same_time_targets": bool(
                     cfg.training.get("ignore_same_time_targets", False)
+                ),
+                "event_normalized_code_loss": bool(
+                    cfg.training.get("event_normalized_code_loss", False)
                 ),
                 "abspos_subject_jitter_years": float(
                     cfg.training.get("abspos_subject_jitter_years", 0.0)

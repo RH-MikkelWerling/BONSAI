@@ -119,6 +119,15 @@ def resolve_finetune_max_len(
     return value
 
 
+def resolve_finetune_monitor(cfg: DictConfig) -> tuple[str, str]:
+    """Resolve the checkpoint metric used by binary finetuning."""
+    configured = str(cfg.training.get("eval_monitor_metric", "auto"))
+    if configured == "auto":
+        return "val/AUROC", "max"
+    mode = "max" if configured in {"val/AUROC", "val/Accuracy"} else "min"
+    return configured, mode
+
+
 def build_finetune_data_module(
     cfg: DictConfig,
     vocab: dict,
@@ -144,7 +153,9 @@ def build_finetune_data_module(
         predict_token_id=vocab["[CLS]"],
         max_len=resolve_finetune_max_len(cfg, encoder_max_seqlen),
         train_sampler=get_sampler(
-            weight_fn=cfg.training.sampling_weight_fn,
+            # Sampling weights are optional. Keep older experiment configs and
+            # externally generated sweep configs valid when the field is absent.
+            weight_fn=cfg.training.get("sampling_weight_fn", None),
             labels=train_labels,
         ),
         numeric_value_control=numeric_value_control,
@@ -330,6 +341,7 @@ def main(cfg: DictConfig) -> None:
         if cfg.model.get("freeze_encoder", False)
         else "per_task_finetuning",
     )
+    monitor, monitor_mode = resolve_finetune_monitor(cfg)
 
     lightning_module = FinetuneModule(
         model=model,
@@ -348,15 +360,15 @@ def main(cfg: DictConfig) -> None:
                 f"{cfg.labels.train_key}:{cfg.labels.val_key}:{cfg.labels.test_key}"
             ),
             "selection_split": cfg.labels.val_key,
-            "selection_metric": cfg.training.eval_monitor_metric,
-            "selection_mode": (
-                "max" if "AUROC" in cfg.training.eval_monitor_metric else "min"
-            ),
+            "selection_metric": monitor,
+            "selection_mode": monitor_mode,
             **input_contract_metadata(numeric_value_control),
             **linear_probe_metadata,
         },
         pos_weight=get_loss_weight(
-            cfg.training.loss_weight_function,
+            # Loss weighting is optional. Older sweep configs predate this
+            # field and should retain the unweighted-loss default.
+            cfg.training.get("loss_weight_function", None),
             labels=train_labels,
         ),
     )
@@ -365,8 +377,8 @@ def main(cfg: DictConfig) -> None:
     callbacks = [
         ModelCheckpoint(
             dirpath=model_save_dir,
-            monitor=cfg.training.eval_monitor_metric,
-            mode="max" if "AUROC" in cfg.training.eval_monitor_metric else "min",
+            monitor=monitor,
+            mode=monitor_mode,
             save_top_k=1,
             filename="best",
             enable_version_counter=False,
@@ -376,9 +388,9 @@ def main(cfg: DictConfig) -> None:
     if cfg.training.get("early_stopping_patience"):
         callbacks.append(
             EarlyStopping(
-                monitor=cfg.training.eval_monitor_metric,
+                monitor=monitor,
                 patience=cfg.training.early_stopping_patience,
-                mode="max" if "AUROC" in cfg.training.eval_monitor_metric else "min",
+                mode=monitor_mode,
             )
         )
 

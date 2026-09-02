@@ -61,6 +61,11 @@ from opera.visualization.embedding_plots import (
 load_dotenv()
 
 
+def _batch_numpy_vector(value: torch.Tensor) -> np.ndarray:
+    """Convert a scalar or batched tensor to a concatenation-safe 1D array."""
+    return value.detach().cpu().numpy().reshape(-1)
+
+
 def resolve_device(device_cfg: str) -> str:
     if device_cfg in (None, "auto"):
         return "cuda" if torch.cuda.is_available() else "cpu"
@@ -122,6 +127,7 @@ def resolve_evaluation_checkpoint(cfg: DictConfig) -> tuple[Path, dict]:
             "selection_mode": metadata.get("selection_mode"),
             "sidecar_path": str(ckpt_path.parent / "checkpoint_metadata.json"),
             "warning": warning,
+            "checkpoint_metadata": metadata,
         }
 
     run_dir = cfg.get("run_dir")
@@ -142,6 +148,7 @@ def resolve_evaluation_checkpoint(cfg: DictConfig) -> tuple[Path, dict]:
         "selection_mode": metadata.get("selection_mode"),
         "sidecar_path": str(run_dir / "checkpoint_metadata.json"),
         "warning": None,
+        "checkpoint_metadata": metadata,
     }
 
 
@@ -384,9 +391,12 @@ def main(cfg: DictConfig) -> None:
 
             emb = extract_patient_embeddings(model, batch)
 
-            all_sids.append(batch["subject_id"].cpu().numpy())
-            all_labels.append(batch["target"].cpu().numpy().squeeze())
-            all_logits.append(logits.float().cpu().numpy())
+            # The final batch can contain one patient. ``squeeze()`` turns its
+            # target (and potentially its logit) into a 0-D ndarray, which
+            # cannot be concatenated with the preceding 1-D batches.
+            all_sids.append(_batch_numpy_vector(batch["subject_id"]))
+            all_labels.append(_batch_numpy_vector(batch["target"]))
+            all_logits.append(_batch_numpy_vector(logits.float()))
             all_embeddings.append(emb.float().cpu().numpy())
 
     labels_all = np.concatenate(all_labels)

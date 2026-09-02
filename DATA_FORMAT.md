@@ -458,6 +458,29 @@ joint code already observes the bin, scalar regression is intentionally a
 bin-conditioned residual-value objective; joint-code-only and scalar-only
 representations remain ablation targets.
 
+For the strictly categorical joint-code-only ablation, ehr2meds should emit
+the joined code (for example, ``LAB/CODE//bin_3``) and BONSAI should use
+``numeric_value_mode: joined_binning``. This preserves that code verbatim but
+drops all scalar, bin-index, and value-presence payload columns before
+tokenization. The resulting model uses ordinary code embeddings and ordinary
+next-token cross-entropy only: it has no ``[VAL]`` positions, FiLM pathway,
+value embedding, bin head, or numeric regression loss.
+
+The strictly categorical shared-bin ablation instead starts from unsuffixed
+concept codes plus ehr2meds' ``numeric_value_bin`` and uses
+``numeric_value_mode: separate_bin_token``. Each numeric event becomes two
+adjacent ordinary vocabulary positions:
+
+```text
+LAB/CODE, BIN_3
+```
+
+``BIN_3`` is shared by every numeric concept. BONSAI removes all numeric
+payload columns after constructing the token, so this mode also has no FiLM
+pathway, value embedding, bin head, or numeric regression loss. Both positions
+retain the same timestamp/segment, which prevents separator insertion and
+segment-aware truncation from splitting the pair.
+
 With causal pretraining, the hidden state at `LAB/CODE` predicts the scalar at
 the following `[VAL]` position. `[VAL]` is excluded from categorical CE, so the
 combined objective is ordinary next-code CE plus numeric MSE. At the `[VAL]`
