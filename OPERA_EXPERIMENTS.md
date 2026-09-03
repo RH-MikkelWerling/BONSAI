@@ -565,7 +565,8 @@ cross_outcome:
   class_counts: {}
 ```
 
-Configured training currently supports `uniform` and `kendall`. Uniform with
+Configured training supports `uniform`, `kendall`, and joint-BCE-specific
+`kendall_null`. Uniform with
 macro aggregation is the explicit production setting in the checked-in
 contrastive configs. The FAMO task-weighting core is present for isolated
 algorithm work, but configured FAMO training fails closed because the current
@@ -580,6 +581,25 @@ cross_outcome:
   aggregation: pooled
   class_balanced: false
 ```
+
+For supervised joint fine-tuning, `kendall_null` divides each outcome's BCE by
+the BCE of its frozen training-prevalence null predictor on the same minibatch,
+then applies ordinary Kendall uncertainty weighting. Matching the reference to
+the actual minibatch keeps normalization meaningful under event-aware sampling.
+Training class counts are filled automatically and stored with the checkpoint:
+
+```yaml
+cross_outcome:
+  weighter: kendall_null
+  aggregation: macro
+  class_balanced: false
+  positive_class_weighted: false
+```
+
+Logs contain raw BCE, matched null BCE, normalized BCE, learned sigma, Kendall
+precision, and the effective coefficient on raw BCE. This normalization is
+joint-BCE-specific; binary null entropy is not used for survival-contrastive
+losses.
 
 `aggregation: macro` divides the weighted objective by the number of active
 outcomes in the batch. Outcomes with no eligible patients or no informative

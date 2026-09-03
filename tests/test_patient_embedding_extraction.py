@@ -2,11 +2,18 @@
 
 import pandas as pd
 import pytest
+import torch
 
 from opera.run.extract_outcome_transfer_embeddings import (
     OutcomeTransferExtractionError,
+    _pool_prediction_origin,
 )
 from opera.run.extract_patient_embeddings import prepare_prediction_origins
+
+
+class _IdentityEncoder(torch.nn.Module):
+    def forward(self, batch):
+        return batch["input_emb"]
 
 
 def _index_frame():
@@ -100,3 +107,22 @@ def test_prepare_prediction_origins_derives_prospective_splits_from_index_date()
         "test",
     ]
     assert keys["held_out"] == "test"
+
+
+def test_non_cls_pooling_excludes_appended_prediction_token():
+    batch = {
+        "input_emb": torch.tensor(
+            [[[1.0], [3.0], [99.0], [0.0]], [[2.0], [4.0], [6.0], [99.0]]]
+        ),
+        "attention_mask": torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]),
+    }
+    encoder = _IdentityEncoder()
+
+    torch.testing.assert_close(
+        _pool_prediction_origin(encoder, batch, "last"),
+        torch.tensor([[3.0], [6.0]]),
+    )
+    torch.testing.assert_close(
+        _pool_prediction_origin(encoder, batch, "mean"),
+        torch.tensor([[2.0], [4.0]]),
+    )

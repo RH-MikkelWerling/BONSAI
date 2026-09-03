@@ -85,6 +85,40 @@ def test_shape_and_dtype_match_legacy():
     assert fourier(abspos).dtype == legacy(abspos).dtype
 
 
+def test_scaled_time2vec_matches_abs_pos_branch_thousands_of_hours():
+    raw_hours = _monthly_abspos_grid().reshape(1, -1)
+    torch.manual_seed(123)
+    scaled = Time2Vec(64, clip_range=100, input_scale=1e-3)
+    torch.manual_seed(123)
+    branch_equivalent = Time2Vec(64, clip_range=100)
+
+    torch.testing.assert_close(
+        scaled(raw_hours),
+        branch_equivalent(raw_hours / 1000.0),
+        rtol=1e-4,
+        atol=2e-4,
+    )
+
+
+def test_scaled_time2vec_is_selectable_without_changing_legacy():
+    scaled = EhrEmbeddings(
+        vocab_size=20,
+        hidden_size=8,
+        max_seqlen=10,
+        abspos_encoding="scaled_time2vec",
+    )
+    legacy = EhrEmbeddings(
+        vocab_size=20,
+        hidden_size=8,
+        max_seqlen=10,
+        abspos_encoding="legacy",
+    )
+
+    assert isinstance(scaled.abspos_embedding, Time2Vec)
+    assert scaled.abspos_embedding.input_scale == pytest.approx(1e-3)
+    assert legacy.abspos_embedding.input_scale == pytest.approx(1.0)
+
+
 def test_legacy_default_unchanged():
     torch.manual_seed(123)
     default = EhrEmbeddings(vocab_size=20, hidden_size=8, max_seqlen=10)

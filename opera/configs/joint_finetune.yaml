@@ -90,6 +90,8 @@ model:
 cross_outcome:
   # Match the primary contrastive run: no learned task suppression in the
   # production representation model, and no pooling advantage for common tasks.
+  # Options: uniform, kendall, kendall_null. kendall_null divides each task's
+  # BCE by the matched train-prevalence null BCE before Kendall weighting.
   weighter: uniform
   aggregation: macro
   # Optional outcome-level effective-number factor. Keep false by default to

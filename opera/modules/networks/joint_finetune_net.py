@@ -103,11 +103,19 @@ class JointFinetuneModel(nn.Module):
         # Share the contrastive stage's cross-outcome weighting semantics.
         settings = self._legacy_default_cross_outcome_config()
         settings.update(self.cross_outcome_config)
+        self.null_normalized_kendall = (
+            str(settings.get("weighter", "")).lower() == "kendall_null"
+        )
+        builder_settings = dict(settings)
+        if self.null_normalized_kendall:
+            # The shared weighter remains ordinary Kendall; only the binary
+            # task losses supplied to it are normalized by matched null loss.
+            builder_settings["weighter"] = "kendall"
         (
             self.weighter,
             self.aggregation,
             class_balance_factors,
-        ) = build_cross_outcome_weighter(outcome_names, settings)
+        ) = build_cross_outcome_weighter(outcome_names, builder_settings)
         self.register_buffer(
             "class_balance_factors",
             class_balance_factors,
@@ -131,6 +139,12 @@ class JointFinetuneModel(nn.Module):
             positive_weights,
             persistent=False,
         )
+        null_logits = self._null_reference_logits(settings)
+        # Reconstructed deterministically from training counts in checkpoint
+        # metadata; non-persistent preserves strict loading of older joint runs.
+        self.register_buffer(
+            "null_reference_logits", null_logits, persistent=False
+        )
 
     @staticmethod
     def _legacy_default_cross_outcome_config() -> dict:
@@ -147,7 +161,7 @@ class JointFinetuneModel(nn.Module):
         if not self.positive_class_weighted:
             return weights
         counts = settings.get("class_counts", {})
-        if not isinstance(counts, Mapping):
+        if not isinstance(counts, Mapping) or not counts:
             raise ValueError(
                 "cross_outcome.class_counts must be a mapping when "
                 "positive_class_weighted is true."
@@ -162,6 +176,37 @@ class JointFinetuneModel(nn.Module):
                 continue
             weights[index] = min(negative / positive, self.positive_class_weight_cap)
         return weights
+
+    def _null_reference_logits(self, settings: Mapping[str, object]) -> torch.Tensor:
+        """Return train-prevalence logits for matched null BCE normalization."""
+        logits = torch.zeros(len(self.outcome_names), dtype=torch.float32)
+        if not self.null_normalized_kendall:
+            return logits
+        if self.positive_class_weighted:
+            raise ValueError(
+                "kendall_null requires positive_class_weighted=false so its "
+                "training-prevalence null predictor matches the task BCE."
+            )
+        counts = settings.get("class_counts")
+        if not isinstance(counts, Mapping) or not counts:
+            raise ValueError(
+                "kendall_null requires cross_outcome.class_counts from the "
+                "training split."
+            )
+        for index, name in enumerate(self.outcome_names):
+            outcome_counts = counts.get(name)
+            if not isinstance(outcome_counts, Mapping):
+                raise ValueError(f"kendall_null is missing class counts for {name!r}.")
+            positive = float(outcome_counts.get("positive", 0.0) or 0.0)
+            negative = float(outcome_counts.get("negative", 0.0) or 0.0)
+            if positive <= 0 or negative <= 0:
+                raise ValueError(
+                    f"kendall_null requires both classes for {name!r}; "
+                    f"got positive={positive:g}, negative={negative:g}."
+                )
+            prevalence = positive / (positive + negative)
+            logits[index] = torch.logit(torch.tensor(prevalence, dtype=torch.float32))
+        return logits
 
     @property
     def log_sigma(self) -> torch.Tensor:
@@ -260,6 +305,7 @@ class JointFinetuneModel(nn.Module):
             device=device,
             dtype=pooled.dtype,
         )
+        null_reference_losses = torch.full_like(per_outcome_losses, float("nan"))
 
         for k, name in enumerate(self.outcome_names):
             labels_k = outcome_labels.get(name)
@@ -294,13 +340,30 @@ class JointFinetuneModel(nn.Module):
                 pos_weight=pos_weight if self.positive_class_weighted else None,
             )
 
+            if self.null_normalized_kendall:
+                null_logit = self.null_reference_logits[k].to(
+                    device=device, dtype=pooled.dtype
+                )
+                null_loss_k = F.binary_cross_entropy_with_logits(
+                    null_logit.expand_as(labels_v),
+                    labels_v,
+                    reduction="mean",
+                ).clamp_min(torch.finfo(pooled.dtype).eps)
+                normalized_loss_k = loss_k / null_loss_k
+            else:
+                null_loss_k = loss_k.new_tensor(1.0)
+                normalized_loss_k = loss_k
+
             factor = self.class_balance_factors[k].to(
                 device=device,
                 dtype=pooled.dtype,
             )
-            per_outcome_losses[k] = loss_k * factor
+            per_outcome_losses[k] = normalized_loss_k * factor
+            null_reference_losses[k] = null_loss_k
 
             log_dict[f"loss/{name}"] = loss_k.detach()
+            log_dict[f"null_reference_loss/{name}"] = null_loss_k.detach()
+            log_dict[f"normalized_loss/{name}"] = normalized_loss_k.detach()
             log_dict[f"class_balance_factor/{name}"] = factor.detach()
             log_dict[f"positive_class_weight/{name}"] = pos_weight.detach()
 
@@ -321,6 +384,15 @@ class JointFinetuneModel(nn.Module):
 
         for index, name in enumerate(self.outcome_names):
             log_dict[f"cross_outcome_weight/{name}"] = outcome_weights[index].detach()
+            if torch.isfinite(null_reference_losses[index]):
+                factor = self.class_balance_factors[index].to(
+                    device=device, dtype=pooled.dtype
+                )
+                log_dict[f"effective_raw_loss_weight/{name}"] = (
+                    outcome_weights[index]
+                    * factor
+                    / null_reference_losses[index]
+                ).detach()
             if isinstance(self.weighter, KendallWeighter):
                 log_dict[f"sigma/{name}"] = torch.exp(
                     self.weighter.log_sigma[index]

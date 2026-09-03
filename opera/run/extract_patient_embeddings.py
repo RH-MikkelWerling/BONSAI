@@ -172,9 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="auto")
     parser.add_argument(
         "--pooling",
-        choices=("cls_last", "mean_last_128"),
+        choices=("cls_last", "last", "mean", "mean_last_128"),
         default="cls_last",
-        help="Pooling used by the checkpoint's downstream objective.",
+        help=(
+            "Representation pooling. 'last' and 'mean' exclude the appended "
+            "[CLS] token and are appropriate when [CLS] was not pretrained."
+        ),
     )
     parser.add_argument(
         "--attention-backend",

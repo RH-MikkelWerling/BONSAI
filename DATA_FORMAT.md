@@ -39,6 +39,12 @@ A Python `list` of dicts, one dict per patient. Load with `torch.load(path)`.
 | `segment` | `torch.LongTensor` | `(L,)` | Segment/visit index. Background tokens are segment 0. |
 | `age` | `torch.FloatTensor` | `(L,)` | Patient age in years at each token. |
 
+`abspos` remains stored in canonical hours so censoring and historical data
+stay compatible. Set `model.abspos_encoding: scaled_time2vec` to reproduce the
+FGA-DIKU `abs_pos` branch at the model boundary: the encoder divides these
+hours by 1,000 immediately before Time2Vec. This is equivalent to that branch's
+stored unit of thousands of hours without changing downstream date arithmetic.
+
 **Special tokens** (ids defined in vocabulary):
 - `[PAD]` = 0
 - `[CLS]` = 1  

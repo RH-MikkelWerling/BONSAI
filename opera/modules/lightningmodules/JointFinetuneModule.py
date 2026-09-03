@@ -78,7 +78,15 @@ class JointFinetuneModule(L.LightningModule):
 
         self.log("train/loss", loss, prog_bar=True)
         for k, v in log_dict.items():
-            if k.startswith("loss/") or k.startswith("sigma/"):
+            if k.startswith(
+                (
+                    "loss/",
+                    "sigma/",
+                    "null_reference_loss/",
+                    "normalized_loss/",
+                    "effective_raw_loss_weight/",
+                )
+            ):
                 self.log(f"train/{k}", v)
         return loss
 

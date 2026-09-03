@@ -752,6 +752,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--metadata", action="append", default=[])
     parser.add_argument("--subject-col", default="subject_id")
     parser.add_argument("--color-by", action="append", default=[])
+    parser.add_argument(
+        "--color-all-metadata",
+        action="store_true",
+        help=(
+            "Plot every non-constant joined covariate, excluding identifiers, "
+            "raw date columns, and projection coordinates."
+        ),
+    )
     parser.add_argument("--split", default=None)
     parser.add_argument("--split-col", default="split")
     parser.add_argument("--method", choices=["umap", "tsne", "pca"], default="umap")
@@ -877,51 +885,57 @@ def main() -> None:
     args = build_parser().parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if args.outcome_name and len(args.outcome_name) != len(args.outcome):
+        raise ValueError(
+            "--outcome-name must be given once per --outcome, or omitted entirely."
+        )
+    outcome_names = args.outcome_name or [None] * len(args.outcome)
+    outcome_frames = [
+        load_outcome_time_columns(
+            outcome_path,
+            outcome_name=outcome_name,
+            n_hours_start_include=args.outcome_n_hours_start_include,
+            horizons_days=tuple(args.outcome_horizon_days),
+        )
+        for outcome_path, outcome_name in zip(args.outcome, outcome_names)
+    ]
 
     if args.reuse_coordinates is not None:
         frame = pd.read_csv(args.reuse_coordinates)
         if not {"component_1", "component_2"} <= set(frame):
             raise ValueError("Coordinates CSV must contain component_1/component_2.")
+        # Coordinate artifacts already contain metadata used during their first
+        # rendering. Add only genuinely new columns so callers can enrich and
+        # recolor an existing expensive UMAP without duplicate-column failures.
+        frame["_join_id"] = frame["subject_id"].astype(str)
+        additions = [
+            read_index_table(path) for path in args.metadata
+        ] + outcome_frames
+        for addition in additions:
+            source_subject_col = (
+                args.subject_col if args.subject_col in addition else "subject_id"
+            )
+            keep = [source_subject_col] + [
+                column
+                for column in addition.columns
+                if column != source_subject_col and column not in frame.columns
+            ]
+            if len(keep) > 1:
+                frame = _left_join_on_subject(
+                    frame,
+                    addition[keep],
+                    subject_col=source_subject_col,
+                    source_label="coordinate recoloring metadata",
+                )
+        frame = frame.drop(columns="_join_id", errors="ignore")
         resolved_method = args.method
     else:
-        if args.outcome_name and len(args.outcome_name) != len(args.outcome):
-            raise ValueError(
-                "--outcome-name must be given once per --outcome, or omitted entirely."
-            )
-        outcome_names = args.outcome_name or [None] * len(args.outcome)
-        outcome_frames = [
-            load_outcome_time_columns(
-                outcome_path,
-                outcome_name=outcome_name,
-                n_hours_start_include=args.outcome_n_hours_start_include,
-                horizons_days=tuple(args.outcome_horizon_days),
-            )
-            for outcome_path, outcome_name in zip(args.outcome, outcome_names)
-        ]
         embeddings, frame = load_embedding_frame(
             args.embeddings,
             args.metadata,
             subject_col=args.subject_col,
             outcome_frames=outcome_frames,
         )
-        if args.index_date_col is not None:
-            if args.index_date_col not in frame:
-                raise ValueError(
-                    f"Missing --index-date-col {args.index_date_col!r} in metadata."
-                )
-            index_dates = pd.to_datetime(frame[args.index_date_col], errors="coerce")
-            frame["treatment_year"] = index_dates.dt.year.astype("Int64")
-            if args.birth_date_col is not None:
-                if args.birth_date_col not in frame:
-                    raise ValueError(
-                        f"Missing --birth-date-col {args.birth_date_col!r} in metadata."
-                    )
-                birth_dates = pd.to_datetime(
-                    frame[args.birth_date_col], errors="coerce"
-                )
-                frame["age_at_index"] = (
-                    index_dates - birth_dates
-                ).dt.total_seconds() / (365.2425 * 24 * 60 * 60)
         if args.split is not None:
             if args.split_col not in frame:
                 raise ValueError(
@@ -967,9 +981,44 @@ def main() -> None:
             output_dir / f"patient_{resolved_method}_coordinates.csv", index=False
         )
 
-    color_columns = args.color_by or (
-        [args.split_col] if args.split_col in frame else []
-    )
+    if args.index_date_col is not None:
+        if args.index_date_col not in frame:
+            raise ValueError(
+                f"Missing --index-date-col {args.index_date_col!r} in metadata."
+            )
+        index_dates = pd.to_datetime(frame[args.index_date_col], errors="coerce")
+        frame["treatment_year"] = index_dates.dt.year.astype("Int64")
+        if args.birth_date_col is not None:
+            if args.birth_date_col not in frame:
+                raise ValueError(
+                    f"Missing --birth-date-col {args.birth_date_col!r} in metadata."
+                )
+            birth_dates = pd.to_datetime(frame[args.birth_date_col], errors="coerce")
+            frame["age_at_index"] = (
+                index_dates - birth_dates
+            ).dt.total_seconds() / (365.2425 * 24 * 60 * 60)
+
+    if args.color_all_metadata:
+        excluded = {
+            "subject_id",
+            args.subject_col,
+            "component_1",
+            "component_2",
+        }
+        color_columns = [
+            column
+            for column in frame.columns
+            if column not in excluded
+            and "date" not in column.lower()
+            and frame[column].notna().any()
+            and frame[column].nunique(dropna=True) > 1
+        ]
+        # Explicit requests are retained even if their names resemble dates.
+        color_columns = list(dict.fromkeys([*color_columns, *args.color_by]))
+    else:
+        color_columns = args.color_by or (
+            [args.split_col] if args.split_col in frame else []
+        )
     written: list[Path] = []
     for column in color_columns:
         written.extend(

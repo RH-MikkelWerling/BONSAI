@@ -619,6 +619,50 @@ def test_joint_finetune_skips_one_class_minibatch_by_default():
     assert out["cross_outcome_weight/relapse"].item() == 1.0
 
 
+def test_joint_finetune_kendall_null_uses_matched_prevalence_baseline():
+    model = _make_joint_model(
+        {
+            "weighter": "kendall_null",
+            "aggregation": "macro",
+            "class_balanced": False,
+            "positive_class_weighted": False,
+            "require_both_classes_per_batch": True,
+            "class_counts": {
+                "mortality": {"positive": 1, "negative": 9},
+                "relapse": {"positive": 5, "negative": 5},
+            },
+        }
+    )
+    batch = _joint_batch()
+    labels = {
+        "mortality": batch["outcome_mortality"],
+        "relapse": batch["outcome_relapse"],
+    }
+
+    out = model(batch, labels)
+
+    for name in labels:
+        assert torch.isfinite(out[f"null_reference_loss/{name}"])
+        assert torch.isfinite(out[f"normalized_loss/{name}"])
+        assert torch.isfinite(out[f"effective_raw_loss_weight/{name}"])
+        assert out[f"normalized_loss/{name}"] == pytest.approx(
+            out[f"loss/{name}"] / out[f"null_reference_loss/{name}"]
+        )
+        # Kendall starts at log_sigma=0, hence precision 0.5.
+        assert out[f"cross_outcome_weight/{name}"].item() == pytest.approx(0.5)
+
+
+def test_joint_finetune_kendall_null_requires_training_counts():
+    with pytest.raises(ValueError, match="requires cross_outcome.class_counts"):
+        _make_joint_model(
+            {
+                "weighter": "kendall_null",
+                "aggregation": "macro",
+                "class_counts": {},
+            }
+        )
+
+
 # ── MOLModule ───────────────────────────────────────────────────────────────
 
 

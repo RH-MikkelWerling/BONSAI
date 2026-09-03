@@ -80,8 +80,10 @@ def _cross_outcome_config(cfg: DictConfig) -> dict:
             "class weighting. Choose one imbalance correction so rare events "
             "are not amplified twice."
         )
-    needs_counts = bool(settings.get("class_balanced", False)) or bool(
-        settings.get("positive_class_weighted", False)
+    needs_counts = (
+        bool(settings.get("class_balanced", False))
+        or bool(settings.get("positive_class_weighted", False))
+        or str(settings.get("weighter", "")).lower() == "kendall_null"
     )
     if needs_counts and not settings.get("class_counts"):
         settings["class_counts"] = compute_pooled_class_counts(

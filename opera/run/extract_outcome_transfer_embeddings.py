@@ -504,18 +504,30 @@ def _pool_prediction_origin(
     """Pool the censored sequence exactly as the selected OPERA representation."""
     if pooling == "cls_last":
         return _pool_cls_last(encoder, batch)
-    if pooling != "mean_last_128":
+    if pooling not in {"last", "mean", "mean_last_128"}:
         raise OutcomeTransferExtractionError(
-            "Prediction-origin extraction supports cls_last and mean_last_128."
+            "Prediction-origin extraction supports cls_last, last, mean, and "
+            "mean_last_128."
         )
     hidden = encoder_hidden_state(encoder(batch))
+    # FinetuneDataset appends [CLS] at `lengths`. The pooling modes below
+    # deliberately exclude that token, which is important for checkpoints
+    # whose pretraining objective never trained a [CLS] representation.
     lengths = batch["attention_mask"].sum(dim=1) - 1
     if torch.any(lengths <= 0):
         raise OutcomeTransferExtractionError(
-            "mean_last_128 requires at least one clinical token before [CLS]."
+            f"{pooling} requires at least one token before [CLS]."
         )
+    if pooling == "last":
+        return hidden[
+            torch.arange(hidden.size(0), device=hidden.device), lengths - 1
+        ]
     positions = torch.arange(hidden.size(1), device=hidden.device).unsqueeze(0)
-    starts = (lengths - 128).clamp_min(0).unsqueeze(1)
+    starts = (
+        torch.zeros_like(lengths)
+        if pooling == "mean"
+        else (lengths - 128).clamp_min(0)
+    ).unsqueeze(1)
     clinical = (positions >= starts) & (positions < lengths.unsqueeze(1))
     weights = clinical.unsqueeze(-1).to(hidden.dtype)
     return (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1.0)

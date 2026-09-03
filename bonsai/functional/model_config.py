@@ -103,8 +103,19 @@ def normalize_bonsai_model_config(
         raise ValueError("hidden_size must be divisible by num_attention_heads.")
     if result["attn_type"] not in {"flash", "sdpa"}:
         raise ValueError("attn_type must be either 'flash' or 'sdpa'.")
-    if result["abspos_encoding"] not in {"legacy", "fourier"}:
-        raise ValueError("abspos_encoding must be either 'legacy' or 'fourier'.")
+    if result["abspos_encoding"] not in {
+        "legacy",
+        "scaled_time2vec",
+        "fourier",
+        "sequence_relative_fourier",
+        "sequence_relative_fourier_with_gaps",
+        "none",
+    }:
+        raise ValueError(
+            "abspos_encoding must be one of 'legacy', 'scaled_time2vec', "
+            "'fourier', 'sequence_relative_fourier', "
+            "'sequence_relative_fourier_with_gaps', or 'none'."
+        )
     if result["value_embedding_mode"] not in {"legacy", "combined_binning", "film"}:
         raise ValueError(
             "value_embedding_mode must be 'legacy', 'combined_binning', or 'film'."

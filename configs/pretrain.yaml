@@ -65,6 +65,9 @@ model:
   bias: false
   causal: true
   attn_type: flash
+  # scaled_time2vec reproduces the upstream abs_pos branch at model input:
+  # canonical hours since 1970 are divided by 1000 before Time2Vec.
+  abspos_encoding: legacy
   value_bin_vocab_size: 0
   value_embedding_mode: legacy
 

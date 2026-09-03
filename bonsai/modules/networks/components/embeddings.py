@@ -23,6 +23,14 @@ class EhrEmbeddings(nn.Module):
         self.age_embedding = Time2Vec(hidden_size, clip_range=100)
         if abspos_encoding == "legacy":
             self.abspos_embedding = Time2Vec(hidden_size, clip_range=100)
+        elif abspos_encoding == "scaled_time2vec":
+            # Exact model-input equivalent of FGA-DIKU/BONSAI's abs_pos
+            # branch, which stores absolute position in thousands of hours.
+            # Scaling here preserves canonical hour units for censoring and
+            # existing processed datasets.
+            self.abspos_embedding = Time2Vec(
+                hidden_size, clip_range=100, input_scale=1e-3
+            )
         elif abspos_encoding == "fourier":
             self.abspos_embedding = AbsposFourierEncoding(hidden_size)
         elif abspos_encoding in {
@@ -40,7 +48,7 @@ class EhrEmbeddings(nn.Module):
         else:
             raise ValueError(
                 "Unknown abspos_encoding "
-                f"{abspos_encoding!r}; expected 'legacy', 'fourier', "
+                f"{abspos_encoding!r}; expected 'legacy', 'scaled_time2vec', 'fourier', "
                 "'sequence_relative_fourier', "
                 "'sequence_relative_fourier_with_gaps', or 'none'."
             )
@@ -207,6 +215,7 @@ class Time2Vec(nn.Module):
         output_dim: int = 768,
         function: callable = torch.cos,
         clip_range: Optional[float] = None,
+        input_scale: float = 1.0,
     ):
         """
         Parameters:
@@ -218,6 +227,9 @@ class Time2Vec(nn.Module):
         super().__init__()
         self.f = function
         self.clip_range = clip_range
+        self.input_scale = float(input_scale)
+        if not math.isfinite(self.input_scale) or self.input_scale <= 0:
+            raise ValueError("input_scale must be a positive finite number.")
         # for i = 0
         self.w0 = torch.nn.Parameter(torch.randn(1, 1))
         self.phi0 = torch.nn.Parameter(torch.randn(1))
@@ -234,7 +246,7 @@ class Time2Vec(nn.Module):
         # transformer can still use mixed precision.
         output_dtype = self.w.dtype
         with torch.autocast(device_type=tau.device.type, enabled=False):
-            tau_float = tau.float().unsqueeze(2)
+            tau_float = (tau.float() * self.input_scale).unsqueeze(2)
             linear_1 = torch.matmul(tau_float, self.w0.float()) + self.phi0.float()
             linear_2 = torch.matmul(tau_float, self.w.float())
 
