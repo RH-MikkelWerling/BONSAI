@@ -32,10 +32,15 @@ from bonsai.functional.checkpointing import (
     mark_training_complete,
     should_skip_completed_training,
 )
+from bonsai.functional.input_contract import (
+    input_contract_metadata,
+    resolve_numeric_value_control,
+)
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 from opera.modules.networks.competing_risk import (
+    estimate_piecewise_null_log_hazards,
     summarize_competing_risk_support,
     validate_competing_risk_sampling,
 )
@@ -49,12 +54,6 @@ load_dotenv()
 OmegaConf.register_new_resolver(
     "version", lambda: generate_unused_run_id(), use_cache=True, replace=True
 )
-from bonsai.functional.input_contract import (
-    input_contract_metadata,
-    resolve_numeric_value_control,
-)
-
-
 # These are deliberately kept in the contrastive entry point rather than only
 # in the config generator.  A generated YAML file is easy to edit by hand;
 # this guard makes it impossible to accidentally route a held-out transfer
@@ -373,6 +372,38 @@ def main(cfg: DictConfig) -> None:
             f"Competing-risk interval support written to {support_path}; "
             f"{len(sparse)} outcome-intervals have fewer than five observed events."
         )
+        if str(competing_risk_config.get("weighter", "uniform")).lower() == "kendall_null":
+            null_log_hazards = estimate_piecewise_null_log_hazards(
+                data_module.train_dataset,
+                outcome_names,
+                competing_risk_config["interval_boundaries_days"],
+                no_competing_outcomes=competing_risk_config.get(
+                    "no_competing_outcomes", ["overall_survival"]
+                ),
+                time_scale_days=float(
+                    competing_risk_config.get("time_scale_days", 365.25)
+                ),
+            )
+            model.competing_risk_loss.set_null_log_hazards(null_log_hazards)
+            null_path = f"{model_save_dir}/competing_risk_null_log_hazards.csv"
+            with open(null_path, "w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["outcome", "cause", "interval", "log_hazard"],
+                )
+                writer.writeheader()
+                for outcome, causes in null_log_hazards.items():
+                    for cause, values in enumerate(causes):
+                        for interval, value in enumerate(values):
+                            writer.writerow(
+                                {
+                                    "outcome": outcome,
+                                    "cause": cause,
+                                    "interval": interval,
+                                    "log_hazard": value,
+                                }
+                            )
+            print(f"Training-only null hazards written to {null_path}.")
 
     if dapt_embedding_store is not None:
         datasets = getattr(

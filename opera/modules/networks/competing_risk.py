@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 
 import torch
 from torch import nn
+
+from opera.modules.networks.cross_outcome_weighters import KendallWeighter
 
 
 def validate_competing_risk_sampling(
@@ -83,6 +86,65 @@ def summarize_competing_risk_support(
     return rows
 
 
+def estimate_piecewise_null_log_hazards(
+    dataset,
+    outcome_names: Sequence[str],
+    interval_boundaries_days: Sequence[float],
+    *,
+    no_competing_outcomes: Sequence[str] = ("overall_survival",),
+    time_scale_days: float = 365.25,
+    minimum_log_hazard: float = -12.0,
+) -> dict[str, list[list[float]]]:
+    """Fit train-only intercept hazards by events divided by person-time.
+
+    The returned rates use the same ``time_scale_days`` unit as the model loss.
+    They form a censoring- and competing-risk-aware null reference without
+    looking at validation data or patient covariates.
+    """
+    boundaries = [float(value) for value in interval_boundaries_days]
+    starts = [0.0, *boundaries]
+    ends = [*boundaries, None]
+    no_competing = set(no_competing_outcomes)
+    datasets = getattr(dataset, "datasets", [dataset])
+    result: dict[str, list[list[float]]] = {}
+    for name in outcome_names:
+        exposure_days = [0.0] * len(starts)
+        events = [[0.0] * len(starts), [0.0] * len(starts)]
+        for child in datasets:
+            for record in getattr(child, "outcome_dicts", {}).get(name, {}).values():
+                time = record.get("time_days")
+                event = record.get("event", record.get("label", -1))
+                if time is None or event is None:
+                    continue
+                time = float(time)
+                event = int(event)
+                if time < 0 or event not in {0, 1, 2}:
+                    continue
+                for interval, (start, end) in enumerate(zip(starts, ends)):
+                    exposure_days[interval] += max(
+                        0.0, min(time, end) - start if end is not None else time - start
+                    )
+                event_interval = bisect_left(boundaries, time)
+                if event == 1:
+                    events[0][event_interval] += 1.0
+                elif event == 2 and name not in no_competing:
+                    events[1][event_interval] += 1.0
+
+        log_rates: list[list[float]] = [[], []]
+        for cause in range(2):
+            for interval, person_days in enumerate(exposure_days):
+                if name in no_competing and cause == 1:
+                    log_rate = minimum_log_hazard
+                elif person_days <= 0 or events[cause][interval] <= 0:
+                    log_rate = minimum_log_hazard
+                else:
+                    rate = events[cause][interval] / (person_days / time_scale_days)
+                    log_rate = max(minimum_log_hazard, min(6.0, math.log(rate)))
+                log_rates[cause].append(log_rate)
+        result[name] = log_rates
+    return result
+
+
 class PiecewiseExponentialCompetingRiskLoss(nn.Module):
     """Exact-time competing-risk likelihood with locally constant hazards.
 
@@ -100,6 +162,8 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         time_scale_days: float = 365.25,
         smoothness_weight: float = 0.0,
         cross_outcome_config: Mapping[str, object] | None = None,
+        weighter: str = "uniform",
+        null_log_hazards: Mapping[str, Sequence[Sequence[float]]] | None = None,
     ):
         super().__init__()
         boundaries = torch.as_tensor(interval_boundaries_days, dtype=torch.float32)
@@ -130,6 +194,17 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self.no_competing_outcomes = set(no_competing_outcomes)
         self.time_scale_days = float(time_scale_days)
         self.smoothness_weight = float(smoothness_weight)
+        self.weighter_name = str(weighter).lower()
+        if self.weighter_name not in {"uniform", "kendall", "kendall_null"}:
+            raise ValueError(
+                "competing_risk.weighter must be 'uniform', 'kendall', or "
+                "'kendall_null'."
+            )
+        self.weighter = (
+            KendallWeighter(len(self.outcome_names))
+            if self.weighter_name in {"kendall", "kendall_null"}
+            else None
+        )
         settings = dict(cross_outcome_config or {})
         self.aggregation = str(settings.get("aggregation", "macro"))
         self.outcome_family = {
@@ -174,6 +249,30 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             boundaries / self.time_scale_days,
             persistent=True,
         )
+        self.register_buffer(
+            "null_log_hazards",
+            torch.full((len(self.outcome_names), 2, self.n_intervals), float("nan")),
+            persistent=True,
+        )
+        if null_log_hazards is not None:
+            self.set_null_log_hazards(null_log_hazards)
+
+    def set_null_log_hazards(
+        self, values: Mapping[str, Sequence[Sequence[float]]]
+    ) -> None:
+        """Install train-only intercept hazards used by ``kendall_null``."""
+        tensor = self.null_log_hazards.detach().clone()
+        for name, value in values.items():
+            if name not in self.outcome_index:
+                continue
+            candidate = torch.as_tensor(value, dtype=tensor.dtype, device=tensor.device)
+            if tuple(candidate.shape) != (2, self.n_intervals):
+                raise ValueError(
+                    f"Null hazards for {name!r} must have shape "
+                    f"(2, {self.n_intervals}); got {tuple(candidate.shape)}."
+                )
+            tensor[self.outcome_index[name]] = candidate
+        self.null_log_hazards.copy_(tensor)
 
     @property
     def n_intervals(self) -> int:
@@ -225,6 +324,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         outcome_survival: Mapping[str, Mapping[str, torch.Tensor]],
         *,
         return_per_outcome: bool = False,
+        _skip_aggregation: bool = False,
     ) -> (
         tuple[torch.Tensor, dict[str, torch.Tensor]]
         | tuple[
@@ -258,6 +358,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         loss_names: list[str] = []
         diagnostics: dict[str, torch.Tensor] = {}
         per_outcome: dict[str, dict[str, torch.Tensor]] = {}
+        null_reference_losses: dict[str, torch.Tensor] = {}
 
         for name, outcome_index in self.outcome_index.items():
             survival = outcome_survival.get(name)
@@ -296,17 +397,6 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             active_log_hazards = safe_log_hazards[valid, outcome_index]
             target_log_hazard = active_log_hazards[row, 0, interval]
             competing_log_hazard = active_log_hazards[row, 1, interval]
-            # Autocast may promote the cumulative-hazard reduction to float32
-            # while leaving the selected log hazards in float16/bfloat16.
-            # Constructing the term functionally avoids dtype-sensitive indexed
-            # assignment and keeps this path friendly to torch.compile.
-            event_term = (
-                target.to(cumulative_hazard.dtype)
-                * target_log_hazard.to(cumulative_hazard.dtype)
-                + competing.to(cumulative_hazard.dtype)
-                * competing_log_hazard.to(cumulative_hazard.dtype)
-            )
-
             # Components share the same valid-observation denominator, so they
             # sum exactly to the unsmoothed full likelihood.  This is important
             # for gradient diagnostics: event-conditional means would silently
@@ -320,8 +410,46 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 competing.to(cumulative_hazard.dtype)
                 * competing_log_hazard.to(cumulative_hazard.dtype)
             ).mean()
-            outcome_loss = (
+            likelihood_loss = (
                 exposure_loss + primary_event_loss + competing_event_loss
+            )
+            # A continuous density's NLL depends on its time unit. Hazards are
+            # parameterized per ``time_scale_days`` (normally per year), which
+            # can make common early-event NLLs negative and invalid as inputs
+            # to Kendall weighting. Convert event-density terms to per-day NLL
+            # for cross-task aggregation. This adds only the exact Jacobian
+            # constant and does not alter fitted hazards or their gradients.
+            event_fraction = (target | competing).to(likelihood_loss.dtype).mean()
+            unit_adjustment = event_fraction * math.log(self.time_scale_days)
+            aggregation_loss = likelihood_loss + unit_adjustment
+            if self.weighter_name == "kendall_null" and not _skip_aggregation:
+                reference = self.null_log_hazards[outcome_index].to(log_hazards)
+                if not torch.isfinite(reference).all():
+                    raise RuntimeError(
+                        "kendall_null requires train-only null hazards; "
+                        f"none were installed for {name!r}."
+                    )
+                reference_rates = reference.exp()
+                reference_total = (
+                    reference_rates[0]
+                    if name in self.no_competing_outcomes
+                    else reference_rates.sum(dim=0)
+                )
+                null_cumulative = (exposure * reference_total.unsqueeze(0)).sum(dim=1)
+                null_loss = (
+                    null_cumulative
+                    - target.to(null_cumulative.dtype) * reference[0, interval]
+                    - competing.to(null_cumulative.dtype) * reference[1, interval]
+                ).mean() + unit_adjustment
+                if not torch.isfinite(null_loss) or float(null_loss) <= 0.0:
+                    raise RuntimeError(
+                        f"Training-null likelihood for {name!r} must be positive; "
+                        f"got {float(null_loss):.6g}. Consider a finer time unit "
+                        "or inspect this outcome's training support."
+                    )
+                null_reference_losses[name] = null_loss.detach()
+            outcome_loss = (
+                aggregation_loss if self.weighter is not None else likelihood_loss
             )
             smoothness_loss = outcome_loss * 0.0
             if self.smoothness_weight and self.n_intervals > 1:
@@ -337,7 +465,8 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             loss_names.append(name)
             per_outcome[name] = {
                 "loss": outcome_loss,
-                "full_likelihood_loss": outcome_loss,
+                "full_likelihood_loss": likelihood_loss,
+                "aggregation_loss": aggregation_loss,
                 "exposure_loss": exposure_loss,
                 "primary_event_loss": primary_event_loss,
                 "competing_event_loss": competing_event_loss,
@@ -358,7 +487,52 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 return zero, diagnostics, per_outcome
             return zero, diagnostics
 
-        if self.aggregation == "hierarchical_support":
+        if _skip_aggregation:
+            total = torch.stack(losses).mean()
+            if return_per_outcome:
+                return total, diagnostics, per_outcome
+            return total, diagnostics
+
+        if self.weighter is not None:
+            if self.aggregation != "macro":
+                raise ValueError(
+                    "Kendall survival weighting currently requires "
+                    "cross_outcome.aggregation=macro."
+                )
+            active_losses = torch.stack(losses)
+            if self.weighter_name == "kendall_null":
+                normalized = []
+                for name, loss in zip(loss_names, losses):
+                    null_loss = null_reference_losses[name]
+                    normalized.append(loss / null_loss.clamp_min(1e-8))
+                    diagnostics[f"cr/null_loss/{name}"] = null_loss
+                    diagnostics[f"cr/loss_over_null/{name}"] = normalized[-1].detach()
+                active_losses = torch.stack(normalized)
+            per_outcome_losses = active_losses.new_full(
+                (len(self.outcome_names),), float("nan")
+            )
+            active_indices = torch.as_tensor(
+                [self.outcome_index[name] for name in loss_names],
+                device=active_losses.device,
+            )
+            per_outcome_losses[active_indices] = active_losses
+            active = torch.isfinite(per_outcome_losses)
+            weights = self.weighter.weights(per_outcome_losses)
+            finite_losses = torch.where(
+                active, per_outcome_losses, torch.zeros_like(per_outcome_losses)
+            )
+            total = torch.sum(weights * finite_losses) + self.weighter.regularizer(active)
+            for name in loss_names:
+                index = self.outcome_index[name]
+                diagnostics[f"cr/outcome_weight/{name}"] = weights[index].detach()
+                diagnostics[f"cr/log_sigma/{name}"] = self.weighter.log_sigma[
+                    self.outcome_index[name]
+                ].detach()
+            diagnostics["cr/outcome_weight_mean"] = weights[active].mean().detach()
+            diagnostics["cr/log_sigma_mean"] = self.weighter.log_sigma[active].mean().detach()
+            if self.weighter_name == "kendall_null":
+                diagnostics["cr/loss_over_null_mean"] = active_losses.mean().detach()
+        elif self.aggregation == "hierarchical_support":
             outcome_multipliers = {
                 name: self._curriculum_outcome_multiplier(name) for name in loss_names
             }

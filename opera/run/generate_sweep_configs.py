@@ -345,12 +345,17 @@ def build_joint_opera_ablation_config(
 
 
 def build_direct_cr_config(
-    registry: dict[str, Any], *, family_trunks: bool = False, curriculum: bool = False
+    registry: dict[str, Any], *, family_trunks: bool = False, curriculum: bool = False,
+    survival_weighter: str = "uniform", contrastive_loss_weight: float = 0.0,
+    cls_pooling: bool = False,
 ) -> dict[str, Any]:
     """Direct multi-outcome competing-risk adaptation ablation."""
     config = copy.deepcopy(build_joint_opera_config(registry))
     config["dataset"] = "daly_care_direct_competing_risk"
-    config["competing_risk"]["contrastive_loss_weight"] = 0.0
+    config["competing_risk"]["contrastive_loss_weight"] = float(
+        contrastive_loss_weight
+    )
+    config["competing_risk"]["weighter"] = survival_weighter
     config["competing_risk"]["head_mode"] = (
         "family_trunks" if family_trunks else "linear"
     )
@@ -365,6 +370,15 @@ def build_direct_cr_config(
         "stage_epochs": 1,
         "ramp_epochs": 2,
     }
+    if survival_weighter != "uniform":
+        # Learned outcome weights operate directly on task likelihoods. Do not
+        # combine them with the separate hand-designed family/support weights.
+        config["cross_outcome"]["aggregation"] = "macro"
+    if cls_pooling:
+        config["model"]["pooling"] = "cls_last"
+        config["model"]["dapt_anchor_weight"] = 0.0
+        config["dapt_embedding_store"] = None
+        config["training"]["require_dapt_embedding_store"] = False
     config["training"].update(
         {
             "epochs": 12,
@@ -375,6 +389,24 @@ def build_direct_cr_config(
             "log_per_outcome_metrics": False,
         }
     )
+    return config
+
+
+def build_joined_bins_direct_cr_config(
+    registry: dict[str, Any], **kwargs: Any
+) -> dict[str, Any]:
+    """Direct CR config matched to the token-only T200 joined-bin checkpoint."""
+    config = build_direct_cr_config(registry, **kwargs)
+    joined_dir = "${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins"
+    config["dataset"] = "daly_care_t200_joined_bins_direct_cr"
+    config["dapt_ckpt"] = (
+        "${oc.env:BONSAI_MODELS}/daly_care_t200_joined_bins/"
+        "pretrain_joined_bins_token_only_clean/version_0/best.ckpt"
+    )
+    config["paths"]["vocabulary"] = f"{joined_dir}/vocabulary.pt"
+    for cohort in config["cohorts"].values():
+        cohort["data_dir"] = joined_dir
+    config["training"]["numeric_value_control"] = "inherit"
     return config
 
 
@@ -488,6 +520,21 @@ def generate_configs(
         ),
         "direct_cr_family_trunks_curriculum.yaml": build_direct_cr_config(
             registry, family_trunks=True, curriculum=True
+        ),
+        "direct_cr_uniform_cls.yaml": build_joined_bins_direct_cr_config(
+            registry, cls_pooling=True
+        ),
+        "direct_cr_kendall.yaml": build_joined_bins_direct_cr_config(
+            registry, survival_weighter="kendall", cls_pooling=True
+        ),
+        "direct_cr_kendall_null.yaml": build_joined_bins_direct_cr_config(
+            registry, survival_weighter="kendall_null", cls_pooling=True
+        ),
+        "opera_survival_kendall_null.yaml": build_joined_bins_direct_cr_config(
+            registry,
+            survival_weighter="kendall_null",
+            contrastive_loss_weight=0.1,
+            cls_pooling=True,
         ),
         "multi_outcome_full_panel.yaml": build_multi_outcome_config(registry),
     }.items():

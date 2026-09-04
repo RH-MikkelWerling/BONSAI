@@ -42,7 +42,7 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 41
+    assert len(paths) == 45
     assert len(sweep_paths) == 32
     for path in sweep_paths:
         load_sweep_config(path)
@@ -161,3 +161,29 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert curriculum["competing_risk"]["curriculum"]["enabled"] is True
     assert combined["competing_risk"]["head_mode"] == "family_trunks"
     assert combined["competing_risk"]["curriculum"]["enabled"] is True
+
+    uniform_cls = yaml.safe_load(
+        (tmp_path / "direct_cr_uniform_cls.yaml").read_text()
+    )
+    kendall = yaml.safe_load((tmp_path / "direct_cr_kendall.yaml").read_text())
+    kendall_null = yaml.safe_load(
+        (tmp_path / "direct_cr_kendall_null.yaml").read_text()
+    )
+    hybrid = yaml.safe_load(
+        (tmp_path / "opera_survival_kendall_null.yaml").read_text()
+    )
+    assert uniform_cls["competing_risk"]["weighter"] == "uniform"
+    assert uniform_cls["model"]["pooling"] == "cls_last"
+    assert "daly_care_t200_joined_bins" in uniform_cls["dapt_ckpt"]
+    assert "daly_care_t200_joined_bins" in uniform_cls["paths"]["vocabulary"]
+    assert all(
+        "daly_care_t200_joined_bins" in cohort["data_dir"]
+        for cohort in uniform_cls["cohorts"].values()
+    )
+    assert kendall["competing_risk"]["weighter"] == "kendall"
+    assert kendall_null["competing_risk"]["weighter"] == "kendall_null"
+    assert kendall_null["model"]["pooling"] == "cls_last"
+    assert kendall_null["model"]["dapt_anchor_weight"] == 0.0
+    assert kendall_null["training"]["require_dapt_embedding_store"] is False
+    assert kendall_null["cross_outcome"]["aggregation"] == "macro"
+    assert hybrid["competing_risk"]["contrastive_loss_weight"] == 0.1

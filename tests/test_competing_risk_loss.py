@@ -5,6 +5,7 @@ import torch
 
 from opera.modules.networks.competing_risk import (
     PiecewiseExponentialCompetingRiskLoss,
+    estimate_piecewise_null_log_hazards,
     summarize_competing_risk_support,
     validate_competing_risk_sampling,
 )
@@ -181,6 +182,65 @@ def test_competing_risk_support_counts_exact_intervals():
     assert rows[0]["n_target"] == 1
     assert rows[1]["n_death"] == 1
     assert rows[2]["n_censored"] == 1
+
+
+def test_piecewise_null_hazards_use_training_events_and_person_time():
+    class Dataset:
+        outcome_dicts = {
+            "endpoint": {
+                1: {"time_days": 5.0, "event": 1},
+                2: {"time_days": 15.0, "event": 2},
+                3: {"time_days": 20.0, "event": 0},
+            }
+        }
+
+    fitted = estimate_piecewise_null_log_hazards(
+        Dataset(), ["endpoint"], [10.0], time_scale_days=1.0,
+        no_competing_outcomes=[]
+    )
+    # First interval: 25 person-days and one target event. Second interval:
+    # 15 person-days and one competing event.
+    assert math.exp(fitted["endpoint"][0][0]) == pytest.approx(1.0 / 25.0)
+    assert math.exp(fitted["endpoint"][1][1]) == pytest.approx(1.0 / 15.0)
+
+
+def test_kendall_null_normalizes_against_fixed_train_hazards():
+    objective = PiecewiseExponentialCompetingRiskLoss(
+        ["endpoint"], [10.0], no_competing_outcomes=[], time_scale_days=1.0,
+        weighter="kendall_null",
+        null_log_hazards={"endpoint": [[math.log(0.02)] * 2, [math.log(0.01)] * 2]},
+    )
+    hazards = torch.tensor(
+        [[[[math.log(0.02)] * 2, [math.log(0.01)] * 2]]], requires_grad=True
+    )
+    loss, diagnostics = objective(hazards, _survival([5.0], [1]))
+    # Matching the null gives ratio one; Kendall starts at precision 0.5.
+    assert diagnostics["cr/loss_over_null/endpoint"].item() == pytest.approx(1.0)
+    assert loss.item() == pytest.approx(0.5)
+    loss.backward()
+    assert hazards.grad is not None
+
+
+def test_kendall_survival_weights_are_checkpoint_parameters():
+    objective = PiecewiseExponentialCompetingRiskLoss(
+        ["a", "b"], [10.0], no_competing_outcomes=[], weighter="kendall"
+    )
+    assert "weighter.log_sigma" in objective.state_dict()
+
+
+def test_kendall_uses_positive_day_density_nll_for_annual_hazards():
+    annual_rate = 10.0
+    objective = PiecewiseExponentialCompetingRiskLoss(
+        ["endpoint"], [], no_competing_outcomes=["endpoint"],
+        time_scale_days=365.25, weighter="kendall"
+    )
+    hazards = torch.tensor([[[[math.log(annual_rate)], [-12.0]]]])
+    loss, _, terms = objective(
+        hazards, _survival([1.0], [1]), return_per_outcome=True
+    )
+    assert terms["endpoint"]["full_likelihood_loss"].item() < 0.0
+    assert terms["endpoint"]["aggregation_loss"].item() > 0.0
+    assert loss.item() > 0.0
 
 
 def test_likelihood_is_batch_partition_invariant():

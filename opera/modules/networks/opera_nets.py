@@ -1508,6 +1508,8 @@ class OperaContrastiveModel(nn.Module):
                     competing_risk_settings.get("smoothness_weight", 0.0)
                 ),
                 cross_outcome_config=cross_outcome_config,
+                weighter=str(competing_risk_settings.get("weighter", "uniform")),
+                null_log_hazards=competing_risk_settings.get("null_log_hazards"),
             )
             outputs_per_outcome = 2 * self.competing_risk_loss.n_intervals
             head_mode = str(competing_risk_settings.get("head_mode", "linear"))

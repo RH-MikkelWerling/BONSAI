@@ -660,6 +660,7 @@ competing_risk:
   - overall_survival
   - treatment_failure
   - treatment_failure_transformation
+  weighter: uniform
   head_mode: family_trunks
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1

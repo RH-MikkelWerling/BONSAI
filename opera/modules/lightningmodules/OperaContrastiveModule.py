@@ -104,6 +104,10 @@ class OperaContrastiveModule(L.LightningModule):
             "cr/n_target/",
             "cr/n_death/",
             "cr/smoothness/",
+            "cr/null_loss/",
+            "cr/loss_over_null/",
+            "cr/outcome_weight/",
+            "cr/log_sigma/",
         )
         return not key.startswith(detailed_prefixes)
 

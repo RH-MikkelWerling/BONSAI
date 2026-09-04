@@ -6,16 +6,16 @@ defaults:
 hydra:
   searchpath:
   - file://${oc.env:BONSAI_CONFIG_PATH}
-dataset: daly_care_direct_competing_risk
-dapt_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
-dapt_embedding_store: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/opera_reference_mean_last_128.pt
+dataset: daly_care_t200_joined_bins_direct_cr
+dapt_ckpt: ${oc.env:BONSAI_MODELS}/daly_care_t200_joined_bins/pretrain_joined_bins_token_only_clean/version_0/best.ckpt
+dapt_embedding_store: null
 output_path: null
 overwrite: false
 paths:
-  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care/vocabulary.pt
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins/vocabulary.pt
 cohorts:
   AMYLOIDOSIS:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: AMYLOIDOSIS
     ipi_score_col: null
@@ -27,7 +27,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: AMYLOIDOSIS
   BL_LBL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: BL_LBL
     ipi_score_col: null
@@ -39,7 +39,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: BL_LBL
   CLL_SLL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: CLL_SLL
     ipi_score_col: null
@@ -47,7 +47,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: CLL_SLL
   DLBCL_like:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: DLBCL_like
     ipi_score_col: null
@@ -55,7 +55,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: DLBCL_like
   HCL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: HCL
     ipi_score_col: null
@@ -67,7 +67,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: HCL
   HL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: HL
     ipi_score_col: null
@@ -75,7 +75,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: HL
   Indolent_B_NHL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: Indolent_B_NHL
     ipi_score_col: null
@@ -83,7 +83,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: Indolent_B_NHL
   MCL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: MCL
     ipi_score_col: null
@@ -91,7 +91,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: MCL
   MM:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: MM
     ipi_score_col: null
@@ -99,7 +99,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: MM
   T_NHL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: T_NHL
     ipi_score_col: null
@@ -632,13 +632,13 @@ model:
   temperature: 0.07
   km_time_scale: 0.25
   dapt_lambda_floor: 1.0
-  dapt_anchor_weight: 0.02
+  dapt_anchor_weight: 0.0
   competing_event_handling: exclude
   competing_event_weight: 0.0
   effective_pair_normalization: false
   projection_mode: shared
   freeze_encoder: false
-  pooling: mean_last_128
+  pooling: cls_last
 competing_risk:
   loss_weight: 1.0
   contrastive_loss_weight: 0.0
@@ -665,7 +665,7 @@ competing_risk:
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1
   curriculum:
-    enabled: true
+    enabled: false
     n_support_tiers: 5
     warmup_epochs: 1
     stage_epochs: 1
@@ -782,7 +782,7 @@ cross_outcome:
 training:
   require_all_configured_cells: true
   require_min_followup_train: false
-  require_dapt_embedding_store: true
+  require_dapt_embedding_store: false
   batch_size: 8
   logical_batch_size: 256
   logical_val_batch_size: 256
@@ -800,3 +800,4 @@ training:
   log_per_outcome_metrics: false
   limit_val_batches: 1.0
   limit_train_batches: 1.0
+  numeric_value_control: inherit
