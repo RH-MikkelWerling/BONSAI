@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -35,9 +36,22 @@ from sklearn.preprocessing import StandardScaler
 
 from bonsai.functional.outcomes import binarize_outcomes
 from opera.run.extract_patient_embeddings import read_index_table
-from opera.visualization.style import CATEGORICAL, clean_2d_axes, save_fig
+from opera.visualization.style import (
+    CATEGORICAL,
+    PALETTE,
+    clean_2d_axes,
+    figure_title,
+    save_fig,
+    style_legend,
+)
 
 GREY = "#c8c8c8"
+
+
+def _display_label(value: object, *, width: int = 30) -> str:
+    """Human-readable, safely wrapped metadata label."""
+    label = str(value).replace("_", " ").strip()
+    return textwrap.fill(label, width=width, break_long_words=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -395,7 +409,10 @@ def plot_categorical_points(
             linestyle="",
             markersize=6,
             color=colors[level],
-            label=f"{level} (n={int((values[valid] == level).sum()):,})",
+            label=(
+                f"{_display_label(level, width=34)} "
+                f"(n={int((values[valid] == level).sum()):,})"
+            ),
         )
         for level in levels
     ]
@@ -406,7 +423,10 @@ def plot_categorical_points(
         bbox_to_anchor=(1.02, 1),
         loc="upper left",
     )
-    ax.set_title(f"Patient embeddings coloured by {color_by}")
+    ax.set_title(
+        f"Patient embeddings coloured by {_display_label(color_by, width=48)}",
+        loc="left",
+    )
     _finish_panel(ax, method)
     save_fig(fig, str(output_path))
     plt.close(fig)
@@ -431,15 +451,17 @@ def plot_categorical_facets(
     """
     levels = _ordered_levels(values, valid)[:max_facets]
     colors = dict(zip(levels, palette(len(levels))))
-    n_cols = min(6, max(3, math.ceil(math.sqrt(len(levels)))))
+    # Four moderately wide columns remain legible in a paper PDF and leave
+    # enough vertical room for two-line regimen names. Six narrow columns did
+    # not: titles collided before the data could be read.
+    n_cols = min(4, max(2, math.ceil(math.sqrt(len(levels)))))
     n_rows = math.ceil(len(levels) / n_cols)
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(2.05 * n_cols, 2.15 * n_rows),
+        figsize=(3.0 * n_cols, 2.65 * n_rows + 0.55),
         sharex=True,
         sharey=True,
-        layout="constrained",
     )
     axes = np.atleast_1d(axes).ravel()
 
@@ -468,7 +490,12 @@ def plot_categorical_facets(
             color=colors[level],
             rasterized=True,
         )
-        ax.set_title(f"{level}\nn={int(mask.sum()):,}", fontsize=7.5)
+        ax.set_title(
+            f"{_display_label(level, width=28)}\n$n$ = {int(mask.sum()):,}",
+            fontsize=8.2,
+            linespacing=1.15,
+            pad=7,
+        )
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_aspect("equal", adjustable="box")
@@ -476,10 +503,13 @@ def plot_categorical_facets(
             spine.set_visible(False)
     for ax in axes[len(levels) :]:
         ax.set_visible(False)
-    fig.suptitle(
-        f"Patient embeddings by {color_by} ({method.upper()}, grey = full cohort)",
-        fontsize=11,
+    figure_title(
+        fig,
+        f"Patient embeddings by {_display_label(color_by, width=52)}",
+        f"{method.upper()} projection · coloured points show each group; grey points show the full cohort",
+        y=0.995,
     )
+    fig.subplots_adjust(top=0.90, bottom=0.035, left=0.025, right=0.985, hspace=0.36, wspace=0.08)
     save_fig(fig, str(output_path))
     plt.close(fig)
 
@@ -493,6 +523,7 @@ def plot_categorical_centroids(
     method: str,
     output_path: Path,
     min_level_size: int = 25,
+    max_ellipses: int = 8,
 ) -> None:
     """Centroid plus one-sigma covariance ellipse per level.
 
@@ -502,7 +533,7 @@ def plot_categorical_centroids(
     """
     levels = _ordered_levels(values, valid)
     colors = dict(zip(levels, palette(len(levels))))
-    fig, ax = plt.subplots(figsize=(7.0, 5.4), layout="constrained")
+    fig, ax = plt.subplots(figsize=(9.2, 6.1))
     ax.scatter(
         frame["component_1"],
         frame["component_2"],
@@ -512,6 +543,12 @@ def plot_categorical_centroids(
         color=GREY,
         rasterized=True,
     )
+    eligible = [
+        level for level in levels
+        if int((valid & (values == level)).sum()) >= min_level_size
+    ]
+    ellipse_levels = set(eligible[:max_ellipses])
+    plotted: list[tuple[str, str, int]] = []
     for level in levels:
         mask = valid & (values == level)
         if int(mask.sum()) < min_level_size:
@@ -522,29 +559,58 @@ def plot_categorical_centroids(
         eigenvalues, eigenvectors = np.linalg.eigh(covariance)
         angle = math.degrees(math.atan2(*eigenvectors[:, 1][::-1]))
         width, height = 2.0 * np.sqrt(np.maximum(eigenvalues[::-1], 1e-12))
-        ax.add_patch(
-            Ellipse(
-                centre,
-                width,
-                height,
-                angle=angle,
-                facecolor="none",
-                edgecolor=colors[level],
-                linewidth=1.3,
-                alpha=0.9,
+        if level in ellipse_levels:
+            ax.add_patch(
+                Ellipse(
+                    centre,
+                    width,
+                    height,
+                    angle=angle,
+                    facecolor=colors[level],
+                    edgecolor=colors[level],
+                    linewidth=1.1,
+                    alpha=0.08,
+                )
             )
+        # A compact numbered key is deliberate: long treatment names cannot
+        # be placed inside a dense projection without hiding both one another
+        # and the geometry. The key preserves identity while the map stays clean.
+        number = len(plotted) + 1
+        ax.scatter(
+            centre[0], centre[1], s=34, color=colors[level], edgecolor="white",
+            linewidth=0.8, zorder=4,
         )
-        ax.annotate(
-            level,
-            centre,
-            fontsize=7,
-            color=colors[level],
-            ha="center",
-            va="center",
-            fontweight="bold",
-        )
-    ax.set_title(f"{color_by}: level centroids and one-sigma ellipses")
+        if len(eligible) <= 8:
+            angle_offset = 2 * math.pi * (number - 1) / max(len(eligible), 1)
+            offset = (18 * math.cos(angle_offset), 18 * math.sin(angle_offset))
+            ax.annotate(
+                str(number), centre, xytext=offset, textcoords="offset points",
+                ha="center", va="center", fontsize=7.4,
+                color=PALETTE["ink"], fontweight="semibold", zorder=5,
+                bbox={"boxstyle": "circle,pad=0.22", "fc": "white", "ec": colors[level], "lw": 0.8},
+                arrowprops={"arrowstyle": "-", "color": colors[level], "lw": 0.7},
+            )
+        plotted.append((level, colors[level], int(mask.sum())))
+
+    handles = [
+        plt.Line2D([], [], marker="o", linestyle="", markersize=5.5,
+                   markerfacecolor=color, markeredgecolor="white",
+                   label=f"{index}. {_display_label(level, width=38)}  (n={count:,})")
+        for index, (level, color, count) in enumerate(plotted, start=1)
+    ]
+    legend = ax.legend(
+        handles=handles, title="Groups", loc="center left",
+        bbox_to_anchor=(1.01, 0.5), frameon=False, fontsize=8,
+        labelspacing=0.72, handletextpad=0.45,
+    )
+    style_legend(legend)
+    ax.set_title(
+        f"Group location and spread · {_display_label(color_by, width=52)}\n"
+        f"Centroids for all groups; one-SD ellipses for the {len(ellipse_levels)} largest",
+        loc="left", pad=12,
+    )
     _finish_panel(ax, method)
+    fig.subplots_adjust(left=0.05, right=0.70, top=0.90, bottom=0.08)
     save_fig(fig, str(output_path))
     plt.close(fig)
 
@@ -608,7 +674,7 @@ def plot_continuous(
             handles=handles,
             frameon=False,
             fontsize=8,
-            title=color_by,
+            title=_display_label(color_by, width=32),
             title_fontsize=8,
             bbox_to_anchor=(1.02, 1),
             loc="upper left",
@@ -636,7 +702,10 @@ def plot_continuous(
         label = f"{color_by} (2nd to 98th pct)" if robust else color_by
         fig.colorbar(points, ax=ax, label=label)
 
-    ax.set_title(f"Patient embeddings coloured by {color_by}")
+    ax.set_title(
+        f"Patient embeddings coloured by {_display_label(color_by, width=48)}",
+        loc="left",
+    )
     _finish_panel(ax, method)
     save_fig(fig, str(output_path))
     plt.close(fig)
