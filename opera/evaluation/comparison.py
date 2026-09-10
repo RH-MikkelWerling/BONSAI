@@ -208,6 +208,75 @@ class XGBoostAFTPredictor:
         )
 
 
+def breslow_baseline_cumulative_hazard(
+    times: np.ndarray,
+    events: np.ndarray,
+    log_risks: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Estimate the Cox baseline cumulative hazard with Breslow ties."""
+    times = np.asarray(times, dtype=float)
+    events = np.asarray(events, dtype=int)
+    log_risks = np.asarray(log_risks, dtype=float)
+    if not (times.shape == events.shape == log_risks.shape):
+        raise ValueError("times, events, and log_risks must have identical shapes.")
+    event_times = np.unique(times[events == 1])
+    if event_times.size == 0:
+        raise ValueError("At least one observed event is required.")
+    # A common shift cancels from Cox ranking and keeps exponentiation stable.
+    shift = float(np.max(log_risks))
+    relative_risks = np.exp(np.clip(log_risks - shift, -80.0, 0.0))
+    increments = []
+    for event_time in event_times:
+        n_events = int(np.sum((times == event_time) & (events == 1)))
+        risk_sum = float(relative_risks[times >= event_time].sum())
+        if risk_sum <= 0 or not np.isfinite(risk_sum):
+            raise ValueError("Invalid Cox risk set while estimating baseline hazard.")
+        # Undo the stabilizing risk shift in the baseline, so H0 * exp(log-risk)
+        # is invariant to that shift at prediction time.
+        increments.append((n_events / risk_sum) * math.exp(-shift))
+    return event_times, np.cumsum(np.asarray(increments, dtype=float))
+
+
+class XGBoostCoxPredictor:
+    """XGBoost Cox predictor with Breslow horizon-risk calibration."""
+
+    def __init__(
+        self,
+        booster: Any,
+        feature_pipeline: ColumnTransformer,
+        tau_days: float,
+        event_times: np.ndarray,
+        baseline_cumulative_hazard: np.ndarray,
+    ) -> None:
+        self.booster = booster
+        self.feature_pipeline = feature_pipeline
+        self.tau_days = float(tau_days)
+        self.event_times = np.asarray(event_times, dtype=float)
+        self.baseline_cumulative_hazard = np.asarray(
+            baseline_cumulative_hazard, dtype=float
+        )
+
+    def _matrix(self, features: pd.DataFrame):
+        import xgboost as xgb
+
+        transformed = self.feature_pipeline.transform(features)
+        if hasattr(transformed, "toarray"):
+            transformed = transformed.toarray()
+        return xgb.DMatrix(np.asarray(transformed, dtype=np.float32))
+
+    def predict_risk(self, features: pd.DataFrame) -> np.ndarray:
+        return np.asarray(
+            self.booster.predict(self._matrix(features), output_margin=True),
+            dtype=float,
+        )
+
+    def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
+        index = int(np.searchsorted(self.event_times, self.tau_days, side="right") - 1)
+        baseline = 0.0 if index < 0 else float(self.baseline_cumulative_hazard[index])
+        log_risk = np.clip(self.predict_risk(features), -80.0, 80.0)
+        return np.clip(-np.expm1(-baseline * np.exp(log_risk)), 0.0, 1.0)
+
+
 class TorchMLPPredictor:
     """Small two-layer PyTorch MLP for OPERA outcome-head fine-tuning."""
 
@@ -1026,6 +1095,71 @@ def fit_xgboost_aft(
     except Exception as exc:
         raise RuntimeError(
             "XGBoost AFT survival baseline failed; no binary classifier fallback was used."
+        ) from exc
+
+
+def fit_xgboost_cox(
+    *,
+    features: pd.DataFrame,
+    times: np.ndarray,
+    events: np.ndarray,
+    tau_days: float,
+    seed: int,
+) -> Tuple[Any, str, List[str]]:
+    """Fit XGBoost's censoring-aware Cox objective."""
+    if int((np.asarray(events) == 1).sum()) < 2:
+        raise RuntimeError("XGBoost Cox baseline requires at least two events.")
+    preprocessor = build_preprocessor(features)
+    try:
+        import xgboost as xgb
+
+        transformed = preprocessor.fit_transform(features)
+        if hasattr(transformed, "toarray"):
+            transformed = transformed.toarray()
+        dtrain = xgb.DMatrix(np.asarray(transformed, dtype=np.float32))
+        signed_times = np.asarray(times, dtype=np.float32).copy()
+        signed_times[np.asarray(events) != 1] *= -1.0
+        dtrain.set_label(signed_times)
+        booster = xgb.train(
+            params={
+                "objective": "survival:cox",
+                "eval_metric": "cox-nloglik",
+                "learning_rate": 0.03,
+                "max_depth": 3,
+                "min_child_weight": 10,
+                "subsample": 0.8,
+                "colsample_bytree": 0.5,
+                "lambda": 10.0,
+                "alpha": 0.5,
+                "seed": seed,
+                "tree_method": "hist",
+            },
+            dtrain=dtrain,
+            num_boost_round=300,
+            verbose_eval=False,
+        )
+        train_log_risk = np.asarray(
+            booster.predict(dtrain, output_margin=True), dtype=float
+        )
+        event_times, baseline = breslow_baseline_cumulative_hazard(
+            np.asarray(times, dtype=float),
+            np.asarray(events, dtype=int),
+            train_log_risk,
+        )
+        return (
+            XGBoostCoxPredictor(
+                booster,
+                feature_pipeline=preprocessor,
+                tau_days=tau_days,
+                event_times=event_times,
+                baseline_cumulative_hazard=baseline,
+            ),
+            "xgboost_cox",
+            [],
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "XGBoost Cox survival baseline failed; no binary classifier fallback was used."
         ) from exc
 
 
