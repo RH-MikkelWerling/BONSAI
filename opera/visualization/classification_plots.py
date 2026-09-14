@@ -9,6 +9,7 @@ rcParams locally.
 from __future__ import annotations
 from typing import Dict, Optional, Tuple
 from pathlib import Path
+import textwrap
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -16,15 +17,17 @@ from sklearn.metrics import roc_curve, precision_recall_curve
 
 from opera.visualization.style import (
     PALETTE,
-    CATEGORICAL,
+    model_color,
+    model_label,
+    model_linestyle,
     save_fig,
     ci_ribbon,
     despine,
     FIG_SQUARE,
     add_panel_label,
+    figure_title,
     LEGEND_SIZE,
     ANNOT_SIZE,
-    SUPTITLE_SIZE,
 )
 from opera.evaluation.metrics import (
     decision_curve_analysis,
@@ -78,7 +81,6 @@ def plot_roc_curve(
     lbl = label or f"AUROC = {auroc:.3f}{ci_str}"
 
     ax.plot(fpr, tpr, color=color, lw=1.8, label=lbl, zorder=3)
-    ax.fill_between(fpr, tpr, alpha=PALETTE["fill_alpha"], color=color, zorder=2)
     ax.plot([0, 1], [0, 1], "--", color=PALETTE["diagonal"], lw=1, zorder=1)
 
     ax.set_xlabel("False positive rate  (1 − specificity)")
@@ -102,17 +104,25 @@ def plot_roc_comparison(
     save_path: Optional[str] = None,
 ) -> plt.Figure:
     """Multi-model ROC curves on a single axis."""
-    fig, ax = plt.subplots(figsize=(4.5, 4.5))
+    fig, ax = plt.subplots(figsize=(7.09, 4.0))
     bootstrap_cis = bootstrap_cis or {}
 
-    for (name, (labels, probs)), color in zip(results.items(), CATEGORICAL):
+    for name, (labels, probs) in results.items():
+        color = model_color(name)
         fpr, tpr, _ = roc_curve(labels, probs)
         auroc = _integrate_curve(tpr, fpr)
         ci = bootstrap_cis.get(name, {}).get("auroc", {})
         ci_str = f" [{ci['lower']:.3f}–{ci['upper']:.3f}]" if ci else ""
-        display = f"{name.replace('_', ' ').title()}  {auroc:.3f}{ci_str}"
-        ax.plot(fpr, tpr, color=color, lw=1.8, label=display, zorder=3)
-        ax.fill_between(fpr, tpr, alpha=0.06, color=color)
+        display = f"{model_label(name)}  {auroc:.3f}{ci_str}"
+        ax.plot(
+            fpr,
+            tpr,
+            color=color,
+            linestyle=model_linestyle(name),
+            lw=1.8,
+            label=display,
+            zorder=3,
+        )
 
     ax.plot([0, 1], [0, 1], "--", color=PALETTE["diagonal"], lw=1, zorder=1)
     ax.set_xlabel("False positive rate")
@@ -120,7 +130,13 @@ def plot_roc_comparison(
     ax.set_xlim(-0.01, 1.01)
     ax.set_ylim(-0.01, 1.01)
     ax.set_title(title)
-    ax.legend(loc="lower right", fontsize=LEGEND_SIZE)
+    ax.set_aspect("equal", adjustable="box")
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        fontsize=LEGEND_SIZE,
+        title="Model / AUROC",
+    )
     despine(ax, "none")
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -163,15 +179,6 @@ def plot_prc(
     lbl = label or f"AUPRC = {auprc:.3f}{ci_str}"
 
     ax.plot(recall, precision, color=color, lw=1.8, label=lbl, zorder=3)
-    ax.fill_between(
-        recall,
-        precision,
-        prevalence,
-        where=(precision >= prevalence),
-        alpha=PALETTE["fill_alpha"],
-        color=color,
-        zorder=2,
-    )
     ax.axhline(
         prevalence,
         color=PALETTE["diagonal"],
@@ -215,7 +222,7 @@ def plot_calibration(
     cal = compute_calibration_metrics(labels, probabilities, n_bins)
 
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(3.6, 5.2), gridspec_kw={"height_ratios": [3, 1.2]}, sharex=False
+        2, 1, figsize=(3.6, 5.2), gridspec_kw={"height_ratios": [3, 1.2]}, sharex=True
     )
 
     # ── Calibration curve ────────────────────────────────────────────
@@ -239,15 +246,10 @@ def plot_calibration(
         label=f"Model  ECE={cal['ece']:.3f}",
     )
 
-    # Shaded region around perfect calibration
-    ax1.fill_between(
-        [0, 1], [0, 0.05], [0.05, 0.1], alpha=0.05, color=PALETTE["diagonal"], zorder=0
-    )
-
     # HL annotation
     hl_p = cal.get("hl_pvalue", float("nan"))
     if not np.isnan(hl_p):
-        color_hl = PALETTE["negative"] if hl_p >= 0.05 else PALETTE["positive"]
+        color_hl = PALETTE["ink_secondary"]
         ax1.text(
             0.97,
             0.05,
@@ -271,7 +273,8 @@ def plot_calibration(
     ax2.hist(
         probabilities[labels == 0],
         bins=bins,
-        alpha=0.65,
+        histtype="step",
+        linewidth=1.5,
         color=PALETTE["negative"],
         label="Negative",
         density=True,
@@ -279,7 +282,9 @@ def plot_calibration(
     ax2.hist(
         probabilities[labels == 1],
         bins=bins,
-        alpha=0.65,
+        histtype="step",
+        linewidth=1.5,
+        linestyle="--",
         color=PALETTE["positive"],
         label="Positive",
         density=True,
@@ -336,8 +341,18 @@ def plot_decision_curve(
     ax.legend(fontsize=LEGEND_SIZE)
     ax.set_xlim(0, 1)
 
-    y_lo = max(dca["net_benefit_treat_all"].min(), -0.15)
+    y_lo = min(-0.05, float(dca["net_benefit_model"].min()) - 0.02)
     ax.set_ylim(y_lo, None)
+    if dca["net_benefit_treat_all"].min() < y_lo:
+        ax.text(
+            0.98,
+            0.03,
+            "Treat-all curve continues below",
+            transform=ax.transAxes,
+            ha="right",
+            fontsize=7,
+            color=PALETTE["ink_secondary"],
+        )
     despine(ax, "y")
 
     fig.tight_layout()
@@ -348,6 +363,18 @@ def plot_decision_curve(
 # ═════════════════════════════════════════════════════════════════════
 # 5. Time-dependent AUC (survival)
 # ═════════════════════════════════════════════════════════════════════
+
+
+def survival_plot_horizon(times, window_days=None):
+    """Use the configured horizon, else the 90th percentile of follow-up.
+
+    The fallback only sets the diagnostic display range, never an estimand.
+    """
+    if window_days is not None:
+        return float(window_days)
+    values = np.asarray(times, dtype=float)
+    values = values[np.isfinite(values) & (values > 0)]
+    return max(1.0, float(np.percentile(values, 90))) if len(values) else None
 
 
 def plot_timedep_auc(
@@ -405,9 +432,7 @@ def plot_timedep_auc(
     lo = np.array(curve["ci_lower"])
     hi = np.array(curve["ci_upper"])
 
-    lbl = label or (
-        f"C = {np.nanmean(auc):.3f}  (n={curve['n_total']}, events={curve['n_events']})"
-    )
+    lbl = label or (f"Mean AUC = {np.nanmean(auc):.3f}")
 
     ax.plot(h, auc, color=color, lw=1.8, label=lbl, zorder=3)
     if np.any(np.isfinite(lo)):
@@ -416,7 +441,7 @@ def plot_timedep_auc(
     ax.axhline(0.5, color=PALETTE["diagonal"], ls="--", lw=1, zorder=1)
     ax.set_xlabel("Days from index date")
     ax.set_ylabel("IPCW-AUC")
-    ax.set_ylim(None, None)
+    ax.set_ylim(0, 1.02)
     ax.set_title(title)
     ax.legend(fontsize=LEGEND_SIZE)
     ax.xaxis.set_major_locator(mticker.MaxNLocator(6, integer=True))
@@ -443,8 +468,9 @@ def plot_timedep_auc_comparison(
     """
     fig, ax = plt.subplots(figsize=(4.8, 3.4))
 
-    for (name, curve), color in zip(curves.items(), CATEGORICAL):
-        if not curve["horizons"]:
+    for name, curve in curves.items():
+        color = model_color(name)
+        if len(curve["horizons"]) == 0:
             continue
         h = np.array(curve["horizons"])
         auc = np.array(curve["auc"])
@@ -453,7 +479,15 @@ def plot_timedep_auc_comparison(
 
         mean_auc = np.nanmean(auc)
         lbl = f"{name.replace('_', ' ').title()}  ({mean_auc:.3f})"
-        ax.plot(h, auc, color=color, lw=1.8, label=lbl, zorder=3)
+        ax.plot(
+            h,
+            auc,
+            color=color,
+            linestyle=model_linestyle(name),
+            lw=1.8,
+            label=lbl,
+            zorder=3,
+        )
         if np.any(np.isfinite(lo)):
             ci_ribbon(ax, h, lo, hi, color)
 
@@ -541,14 +575,24 @@ def plot_evaluation_panel(
     """
     # Put the endpoint at figure level instead of repeating a long clinical
     # name in every axes title. This prevents title/panel-label collisions.
-    fig, axes = plt.subplots(
-        2, 2, figsize=(9.2, 7.2), constrained_layout=True
-    )
+    fig, axes = plt.subplots(2, 2, figsize=(7.5, 6.3))
     (ax_roc, ax_prc), (ax_cal, ax_bot) = axes
 
-    display_outcome = outcome_name.replace("_", " ").title()
+    display_outcome = outcome_name.replace("_", " ").strip().title()
     if display_outcome:
-        fig.suptitle(display_outcome, fontsize=SUPTITLE_SIZE, fontweight="bold")
+        wrapped_outcome = textwrap.fill(
+            display_outcome, width=58, break_long_words=False
+        )
+        figure_title(
+            fig,
+            wrapped_outcome,
+            (
+                "Discrimination, calibration, and performance over time"
+                if "\n" not in wrapped_outcome
+                else None
+            ),
+            y=0.985,
+        )
 
     plot_roc_curve(
         labels,
@@ -584,7 +628,7 @@ def plot_evaluation_panel(
     )
     hl_p = cal.get("hl_pvalue", float("nan"))
     if not np.isnan(hl_p):
-        color_hl = PALETTE["negative"] if hl_p >= 0.05 else PALETTE["positive"]
+        color_hl = PALETTE["ink_secondary"]
         ax_cal.text(
             0.97,
             0.05,
@@ -603,6 +647,9 @@ def plot_evaluation_panel(
     ax_cal.set_ylim(-0.01, 1.01)
     despine(ax_cal, "none")
 
+    inferred_horizon = times is not None and window_days is None
+    if times is not None and events is not None:
+        window_days = survival_plot_horizon(times, window_days)
     if times is not None and events is not None and window_days is not None:
         risk_scores = (
             survival_probabilities
@@ -614,16 +661,19 @@ def plot_evaluation_panel(
             events,
             risk_scores,
             window_days=window_days,
-            title="Time-dependent AUC",
+            title="Survival discrimination",
             ax=ax_bot,
         )
+        if inferred_horizon:
+            ax_bot.text(
+                0,
+                -0.28,
+                "Display horizon: 90th percentile of follow-up",
+                transform=ax_bot.transAxes,
+                fontsize=6.5,
+                color=PALETTE["ink_muted"],
+            )
     else:
-        plot_threshold_analysis(
-            labels,
-            probabilities,
-            title="Threshold analysis",
-            save_path=None,
-        )
         # reuse ax_bot
         dca = decision_curve_analysis(labels, probabilities)
         ax_bot.plot(
@@ -647,10 +697,33 @@ def plot_evaluation_panel(
         ax_bot.set_title("Decision curve")
         ax_bot.legend(fontsize=LEGEND_SIZE)
         ax_bot.set_xlim(0, 1)
+        y_lo = min(-0.05, float(dca["net_benefit_model"].min()) - 0.02)
+        ax_bot.set_ylim(y_lo, max(0.05, float(dca["net_benefit_model"].max()) + 0.03))
+        if dca["net_benefit_treat_all"].min() < y_lo:
+            ax_bot.text(
+                0.98,
+                0.03,
+                "Treat-all curve continues below",
+                transform=ax_bot.transAxes,
+                ha="right",
+                fontsize=7,
+                color=PALETTE["ink_secondary"],
+            )
         despine(ax_bot, "y")
 
     for label, ax in zip("ABCD", axes.flat):
-        add_panel_label(ax, label, x=-0.13, y=1.08)
+        # Keep panel tags inside their allocated axes. Negative x positions
+        # collided with neighbouring y labels in the former compact layout.
+        add_panel_label(ax, label, x=-0.10, y=1.10)
+
+    fig.subplots_adjust(
+        left=0.105,
+        right=0.975,
+        bottom=0.115,
+        top=0.89 if display_outcome else 0.94,
+        hspace=0.58,
+        wspace=0.48,
+    )
 
     save_fig(fig, save_path)
     return fig
@@ -719,6 +792,8 @@ def plot_full_evaluation(
         save_path=str(out / f"{p}threshold_analysis.png"),
     )
 
+    if times is not None and events is not None:
+        window_days = survival_plot_horizon(times, window_days)
     if times is not None and events is not None and window_days is not None:
         risk_scores = (
             survival_probabilities

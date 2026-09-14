@@ -494,6 +494,9 @@ def main(cfg: DictConfig) -> None:
     trainer.fit(model=lightning_module, datamodule=data_module)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
     mark_training_complete(model_save_dir, cfg)
+    from opera.visualization.training_report import export_training_report
+
+    export_training_report(logger, model_save_dir, is_global_zero=trainer.is_global_zero)
     torch.save(
         {"train": train_outcomes, "val": val_outcomes, "test": test_outcomes},
         f"{model_save_dir}/outcome_splits.pt",

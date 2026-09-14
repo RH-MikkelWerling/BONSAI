@@ -42,6 +42,7 @@ from opera.visualization.style import (
     clean_2d_axes,
     figure_title,
     save_fig,
+    sequential_cmap,
     style_legend,
 )
 
@@ -314,6 +315,23 @@ def palette(n_levels: int) -> list:
     return [cmap(value) for value in np.linspace(0.02, 0.98, n_levels)]
 
 
+def categorical_colors(levels: list[str]) -> dict[str, object]:
+    """Assign stable semantic colours, then fill remaining categorical levels.
+
+    Outcome-derived columns arrive as the strings ``True`` and ``False`` after
+    missing follow-up has been excluded. Their colour must not depend on which
+    class happens to be more prevalent in a cohort.
+    """
+    colors = dict(zip(levels, palette(len(levels))))
+    for level in levels:
+        normalized = str(level).strip().casefold()
+        if normalized == "true":
+            colors[level] = PALETTE["positive"]
+        elif normalized == "false":
+            colors[level] = PALETTE["negative"]
+    return colors
+
+
 def scatter_shuffled(
     ax,
     x: np.ndarray,
@@ -368,6 +386,12 @@ def _ordered_levels(values: np.ndarray, valid: np.ndarray) -> list[str]:
     """Levels sorted by descending frequency, with Other pinned last."""
     counts = pd.Series(values[valid]).value_counts()
     levels = [str(level) for level in counts.index if str(level) != "Other"]
+    # Outcome booleans retain a stable legend and draw order across cohorts.
+    if {level.casefold() for level in levels} <= {"true", "false"}:
+        by_normalized = {level.casefold(): level for level in levels}
+        levels = [
+            by_normalized[name] for name in ("false", "true") if name in by_normalized
+        ]
     if "Other" in {str(level) for level in counts.index}:
         levels.append("Other")
     return levels
@@ -388,7 +412,7 @@ def plot_categorical_points(
 ) -> None:
     """Single-panel view for low-cardinality labels."""
     levels = _ordered_levels(values, valid)
-    colors = dict(zip(levels, palette(len(levels))))
+    colors = categorical_colors(levels)
     size, alpha = point_style(int(valid.sum()))
     fig, ax = plt.subplots(figsize=(7.0, 5.4), layout="constrained")
     point_colors = [colors[str(value)] for value in values[valid]]
@@ -450,7 +474,7 @@ def plot_categorical_facets(
     question a mixed confetti plot cannot answer at all.
     """
     levels = _ordered_levels(values, valid)[:max_facets]
-    colors = dict(zip(levels, palette(len(levels))))
+    colors = categorical_colors(levels)
     # Four moderately wide columns remain legible in a paper PDF and leave
     # enough vertical room for two-line regimen names. Six narrow columns did
     # not: titles collided before the data could be read.
@@ -509,7 +533,9 @@ def plot_categorical_facets(
         f"{method.upper()} projection · coloured points show each group; grey points show the full cohort",
         y=0.995,
     )
-    fig.subplots_adjust(top=0.90, bottom=0.035, left=0.025, right=0.985, hspace=0.36, wspace=0.08)
+    fig.subplots_adjust(
+        top=0.90, bottom=0.035, left=0.025, right=0.985, hspace=0.36, wspace=0.08
+    )
     save_fig(fig, str(output_path))
     plt.close(fig)
 
@@ -532,7 +558,7 @@ def plot_categorical_centroids(
     is not organising the projection.
     """
     levels = _ordered_levels(values, valid)
-    colors = dict(zip(levels, palette(len(levels))))
+    colors = categorical_colors(levels)
     fig, ax = plt.subplots(figsize=(9.2, 6.1))
     ax.scatter(
         frame["component_1"],
@@ -544,7 +570,8 @@ def plot_categorical_centroids(
         rasterized=True,
     )
     eligible = [
-        level for level in levels
+        level
+        for level in levels
         if int((valid & (values == level)).sum()) >= min_level_size
     ]
     ellipse_levels = set(eligible[:max_ellipses])
@@ -577,37 +604,67 @@ def plot_categorical_centroids(
         # and the geometry. The key preserves identity while the map stays clean.
         number = len(plotted) + 1
         ax.scatter(
-            centre[0], centre[1], s=34, color=colors[level], edgecolor="white",
-            linewidth=0.8, zorder=4,
+            centre[0],
+            centre[1],
+            s=34,
+            color=colors[level],
+            edgecolor="white",
+            linewidth=0.8,
+            zorder=4,
         )
         if len(eligible) <= 8:
             angle_offset = 2 * math.pi * (number - 1) / max(len(eligible), 1)
             offset = (18 * math.cos(angle_offset), 18 * math.sin(angle_offset))
             ax.annotate(
-                str(number), centre, xytext=offset, textcoords="offset points",
-                ha="center", va="center", fontsize=7.4,
-                color=PALETTE["ink"], fontweight="semibold", zorder=5,
-                bbox={"boxstyle": "circle,pad=0.22", "fc": "white", "ec": colors[level], "lw": 0.8},
+                str(number),
+                centre,
+                xytext=offset,
+                textcoords="offset points",
+                ha="center",
+                va="center",
+                fontsize=7.4,
+                color=PALETTE["ink"],
+                fontweight="semibold",
+                zorder=5,
+                bbox={
+                    "boxstyle": "circle,pad=0.22",
+                    "fc": "white",
+                    "ec": colors[level],
+                    "lw": 0.8,
+                },
                 arrowprops={"arrowstyle": "-", "color": colors[level], "lw": 0.7},
             )
         plotted.append((level, colors[level], int(mask.sum())))
 
     handles = [
-        plt.Line2D([], [], marker="o", linestyle="", markersize=5.5,
-                   markerfacecolor=color, markeredgecolor="white",
-                   label=f"{index}. {_display_label(level, width=38)}  (n={count:,})")
+        plt.Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="",
+            markersize=5.5,
+            markerfacecolor=color,
+            markeredgecolor="white",
+            label=f"{index}. {_display_label(level, width=38)}  (n={count:,})",
+        )
         for index, (level, color, count) in enumerate(plotted, start=1)
     ]
     legend = ax.legend(
-        handles=handles, title="Groups", loc="center left",
-        bbox_to_anchor=(1.01, 0.5), frameon=False, fontsize=8,
-        labelspacing=0.72, handletextpad=0.45,
+        handles=handles,
+        title="Groups",
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        frameon=False,
+        fontsize=8,
+        labelspacing=0.72,
+        handletextpad=0.45,
     )
     style_legend(legend)
     ax.set_title(
         f"Group location and spread · {_display_label(color_by, width=52)}\n"
         f"Centroids for all groups; one-SD ellipses for the {len(ellipse_levels)} largest",
-        loc="left", pad=12,
+        loc="left",
+        pad=12,
     )
     _finish_panel(ax, method)
     fig.subplots_adjust(left=0.05, right=0.70, top=0.90, bottom=0.08)
@@ -643,7 +700,7 @@ def plot_continuous(
         else:
             edges = np.linspace(finite.min(), finite.max(), bins + 1)
         codes = np.clip(np.digitize(finite, edges[1:-1]), 0, len(edges) - 2)
-        cmap = plt.get_cmap("viridis")
+        cmap = sequential_cmap("opera")
         colors = [cmap(value) for value in np.linspace(0.05, 0.95, len(edges) - 1)]
         fig, ax = plt.subplots(figsize=(7.0, 5.4), layout="constrained")
         scatter_shuffled(
@@ -691,7 +748,7 @@ def plot_continuous(
             frame.loc[valid, "component_1"].to_numpy()[order],
             frame.loc[valid, "component_2"].to_numpy()[order],
             c=finite[order],
-            cmap="viridis",
+            cmap=sequential_cmap("opera"),
             vmin=low,
             vmax=high,
             s=size,
@@ -700,7 +757,15 @@ def plot_continuous(
             rasterized=True,
         )
         label = f"{color_by} (2nd to 98th pct)" if robust else color_by
-        fig.colorbar(points, ax=ax, label=label)
+        fig.colorbar(
+            points,
+            ax=ax,
+            label=label,
+            orientation="horizontal",
+            shrink=0.65,
+            pad=0.06,
+            aspect=35,
+        )
 
     ax.set_title(
         f"Patient embeddings coloured by {_display_label(color_by, width=48)}",
@@ -813,6 +878,49 @@ def plot_colored_coordinates(
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+def write_metadata_atlases(frame, columns, *, method, output_dir, max_categories=12):
+    """Export coordinated overview pages from the same saved patient projection."""
+    from opera.visualization.embedding_plots import plot_embedding_stage_metadata_grid
+
+    selected = [
+        column for column in columns if column in frame and frame[column].notna().any()
+    ]
+    written = []
+    for page, start in enumerate(range(0, len(selected), 4), 1):
+        metadata = {}
+        kinds = {}
+        for column in selected[start : start + 4]:
+            series = frame[column]
+            numeric = pd.to_numeric(series, errors="coerce")
+            if numeric.notna().sum() == series.notna().sum() and numeric.nunique() > 12:
+                metadata[column] = numeric.to_numpy(dtype=float, na_value=np.nan)
+                kinds[column] = "continuous"
+            else:
+                values = series.astype(object).where(series.notna(), np.nan).to_numpy()
+                valid = series.notna().to_numpy()
+                metadata[column] = _collapse_levels(
+                    values, valid, max_categories
+                ).copy()
+                metadata[column][~valid] = np.nan
+                kinds[column] = "categorical"
+        path = Path(output_dir) / f"patient_{method}_atlas_{page:02d}.png"
+        fig = plot_embedding_stage_metadata_grid(
+            {"patients": frame[["component_1", "component_2"]].to_numpy()},
+            metadata,
+            variable_kinds=kinds,
+            stage_labels={"patients": "Patients"},
+            variable_labels={
+                column: _display_label(column, width=24) for column in metadata
+            },
+            axis_label=method.upper(),
+            title="Patient representation atlas",
+            save_path=str(path),
+        )
+        plt.close(fig)
+        written.append(path)
+    return written
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Project and plot an extract_patient_embeddings NPZ artifact."
@@ -977,9 +1085,7 @@ def main() -> None:
         # rendering. Add only genuinely new columns so callers can enrich and
         # recolor an existing expensive UMAP without duplicate-column failures.
         frame["_join_id"] = frame["subject_id"].astype(str)
-        additions = [
-            read_index_table(path) for path in args.metadata
-        ] + outcome_frames
+        additions = [read_index_table(path) for path in args.metadata] + outcome_frames
         for addition in additions:
             source_subject_col = (
                 args.subject_col if args.subject_col in addition else "subject_id"
@@ -1063,9 +1169,9 @@ def main() -> None:
                     f"Missing --birth-date-col {args.birth_date_col!r} in metadata."
                 )
             birth_dates = pd.to_datetime(frame[args.birth_date_col], errors="coerce")
-            frame["age_at_index"] = (
-                index_dates - birth_dates
-            ).dt.total_seconds() / (365.2425 * 24 * 60 * 60)
+            frame["age_at_index"] = (index_dates - birth_dates).dt.total_seconds() / (
+                365.2425 * 24 * 60 * 60
+            )
 
     if args.color_all_metadata:
         excluded = {
@@ -1106,6 +1212,15 @@ def main() -> None:
                 also_centroids=not args.no_centroids,
             )
         )
+    written.extend(
+        write_metadata_atlases(
+            frame,
+            color_columns,
+            method=resolved_method,
+            output_dir=output_dir,
+            max_categories=args.max_categories,
+        )
+    )
     print(
         f"Wrote {len(frame):,} {resolved_method.upper()} coordinates and "
         f"{len(written)} plot(s) to {output_dir}."

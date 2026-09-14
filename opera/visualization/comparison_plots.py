@@ -96,8 +96,9 @@ def plot_forest(
         )
 
     # Reference line at 0.5 (random) or best model — depends on metric
-    ref = 0.5 if metric in ("auroc", "auprc") else 0.0
-    ax_main.axvline(ref, color=PALETTE["diagonal"], ls="--", lw=0.8, zorder=1)
+    # PR baselines depend on event prevalence; no universal 0.5 reference.
+    if metric.lower() in {"auroc", "c_index", "cindex", "ipcw_auc"}:
+        ax_main.axvline(0.5, color=PALETTE["diagonal"], ls="--", lw=0.8, zorder=1)
 
     ax_main.set_yticks(y_pos)
     ax_main.set_yticklabels([model_label(nm) for nm in names])
@@ -128,7 +129,7 @@ def plot_forest(
             ha="center",
             va="center",
             fontsize=ANNOT_SIZE,
-            color=model_color(names[i]),
+            color=PALETTE["ink_secondary"],
         )
 
     fig.tight_layout(w_pad=0)
@@ -176,8 +177,9 @@ def plot_metric_comparison(
         if j == 0:
             ax.set_yticks(range(n_m))
             ax.set_yticklabels([model_label(nm) for nm in names], fontsize=TICK_SIZE)
-        ax.invert_yaxis()
         despine(ax, "x")
+
+    axes[0].invert_yaxis()
 
     # Legend
     handles = [

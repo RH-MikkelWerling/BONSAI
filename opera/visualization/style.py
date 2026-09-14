@@ -18,13 +18,9 @@ Design philosophy
 
 Typography
 ──────────
-Segoe UI is the primary face: it ships a true semibold and light weight, so
-"semibold" titles render as an actual semibold glyph rather than silently
-falling back to full bold (which is what happens with Arial — it only has
-regular/bold, and matplotlib substitutes the nearest weight it finds without
-warning). Arial and DejaVu Sans remain as fallbacks for machines/CI where
-Segoe UI isn't installed (e.g. Linux render hosts), so figures degrade
-gracefully rather than breaking.
+DejaVu Sans ships with Matplotlib, providing consistent glyph metrics on
+Windows, Linux and render hosts. PDF embeds TrueType fonts; SVG keeps text
+editable (the receiving editor needs the font installed).
 
 Colorblind safety
 ─────────────────
@@ -41,6 +37,9 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from pathlib import Path
+import hashlib
+from cycler import cycler
+from matplotlib.collections import PathCollection
 
 
 # ── Color palette ──────────────────────────────────────────────────────────────
@@ -51,25 +50,25 @@ PALETTE = {
     "opera": "#2D3A8C",  # deep indigo          ← hero model
     "opera_joint": "#1A237E",  # darker navy
     "dapt": "#5C7AEA",  # periwinkle
-    "pretrain": "#9E9E9E",  # neutral grey
+    "pretrain": "#737D8C",  # slate; readable at small sizes
     "tabular_rkkp": "#1B7A4A",  # forest green
-    "tabular_ehr": "#66BB99",  # sage green
+    "tabular_ehr": "#408579",  # muted teal
     "ipi": "#B5451B",  # burnt sienna
     # Binary class labels — warm/cool split, high contrast
-    "positive": "#B5232A",  # deep crimson
-    "negative": "#1565C0",  # royal blue
+    "positive": "#B65B63",  # muted cranberry
+    "negative": "#71869E",  # desaturated blue
     "missing": "#D0D0D0",  # light grey
     # Text / ink roles — text always wears one of these, never a series hue
-    "ink": "#111111",  # primary text: titles, in-plot labels
-    "ink_secondary": "#4A4A4A",  # subtitles, secondary annotations
-    "ink_muted": "#8A8886",  # de-emphasized notes, source lines
+    "ink": "#17212B",  # primary text: titles, in-plot labels
+    "ink_secondary": "#485463",  # subtitles, secondary annotations
+    "ink_muted": "#657180",  # notes remain readable in print
     # Chrome — panel borders, connector lines, structural (non-data) ink
-    "panel_border": "#D6D5D0",
+    "panel_border": "#CBD2DA",
     "connector": "#9B9B9B",
     # Neutral / decorative
     "diagonal": "#AAAAAA",
     "zero_line": "#2B2B2B",
-    "grid": "#E4E3DE",
+    "grid": "#E8ECF1",
     "fill_alpha": 0.13,  # CI ribbon alpha
 }
 
@@ -79,12 +78,12 @@ PALETTE = {
 # or reassign when a filter changes which series are present.
 CATEGORICAL = [
     "#2D3A8C",  # deep indigo
-    "#B5232A",  # deep crimson
-    "#1B7A4A",  # forest green
-    "#B07A10",  # dark amber
-    "#5C7AEA",  # periwinkle
-    "#7B3FA0",  # plum
-    "#1A7A85",  # teal
+    "#C16A58",  # terracotta
+    "#3E8A87",  # teal
+    "#B18B4D",  # ochre
+    "#7189BC",  # muted blue
+    "#8974AC",  # lavender
+    "#527B72",  # eucalyptus
     "#9E9E9E",  # grey (last resort / pretrain)
 ]
 
@@ -100,18 +99,17 @@ MODEL_DISPLAY = {
 
 # ── Typography ─────────────────────────────────────────────────────────────────
 # A single type scale, used everywhere instead of scattered magic numbers.
-# Segoe UI carries a true semibold + light weight; Arial/DejaVu are
-# same-size fallbacks so the scale still holds if Segoe UI is unavailable.
+# Use the bundled font for reproducible layout on all render hosts.
 
-FONT_FAMILY = ["Segoe UI", "Arial", "Helvetica Neue", "DejaVu Sans", "sans-serif"]
+FONT_FAMILY = ["DejaVu Sans", "Arial", "sans-serif"]
 
-SUPTITLE_SIZE = 15  # figure-level title (multi-panel figures)
-TITLE_SIZE = 12.5  # axes title / single-panel figure title
-SUBTITLE_SIZE = 10.5  # italic descriptor line beneath a title
-LABEL_SIZE = 10.5  # axis labels
-TICK_SIZE = 9.5  # tick labels
-LEGEND_TITLE_SIZE = 9.5
-LEGEND_SIZE = 9
+SUPTITLE_SIZE = 13  # figure-level title (multi-panel figures)
+TITLE_SIZE = 11  # axes title / single-panel figure title
+SUBTITLE_SIZE = 9.5  # descriptor line beneath a title
+LABEL_SIZE = 9.5  # axis labels
+TICK_SIZE = 8.5  # tick labels
+LEGEND_TITLE_SIZE = 8.5
+LEGEND_SIZE = 8.5
 ANNOT_SIZE = 8.5  # in-plot data callouts / delta labels
 NOTE_SIZE = 8  # small footnotes, source lines, "n=" captions
 PANEL_LABEL_SIZE = 11  # bold A / B / C panel tags
@@ -149,6 +147,9 @@ def setup_style() -> None:
             "axes.titlesize": TITLE_SIZE,
             "axes.titleweight": "semibold",
             "axes.titlecolor": PALETTE["ink"],
+            "axes.titlelocation": "left",
+            "axes.titlepad": TITLE_PAD,
+            "axes.prop_cycle": cycler(color=CATEGORICAL),
             "axes.labelsize": LABEL_SIZE,
             "axes.labelcolor": PALETTE["ink"],
             "xtick.labelsize": TICK_SIZE,
@@ -160,7 +161,7 @@ def setup_style() -> None:
             "legend.title_fontsize": LEGEND_TITLE_SIZE,
             "figure.titlesize": SUPTITLE_SIZE,
             "figure.titleweight": "semibold",
-            "mathtext.fontset": "custom",
+            "mathtext.fontset": "dejavusans",
             "mathtext.default": "regular",
             # Spines and ticks
             "axes.spines.top": False,
@@ -176,11 +177,14 @@ def setup_style() -> None:
             # Grid — recessive hairline; individual plots turn it off via
             # despine(ax, grid_axis="none") where a grid isn't informative
             "axes.grid": True,
+            "axes.grid.axis": "y",
             "grid.color": PALETTE["grid"],
             "grid.linewidth": 0.6,
             "grid.alpha": 1.0,
             # Lines
             "lines.linewidth": 1.8,
+            "lines.markersize": 4.5,
+            "errorbar.capsize": 2.5,
             "lines.solid_capstyle": "round",
             "lines.solid_joinstyle": "round",
             # Figure — generous, breathable layout by default
@@ -195,8 +199,12 @@ def setup_style() -> None:
             "savefig.bbox": "tight",
             "savefig.pad_inches": 0.12,
             "savefig.facecolor": "white",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "svg.fonttype": "none",
+            "svg.hashsalt": "opera-publication",
             # Legend — thin border, generous internal breathing room
-            "legend.frameon": True,
+            "legend.frameon": False,
             "legend.framealpha": 0.94,
             "legend.edgecolor": PALETTE["panel_border"],
             "legend.facecolor": "white",
@@ -216,7 +224,19 @@ setup_style()
 
 
 def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
+    """Export publication artwork, keeping text vector and dense points raster.
+
+    Raster requests also produce a PDF; PDF/SVG requests retain their format.
+    Only dense scatter collections are rasterized, never curves or CI bands.
+    """
     if path is not None:
+        for ax in fig.axes:
+            for collection in ax.collections:
+                if (
+                    isinstance(collection, PathCollection)
+                    and len(collection.get_offsets()) >= 1000
+                ):
+                    collection.set_rasterized(True)
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(
@@ -225,6 +245,7 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
         if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             fig.savefig(
                 path.with_suffix(".pdf"),
+                dpi=dpi,
                 bbox_inches="tight",
                 pad_inches=0.12,
                 facecolor="white",
@@ -232,8 +253,20 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
 
 
 def model_color(name: str) -> str:
-    """Return the canonical color for a known model name, else cycle through CATEGORICAL."""
-    return PALETTE.get(name, CATEGORICAL[hash(name) % len(CATEGORICAL)])
+    """Return an identity-stable color, independent of Python's hash seed."""
+    return PALETTE.get(name, CATEGORICAL[stable_index(name) % len(CATEGORICAL)])
+
+
+def stable_index(name: str) -> int:
+    """Stable identity for categorical encodings across processes and subsets."""
+    return int.from_bytes(hashlib.sha256(str(name).encode("utf-8")).digest()[:8], "big")
+
+
+def model_linestyle(name: str):
+    """Redundant line encoding so comparisons do not depend on hue alone."""
+    names = list(MODEL_DISPLAY)
+    index = names.index(name) if name in names else stable_index(name)
+    return ("-", "--", "-.", ":")[index % 4]
 
 
 def model_label(name: str) -> str:
@@ -299,9 +332,11 @@ def figure_title(
     subtitle: Optional[str] = None,
     y: float = SUPTITLE_Y,
 ) -> None:
-    """One consistent title(+subtitle) treatment for multi-panel figures:
-    bold title, muted italic subtitle directly beneath it, both centered.
-    Replaces ad hoc suptitle + fig.text(y=magic_offset) pairs."""
+    """Render a clean figure title.
+
+    ``subtitle`` remains accepted for call-site compatibility but is not drawn;
+    descriptive prose belongs in the manuscript caption.
+    """
     fig.suptitle(
         title,
         y=y,
@@ -309,17 +344,6 @@ def figure_title(
         fontweight="semibold",
         color=PALETTE["ink"],
     )
-    if subtitle:
-        fig.text(
-            0.5,
-            y - SUBTITLE_Y_OFFSET,
-            subtitle,
-            ha="center",
-            va="top",
-            fontsize=SUBTITLE_SIZE,
-            style="italic",
-            color=PALETTE["ink_secondary"],
-        )
 
 
 def style_legend(legend) -> None:

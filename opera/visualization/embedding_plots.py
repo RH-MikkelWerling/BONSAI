@@ -20,6 +20,9 @@ import matplotlib.colors as mcolors
 from opera.visualization.style import (
     PALETTE,
     CATEGORICAL,
+    model_color,
+    model_label,
+    model_linestyle,
     save_fig,
     despine,
     clean_2d_axes,
@@ -31,7 +34,6 @@ from opera.visualization.style import (
     NOTE_SIZE,
     SUBTITLE_SIZE,
     SUPTITLE_SIZE,
-    TICK_SIZE,
     TITLE_SIZE,
     sequential_cmap,
 )
@@ -375,17 +377,32 @@ def plot_sigma_evolution(
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=FIG_FULL)
     x_col = "epoch" if "epoch" in training_log.columns else "step"
 
-    for name, color in zip(outcome_names, CATEGORICAL):
+    for name in outcome_names:
+        color = model_color(name)
         display = name.replace("_", " ").title()
         col_s = f"train/sigma/{name}"
         col_p = f"train/precision/{name}"
 
         if col_s in training_log.columns:
             data = training_log[[x_col, col_s]].dropna()
-            ax1.plot(data[x_col], data[col_s], color=color, lw=1.6, label=display)
+            ax1.plot(
+                data[x_col],
+                data[col_s],
+                color=color,
+                linestyle=model_linestyle(name),
+                lw=1.6,
+                label=display,
+            )
         if col_p in training_log.columns:
             data = training_log[[x_col, col_p]].dropna()
-            ax2.plot(data[x_col], data[col_p], color=color, lw=1.6, label=display)
+            ax2.plot(
+                data[x_col],
+                data[col_p],
+                color=color,
+                linestyle=model_linestyle(name),
+                lw=1.6,
+                label=display,
+            )
 
     ax1.axhline(1.0, color=PALETTE["diagonal"], ls=":", lw=1)
     ax1.set_xlabel(x_col.title())
@@ -481,11 +498,11 @@ def plot_similarity_distributions(
 def plot_training_curves(
     training_log: pd.DataFrame,
     metrics: Optional[List[str]] = None,
-    smooth_window: int = 5,
+    smooth_window: int = 1,
     title: str = "Training curves",
     save_path: Optional[str] = None,
 ) -> plt.Figure:
-    """Train / val loss and metric curves, with optional EMA smoothing."""
+    """Training and validation diagnostics; optional centered rolling mean."""
     if metrics is None:
         all_cols = [
             c
@@ -493,13 +510,7 @@ def plot_training_curves(
             if c.startswith("train/") or c.startswith("val/")
         ]
         bases = sorted({c.replace("train/", "").replace("val/", "") for c in all_cols})
-        # Keep only columns with both train and val
-        metrics = [
-            b
-            for b in bases
-            if f"train/{b}" in training_log.columns
-            and f"val/{b}" in training_log.columns
-        ]
+        metrics = bases  # Validation-only discrimination is still informative.
 
     if not metrics:
         return plt.figure()
@@ -508,7 +519,7 @@ def plot_training_curves(
     cols = min(n, 3)
     rows = (n + cols - 1) // cols
 
-    fig, axes = plt.subplots(rows, cols, figsize=(3.8 * cols, 3.0 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(3.0 * cols, 2.6 * rows))
     if n == 1:
         axes = np.array([axes])
     axes = axes.flatten()
@@ -528,11 +539,24 @@ def plot_training_curves(
         ]:
             col = f"{prefix}/{base}"
             if col in training_log.columns:
-                data = training_log[[x_col, col]].dropna().reset_index(drop=True)
+                data = (
+                    training_log[[x_col, col]]
+                    .dropna()
+                    .sort_values(x_col)
+                    .reset_index(drop=True)
+                )
                 raw = data[col]
                 smth = _smooth(raw, smooth_window)
-                ax.plot(data[x_col], raw, color=color, alpha=0.3, lw=0.8)
-                ax.plot(data[x_col], smth, color=color, lw=1.6, label=label)
+                if smooth_window > 1:
+                    ax.plot(data[x_col], raw, color=color, alpha=0.3, lw=0.8)
+                ax.plot(
+                    data[x_col],
+                    smth,
+                    color=color,
+                    lw=1.6,
+                    label=label,
+                    linestyle="-" if prefix == "train" else "--",
+                )
 
         ax.set_xlabel(x_col.title())
         ax.set_ylabel(base.replace("_", " ").title())
@@ -1174,8 +1198,8 @@ def plot_embedding_stage_metadata_grid(
     No enrichment claims are added automatically.
     """
     from matplotlib.lines import Line2D
-    from matplotlib.patches import FancyBboxPatch, Rectangle
-    from matplotlib.ticker import MaxNLocator
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
 
     if not stage_coords:
         raise ValueError("stage_coords must contain at least one embedding stage.")
@@ -1283,11 +1307,28 @@ def plot_embedding_stage_metadata_grid(
 
     n_rows = len(stages)
     n_cols = len(variables)
-    footer_height = 1.65 if show_footer else 0.30
+    legend_rows = max([len(order) for order in category_orders.values()] + [2])
+    footer_height = (0.30 * legend_rows + 0.35) if show_footer else 0.1
     fig = plt.figure(
-        figsize=(max(7.1, 3.0 * n_cols), 2.75 * n_rows + footer_height + 0.75)
+        figsize=(max(7.1, 2.65 * n_cols + 0.65), 2.55 * n_rows + footer_height + 0.85)
     )
-    axes = fig.subplots(n_rows, n_cols, squeeze=False)
+    grid = fig.add_gridspec(
+        n_rows + int(show_footer),
+        n_cols,
+        height_ratios=[2.55] * n_rows + ([footer_height] if show_footer else []),
+        left=0.08,
+        right=0.98,
+        top=0.90,
+        bottom=0.055,
+        wspace=0.14,
+        hspace=0.22,
+    )
+    axes = np.array(
+        [
+            [fig.add_subplot(grid[row, col]) for col in range(n_cols)]
+            for row in range(n_rows)
+        ]
+    )
     panel_aspect = 1.0
 
     stage_limits: Dict[str, tuple[tuple[float, float], tuple[float, float]]] = {}
@@ -1317,7 +1358,7 @@ def plot_embedding_stage_metadata_grid(
         finite = np.isfinite(numeric)
         if not finite.any():
             raise ValueError(f"Continuous variable {variable!r} has no finite values.")
-        low, high = np.nanpercentile(numeric[finite], [2, 98])
+        low, high = numeric[finite].min(), numeric[finite].max()
         if low == high:
             low -= 0.5
             high += 0.5
@@ -1344,7 +1385,7 @@ def plot_embedding_stage_metadata_grid(
                     coords[missing, 0],
                     coords[missing, 1],
                     c=PALETTE["missing"],
-                    s=4.2,
+                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
                     alpha=0.32,
                     linewidths=0,
                     rasterized=True,
@@ -1362,55 +1403,35 @@ def plot_embedding_stage_metadata_grid(
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
-                    s=4.2,
-                    alpha=0.72,
+                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
+                    alpha=0.85,
                     linewidths=0,
                     rasterized=True,
                     zorder=2,
                 )
             else:
-                for group in category_orders[variable]:
-                    selected = valid & (values == group)
-                    if selected.any():
-                        ax.scatter(
-                            coords[selected, 0],
-                            coords[selected, 1],
-                            c=resolved_category_colors[variable][group],
-                            s=4.2,
-                            alpha=0.67,
-                            linewidths=0,
-                            rasterized=True,
-                            zorder=2,
-                        )
+                indices = np.flatnonzero(valid)
+                indices = indices[np.random.default_rng(0).permutation(len(indices))]
+                colors = [
+                    resolved_category_colors[variable][values[index]]
+                    for index in indices
+                ]
+                ax.scatter(
+                    coords[indices, 0],
+                    coords[indices, 1],
+                    c=colors,
+                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
+                    alpha=0.70,
+                    linewidths=0,
+                    rasterized=True,
+                    zorder=2,
+                )
 
             ax.set_xlim(x_limits)
             ax.set_ylim(y_limits)
             ax.set_box_aspect(panel_aspect)
-            ax.xaxis.set_major_locator(MaxNLocator(4))
-            ax.yaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(
-                labelsize=TICK_SIZE - 1.5, length=2.5, colors=PALETTE["ink_secondary"]
-            )
-            ax.grid(True, color=PALETTE["grid"], linewidth=0.6, alpha=1.0)
-            ax.set_axisbelow(True)
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            ax.spines["left"].set_color(PALETTE["panel_border"])
-            ax.spines["bottom"].set_color(PALETTE["panel_border"])
-            ax.spines["left"].set_linewidth(0.7)
-            ax.spines["bottom"].set_linewidth(0.7)
-            ax.set_xlabel(
-                f"{axis_label}-1",
-                fontsize=TICK_SIZE,
-                labelpad=3,
-                color=PALETTE["ink_secondary"],
-            )
-            ax.set_ylabel(
-                f"{axis_label}-2",
-                fontsize=TICK_SIZE,
-                labelpad=3,
-                color=PALETTE["ink_secondary"],
-            )
+            clean_2d_axes(ax)
+            ax.set_facecolor("#FAFBFD")
             if row == 0:
                 ax.set_title(
                     variable_labels.get(variable, variable),
@@ -1446,175 +1467,74 @@ def plot_embedding_stage_metadata_grid(
                 )
 
         axes[row, 0].text(
-            -0.46,
+            -0.08,
             0.5,
-            stage_labels.get(stage, stage),
+            stage_labels.get(stage, model_label(stage)),
             transform=axes[row, 0].transAxes,
-            ha="center",
+            ha="right",
             va="center",
-            fontsize=TITLE_SIZE - 1,
+            rotation=90,
+            fontsize=NOTE_SIZE,
             fontweight="semibold",
             color=PALETTE["ink"],
             linespacing=1.2,
         )
 
-    fig.suptitle(
-        title,
-        fontsize=SUPTITLE_SIZE,
-        fontweight="semibold",
-        color=PALETTE["ink"],
-        y=0.988,
-    )
-    fig.text(
-        0.5,
-        0.954,
-        subtitle
-        or "Held-out patient embeddings projected to 2D and recolored by clinical metadata",
-        ha="center",
-        va="top",
-        fontsize=SUBTITLE_SIZE,
-        style="italic",
-        color=PALETTE["ink_secondary"],
-    )
-
+    fig.text(0.08, 0.97, title, fontsize=SUPTITLE_SIZE, fontweight="semibold", va="top")
     if show_footer:
-        footer_bottom = 0.036
-        footer_top = 0.183 if n_rows <= 2 else 0.15
-        footer = FancyBboxPatch(
-            (0.045, footer_bottom),
-            0.91,
-            footer_top - footer_bottom,
-            boxstyle="round,pad=0.006,rounding_size=0.012",
-            transform=fig.transFigure,
-            facecolor="white",
-            edgecolor=PALETTE["panel_border"],
-            linewidth=0.8,
-            zorder=-1,
-        )
-        fig.add_artist(footer)
-
-        n_footer_columns = len(variables)
-        inner_left, inner_right = 0.06, 0.94
-        column_width = (inner_right - inner_left) / n_footer_columns
-
-        for index in range(1, n_footer_columns):
-            x = inner_left + index * column_width
-            fig.add_artist(
-                Line2D(
-                    [x, x],
-                    [footer_bottom + 0.012, footer_top - 0.012],
-                    transform=fig.transFigure,
-                    color=PALETTE["panel_border"],
-                    linewidth=0.7,
-                )
-            )
-
-        for index, variable in enumerate(variables):
-            left = inner_left + index * column_width
-            center = left + column_width / 2
-            fig.text(
-                center,
-                footer_top - 0.022,
-                variable_labels.get(variable, variable),
-                ha="center",
-                va="top",
-                fontsize=LEGEND_TITLE_SIZE,
-                fontweight="semibold",
-                color=PALETTE["ink"],
-            )
+        for column, variable in enumerate(variables):
+            legend_ax = fig.add_subplot(grid[-1, column])
+            legend_ax.set_axis_off()
             if kinds[variable] == "continuous":
-                cmap = resolved_continuous_cmaps[variable]
-                gradient_left = left + 0.16 * column_width
-                gradient_width = 0.68 * column_width
-                gradient_y = footer_top - 0.076
-                for step in range(24):
-                    fig.add_artist(
-                        Rectangle(
-                            (gradient_left + gradient_width * step / 24, gradient_y),
-                            gradient_width / 24 + 0.0002,
-                            0.014,
-                            transform=fig.transFigure,
-                            facecolor=cmap(step / 23),
-                            edgecolor="none",
-                        )
-                    )
                 low, high = continuous_ranges[variable]
-
-                def format_endpoint(value: float) -> str:
-                    return f"{value:.0f}" if abs(value) >= 100 else f"{value:.1f}"
-
-                fig.text(
-                    gradient_left,
-                    gradient_y - 0.008,
-                    format_endpoint(low),
-                    ha="left",
-                    va="top",
-                    fontsize=NOTE_SIZE,
-                    color=PALETTE["ink_secondary"],
+                bar_ax = legend_ax.inset_axes([0.08, 0.68, 0.84, 0.10])
+                fig.colorbar(
+                    ScalarMappable(
+                        norm=Normalize(low, high),
+                        cmap=resolved_continuous_cmaps[variable],
+                    ),
+                    cax=bar_ax,
+                    orientation="horizontal",
                 )
-                fig.text(
-                    gradient_left + gradient_width,
-                    gradient_y - 0.008,
-                    format_endpoint(high),
-                    ha="right",
-                    va="top",
-                    fontsize=NOTE_SIZE,
-                    color=PALETTE["ink_secondary"],
+                bar_ax.tick_params(labelsize=NOTE_SIZE, length=2)
+                bar_ax.set_title(
+                    variable_labels.get(variable, variable), fontsize=NOTE_SIZE, pad=7
                 )
             else:
-                groups = category_orders[variable]
-                display_groups = groups[:7]
-                y_start = footer_top - 0.054
-                line_height = min(0.018, (footer_top - footer_bottom - 0.055) / 7)
-                for group_index, group in enumerate(display_groups):
-                    y = y_start - group_index * line_height
-                    fig.add_artist(
+                values = normalized_metadata[variable]
+                handles = [
+                    Line2D(
+                        [],
+                        [],
+                        marker="o",
+                        linestyle="none",
+                        markersize=5,
+                        markeredgewidth=0,
+                        color=resolved_category_colors[variable][group],
+                        label=f"{category_labels.get(variable, {}).get(group, str(group))}  ·  {np.sum(values == group):,}",
+                    )
+                    for group in category_orders[variable]
+                ]
+                missing = categorical_missing(values)
+                if missing.any():
+                    handles.append(
                         Line2D(
-                            [left + 0.12 * column_width],
-                            [y],
-                            transform=fig.transFigure,
+                            [],
+                            [],
                             marker="o",
-                            markersize=4.8,
                             linestyle="none",
-                            markerfacecolor=resolved_category_colors[variable][group],
-                            markeredgecolor="none",
+                            color=PALETTE["missing"],
+                            label=f"Missing  ·  {missing.sum():,}",
                         )
                     )
-                    label = category_labels.get(variable, {}).get(group, str(group))
-                    fig.text(
-                        left + 0.20 * column_width,
-                        y,
-                        label,
-                        ha="left",
-                        va="center",
-                        fontsize=NOTE_SIZE,
-                        color=PALETTE["ink"],
-                    )
-                if len(groups) > len(display_groups):
-                    fig.text(
-                        left + 0.20 * column_width,
-                        y_start - len(display_groups) * line_height,
-                        f"+ {len(groups) - len(display_groups)} more",
-                        fontsize=NOTE_SIZE - 0.5,
-                        color=PALETTE["ink_muted"],
-                        va="center",
-                    )
-
-    # The footer's height is driven by the tallest per-variable legend (up to
-    # 7 category rows), not by the number of columns — removing the
-    # outcome-definition/interpretation-note columns freed width, not height,
-    # so bottom_margin still needs real clearance above footer_top.
-    bottom_margin = (
-        0.235 if show_footer and n_rows <= 2 else 0.17 if show_footer else 0.065
-    )
-    fig.subplots_adjust(
-        left=0.115,
-        right=0.985,
-        top=0.895,
-        bottom=bottom_margin,
-        wspace=0.25,
-        hspace=0.37,
-    )
+                legend_ax.legend(
+                    handles=handles,
+                    loc="upper left",
+                    fontsize=NOTE_SIZE,
+                    frameon=False,
+                    borderaxespad=0,
+                    labelspacing=0.65,
+                )
     save_fig(fig, save_path)
     return fig
 

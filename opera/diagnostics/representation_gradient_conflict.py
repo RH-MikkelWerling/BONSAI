@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+from opera.visualization.style import save_fig
 import numpy as np
 import pandas as pd
 import torch
@@ -492,7 +493,7 @@ def _write_heatmap(
     ax.set_title("Representation gradient cosine, ordered by event rate")
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
-    fig.savefig(path, dpi=200)
+    save_fig(fig, path)
     plt.close(fig)
 
 

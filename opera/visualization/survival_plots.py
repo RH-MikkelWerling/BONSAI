@@ -13,6 +13,8 @@ from opera.visualization.style import (
     PALETTE,
     model_color,
     model_label,
+    model_linestyle,
+    despine,
     save_fig,
     setup_style,
 )
@@ -40,6 +42,7 @@ def plot_timedep_auc_curves(
             group["ipcw_auc"],
             marker="o",
             color=color,
+            linestyle=model_linestyle(str(model)),
             label=model_label(str(model)),
         )
         if {"ci_lower", "ci_upper"}.issubset(group.columns):
@@ -51,8 +54,12 @@ def plot_timedep_auc_curves(
                 alpha=0.13,
                 linewidth=0,
             )
-    for x in (30, 90, 365, 730):
-        ax.axvline(x, color=PALETTE["diagonal"], linewidth=0.7, linestyle="--")
+    ax.axhline(
+        0.5, color=PALETTE["diagonal"], linewidth=0.9, linestyle="--", label="Chance"
+    )
+    ax.set_ylim(0, 1.02)
+    ax.set_title(outcome.replace("_", " ").title())
+    despine(ax, "y")
     ax.set_xlabel("Horizon (days)")
     ax.set_ylabel("IPCW-AUC")
     ax.legend(fontsize=LEGEND_SIZE)
@@ -76,6 +83,7 @@ def plot_calibration_comparison(
     df = results_df[results_df["outcome"] == outcome].copy()
     fig, ax = plt.subplots(figsize=FIG_FULL)
     for cohort, group in df.groupby("cohort"):
+        group = group.sort_values("predicted")
         label = str(cohort)
         if "ece" in group.columns and "hl_pvalue" in group.columns:
             label = f"{label} ECE={group['ece'].iloc[0]:.3f}, HL p={group['hl_pvalue'].iloc[0]:.3f}"
@@ -84,11 +92,14 @@ def plot_calibration_comparison(
             group["observed"],
             marker="o",
             color=model_color(str(cohort)),
+            linestyle=model_linestyle(str(cohort)),
             label=label,
         )
     ax.plot([0, 1], [0, 1], color=PALETTE["diagonal"], linestyle="--", linewidth=0.9)
     ax.set_xlabel("Predicted risk")
     ax.set_ylabel("Observed event rate")
+    ax.set(xlim=(0, 1), ylim=(0, 1), aspect="equal")
+    despine(ax, "none")
     ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)
@@ -114,14 +125,24 @@ def plot_decision_curves(
     )
     fig, ax = plt.subplots(figsize=FIG_FULL)
     for model, group in df.groupby("model_family"):
+        group = group.sort_values("threshold")
         ax.plot(
             group["threshold"],
             group["net_benefit_model"],
             color=model_color(str(model)),
+            linestyle=model_linestyle(str(model)),
             label=model_label(str(model)),
         )
     if "net_benefit_treat_all" in df.columns:
-        ref = df.sort_values("threshold")
+        ref = (
+            df[["threshold", "net_benefit_treat_all"]]
+            .drop_duplicates()
+            .sort_values("threshold")
+        )
+        if ref["threshold"].duplicated().any():
+            raise ValueError(
+                "Treat-all references differ between models; plot matched evaluation cohorts separately."
+            )
         ax.plot(
             ref["threshold"],
             ref["net_benefit_treat_all"],
@@ -132,6 +153,7 @@ def plot_decision_curves(
     ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.8, label="Treat none")
     ax.set_xlabel("Risk threshold")
     ax.set_ylabel("Net benefit")
+    despine(ax, "y")
     ax.legend(fontsize=LEGEND_SIZE)
     fig.tight_layout()
     save_fig(fig, save_path)

@@ -413,6 +413,9 @@ def main(cfg: DictConfig) -> None:
     )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
     mark_training_complete(model_save_dir, cfg)
+    from opera.visualization.training_report import export_training_report
+
+    export_training_report(logger, model_save_dir, is_global_zero=trainer.is_global_zero)
 
     # ── Save test outcomes for evaluation ────────────────────────────
     torch.save(

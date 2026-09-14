@@ -135,13 +135,40 @@ def plot_transfer_matrix(
         matrix = transfer_df.pivot(index="source", columns="target", values="auroc")
     else:
         matrix = transfer_df.copy()
-    norm = matrix.astype(float).copy()
-    for item in norm.index.intersection(norm.columns):
-        diag = norm.loc[item, item]
-        if np.isfinite(diag) and diag != 0:
-            norm.loc[:, item] = norm.loc[:, item] / diag
+    matrix = matrix.astype(float)
+    diagonal = pd.Series(
+        {
+            item: matrix.loc[item, item]
+            for item in matrix.index.intersection(matrix.columns)
+        }
+    )
+    diagonal = diagonal.where(np.isfinite(diagonal) & (diagonal > 0))
+    norm = matrix.div(diagonal.reindex(matrix.columns), axis="columns")
     fig, ax = plt.subplots(figsize=FIG_FULL)
-    im = ax.imshow(norm.to_numpy(float), cmap="coolwarm", vmin=0.75, vmax=1.25)
+    values = norm.to_numpy(float)
+    finite = values[np.isfinite(values)]
+    bound = max(0.25, float(np.max(np.abs(finite - 1))) if finite.size else 0.25)
+    cmap = plt.colormaps["RdBu"].with_extremes(bad=PALETTE["missing"])
+    im = ax.imshow(
+        np.ma.masked_invalid(values), cmap=cmap, vmin=1 - bound, vmax=1 + bound
+    )
+    if max(values.shape) <= 12:
+        for (row, col), value in np.ndenumerate(values):
+            ax.text(
+                col,
+                row,
+                f"{value:.2f}" if np.isfinite(value) else "—",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="white"
+                if np.isfinite(value) and abs(value - 1) > 0.65 * bound
+                else PALETTE["ink"],
+            )
+    ax.grid(False)
+    ax.tick_params(length=0)
+    ax.set_xlabel("Target disease")
+    ax.set_ylabel("Source disease")
     ax.set_xticks(
         range(len(norm.columns)), labels=norm.columns, rotation=45, ha="right"
     )

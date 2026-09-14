@@ -216,6 +216,9 @@ def main(cfg: DictConfig) -> None:
     trainer.fit(model=lightning_module, datamodule=data_module, ckpt_path=resume_ckpt)
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
     mark_training_complete(model_save_dir, cfg)
+    from opera.visualization.training_report import export_training_report
+
+    export_training_report(logger, model_save_dir, is_global_zero=trainer.is_global_zero)
     print(f"\nJoint finetune complete. Checkpoint: {model_save_dir}/best.ckpt")
 
 

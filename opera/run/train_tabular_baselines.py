@@ -27,7 +27,11 @@ from opera.evaluation.cohorts import (
     build_evaluation_cohorts,
     population_subject_ids,
 )
-from opera.evaluation.comparison import fit_cox_survival, fit_xgboost_aft
+from opera.evaluation.comparison import (
+    fit_cox_survival,
+    fit_xgboost_aft,
+    fit_xgboost_cox,
+)
 from opera.functional.ipcw import compute_ipcw_train_weights
 from opera.functional.tabular_features import prepare_feature_matrix, read_feature_table
 
@@ -41,7 +45,7 @@ RESERVED_COLUMNS = {
     "time_days",
     "event",
 }
-SURVIVAL_MODELS = frozenset({"cox", "xgboost_aft"})
+SURVIVAL_MODELS = frozenset({"cox", "xgboost_cox", "xgboost_aft"})
 
 # Validation-set tuning grids for binary classifiers.
 # Each entry is a list of parameter dicts to evaluate on the validation split.
@@ -674,7 +678,12 @@ def train_one_survival_model(
     tau_days: float,
 ):
     """Train one censoring-aware survival model and return held-out predictions."""
-    fit = fit_cox_survival if model_name == "cox" else fit_xgboost_aft
+    fitters = {
+        "cox": fit_cox_survival,
+        "xgboost_cox": fit_xgboost_cox,
+        "xgboost_aft": fit_xgboost_aft,
+    }
+    fit = fitters[model_name]
     predictor, backend, notes = fit(
         features=train_df[feature_columns],
         times=train_df["time_days"].to_numpy(dtype=float),
@@ -775,7 +784,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         )
 
     requested_models = (
-        ["logistic", "xgboost", "cox", "xgboost_aft"]
+        ["logistic", "xgboost", "cox", "xgboost_cox", "xgboost_aft"]
         if args.models == "all"
         else parse_columns(args.models)
     )
@@ -1255,7 +1264,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--models",
         default="xgboost",
-        help="xgboost, logistic, tabpfn, cox, xgboost_aft, comma list, or all",
+        help=(
+            "xgboost, logistic, tabpfn, cox, xgboost_cox, xgboost_aft, "
+            "comma list, or all"
+        ),
     )
     parser.add_argument("--model_prefix", default="tabular_ehr")
     parser.add_argument(

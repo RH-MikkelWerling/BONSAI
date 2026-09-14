@@ -52,7 +52,11 @@ from opera.evaluation.results_schema import (
     write_result_artifacts,
 )
 from opera.evaluation.subgroups import compute_subgroup_metrics, load_subgroup_table
-from opera.visualization.classification_plots import plot_full_evaluation
+from opera.visualization.classification_plots import (
+    plot_full_evaluation,
+    plot_timedep_auc,
+    survival_plot_horizon,
+)
 from opera.visualization.embedding_plots import (
     plot_embedding_projection,
     plot_similarity_distributions,
@@ -94,9 +98,7 @@ def checkpoint_input_contract(ckpt_path: str) -> dict:
     """Return the resolved input contract stored by the fitted checkpoint."""
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     hparams = ckpt.get("hyper_parameters", {})
-    return {
-        "numeric_value_control": resolve_numeric_value_control("inherit", hparams)
-    }
+    return {"numeric_value_control": resolve_numeric_value_control("inherit", hparams)}
 
 
 def _read_checkpoint_sidecar(run_dir: Path) -> dict:
@@ -601,6 +603,17 @@ def main(cfg: DictConfig) -> None:
             window_days=window_days,
             outcome_name=cfg.get("outcome", ""),
         )
+    else:
+        horizon = survival_plot_horizon(times_all, window_days)
+        if horizon is not None:
+            plot_timedep_auc(
+                times_all,
+                events_all,
+                probs_all,
+                window_days=horizon,
+                title="Survival discrimination",
+                save_path=str(output_dir / "plots" / "timedep_auc.png"),
+            )
 
     # Embedding visualizations
     print("Generating embedding visualizations...")

@@ -15,6 +15,7 @@ from opera.visualization.style import (
     PALETTE,
     despine,
     model_color,
+    model_linestyle,
     model_label,
     save_fig,
     setup_style,
@@ -612,7 +613,7 @@ def plot_natural_rarity_scatter(
         save_fig(fig, save_path)
         return fig
     for outcome, group in data.groupby("outcome"):
-        color = CATEGORICAL[hash(outcome) % len(CATEGORICAL)]
+        color = model_color(outcome)
         marker = "o"
         main = group[group["natural_viability_tier"] == "primary"]
         aggregate = group[group["natural_viability_tier"] == "aggregate_only"]
@@ -673,7 +674,7 @@ def plot_diagnosis_learning_curves(
             group["estimate"],
             marker="o",
             color=model_color(model),
-            linestyle="-" if hash(outcome) % 2 else "--",
+            linestyle=model_linestyle(outcome),
             label=f"{model_label(model)} | {outcome.replace('_', ' ')}",
         )
     if not summary.empty and (summary["sample_size"] > 0).all():
@@ -725,7 +726,7 @@ def plot_combined_rarity_experiment(
     )
     if not nat.empty:
         for outcome, group in nat.groupby("outcome"):
-            color = CATEGORICAL[hash(outcome) % len(CATEGORICAL)]
+            color = model_color(outcome)
             ax_nat.scatter(
                 group["n_train_determinate"],
                 group["difference"],
@@ -855,7 +856,7 @@ def plot_rarity_delta(
     )
     for i, row in plot_df.reset_index(drop=True).iterrows():
         tier = str(row.get("rarity_tier", "unknown"))
-        color = CATEGORICAL[hash(tier) % len(CATEGORICAL)]
+        color = model_color(tier)
         ax.scatter(i, row["delta"], color=color, s=38, zorder=3)
         ax.text(
             i, row["delta"], row["label"], fontsize=ANNOT_SIZE, ha="center", va="bottom"

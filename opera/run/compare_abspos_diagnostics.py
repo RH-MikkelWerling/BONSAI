@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from opera.visualization.style import save_fig
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
@@ -93,8 +94,7 @@ def main() -> None:
     axis.set_title("Counterfactual calendar sensitivity (95% bootstrap CI)")
     axis.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(args.output_dir / "calendar_shift_sensitivity.png", dpi=200)
-    fig.savefig(args.output_dir / "calendar_shift_sensitivity.pdf")
+    save_fig(fig, args.output_dir / "calendar_shift_sensitivity.png")
     plt.close(fig)
 
     fig, axes = plt.subplots(
@@ -123,8 +123,7 @@ def main() -> None:
             fig.colorbar(scatter, ax=axis, label="Calendar year")
     fig.suptitle("Event embeddings colored by calendar era")
     fig.tight_layout()
-    fig.savefig(args.output_dir / "contextual_embeddings_by_era.png", dpi=200)
-    fig.savefig(args.output_dir / "contextual_embeddings_by_era.pdf")
+    save_fig(fig, args.output_dir / "contextual_embeddings_by_era.png")
     plt.close(fig)
     print(f"Wrote checkpoint comparison to {args.output_dir}")
 

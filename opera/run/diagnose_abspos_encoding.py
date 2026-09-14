@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from opera.visualization.style import save_fig
 import numpy as np
 import pandas as pd
 import torch
@@ -161,8 +162,7 @@ def main() -> None:
         for axis in axes[-1]:
             axis.set_xlabel("Calendar year")
         fig.tight_layout()
-        fig.savefig(args.output, dpi=200)
-        fig.savefig(args.output.with_suffix(".pdf"))
+        save_fig(fig, args.output)
         plt.close(fig)
         pd.DataFrame(summary_rows).to_csv(
             args.output.with_name(f"{args.output.stem}_summary.csv"), index=False

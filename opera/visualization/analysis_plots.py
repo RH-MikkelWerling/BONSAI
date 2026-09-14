@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import textwrap
 
 from opera.visualization.style import (
     PALETTE,
@@ -30,7 +31,6 @@ from opera.visualization.style import (
     LEGEND_SIZE,
     LEGEND_TITLE_SIZE,
     NOTE_SIZE,
-    SUBTITLE_SIZE,
     SUPTITLE_SIZE,
     TICK_SIZE,
     TITLE_SIZE,
@@ -43,7 +43,9 @@ from opera.visualization.style import (
 
 
 def _outcome_display(name: str) -> str:
-    return name.replace("_", "\n").title()
+    return textwrap.fill(
+        name.replace("_", " ").title(), width=12, break_long_words=False
+    )
 
 
 def plot_transfer_matrix(
@@ -58,57 +60,46 @@ def plot_transfer_matrix(
     Diagonal = cross-validated self-prediction (bold).
     Off-diagonal = zero-shot transfer (train on row, evaluate on column).
 
-    Color: green = high discrimination, red = near-random.
-    Diagonal cells shown in a distinct shade to distinguish from transfer.
+    One shared sequential scale encodes discrimination in every cell.
+    Outlines and bold labels distinguish self-prediction from transfer.
     """
-    n = len(matrix)
-    values = matrix.values.astype(float)
-    diag_vals = np.diag(values)
-
-    fig, ax = plt.subplots(figsize=(max(5.0, 1.4 * n), max(4.5, 1.2 * n)))
-
-    # Mask diagonal to plot separately
-    off_diag = values.copy()
-    np.fill_diagonal(off_diag, np.nan)
-
-    # Off-diagonal heatmap (0.4 to 1.0 range)
-    cmap_off = plt.cm.RdYlGn
-    im = ax.imshow(off_diag, cmap=cmap_off, vmin=0.4, vmax=1.0, aspect="auto")
-
-    # Diagonal overlay with a distinct colormap slice
-    diag_cmap = plt.cm.Blues
-    for i in range(n):
-        v = diag_vals[i]
-        bg = (
-            diag_cmap(0.4 + 0.5 * (v - 0.4) / 0.6)
-            if not np.isnan(v)
-            else (0.9, 0.9, 0.9, 1)
+    if matrix.shape[0] != matrix.shape[1] or set(matrix.index) != set(matrix.columns):
+        raise ValueError(
+            "Transfer matrix must have matching source and target outcomes."
         )
-        rect = plt.Rectangle((i - 0.5, i - 0.5), 1, 1, color=bg, zorder=2)
-        ax.add_patch(rect)
-
-    # Annotations
+    matrix = matrix.loc[matrix.columns, matrix.columns]
+    n = len(matrix)
+    values = matrix.to_numpy(dtype=float)
+    fig, ax = plt.subplots(figsize=(max(5.0, 0.65 * n + 2), max(4.5, 0.65 * n + 1.5)))
+    cmap = sequential_cmap("opera").with_extremes(bad=PALETTE["missing"])
+    im = ax.imshow(np.ma.masked_invalid(values), cmap=cmap, vmin=0, vmax=1)
+    ax.grid(False)
+    ax.tick_params(length=0)
     for i in range(n):
         for j in range(n):
-            v = matrix.iloc[i, j]
-            if np.isnan(v):
-                text, fw = "—", "normal"
-            else:
-                text, fw = f"{v:.3f}", ("bold" if i == j else "normal")
-            # White text on dark cells, dark ink on light
-            bg_val = v if not np.isnan(v) else 0.7
-            text_color = "white" if (bg_val < 0.52 or bg_val > 0.88) else PALETTE["ink"]
+            value = values[i, j]
             ax.text(
                 j,
                 i,
-                text,
+                f"{value:.3f}" if np.isfinite(value) else "?",
                 ha="center",
                 va="center",
                 fontsize=ANNOT_SIZE,
-                fontweight=fw,
-                color=text_color,
-                zorder=3,
+                fontweight="bold" if i == j else "normal",
+                color="white"
+                if np.isfinite(value) and value > 0.65
+                else PALETTE["ink"],
             )
+        ax.add_patch(
+            plt.Rectangle(
+                (i - 0.5, i - 0.5),
+                1,
+                1,
+                fill=False,
+                edgecolor=PALETTE["ink"],
+                linewidth=1.2,
+            )
+        )
 
     display_names = [_outcome_display(c) for c in matrix.columns]
     ax.set_xticks(range(n))
@@ -125,9 +116,7 @@ def plot_transfer_matrix(
     )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label(
-        f"{metric}  (off-diagonal)", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"]
-    )
+    cbar.set_label(f"{metric}", fontsize=NOTE_SIZE, color=PALETTE["ink_secondary"])
     cbar.ax.tick_params(labelsize=NOTE_SIZE, colors=PALETTE["ink_secondary"])
     cbar.outline.set_edgecolor(PALETTE["panel_border"])
 
@@ -135,8 +124,11 @@ def plot_transfer_matrix(
     from matplotlib.patches import Patch
 
     legend_els = [
-        Patch(facecolor=plt.cm.Blues(0.7), label="Diagonal: self-prediction (CV)"),
-        Patch(facecolor=plt.cm.RdYlGn(0.8), label="Off-diagonal: transfer"),
+        Patch(
+            facecolor="none",
+            edgecolor=PALETTE["ink"],
+            label="Outlined: self-prediction (CV)",
+        ),
     ]
     legend = ax.legend(
         handles=legend_els,
@@ -568,10 +560,6 @@ def plot_within_stratum_grid(
     if outcome_name != "outcome":
         default_title += f" — {outcome_name.replace('_', ' ')}"
     title = title or default_title
-    subtitle = subtitle or (
-        f"Shared {method.upper()} projection, shown separately within "
-        f"clinician-defined {stratum_name} strata"
-    )
     fig.suptitle(
         title,
         fontsize=SUPTITLE_SIZE,
@@ -579,17 +567,6 @@ def plot_within_stratum_grid(
         color=PALETTE["ink"],
         y=0.985,
     )
-    fig.text(
-        0.5,
-        0.947,
-        subtitle,
-        ha="center",
-        va="top",
-        fontsize=SUBTITLE_SIZE,
-        color=PALETTE["ink_secondary"],
-        style="italic",
-    )
-
     if show_footer:
         legend_handles = [
             Line2D(
