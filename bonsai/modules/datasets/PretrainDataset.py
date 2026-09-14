@@ -11,6 +11,7 @@ from bonsai.functional.subject_data import clone_subject
 from bonsai.functional.truncation import (
     infer_background_length,
     sequence_tensor_fields,
+    subject_window_count,
     truncate_subject,
 )
 
@@ -43,9 +44,31 @@ class PretrainDataset(Dataset):
         self.cutoff_date = (
             compute_abspos(datetime(**cutoff_date)) if cutoff_date is not None else None
         )
+        self.sample_index = [(index, None) for index in range(len(subjects))]
+        if self.truncation_strategy == "all_windows":
+            self.sample_index = []
+            for subject_index, raw_subject in enumerate(self.subjects):
+                background_length = (
+                    infer_background_length(raw_subject)
+                    if self.background_length is None
+                    else int(self.background_length)
+                )
+                subject = (
+                    censor_subject(raw_subject, self.cutoff_date, inclusive=False)
+                    if self.cutoff_date is not None
+                    else raw_subject
+                )
+                n_windows = subject_window_count(
+                    subject, self.max_len, background_length
+                )
+                self.sample_index.extend(
+                    (subject_index, window_index)
+                    for window_index in range(n_windows)
+                )
 
     def _prepare_subject(self, index: int) -> tuple[dict, dict]:
-        subject = clone_subject(self.subjects[index])
+        subject_index, window_index = self.sample_index[index]
+        subject = clone_subject(self.subjects[subject_index])
         background_length = (
             infer_background_length(subject)
             if self.background_length is None
@@ -60,6 +83,7 @@ class PretrainDataset(Dataset):
             strategy=self.truncation_strategy,
             tail_window_probability=self.tail_window_probability,
             generator=self.generator,
+            window_index=window_index,
             return_metadata=True,
         )
         truncated_subject["attention_mask"] = torch.ones(
@@ -88,7 +112,7 @@ class PretrainDataset(Dataset):
         return truncated_subject
 
     def __len__(self):
-        return len(self.subjects)
+        return len(self.sample_index)
 
 
 class MLMPretrainDataset(PretrainDataset):

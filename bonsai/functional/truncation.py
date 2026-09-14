@@ -8,7 +8,7 @@ import torch
 
 from bonsai.functional.subject_data import clone_subject
 
-TruncationStrategy = Literal["tail", "random_window", "mixed_window"]
+TruncationStrategy = Literal["tail", "random_window", "mixed_window", "all_windows"]
 SEQUENCE_FIELDS = ("code", "abspos", "segment", "age")
 
 
@@ -40,6 +40,82 @@ def sequence_tensor_fields(subject: Dict[str, torch.Tensor]) -> tuple[str, ...]:
         and value.ndim > 0
         and len(value) == sequence_length
     )
+
+
+def _event_group_boundaries(clinical_segments: torch.Tensor) -> torch.Tensor:
+    """Offsets delimiting complete contiguous clinical event groups."""
+    clinical_length = len(clinical_segments)
+    if clinical_length == 0:
+        return torch.tensor([0], dtype=torch.long)
+    return torch.cat(
+        (
+            torch.tensor([0], dtype=torch.long),
+            torch.nonzero(
+                clinical_segments[1:] != clinical_segments[:-1],
+                as_tuple=False,
+            ).flatten()
+            + 1,
+            torch.tensor([clinical_length], dtype=torch.long),
+        )
+    )
+
+
+def exhaustive_clinical_windows(
+    subject: Dict[str, torch.Tensor],
+    max_len: int,
+    background_length: int,
+) -> list[tuple[int, int]]:
+    """Partition clinical history into chronological, event-complete windows.
+
+    Returned offsets are relative to the clinical portion of the record. The
+    background block is not included because callers prepend it to every view.
+    Clinical tokens occur in exactly one returned window.
+    """
+    sequence_length = len(subject["code"])
+    background_length = int(background_length)
+    if max_len <= 0 or not 0 <= background_length <= sequence_length:
+        raise ValueError("Invalid max_len or background_length.")
+    if max_len < background_length:
+        raise ValueError("max_len cannot be smaller than background_length.")
+    clinical_budget = max_len - background_length
+    if clinical_budget <= 0 and sequence_length > background_length:
+        raise ValueError("max_len leaves no room for clinical event groups.")
+    clinical_segments = subject["segment"][background_length:]
+    if len(clinical_segments) == 0:
+        return [(0, 0)]
+    boundaries = _event_group_boundaries(clinical_segments)
+    group_lengths = boundaries[1:] - boundaries[:-1]
+    if bool((group_lengths > clinical_budget).any()):
+        raise ValueError(
+            "A clinical event group cannot fit without being split: "
+            f"largest_group={int(group_lengths.max().item())}, "
+            f"available_tokens={clinical_budget}."
+        )
+    windows: list[tuple[int, int]] = []
+    start_group = 0
+    used = 0
+    for group_index, group_length in enumerate(group_lengths.tolist()):
+        if used and used + int(group_length) > clinical_budget:
+            windows.append(
+                (
+                    int(boundaries[start_group].item()),
+                    int(boundaries[group_index].item()),
+                )
+            )
+            start_group = group_index
+            used = 0
+        used += int(group_length)
+    windows.append(
+        (int(boundaries[start_group].item()), int(boundaries[-1].item()))
+    )
+    return windows
+
+
+def subject_window_count(
+    subject: Dict[str, torch.Tensor], max_len: int, background_length: int
+) -> int:
+    """Number of exhaustive examples generated for one subject."""
+    return len(exhaustive_clinical_windows(subject, max_len, background_length))
 
 
 def _clinical_window_start(
@@ -77,6 +153,7 @@ def truncate_subject(
     strategy: TruncationStrategy = "tail",
     tail_window_probability: float = 0.5,
     generator: Optional[torch.Generator] = None,
+    window_index: Optional[int] = None,
     *,
     return_metadata: bool = False,
 ) -> dict | Tuple[dict, dict]:
@@ -110,8 +187,33 @@ def truncate_subject(
         "truncated": sequence_length > max_len,
         "clinical_window_started_mid_history": False,
         "background_length": background_length,
+        "window_index": 0,
+        "n_windows": 1,
     }
-    if sequence_length > max_len:
+    if strategy == "all_windows":
+        windows = exhaustive_clinical_windows(result, max_len, background_length)
+        if window_index is None:
+            raise ValueError("all_windows requires an explicit window_index.")
+        if not 0 <= int(window_index) < len(windows):
+            raise IndexError(
+                f"window_index={window_index} is outside [0, {len(windows)})."
+            )
+        start_offset, stop_offset = windows[int(window_index)]
+        metadata["window_index"] = int(window_index)
+        metadata["n_windows"] = len(windows)
+        if sequence_length > max_len:
+            clinical_start = background_length + start_offset
+            clinical_stop = background_length + stop_offset
+            indices = torch.cat(
+                (
+                    torch.arange(background_length, dtype=torch.long),
+                    torch.arange(clinical_start, clinical_stop, dtype=torch.long),
+                )
+            )
+            for field in sequence_tensor_fields(result):
+                result[field] = result[field][indices]
+            metadata["clinical_window_started_mid_history"] = start_offset > 0
+    elif sequence_length > max_len:
         kept_clinical_tokens = max_len - background_length
         clinical_length = sequence_length - background_length
         clinical_segments = result["segment"][background_length:]
@@ -120,17 +222,7 @@ def truncate_subject(
 
         # Contiguous runs are event groups.  Build every maximal window that
         # fits so tail/random/mixed sampling cannot bisect an event.
-        boundaries = torch.cat(
-            (
-                torch.tensor([0], dtype=torch.long),
-                torch.nonzero(
-                    clinical_segments[1:] != clinical_segments[:-1],
-                    as_tuple=False,
-                ).flatten()
-                + 1,
-                torch.tensor([clinical_length], dtype=torch.long),
-            )
-        )
+        boundaries = _event_group_boundaries(clinical_segments)
         group_lengths = boundaries[1:] - boundaries[:-1]
         oversized = group_lengths > kept_clinical_tokens
         if oversized.any():

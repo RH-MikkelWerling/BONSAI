@@ -157,6 +157,7 @@ class PretrainDataModule(L.LightningDataModule):
             pin_memory=False,
             persistent_workers=self.num_workers > 0,
             drop_last=True,
+            shuffle=self.train_truncation_strategy == "all_windows",
             collate_fn=dynamic_padding,
         )
 

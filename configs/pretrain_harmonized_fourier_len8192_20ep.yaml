@@ -1,0 +1,64 @@
+defaults:
+  - pretrain_representation_ablation
+  - _self_
+
+# Production DALY-CARE-only pretraining after ehr2meds namespace
+# harmonization. This is intentionally a fresh run: do not resume a checkpoint
+# whose vocabulary was built before the final namespace corrections.
+dataset: daly_care_t100_joined_bins_harmonized
+
+paths:
+  # Resolve from BONSAI_PROCESSED_DATA unless explicitly overridden at launch.
+  dir: ${oc.env:BONSAI_PROCESSED_DATA}/${dataset}
+  train_split: ${paths.dir}/subject_data_train.pt
+  val_split: ${paths.dir}/subject_data_tuning.pt
+  vocab: ${paths.dir}/vocabulary.pt
+  population: ${paths.dir}/population_full.csv
+  ckpt_path: null
+
+model:
+  max_seqlen: 8192
+  hidden_size: 64
+  num_layers: 4
+  num_attention_heads: 4
+  bias: false
+  dropout: 0.1
+  attention_dropout: 0.0
+  causal: true
+  # SDPA is available on the V100 environment; flash-attn is not.
+  attn_type: sdpa
+  abspos_encoding: fourier
+  # Joined bins are categorical code suffixes, not a separate scalar pathway.
+  value_bin_vocab_size: 0
+  value_embedding_mode: legacy
+
+training:
+  max_len: ${model.max_seqlen}
+  batch_size: 4
+  accumulate_grad_batches: 32  # effective batch size = 128
+  epochs: 20
+  learning_rate: 3e-4
+  scheduler_warmup_epochs: 0.1
+  optimizer_epsilon: 1e-6
+
+  # Complete all 20 epochs while retaining validation-selected best.ckpt.
+  early_stopping_patience: null
+
+  # Roughly 12% of subjects exceed 8,192 tokens. Expand their clinical history
+  # into exhaustive, chronological, non-overlapping, event-complete windows;
+  # the background block is repeated in each example.
+  truncation_strategy: all_windows
+  validation_truncation_strategy: tail
+  tail_window_probability: 1.0
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+
+  # Preserve the representation-ablation target policy explicitly.
+  ignore_target_tokens: ["[SEP]"]
+  ignore_same_time_targets: false
+  event_normalized_code_loss: false
+  abspos_subject_jitter_years: 0.0
+
+  # Joined-bin tokens already carry the discretized numeric information.
+  value_regression_loss_weight: 0.0
+  numeric_value_control: observed
