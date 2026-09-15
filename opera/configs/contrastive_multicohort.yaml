@@ -127,6 +127,10 @@ competing_risk:
   interval_boundaries_days: [3, 7, 14, 30, 60, 90, 180, 365, 730, 1460]
   time_scale_days: 365.25
   initial_log_hazard: -2.3
+  # Optional train-only empirical initialization. This gives every
+  # outcome/cause/interval its own baseline rate instead of one global bias.
+  initialize_from_null_hazards: false
+  initialization_event_pseudocount: 0.0
   smoothness_weight: 0.01
   no_competing_outcomes: [overall_survival]
 
@@ -157,6 +161,12 @@ training:
   epochs: 20
   learning_rate: 5e-5
   encoder_lr_multiplier: 0.1
+  # Direct-head CIF discrimination/calibration is reported at these horizons.
+  evaluation_horizons_days: [30, 90, 180, 365, 730]
+  # Keep the generic default backward compatible. Direct-risk pilots can select
+  # val/cr_cif_auc_macro and opt into patience explicitly.
+  eval_monitor_metric: val/loss
+  early_stopping_patience: null
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 2
   limit_val_batches: 1.0

@@ -19,7 +19,7 @@ import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import CSVLogger
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.versioning import generate_unused_run_id
@@ -372,7 +372,12 @@ def main(cfg: DictConfig) -> None:
             f"Competing-risk interval support written to {support_path}; "
             f"{len(sparse)} outcome-intervals have fewer than five observed events."
         )
-        if str(competing_risk_config.get("weighter", "uniform")).lower() == "kendall_null":
+        needs_null_hazards = (
+            str(competing_risk_config.get("weighter", "uniform")).lower()
+            == "kendall_null"
+            or bool(competing_risk_config.get("initialize_from_null_hazards", False))
+        )
+        if needs_null_hazards:
             null_log_hazards = estimate_piecewise_null_log_hazards(
                 data_module.train_dataset,
                 outcome_names,
@@ -383,8 +388,20 @@ def main(cfg: DictConfig) -> None:
                 time_scale_days=float(
                     competing_risk_config.get("time_scale_days", 365.25)
                 ),
+                event_pseudocount=float(
+                    competing_risk_config.get("initialization_event_pseudocount", 0.0)
+                ),
             )
-            model.competing_risk_loss.set_null_log_hazards(null_log_hazards)
+            if (
+                str(competing_risk_config.get("weighter", "uniform")).lower()
+                == "kendall_null"
+            ):
+                model.competing_risk_loss.set_null_log_hazards(null_log_hazards)
+            if bool(
+                competing_risk_config.get("initialize_from_null_hazards", False)
+            ):
+                model.initialize_competing_risk_biases(null_log_hazards)
+                print("Initialized direct-risk head biases from training hazards.")
             null_path = f"{model_save_dir}/competing_risk_null_log_hazards.csv"
             with open(null_path, "w", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(
@@ -444,6 +461,10 @@ def main(cfg: DictConfig) -> None:
         probe_every_n_epochs=cfg.training.get("probe_every_n_epochs", 1),
         enable_validation_probe=cfg.training.get("enable_validation_probe", True),
         log_per_outcome_metrics=cfg.training.get("log_per_outcome_metrics", True),
+        evaluation_horizons_days=cfg.training.get(
+            "evaluation_horizons_days",
+            competing_risk_config.get("interval_boundaries_days", []),
+        ),
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,
@@ -452,15 +473,27 @@ def main(cfg: DictConfig) -> None:
         ),
     )
 
+    monitor = str(cfg.training.get("eval_monitor_metric", "val/loss"))
+    monitor_mode = "max" if "auc" in monitor.lower() else "min"
     ckpt_callback = ModelCheckpoint(
         dirpath=model_save_dir,
-        monitor="val/loss",  # sigma-weighted contrastive loss: consistent with training objective
-        mode="min",
+        monitor=monitor,
+        mode=monitor_mode,
         save_top_k=1,
         filename="best",
         enable_version_counter=False,
         save_last=True,
     )
+
+    callbacks = [ckpt_callback, LearningRateMonitor(logging_interval="step")]
+    if cfg.training.get("early_stopping_patience"):
+        callbacks.append(
+            EarlyStopping(
+                monitor=monitor,
+                patience=int(cfg.training.early_stopping_patience),
+                mode=monitor_mode,
+            )
+        )
 
     trainer = L.Trainer(
         accelerator=cfg.hardware.accelerator,
@@ -472,7 +505,7 @@ def main(cfg: DictConfig) -> None:
         devices=cfg.hardware.num_devices,
         limit_val_batches=cfg.training.limit_val_batches,
         limit_train_batches=cfg.training.limit_train_batches,
-        callbacks=[ckpt_callback, LearningRateMonitor(logging_interval="step")],
+        callbacks=callbacks,
         logger=[logger],
         max_epochs=cfg.training.epochs,
         num_nodes=cfg.hardware.num_nodes,

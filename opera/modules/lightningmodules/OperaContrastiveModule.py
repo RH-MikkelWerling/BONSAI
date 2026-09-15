@@ -20,6 +20,8 @@ from bonsai.functional.checkpointing import (
     attach_model_config,
 )
 from bonsai.functional.scheduling import optimizer_with_warmup
+from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
+from opera.modules.networks.competing_risk import piecewise_exponential_cif
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class OperaContrastiveModule(L.LightningModule):
         probe_every_n_epochs: int = 1,
         enable_validation_probe: bool = True,
         log_per_outcome_metrics: bool = True,
+        evaluation_horizons_days: List[float] = None,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -65,6 +68,10 @@ class OperaContrastiveModule(L.LightningModule):
         self.probe_every_n_epochs = max(1, int(probe_every_n_epochs))
         self.enable_validation_probe = bool(enable_validation_probe)
         self.log_per_outcome_metrics = bool(log_per_outcome_metrics)
+        self.evaluation_horizons_days = [
+            float(value) for value in (evaluation_horizons_days or [])
+        ]
+        self._val_cr_predictions = {}
         if self.gradient_cache:
             self.automatic_optimization = False
 
@@ -83,6 +90,8 @@ class OperaContrastiveModule(L.LightningModule):
         return value
 
     def _should_log_metric(self, key: str) -> bool:
+        if key.startswith("_"):
+            return False
         if self.log_per_outcome_metrics:
             return True
         detailed_prefixes = (
@@ -230,6 +239,10 @@ class OperaContrastiveModule(L.LightningModule):
         outcome_survival = self._build_outcome_survival(batch)
         log_dict = self.model(batch, outcome_survival)
         loss = log_dict["loss"]
+        if prefix == "val":
+            self._accumulate_competing_risk_validation(
+                log_dict.get("_competing_risk_log_hazards"), outcome_survival
+            )
 
         self.log(f"{prefix}/loss", loss, prog_bar=True)
         for k, v in log_dict.items():
@@ -272,6 +285,14 @@ class OperaContrastiveModule(L.LightningModule):
                     },
                     torch.cat(subject_parts),
                 )
+            self._accumulate_competing_risk_validation(
+                result.get("_competing_risk_log_hazards"),
+                {
+                    name: {key: torch.cat(values) for key, values in fields.items()}
+                    for name, fields in survival_parts.items()
+                    if fields["times"]
+                },
+            )
             self.log("val/loss", result["loss"], prog_bar=True, batch_size=len(pooled))
             for key, value in result.items():
                 if key != "loss" and self._should_log_metric(key):
@@ -315,12 +336,83 @@ class OperaContrastiveModule(L.LightningModule):
 
         return loss
 
+    def _accumulate_competing_risk_validation(
+        self, log_hazards, outcome_survival
+    ) -> None:
+        """Collect direct-head CIFs and labels for full-validation metrics."""
+        objective = getattr(self.model, "competing_risk_loss", None)
+        if log_hazards is None or objective is None:
+            return
+        horizons = self.evaluation_horizons_days or [
+            float(value) * objective.time_scale_days
+            for value in objective.boundaries.detach().cpu().tolist()
+        ]
+        no_competing = torch.tensor(
+            [name in objective.no_competing_outcomes for name in self.outcome_names],
+            device=log_hazards.device,
+        )
+        predictions = piecewise_exponential_cif(
+            log_hazards.detach(),
+            objective.boundaries * objective.time_scale_days,
+            horizons,
+            time_scale_days=objective.time_scale_days,
+            no_competing_outcome_mask=no_competing,
+        ).float().cpu()
+        for outcome_index, name in enumerate(self.outcome_names):
+            survival = outcome_survival.get(name)
+            if not survival:
+                continue
+            times = survival["times"].detach().float().cpu().reshape(-1)
+            events = survival["events"].detach().long().cpu().reshape(-1)
+            valid = torch.isfinite(times) & (times >= 0) & (events >= 0)
+            if not valid.any():
+                continue
+            store = self._val_cr_predictions.setdefault(
+                name, {"times": [], "events": [], "cif": []}
+            )
+            store["times"].append(times[valid])
+            store["events"].append(events[valid])
+            store["cif"].append(predictions[valid, outcome_index])
+
+    def _log_competing_risk_validation(self) -> None:
+        if not self._val_cr_predictions:
+            return
+        horizons = self.evaluation_horizons_days or [
+            float(value) * self.model.competing_risk_loss.time_scale_days
+            for value in self.model.competing_risk_loss.boundaries.detach().cpu().tolist()
+        ]
+        aucs = []
+        briers = []
+        for name, store in self._val_cr_predictions.items():
+            times = torch.cat(store["times"]).numpy()
+            events = torch.cat(store["events"]).numpy()
+            cif = torch.cat(store["cif"]).numpy()
+            for horizon_index, horizon in enumerate(horizons):
+                metrics = compute_competing_risk_metrics_at_horizon(
+                    times, events, cif[:, horizon_index], float(horizon)
+                )
+                suffix = f"{int(horizon)}d"
+                auc = float(metrics["cif_auc"])
+                brier = float(metrics["cif_brier"])
+                if np.isfinite(auc):
+                    aucs.append(auc)
+                    self.log(f"val/cr_cif_auc/{name}/{suffix}", auc)
+                if np.isfinite(brier):
+                    briers.append(brier)
+                    self.log(f"val/cr_cif_brier/{name}/{suffix}", brier)
+        if aucs:
+            self.log("val/cr_cif_auc_macro", float(np.mean(aucs)), prog_bar=True)
+        if briers:
+            self.log("val/cr_cif_brier_macro", float(np.mean(briers)))
+        self._val_cr_predictions = {}
+
     def on_validation_epoch_end(self):
         """
         Frozen linear probe AUROC on val embeddings, logged per outcome.
         This directly measures representation quality without training overhead —
         the probe is a logistic regression on already-computed frozen embeddings.
         """
+        self._log_competing_risk_validation()
         if not hasattr(self, "_val_probe_emb_store") or not self._val_probe_emb_store:
             return
 

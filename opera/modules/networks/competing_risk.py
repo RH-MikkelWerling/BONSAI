@@ -12,6 +12,89 @@ from torch import nn
 from opera.modules.networks.cross_outcome_weighters import KendallWeighter
 
 
+def piecewise_exponential_cif(
+    log_hazards: torch.Tensor,
+    interval_boundaries_days: Sequence[float] | torch.Tensor,
+    horizons_days: Sequence[float] | torch.Tensor,
+    *,
+    time_scale_days: float = 365.25,
+    no_competing_outcome_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Convert piecewise cause-specific hazards to target-event CIFs.
+
+    ``log_hazards`` is ``(batch, outcomes, 2, intervals)``.  The returned
+    tensor is ``(batch, outcomes, horizons)`` and integrates the target hazard
+    while reducing event-free survival by both target and competing hazards.
+    For outcomes without a competing cause, pass a boolean outcome mask; their
+    second hazard is then excluded from both survival and incidence.
+    """
+    if log_hazards.ndim != 4 or log_hazards.shape[2] != 2:
+        raise ValueError(
+            "log_hazards must have shape (batch, outcomes, 2, intervals)."
+        )
+    if time_scale_days <= 0:
+        raise ValueError("time_scale_days must be positive.")
+    boundaries = torch.as_tensor(
+        interval_boundaries_days,
+        dtype=log_hazards.dtype,
+        device=log_hazards.device,
+    )
+    horizons = torch.as_tensor(
+        horizons_days,
+        dtype=log_hazards.dtype,
+        device=log_hazards.device,
+    )
+    if boundaries.ndim != 1 or horizons.ndim != 1:
+        raise ValueError("Boundaries and horizons must be one-dimensional.")
+    if boundaries.numel() + 1 != log_hazards.shape[-1]:
+        raise ValueError("Hazard interval count does not match the boundaries.")
+    if boundaries.numel() and (
+        bool((boundaries <= 0).any())
+        or bool((boundaries[1:] <= boundaries[:-1]).any())
+    ):
+        raise ValueError("Boundaries must be positive and strictly increasing.")
+    if horizons.numel() and bool((horizons <= 0).any()):
+        raise ValueError("Horizons must be positive.")
+
+    rates = log_hazards.float().clamp(min=-12.0, max=6.0).exp()
+    target_rates = rates[:, :, 0]
+    competing_rates = rates[:, :, 1]
+    if no_competing_outcome_mask is not None:
+        mask = torch.as_tensor(
+            no_competing_outcome_mask,
+            dtype=torch.bool,
+            device=log_hazards.device,
+        )
+        if tuple(mask.shape) != (log_hazards.shape[1],):
+            raise ValueError("no_competing_outcome_mask must have shape (outcomes,).")
+        competing_rates = competing_rates.masked_fill(mask.view(1, -1, 1), 0.0)
+    total_rates = target_rates + competing_rates
+
+    starts = torch.cat([boundaries.new_zeros(1), boundaries]) / time_scale_days
+    outputs = []
+    for horizon in horizons / time_scale_days:
+        survival = torch.ones_like(target_rates[:, :, 0])
+        incidence = torch.zeros_like(survival)
+        for interval in range(log_hazards.shape[-1]):
+            if interval + 1 < len(starts):
+                stop = starts[interval + 1]
+                duration = torch.clamp(
+                    torch.minimum(horizon, stop) - starts[interval], min=0.0
+                )
+            else:
+                duration = torch.clamp(horizon - starts[interval], min=0.0)
+            total = total_rates[:, :, interval]
+            target = target_rates[:, :, interval]
+            event_probability = -torch.expm1(-total * duration)
+            target_share = torch.where(total > 0, target / total, torch.zeros_like(total))
+            incidence = incidence + survival * target_share * event_probability
+            survival = survival * torch.exp(-total * duration)
+        outputs.append(incidence)
+    if not outputs:
+        return log_hazards.new_empty((*log_hazards.shape[:2], 0), dtype=torch.float32)
+    return torch.stack(outputs, dim=-1).to(log_hazards.dtype)
+
+
 def validate_competing_risk_sampling(
     competing_risk_config: Mapping[str, object] | None,
     batch_sampling: Mapping[str, object] | None,
@@ -94,6 +177,7 @@ def estimate_piecewise_null_log_hazards(
     no_competing_outcomes: Sequence[str] = ("overall_survival",),
     time_scale_days: float = 365.25,
     minimum_log_hazard: float = -12.0,
+    event_pseudocount: float = 0.0,
 ) -> dict[str, list[list[float]]]:
     """Fit train-only intercept hazards by events divided by person-time.
 
@@ -102,6 +186,8 @@ def estimate_piecewise_null_log_hazards(
     looking at validation data or patient covariates.
     """
     boundaries = [float(value) for value in interval_boundaries_days]
+    if event_pseudocount < 0:
+        raise ValueError("event_pseudocount must be non-negative.")
     starts = [0.0, *boundaries]
     ends = [*boundaries, None]
     no_competing = set(no_competing_outcomes)
@@ -135,10 +221,14 @@ def estimate_piecewise_null_log_hazards(
             for interval, person_days in enumerate(exposure_days):
                 if name in no_competing and cause == 1:
                     log_rate = minimum_log_hazard
-                elif person_days <= 0 or events[cause][interval] <= 0:
+                elif person_days <= 0 or (
+                    events[cause][interval] <= 0 and event_pseudocount == 0
+                ):
                     log_rate = minimum_log_hazard
                 else:
-                    rate = events[cause][interval] / (person_days / time_scale_days)
+                    rate = (events[cause][interval] + event_pseudocount) / (
+                        person_days / time_scale_days
+                    )
                     log_rate = max(minimum_log_hazard, min(6.0, math.log(rate)))
                 log_rates[cause].append(log_rate)
         result[name] = log_rates

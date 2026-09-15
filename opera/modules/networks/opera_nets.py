@@ -19,7 +19,7 @@ NOTE: The projection dimension (default 128) and the number / identity of
 outcomes are the main knobs to tune.  Search for "# TUNE:" comments below.
 """
 
-from typing import Dict, List, Mapping, Optional, Union
+from typing import Dict, List, Mapping, Optional, Sequence, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -1539,6 +1539,34 @@ class OperaContrastiveModel(nn.Module):
                     "'family_trunks'."
                 )
 
+    def initialize_competing_risk_biases(
+        self, log_hazards_by_outcome: Mapping[str, Sequence[Sequence[float]]]
+    ) -> None:
+        """Initialize a linear direct-risk head from train-only null hazards."""
+        if self.competing_risk_head is None or self.competing_risk_loss is None:
+            raise RuntimeError("The model has no competing-risk head.")
+        if not isinstance(self.competing_risk_head, nn.Linear):
+            raise ValueError(
+                "Empirical hazard initialization currently requires head_mode=linear."
+            )
+        values = []
+        for outcome in self.competing_risk_loss.outcome_names:
+            if outcome not in log_hazards_by_outcome:
+                raise ValueError(f"Missing null hazards for {outcome!r}.")
+            candidate = torch.as_tensor(
+                log_hazards_by_outcome[outcome],
+                dtype=self.competing_risk_head.bias.dtype,
+                device=self.competing_risk_head.bias.device,
+            )
+            expected = (2, self.competing_risk_loss.n_intervals)
+            if tuple(candidate.shape) != expected:
+                raise ValueError(
+                    f"Null hazards for {outcome!r} must have shape {expected}."
+                )
+            values.append(candidate.reshape(-1))
+        with torch.no_grad():
+            self.competing_risk_head.bias.copy_(torch.cat(values))
+
     def _pool(
         self,
         batch: dict,
@@ -1720,6 +1748,9 @@ class OperaContrastiveModel(nn.Module):
             )
             total_loss = total_loss + self.competing_risk_weight * competing_risk_loss
             log_dict.update(competing_logs)
+            # Private tensor output for validation/inference. Lightning logging
+            # deliberately ignores private keys in OperaContrastiveModule.
+            log_dict["_competing_risk_log_hazards"] = log_hazards
 
         anchor_loss = self._compute_anchor_loss(pooled, subject_ids)
         if anchor_loss is not None:

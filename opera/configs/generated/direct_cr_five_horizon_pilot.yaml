@@ -1,0 +1,113 @@
+# @package _global_
+# Focused direct competing-risk validation run. This deliberately isolates the
+# repaired head before scaling to the full outcome panel or enabling curriculum.
+defaults:
+  - /core/base_train@
+  - /hardware/1gpu6cpu@hardware
+  - _self_
+
+hydra:
+  searchpath:
+    - file://${oc.env:BONSAI_CONFIG_PATH}
+
+dataset: daly_care_direct_cr_five_horizon_pilot
+dapt_ckpt: ???
+dapt_embedding_store: null
+output_path: null
+overwrite: false
+
+paths:
+  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t100_joined_bins_harmonized_v2/vocabulary.pt
+
+cohorts:
+  DLBCL:
+    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t100_joined_bins_harmonized_v2
+    population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
+    cohort_fine_col: cohort_grouped
+    cohort_fine_value: DLBCL
+    registry_start_date: null
+
+outcomes:
+  anemia_g3plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g3plus.parquet
+    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g3plus_audit.parquet
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+  creatinine_increased_g2plus:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g2plus.parquet
+    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g2plus_audit.parquet
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+  infections_IV_based:
+    outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_IV_based.parquet
+    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_IV_based_audit.parquet
+    competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
+    n_hours_start_include: 1
+    n_hours_end_include: null
+
+model:
+  projection_hidden_dim: 256
+  projection_dim: 128
+  temperature: 0.07
+  km_time_scale: 0.25
+  dapt_lambda_floor: 1.0
+  dapt_anchor_weight: 0.0
+  competing_event_handling: exclude
+  competing_event_weight: 0.0
+  effective_pair_normalization: false
+  projection_mode: shared
+  freeze_encoder: false
+  pooling: cls_last
+
+competing_risk:
+  loss_weight: 1.0
+  contrastive_loss_weight: 0.0
+  # Five clinically useful cut points produce six piecewise-hazard intervals,
+  # including the open interval beyond 730 days.
+  interval_boundaries_days: [30, 90, 180, 365, 730]
+  time_scale_days: 365.25
+  initial_log_hazard: -2.3
+  initialize_from_null_hazards: true
+  # Jeffreys-style smoothing prevents empty interval/cause cells from starting
+  # at the hard minimum hazard while retaining train-only initialization.
+  initialization_event_pseudocount: 0.5
+  smoothness_weight: 0.01
+  no_competing_outcomes: []
+  weighter: uniform
+  head_mode: linear
+  curriculum:
+    enabled: false
+
+cross_outcome:
+  weighter: uniform
+  aggregation: macro
+  class_balanced: false
+
+training:
+  numeric_value_control: inherit
+  require_all_configured_cells: true
+  require_min_followup_train: false
+  require_dapt_embedding_store: false
+  batch_size: 8
+  logical_batch_size: 256
+  logical_val_batch_size: 256
+  batch_sampling:
+    type: random
+  accumulate_grad_batches: 1
+  epochs: 30
+  # Match the successful binary finetuning schedule.
+  learning_rate: 5e-4
+  encoder_lr_multiplier: 0.05
+  optimizer_epsilon: 1e-6
+  scheduler_warmup_epochs: 2
+  evaluation_horizons_days: [30, 90, 180, 365, 730]
+  eval_monitor_metric: val/cr_cif_auc_macro
+  early_stopping_patience: 8
+  log_every_n_steps: 10
+  probe_every_n_epochs: 5
+  enable_validation_probe: false
+  log_per_outcome_metrics: false
+  limit_val_batches: 1.0
+  limit_train_batches: 1.0
