@@ -15,11 +15,12 @@ from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
 from opera.evaluation.cohorts import (
     FIXED_HORIZON_REGIME,
@@ -46,6 +47,31 @@ RESERVED_COLUMNS = {
     "event",
 }
 SURVIVAL_MODELS = frozenset({"cox", "xgboost_cox", "xgboost_aft"})
+
+
+def infer_categorical_columns(
+    frame: pd.DataFrame, feature_columns: Iterable[str]
+) -> list[str]:
+    """Identify every non-numeric predictor, including pandas StringDtype.
+
+    Checking dtype names alone misses the modern ``str``/``string`` extension
+    dtypes produced by parquet. Those columns must not reach median imputation.
+    """
+    return [
+        column
+        for column in feature_columns
+        if column in frame.columns and not is_numeric_dtype(frame[column].dtype)
+    ]
+
+
+def normalize_categorical_missing(frame):
+    """Make pandas extension-string missing values safe for scikit-learn 1.5."""
+    if hasattr(frame, "astype"):
+        frame = frame.astype(object)
+        return frame.where(pd.notna(frame), np.nan)
+    array = np.asarray(frame, dtype=object)
+    array[pd.isna(array)] = np.nan
+    return array
 
 # Validation-set tuning grids for binary classifiers.
 # Each entry is a list of parameter dicts to evaluate on the validation split.
@@ -172,7 +198,7 @@ def validate_feature_matrix(
             sum(
                 col in features.columns
                 and col not in set(categorical_columns or [])
-                and str(features[col].dtype) not in {"object", "category", "bool"}
+                and is_numeric_dtype(features[col].dtype)
                 for col in feature_columns
             )
         ),
@@ -181,7 +207,7 @@ def validate_feature_matrix(
                 col in features.columns
                 and (
                     col in set(categorical_columns or [])
-                    or str(features[col].dtype) in {"object", "category", "bool"}
+                    or not is_numeric_dtype(features[col].dtype)
                 )
                 for col in feature_columns
             )
@@ -298,11 +324,7 @@ def build_preprocessor(
     operationally informative rather than random noise.
     """
     if categorical_columns is None:
-        categorical_columns = [
-            col
-            for col in feature_columns
-            if str(train_df[col].dtype) in {"object", "category", "bool"}
-        ]
+        categorical_columns = infer_categorical_columns(train_df, feature_columns)
     numeric_columns = [
         col for col in feature_columns if col not in set(categorical_columns)
     ]
@@ -329,6 +351,10 @@ def build_preprocessor(
                 "categorical",
                 Pipeline(
                     [
+                        (
+                            "normalize_missing",
+                            FunctionTransformer(normalize_categorical_missing),
+                        ),
                         (
                             "imputer",
                             SimpleImputer(
@@ -884,6 +910,24 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         eligibility_path=args.eligibility,
         allowed_subject_ids=allowed_subject_ids,
     )
+    ipcw_test_labels = (
+        outcome_labels(
+            args.outcome,
+            split=args.test_split,
+            n_hours_start_include=args.n_hours_start_include,
+            n_hours_end_include=args.n_hours_end_include,
+            require_min_followup=False,
+            competing_outcome_path=args.competing_outcome,
+            include_survival_fields=True,
+            registry_start_date=args.registry_start_date,
+            cohort=args.cohort,
+            outcome_name=args.outcome_name,
+            eligibility_path=args.eligibility,
+            allowed_subject_ids=allowed_subject_ids,
+        )
+        if uses_ipcw_training
+        else None
+    )
     survival_train_labels = (
         outcome_labels(
             args.outcome,
@@ -932,6 +976,11 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         else None
     )
     test_df = merge_features_and_labels(features, test_labels)
+    ipcw_test_df = (
+        merge_features_and_labels(features, ipcw_test_labels)
+        if ipcw_test_labels is not None
+        else None
+    )
     survival_train_df = (
         merge_features_and_labels(features, survival_train_labels)
         if survival_train_labels is not None
@@ -971,6 +1020,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             if ipcw_train_df is not None
             else None,
             "n_test_labelled": int(len(test_df)),
+            "n_ipcw_test_labelled": int(len(ipcw_test_df))
+            if ipcw_test_df is not None
+            else None,
             "n_survival_train": int(len(survival_train_df))
             if survival_train_df is not None
             else None,
@@ -994,8 +1046,13 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             "IPCW training labels contain fewer than two classes."
         )
         contract["ok"] = False
-    if (uses_binary_training or uses_ipcw_training) and test_df.empty:
+    if uses_binary_training and test_df.empty:
         contract["errors"].append("No test labels overlap the feature matrix.")
+        contract["ok"] = False
+    if uses_ipcw_training and (ipcw_test_df is None or ipcw_test_df.empty):
+        contract["errors"].append(
+            "No censoring-aware IPCW test labels overlap the feature matrix."
+        )
         contract["ok"] = False
     if uses_binary_training and train_df.empty:
         contract["errors"].append("No train labels overlap the feature matrix.")
@@ -1031,13 +1088,13 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             if ipcw_train_df is not None
             else train_df["subject_id"]
         ),
-        test_subject_ids=(
-            pd.concat(
-                [test_df["subject_id"], survival_test_df["subject_id"]],
-                ignore_index=True,
-            )
-            if survival_test_df is not None
-            else test_df["subject_id"]
+        test_subject_ids=pd.concat(
+            [
+                frame["subject_id"]
+                for frame in (test_df, ipcw_test_df, survival_test_df)
+                if frame is not None
+            ],
+            ignore_index=True,
         ),
     )
     missingness_path = (
@@ -1071,7 +1128,11 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                 else (ipcw_train_df if model_name.endswith("_ipcw_bce") else train_df)
             )
         )
-        model_test_df = survival_test_df if is_survival_model else test_df
+        model_test_df = (
+            survival_test_df
+            if is_survival_model
+            else (ipcw_test_df if model_name.endswith(("_ipcw_bce", "_ipcw_cif_bce")) else test_df)
+        )
         sample_weight = None
         if model_name.endswith(("_ipcw_bce", "_ipcw_cif_bce")):
             # IPCW preserves early-censored training patients; it does not change

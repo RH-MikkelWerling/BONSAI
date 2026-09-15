@@ -546,14 +546,13 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self,
         cohort_name: str,
         cohort_cfg: dict,
-        split: Literal["train", "tuning"],
+        split: Literal["train", "tuning", "held_out"],
     ) -> Optional[ContrastiveDataset]:
         """Load subjects + outcomes for one cohort, return dataset or None."""
-        if split not in ("train", "tuning"):
+        if split not in ("train", "tuning", "held_out"):
             raise ValueError(
-                f"_build_dataset_for_cohort only accepts split='train' or "
-                f"'tuning'; got {split!r}. Use the evaluation pipeline for "
-                f"'held_out' splits."
+                "_build_dataset_for_cohort only accepts split='train', "
+                f"'tuning', or 'held_out'; got {split!r}."
             )
         data_dir = cohort_cfg["data_dir"]
         subject_paths = resolve_subject_data_paths(
@@ -576,7 +575,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         subjects = self._physical_subject_pools[pool_key]
         subjects = filter_subject_data(subjects, population["subject_id"])
 
-        split_key = "train" if split == "train" else "tuning"
+        split_key = split
         outcome_dicts = self._load_outcomes_for_cohort(
             cohort_name,
             cohort_cfg,

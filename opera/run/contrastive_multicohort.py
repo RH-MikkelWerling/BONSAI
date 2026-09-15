@@ -293,7 +293,19 @@ def main(cfg: DictConfig) -> None:
         cfg.get("cross_outcome", {}), resolve=True
     )
     cross_outcome_config = resolve_outcome_reference_scales(cross_outcome_config)
-    if cross_outcome_config.get("aggregation") == "hierarchical_support":
+    competing_risk_config = OmegaConf.to_container(
+        cfg.get("competing_risk", {}), resolve=True
+    )
+    # Curriculum is a direct competing-risk training policy. Keep the public
+    # config under competing_risk while passing it through the loss's shared
+    # outcome-aggregation settings.
+    cross_outcome_config["curriculum"] = dict(
+        competing_risk_config.get("curriculum", {})
+    )
+    if (
+        cross_outcome_config.get("aggregation") == "hierarchical_support"
+        or bool(cross_outcome_config["curriculum"].get("enabled", False))
+    ):
         cross_outcome_config["event_location_counts"] = {
             name: int(times.numel())
             for name, times in outcome_sorted_event_times.items()
@@ -348,10 +360,6 @@ def main(cfg: DictConfig) -> None:
     )
     data_module.setup("fit")
 
-    competing_risk_config = OmegaConf.to_container(
-        cfg.get("competing_risk", {}),
-        resolve=True,
-    )
     if float(competing_risk_config.get("loss_weight", 0.0)) > 0:
         support = summarize_competing_risk_support(
             data_module.train_dataset,

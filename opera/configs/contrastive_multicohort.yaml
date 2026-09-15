@@ -124,7 +124,7 @@ model:
 competing_risk:
   loss_weight: 1.0
   contrastive_loss_weight: 1.0
-  interval_boundaries_days: [3, 7, 14, 30, 60, 90, 180, 365, 730, 1460]
+  interval_boundaries_days: [30, 60, 90, 180, 365, 730]
   time_scale_days: 365.25
   initial_log_hazard: -2.3
   # Optional train-only empirical initialization. This gives every
@@ -162,7 +162,7 @@ training:
   learning_rate: 5e-5
   encoder_lr_multiplier: 0.1
   # Direct-head CIF discrimination/calibration is reported at these horizons.
-  evaluation_horizons_days: [30, 90, 180, 365, 730]
+  evaluation_horizons_days: [30, 60, 90, 180, 365, 730]
   # Keep the generic default backward compatible. Direct-risk pilots can select
   # val/cr_cif_auc_macro and opt into patience explicitly.
   eval_monitor_metric: val/loss

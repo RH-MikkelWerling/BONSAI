@@ -10,7 +10,7 @@ hydra:
   searchpath:
     - file://${oc.env:BONSAI_CONFIG_PATH}
 
-dataset: daly_care_direct_cr_five_horizon_pilot
+dataset: daly_care_direct_cr_horizon_pilot
 dapt_ckpt: ???
 dapt_embedding_store: null
 output_path: null
@@ -23,26 +23,23 @@ cohorts:
   DLBCL:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t100_joined_bins_harmonized_v2
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
-    cohort_fine_col: cohort_grouped
+    cohort_fine_col: cohort_fine
     cohort_fine_value: DLBCL
     registry_start_date: null
 
 outcomes:
   anemia_g3plus:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g3plus.parquet
-    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/anemia_g3plus_audit.parquet
     competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
   creatinine_increased_g2plus:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g2plus.parquet
-    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/creatinine_increased_g2plus_audit.parquet
     competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
   infections_IV_based:
     outcome_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_IV_based.parquet
-    eligibility_file: ${oc.env:BONSAI_OUTCOMES_DIR}/infections_IV_based_audit.parquet
     competing_outcome_path: ${oc.env:BONSAI_OUTCOMES_DIR}/overall_survival.parquet
     n_hours_start_include: 1
     n_hours_end_include: null
@@ -64,9 +61,9 @@ model:
 competing_risk:
   loss_weight: 1.0
   contrastive_loss_weight: 0.0
-  # Five clinically useful cut points produce six piecewise-hazard intervals,
+  # Six clinically useful cut points produce seven piecewise-hazard intervals,
   # including the open interval beyond 730 days.
-  interval_boundaries_days: [30, 90, 180, 365, 730]
+  interval_boundaries_days: [30, 60, 90, 180, 365, 730]
   time_scale_days: 365.25
   initial_log_hazard: -2.3
   initialize_from_null_hazards: true
@@ -102,7 +99,7 @@ training:
   encoder_lr_multiplier: 0.05
   optimizer_epsilon: 1e-6
   scheduler_warmup_epochs: 2
-  evaluation_horizons_days: [30, 90, 180, 365, 730]
+  evaluation_horizons_days: [30, 60, 90, 180, 365, 730]
   eval_monitor_metric: val/cr_cif_auc_macro
   early_stopping_patience: 8
   log_every_n_steps: 10
