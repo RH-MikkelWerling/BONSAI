@@ -995,3 +995,46 @@ python -m opera.run.sweep --config opera/configs/generated/grouped_cox.yaml
 python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_365d.yaml
 python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_cif_365d.yaml
 ```
+
+## Family-trunk competing-risk production run
+
+The primary cross-cohort/cross-outcome adaptation config is
+`generated/direct_cr_family_trunks_curriculum.yaml`. It uses the six agreed
+boundaries (30, 60, 90, 180, 365, and 730 days), CLS pooling, empirical
+training-only null-hazard bias initialization, family trunks, support-ordered
+curriculum, and hierarchical family-balanced loss. Checkpoint selection uses
+family-macro validation CIF-AUC. The full 30 epochs run without early stopping
+because the curriculum changes the training objective during its early stages.
+
+Run the preflight before requesting a GPU, then train:
+
+```bash
+python -m opera.run.preflight_direct_competing_risk \
+  --config-name generated/direct_cr_family_trunks_curriculum \
+  --require-existing-paths \
+  --override dapt_ckpt="$DAPT_CKPT"
+
+python -u -m opera.run.contrastive_multicohort \
+  --config-name generated/direct_cr_family_trunks_curriculum \
+  dapt_ckpt="$DAPT_CKPT"
+```
+
+Evaluate the selected checkpoint only once on held-out data:
+
+```bash
+python -u -m opera.run.evaluate_direct_competing_risk \
+  --checkpoint "$DIRECT_CR_CKPT" \
+  --config-name generated/direct_cr_family_trunks_curriculum \
+  --override dapt_ckpt="$DAPT_CKPT" \
+  --split held_out \
+  --horizons 30,60,90,180,365,730 \
+  --output-dir "$DIRECT_CR_HELDOUT"
+```
+
+This writes patient predictions, cohort/outcome/horizon metrics, family-level
+metrics, and both flat- and family-macro summaries. The prespecified weighting
+ablation is `generated/direct_cr_family_trunks_curriculum_kendall_null.yaml`.
+It retains the identical architecture and curriculum but replaces the
+hand-designed hierarchical training aggregation with null-normalized Kendall
+task weighting. These weighting schemes are kept separate deliberately; they
+should not be stacked and interpreted as one method.

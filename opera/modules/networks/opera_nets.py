@@ -1545,27 +1545,37 @@ class OperaContrastiveModel(nn.Module):
         """Initialize a linear direct-risk head from train-only null hazards."""
         if self.competing_risk_head is None or self.competing_risk_loss is None:
             raise RuntimeError("The model has no competing-risk head.")
-        if not isinstance(self.competing_risk_head, nn.Linear):
-            raise ValueError(
-                "Empirical hazard initialization currently requires head_mode=linear."
-            )
-        values = []
+        values = {}
+        reference_parameter = next(self.competing_risk_head.parameters())
         for outcome in self.competing_risk_loss.outcome_names:
             if outcome not in log_hazards_by_outcome:
                 raise ValueError(f"Missing null hazards for {outcome!r}.")
             candidate = torch.as_tensor(
                 log_hazards_by_outcome[outcome],
-                dtype=self.competing_risk_head.bias.dtype,
-                device=self.competing_risk_head.bias.device,
+                dtype=reference_parameter.dtype,
+                device=reference_parameter.device,
             )
             expected = (2, self.competing_risk_loss.n_intervals)
             if tuple(candidate.shape) != expected:
                 raise ValueError(
                     f"Null hazards for {outcome!r} must have shape {expected}."
                 )
-            values.append(candidate.reshape(-1))
+            values[outcome] = candidate.reshape(-1)
         with torch.no_grad():
-            self.competing_risk_head.bias.copy_(torch.cat(values))
+            if isinstance(self.competing_risk_head, nn.Linear):
+                self.competing_risk_head.bias.copy_(
+                    torch.cat(
+                        [values[name] for name in self.competing_risk_loss.outcome_names]
+                    )
+                )
+            elif isinstance(self.competing_risk_head, FamilyCompetingRiskHead):
+                for outcome, value in values.items():
+                    self.competing_risk_head.heads[outcome].bias.copy_(value)
+            else:
+                raise ValueError(
+                    "Empirical hazard initialization supports linear and "
+                    "family_trunks competing-risk heads."
+                )
 
     def _pool(
         self,

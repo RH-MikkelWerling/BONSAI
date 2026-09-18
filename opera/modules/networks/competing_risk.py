@@ -606,15 +606,42 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 device=active_losses.device,
             )
             per_outcome_losses[active_indices] = active_losses
-            active = torch.isfinite(per_outcome_losses)
-            weights = self.weighter.weights(per_outcome_losses)
+            curriculum_multipliers = per_outcome_losses.new_tensor(
+                [
+                    self._curriculum_outcome_multiplier(name)
+                    for name in self.outcome_names
+                ]
+            )
+            active = torch.isfinite(per_outcome_losses) & (
+                curriculum_multipliers > 0
+            )
+            weighting_input = torch.where(
+                active,
+                per_outcome_losses,
+                torch.full_like(per_outcome_losses, float("nan")),
+            )
+            weights = self.weighter.weights(weighting_input) * curriculum_multipliers
             finite_losses = torch.where(
                 active, per_outcome_losses, torch.zeros_like(per_outcome_losses)
             )
-            total = torch.sum(weights * finite_losses) + self.weighter.regularizer(active)
+            # Apply the same curriculum ramp to Kendall's log-sigma term. A
+            # task at multiplier zero must be genuinely absent, while a task
+            # entering at 0 < m < 1 should contribute both likelihood and
+            # uncertainty regularization proportionally.
+            regularizer = torch.sum(
+                torch.where(
+                    active,
+                    self.weighter.log_sigma * curriculum_multipliers,
+                    torch.zeros_like(self.weighter.log_sigma),
+                )
+            )
+            total = torch.sum(weights * finite_losses) + regularizer
             for name in loss_names:
                 index = self.outcome_index[name]
                 diagnostics[f"cr/outcome_weight/{name}"] = weights[index].detach()
+                diagnostics[f"cr/curriculum/outcome_multiplier/{name}"] = (
+                    curriculum_multipliers[index].detach()
+                )
                 diagnostics[f"cr/log_sigma/{name}"] = self.weighter.log_sigma[
                     self.outcome_index[name]
                 ].detach()

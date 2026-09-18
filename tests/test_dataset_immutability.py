@@ -231,6 +231,36 @@ def test_ar_pretraining_masks_artificial_background_to_window_boundary():
     assert torch.equal(sample["target"][[0, 2, 3, 4]], torch.tensor([11, 19, 20, 21]))
 
 
+def test_ar_all_windows_expands_dataset_and_masks_each_artificial_boundary():
+    subject = {
+        "subject_id": 34,
+        "code": torch.arange(10, 24, dtype=torch.long),
+        "abspos": torch.arange(14, dtype=torch.float),
+        "segment": torch.tensor([0, 0] + list(range(1, 13))),
+        "age": torch.arange(40, 54, dtype=torch.float),
+    }
+    dataset = ARPretrainDataset(
+        [subject],
+        max_len=5,
+        background_length=2,
+        truncation_strategy="all_windows",
+    )
+
+    assert len(dataset) == 3
+    samples = [dataset[index] for index in range(len(dataset))]
+    # AR uses one extra source token before shifting, so every returned model
+    # input remains at or below the configured context length.
+    assert all(len(sample["code"]) <= 5 for sample in samples)
+    assert all(sample["target"][1].item() == -100 for sample in samples[1:])
+    clinical_source_tokens = torch.cat(
+        [
+            torch.cat((sample["code"][2:], sample["target"][-1:]))
+            for sample in samples
+        ]
+    )
+    assert set(clinical_source_tokens.tolist()) == set(subject["code"][2:].tolist())
+
+
 def test_ar_pretraining_builds_next_token_value_targets():
     subject = {
         "subject_id": 44,

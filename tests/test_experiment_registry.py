@@ -42,7 +42,7 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 45
+    assert len(paths) == 46
     assert len(sweep_paths) == 32
     for path in sweep_paths:
         load_sweep_config(path)
@@ -161,6 +161,20 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert curriculum["competing_risk"]["curriculum"]["enabled"] is True
     assert combined["competing_risk"]["head_mode"] == "family_trunks"
     assert combined["competing_risk"]["curriculum"]["enabled"] is True
+    assert combined["competing_risk"]["interval_boundaries_days"] == [
+        30, 60, 90, 180, 365, 730
+    ]
+    assert combined["competing_risk"]["initialize_from_null_hazards"] is True
+    assert combined["model"]["pooling"] == "cls_last"
+    assert combined["training"]["eval_monitor_metric"] == (
+        "val/cr_cif_auc_family_macro"
+    )
+
+    family_kendall_null = yaml.safe_load(
+        (tmp_path / "direct_cr_family_trunks_curriculum_kendall_null.yaml").read_text()
+    )
+    assert family_kendall_null["competing_risk"]["weighter"] == "kendall_null"
+    assert family_kendall_null["cross_outcome"]["aggregation"] == "macro"
 
     uniform_cls = yaml.safe_load(
         (tmp_path / "direct_cr_uniform_cls.yaml").read_text()

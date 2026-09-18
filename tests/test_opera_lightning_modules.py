@@ -237,6 +237,15 @@ def test_family_competing_risk_trunks_keep_outcomes_separate_and_backpropagate()
         for head in model.competing_risk_head.heads.values()
     )
 
+    fitted = {
+        "mortality": [[-1.0, -2.0, -3.0], [-4.0, -5.0, -6.0]],
+        "relapse": [[-7.0, -8.0, -9.0], [-10.0, -11.0, -12.0]],
+    }
+    model.initialize_competing_risk_biases(fitted)
+    for outcome in OUTCOMES:
+        expected = torch.tensor(fitted[outcome]).reshape(-1)
+        assert torch.equal(model.competing_risk_head.heads[outcome].bias, expected)
+
 
 def test_family_projection_uses_auxiliary_spaces_but_preserves_pooled_representation():
     model = _make_opera_model(

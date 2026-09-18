@@ -643,16 +643,12 @@ competing_risk:
   loss_weight: 1.0
   contrastive_loss_weight: 0.1
   interval_boundaries_days:
-  - 3
-  - 7
-  - 14
   - 30
   - 60
   - 90
   - 180
   - 365
   - 730
-  - 1460
   time_scale_days: 365.25
   initial_log_hazard: -2.3
   smoothness_weight: 0.01
@@ -664,6 +660,8 @@ competing_risk:
   head_mode: linear
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1
+  initialize_from_null_hazards: true
+  initialization_event_pseudocount: 0.5
   curriculum:
     enabled: false
     n_support_tiers: 5
@@ -789,15 +787,24 @@ training:
   batch_sampling:
     type: random
   accumulate_grad_batches: 1
-  epochs: 12
-  learning_rate: 0.0002
-  encoder_lr_multiplier: 0.1
+  epochs: 30
+  learning_rate: 0.0005
+  encoder_lr_multiplier: 0.05
   optimizer_epsilon: 1.0e-06
-  scheduler_warmup_epochs: 1
+  scheduler_warmup_epochs: 2
   log_every_n_steps: 10
   probe_every_n_epochs: 5
   enable_validation_probe: false
   log_per_outcome_metrics: false
   limit_val_batches: 1.0
   limit_train_batches: 1.0
+  evaluation_horizons_days:
+  - 30
+  - 60
+  - 90
+  - 180
+  - 365
+  - 730
+  eval_monitor_metric: val/cr_cif_auc_family_macro
+  early_stopping_patience: null
   numeric_value_control: inherit

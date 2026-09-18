@@ -12,7 +12,7 @@ import lightning as L
 import torch
 from torch import nn
 from torch.optim import AdamW
-from typing import Dict, List
+from typing import Dict, List, Mapping
 import numpy as np
 from bonsai.functional.checkpointing import (
     MODEL_INIT_CONFIG_KEY,
@@ -41,6 +41,7 @@ class OperaContrastiveModule(L.LightningModule):
         enable_validation_probe: bool = True,
         log_per_outcome_metrics: bool = True,
         evaluation_horizons_days: List[float] = None,
+        outcome_families: Mapping[str, List[str]] = None,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -71,6 +72,11 @@ class OperaContrastiveModule(L.LightningModule):
         self.evaluation_horizons_days = [
             float(value) for value in (evaluation_horizons_days or [])
         ]
+        self.outcome_family = {
+            outcome: family
+            for family, members in dict(outcome_families or {}).items()
+            for outcome in members
+        }
         self._val_cr_predictions = {}
         if self.gradient_cache:
             self.automatic_optimization = False
@@ -383,6 +389,8 @@ class OperaContrastiveModule(L.LightningModule):
         ]
         aucs = []
         briers = []
+        outcome_aucs = {}
+        outcome_briers = {}
         for name, store in self._val_cr_predictions.items():
             times = torch.cat(store["times"]).numpy()
             events = torch.cat(store["events"]).numpy()
@@ -396,14 +404,41 @@ class OperaContrastiveModule(L.LightningModule):
                 brier = float(metrics["cif_brier"])
                 if np.isfinite(auc):
                     aucs.append(auc)
+                    outcome_aucs.setdefault(name, []).append(auc)
                     self.log(f"val/cr_cif_auc/{name}/{suffix}", auc)
                 if np.isfinite(brier):
                     briers.append(brier)
+                    outcome_briers.setdefault(name, []).append(brier)
                     self.log(f"val/cr_cif_brier/{name}/{suffix}", brier)
         if aucs:
             self.log("val/cr_cif_auc_macro", float(np.mean(aucs)), prog_bar=True)
         if briers:
             self.log("val/cr_cif_brier_macro", float(np.mean(briers)))
+        for metric_name, values, higher_is_better in (
+            ("auc", outcome_aucs, True),
+            ("brier", outcome_briers, False),
+        ):
+            family_values = {}
+            for outcome, outcome_values in values.items():
+                family = self.outcome_family.get(outcome)
+                if family is not None and outcome_values:
+                    family_values.setdefault(family, []).append(
+                        float(np.mean(outcome_values))
+                    )
+            family_means = []
+            for family, member_values in family_values.items():
+                value = float(np.mean(member_values))
+                family_means.append(value)
+                family_key = (
+                    family.lower().replace(" ", "_").replace("&", "and")
+                )
+                self.log(f"val/cr_cif_{metric_name}_family/{family_key}", value)
+            if family_means:
+                self.log(
+                    f"val/cr_cif_{metric_name}_family_macro",
+                    float(np.mean(family_means)),
+                    prog_bar=higher_is_better,
+                )
         self._val_cr_predictions = {}
 
     def on_validation_epoch_end(self):

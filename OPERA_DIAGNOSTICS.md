@@ -63,15 +63,57 @@ python -m opera.run.plot_censoring_aware_embeddings \
   --y-col component_2 \
   --outcome "$BONSAI_OUTCOMES_DIR/anemia_g3plus.parquet" \
   --competing-outcome "$BONSAI_OUTCOMES_DIR/overall_survival.parquet" \
-  --horizon-days 90 \
-  --covariates age_at_index treatment_year sequence_length sex cohort_grouped \
+  --horizon-days 365 \
+  --predicted-cif-col predicted_cif_365d \
+  --embedding-cols embedding_0 embedding_1 ... embedding_63 \
+  --held-out-col is_test_2023plus \
   --title "Grade 3+ anaemia" \
-  --output "$PLOT_ROOT/anemia_g3plus_censoring_aware_90d.png"
+  --output "$PLOT_ROOT/anemia_g3plus_censoring_aware_365d.png"
 ```
 
 The five panels show observed status, time to status, IPCW kernel cumulative
-incidence, cross-fitted nuisance-adjusted enrichment, and effective local sample
-size. Risk/enrichment regions below `--min-effective-support` are masked.
+incidence, the calibration residual, and effective local sample size.
+Risk/residual regions below `--min-effective-support` are masked.
+
+### Panel D: calibration residual
+
+Panel D asks whether the model's own predictions hold up region by region of
+its embedding. For every grid point `x`:
+
+- `R_obs(x)` is the IPCW 365-day cause-specific cumulative incidence over
+  nearby patients -- the surface panel C shows, reused rather than re-estimated;
+- `R_pred(x)` is the model's predicted 365-day cause-specific CIF averaged over
+  the same patients through the same kernel and bandwidth;
+- `D(x) = R_obs(x) - R_pred(x)`, displayed as `D(x)` divided by its local
+  standard error (bootstrap over patients; the predicted surface is noise-free,
+  so the variance of `D` is the variance of the local IPCW estimate).
+
+Red means observed above predicted, i.e. the model under-predicts risk there;
+blue means it over-predicts; near zero means locally calibrated. The colour
+limits are fixed at `--residual-z-limit` (default 4) so that two maps can be
+compared; `--residual-units raw` falls back to `D(x)` in cumulative-incidence
+units.
+
+Three things make the panel a valid calibration check, and all three are the
+caller's responsibility:
+
+- **Same estimand.** `--predicted-cif-col` must hold the *cause-specific
+  cumulative incidence at the horizon*, not a hazard, a risk score, or an
+  all-cause survival probability. Heads that emit discrete-time hazards go
+  through `cause_specific_cif_from_hazards` first. Values outside `[0, 1]` are
+  rejected rather than silently rescaled.
+- **Neighbourhoods in the full embedding.** `--embedding-cols` gives the
+  representation the model actually uses and `--n-neighbors` sets the kNN count.
+  The two-dimensional layout only places the answer for display; it still
+  decides where the answer may be shown, through panel E's support mask.
+- **Out of fold.** `--held-out-col` must flag patients the model never trained
+  on (test set 2023+ against a model trained through 2022). Without it the panel
+  re-reads the training fit and will look better calibrated than it is.
+
+`python -m opera.run.render_style_gallery` writes three synthetic design proofs
+of this panel: a realistic run, one with a known miscalibration injected into a
+single region of the embedding, and one with predictions set equal to the truth.
+
 # Vocabulary-learning diagnostics
 
 The vocabulary atlas is descriptive and is not, by itself, evidence that

@@ -6,9 +6,48 @@ import torch
 from opera.modules.networks.competing_risk import (
     PiecewiseExponentialCompetingRiskLoss,
     estimate_piecewise_null_log_hazards,
+    piecewise_exponential_cif,
     summarize_competing_risk_support,
     validate_competing_risk_sampling,
 )
+
+
+def test_piecewise_cif_matches_constant_hazard_closed_form():
+    target_rate = 0.02
+    competing_rate = 0.01
+    hazards = torch.tensor(
+        [[[[math.log(target_rate)] * 3, [math.log(competing_rate)] * 3]]]
+    )
+
+    result = piecewise_exponential_cif(
+        hazards,
+        [30.0, 90.0],
+        [10.0, 60.0, 180.0],
+        time_scale_days=1.0,
+    )
+
+    total = target_rate + competing_rate
+    expected = torch.tensor(
+        [target_rate / total * (1.0 - math.exp(-total * horizon)) for horizon in (10, 60, 180)]
+    )
+    assert result.shape == (1, 1, 3)
+    assert torch.allclose(result[0, 0], expected, atol=1e-6)
+    assert torch.all(result[..., 1:] >= result[..., :-1])
+
+
+def test_piecewise_cif_can_exclude_competing_hazard():
+    target_rate = 0.02
+    hazards = torch.tensor(
+        [[[[math.log(target_rate), math.log(target_rate)], [math.log(50.0), math.log(50.0)]]]]
+    )
+    result = piecewise_exponential_cif(
+        hazards,
+        [30.0],
+        [10.0],
+        time_scale_days=1.0,
+        no_competing_outcome_mask=torch.tensor([True]),
+    )
+    assert result.item() == pytest.approx(1.0 - math.exp(-target_rate * 10.0))
 
 
 def _survival(times, events):
@@ -318,6 +357,41 @@ def test_support_curriculum_renormalizes_training_and_validation_uses_all_outcom
         for key in validation
         if key.startswith("cr/family_weight/")
     ) == {"rich", "middle", "rare"}
+
+
+def test_kendall_weighting_respects_curriculum_and_validation_uses_all_outcomes():
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["common", "rare"],
+        [30.0],
+        no_competing_outcomes=[],
+        weighter="kendall",
+        cross_outcome_config={
+            "aggregation": "macro",
+            "event_location_counts": {"common": 100, "rare": 1},
+            "curriculum": {
+                "enabled": True,
+                "n_support_tiers": 2,
+                "warmup_epochs": 1,
+                "stage_epochs": 1,
+                "ramp_epochs": 1,
+            },
+        },
+    )
+    hazards = torch.zeros(2, 2, 2, 2)
+    survival = {
+        name: {"times": torch.tensor([10.0, 40.0]), "events": torch.tensor([1, 0])}
+        for name in ("common", "rare")
+    }
+
+    loss_fn.set_curriculum_state(0, training=True)
+    _, warmup = loss_fn(hazards, survival)
+    assert warmup["cr/outcome_weight/common"].item() == pytest.approx(0.5)
+    assert warmup["cr/outcome_weight/rare"].item() == pytest.approx(0.0)
+
+    loss_fn.set_curriculum_state(0, training=False)
+    _, validation = loss_fn(hazards, survival)
+    assert validation["cr/outcome_weight/common"].item() == pytest.approx(0.5)
+    assert validation["cr/outcome_weight/rare"].item() == pytest.approx(0.5)
 
 
 def test_competing_risk_can_return_differentiable_per_outcome_terms():

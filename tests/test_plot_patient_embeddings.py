@@ -3,10 +3,25 @@ import pandas as pd
 import pytest
 
 from opera.run.plot_patient_embeddings import (
+    _ordered_levels,
+    categorical_colors,
     load_embedding_frame,
     load_outcome_time_columns,
     reduce_patient_embeddings,
 )
+from opera.visualization.style import PALETTE
+
+
+def test_outcome_boolean_colors_and_order_are_prevalence_invariant():
+    values = np.array(["True"] * 8 + ["False"] * 2, dtype=object)
+    valid = np.ones(len(values), dtype=bool)
+
+    levels = _ordered_levels(values, valid)
+    colors = categorical_colors(levels)
+
+    assert levels == ["False", "True"]
+    assert colors["False"] == PALETTE["negative"]
+    assert colors["True"] == PALETTE["positive"]
 
 
 def test_load_embedding_frame_preserves_npz_order_and_joins_metadata(tmp_path):

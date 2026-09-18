@@ -361,6 +361,11 @@ def build_direct_cr_config(
     )
     config["competing_risk"]["family_trunk_hidden_dim"] = 128
     config["competing_risk"]["family_trunk_dropout"] = 0.1
+    config["competing_risk"]["interval_boundaries_days"] = [
+        30, 60, 90, 180, 365, 730
+    ]
+    config["competing_risk"]["initialize_from_null_hazards"] = True
+    config["competing_risk"]["initialization_event_pseudocount"] = 0.5
     config["competing_risk"]["curriculum"] = {
         "enabled": bool(curriculum),
         # Rank outcomes using training-split event-location support. This avoids
@@ -374,19 +379,25 @@ def build_direct_cr_config(
         # Learned outcome weights operate directly on task likelihoods. Do not
         # combine them with the separate hand-designed family/support weights.
         config["cross_outcome"]["aggregation"] = "macro"
-    if cls_pooling:
+    use_cls_pooling = cls_pooling or family_trunks or curriculum
+    if use_cls_pooling:
         config["model"]["pooling"] = "cls_last"
         config["model"]["dapt_anchor_weight"] = 0.0
         config["dapt_embedding_store"] = None
         config["training"]["require_dapt_embedding_store"] = False
     config["training"].update(
         {
-            "epochs": 12,
-            "learning_rate": 2e-4,
-            "encoder_lr_multiplier": 0.1,
-            "scheduler_warmup_epochs": 1,
+            "epochs": 30,
+            "learning_rate": 5e-4,
+            "encoder_lr_multiplier": 0.05,
+            "scheduler_warmup_epochs": 2,
             "enable_validation_probe": False,
             "log_per_outcome_metrics": False,
+            "evaluation_horizons_days": [30, 60, 90, 180, 365, 730],
+            "eval_monitor_metric": "val/cr_cif_auc_family_macro",
+            # Curriculum deliberately changes the active objective over early
+            # epochs. Run the full schedule and retain the best validation epoch.
+            "early_stopping_patience": None,
         }
     )
     return config
@@ -520,6 +531,12 @@ def generate_configs(
         ),
         "direct_cr_family_trunks_curriculum.yaml": build_direct_cr_config(
             registry, family_trunks=True, curriculum=True
+        ),
+        "direct_cr_family_trunks_curriculum_kendall_null.yaml": build_direct_cr_config(
+            registry,
+            family_trunks=True,
+            curriculum=True,
+            survival_weighter="kendall_null",
         ),
         "direct_cr_uniform_cls.yaml": build_joined_bins_direct_cr_config(
             registry, cls_pooling=True

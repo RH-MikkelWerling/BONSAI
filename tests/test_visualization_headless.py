@@ -314,7 +314,7 @@ def test_embedding_stage_metadata_grid_reuses_each_stage_projection(tmp_path):
     assert len({axis.get_ylim() for axis in panel_axes[:4]}) == 1
     assert len({axis.get_xlim() for axis in panel_axes[4:]}) == 1
     assert len({axis.get_ylim() for axis in panel_axes[4:]}) == 1
-    assert [axis.get_title() for axis in panel_axes[:4]] == list(metadata)
+    assert [axis.get_title(loc="left") for axis in panel_axes[:4]] == list(metadata)
     assert any(
         "Prespecified region" in text.get_text() for text in panel_axes[-1].texts
     )

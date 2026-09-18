@@ -1,6 +1,10 @@
 import unittest
 import torch
-from bonsai.functional.truncation import truncate_subject
+from bonsai.functional.truncation import (
+    exhaustive_clinical_windows,
+    subject_window_count,
+    truncate_subject,
+)
 
 
 class TestTruncation(unittest.TestCase):
@@ -105,3 +109,36 @@ class TestTruncation(unittest.TestCase):
         )
         assert metadata["background_length"] == 2
         assert torch.equal(truncated["code"][:2], subject["code"][:2])
+
+    def test_all_windows_cover_clinical_tokens_once_without_splitting_events(self):
+        subject = {
+            "subject_id": 14,
+            "code": torch.arange(12),
+            "abspos": torch.arange(12),
+            "age": torch.arange(12),
+            "segment": torch.tensor([1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 7, 7]),
+        }
+        windows = exhaustive_clinical_windows(
+            subject, max_len=6, background_length=2
+        )
+        self.assertEqual(subject_window_count(subject, 6, 2), 3)
+
+        views = [
+            truncate_subject(
+                subject,
+                max_len=6,
+                background_length=2,
+                strategy="all_windows",
+                window_index=index,
+            )
+            for index in range(len(windows))
+        ]
+        clinical = torch.cat([view["code"][2:] for view in views])
+        torch.testing.assert_close(clinical, subject["code"][2:])
+        for view in views:
+            torch.testing.assert_close(view["code"][:2], subject["code"][:2])
+            for segment in view["segment"][2:].unique():
+                self.assertEqual(
+                    int((view["segment"] == segment).sum()),
+                    int((subject["segment"] == segment).sum()),
+                )

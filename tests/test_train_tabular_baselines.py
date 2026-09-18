@@ -1,8 +1,10 @@
+import numpy as np
 import pandas as pd
 
 from opera.run.train_tabular_baselines import (
     TUNING_GRIDS,
     build_arg_parser,
+    build_preprocessor,
     high_dimensional_diagnostics,
     infer_feature_columns,
     missingness_report,
@@ -76,6 +78,21 @@ def test_infer_feature_columns_excludes_reserved_and_explicit_columns():
     )
 
     assert columns == ["age", "sex"]
+
+
+def test_preprocessor_recognizes_pandas_string_dtype_as_categorical():
+    frame = pd.DataFrame(
+        {
+            "age": [60.0, None, 72.0],
+            "sex": pd.Series(["Male", "Female", None], dtype="string"),
+        }
+    )
+    preprocessor = build_preprocessor(frame, ["age", "sex"])
+
+    transformed = preprocessor.fit_transform(frame)
+
+    assert transformed.shape[0] == 3
+    assert np.isfinite(transformed.toarray() if hasattr(transformed, "toarray") else transformed).all()
 
 
 def test_missingness_report_tracks_train_and_test_availability():

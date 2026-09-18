@@ -37,6 +37,7 @@ from bonsai.functional.input_contract import (
     resolve_numeric_value_control,
 )
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
+from opera.functional.direct_cr_contract import validate_direct_cr_config
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 from opera.modules.networks.competing_risk import (
@@ -227,6 +228,7 @@ def main(cfg: DictConfig) -> None:
     # influence any training or checkpoint-selection operation.
     outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
     outcome_names = sorted(outcome_configs.keys())
+    validate_direct_cr_config(OmegaConf.to_container(cfg, resolve=True))
     validate_competing_risk_sampling(
         OmegaConf.to_container(cfg.get("competing_risk", {}), resolve=True),
         OmegaConf.to_container(
@@ -473,6 +475,7 @@ def main(cfg: DictConfig) -> None:
             "evaluation_horizons_days",
             competing_risk_config.get("interval_boundaries_days", []),
         ),
+        outcome_families=cross_outcome_config.get("outcome_families", {}),
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,

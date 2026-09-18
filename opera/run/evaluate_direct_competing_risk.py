@@ -197,10 +197,42 @@ def main() -> None:
                 {"cohort": cohort, "outcome": outcome, "horizon_days": horizon, **result}
             )
     metrics = pd.DataFrame(metric_rows)
+    pooled_rows = []
+    for outcome, frame in predictions.groupby("outcome"):
+        for horizon in horizons:
+            result = compute_competing_risk_metrics_at_horizon(
+                frame["time_days"].to_numpy(),
+                frame["event"].to_numpy(),
+                frame[f"cif_{int(horizon)}d"].to_numpy(),
+                horizon,
+            )
+            pooled_rows.append(
+                {"outcome": outcome, "horizon_days": horizon, **result}
+            )
+    pooled_metrics = pd.DataFrame(pooled_rows)
+    outcome_families = OmegaConf.to_container(
+        cfg.get("cross_outcome", {}).get("outcome_families", {}), resolve=True
+    )
+    outcome_to_family = {
+        outcome: family
+        for family, members in dict(outcome_families or {}).items()
+        for outcome in members
+    }
+    metrics["outcome_family"] = metrics["outcome"].map(outcome_to_family)
+    pooled_metrics["outcome_family"] = pooled_metrics["outcome"].map(
+        outcome_to_family
+    )
+    family_summary = (
+        pooled_metrics.dropna(subset=["outcome_family"])
+        .groupby("outcome_family", as_index=False)[["cif_auc", "cif_brier"]]
+        .mean()
+    )
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(output_dir / "direct_cr_predictions.parquet", index=False)
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)
+    pooled_metrics.to_csv(output_dir / "direct_cr_pooled_metrics.csv", index=False)
+    family_summary.to_csv(output_dir / "direct_cr_family_metrics.csv", index=False)
     summary = {
         "checkpoint": str(args.checkpoint),
         "split": args.split,
@@ -208,7 +240,18 @@ def main() -> None:
         "n_prediction_rows": int(len(predictions)),
         "macro_cif_auc": float(metrics["cif_auc"].mean()),
         "macro_cif_brier": float(metrics["cif_brier"].mean()),
+        "pooled_macro_cif_auc": float(pooled_metrics["cif_auc"].mean()),
+        "pooled_macro_cif_brier": float(pooled_metrics["cif_brier"].mean()),
     }
+    if not family_summary.empty:
+        summary.update(
+            {
+                "family_macro_cif_auc": float(family_summary["cif_auc"].mean()),
+                "family_macro_cif_brier": float(
+                    family_summary["cif_brier"].mean()
+                ),
+            }
+        )
     (output_dir / "direct_cr_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
