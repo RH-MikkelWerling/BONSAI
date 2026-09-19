@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import torch
+from lightning.pytorch.callbacks import Callback
 from omegaconf import DictConfig, OmegaConf
 
 from bonsai.functional.model_config import (
@@ -19,6 +20,35 @@ MODEL_CONFIG_KEY = "model_config"
 ENCODER_CONFIG_KEY = "encoder_config"
 MODEL_INIT_CONFIG_KEY = "model_init_config"
 COMPLETION_MARKER = "training_complete.json"
+
+
+class CompletedEpochCheckpoint(Callback):
+    """Save named checkpoints after exact numbers of completed epochs.
+
+    Lightning's ``current_epoch`` is zero-based. Exposing completed-epoch names
+    avoids the common ambiguity where ``epoch=10`` is actually the eleventh
+    pass through the training data.
+    """
+
+    def __init__(self, dirpath: str | Path, completed_epochs: list[int] | tuple[int, ...]):
+        super().__init__()
+        epochs = sorted({int(value) for value in completed_epochs})
+        if any(value <= 0 for value in epochs):
+            raise ValueError("Checkpoint milestone epochs must be positive integers.")
+        self.dirpath = Path(dirpath)
+        self.completed_epochs = tuple(epochs)
+        self._saved: set[int] = set()
+
+    def on_train_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+        completed = int(trainer.current_epoch) + 1
+        if completed not in self.completed_epochs or completed in self._saved:
+            return
+        self.dirpath.mkdir(parents=True, exist_ok=True)
+        trainer.save_checkpoint(
+            self.dirpath / f"epoch_{completed:03d}.ckpt",
+            weights_only=False,
+        )
+        self._saved.add(completed)
 
 
 def _completion_config(cfg: DictConfig | dict) -> dict:

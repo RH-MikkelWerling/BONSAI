@@ -13,7 +13,10 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig
 
-from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
+from bonsai.functional.checkpointing import (
+    CompletedEpochCheckpoint,
+    save_checkpoint_metadata_sidecar,
+)
 from bonsai.functional.checkpointing import (
     mark_training_complete,
     should_skip_completed_training,
@@ -97,13 +100,23 @@ def main(cfg: DictConfig) -> None:
         },
     )
 
+    callbacks = [ckpt_callback]
+    milestones = list(cfg.training.get("checkpoint_milestone_epochs", []))
+    if any(int(epoch) >= int(cfg.training.epochs) for epoch in milestones):
+        raise ValueError(
+            "checkpoint_milestone_epochs must be earlier than training.epochs; "
+            "last.ckpt already preserves the final epoch."
+        )
+    if milestones:
+        callbacks.append(CompletedEpochCheckpoint(model_save_dir, milestones))
+
     trainer = L.Trainer(
         accelerator=cfg.hardware.accelerator,
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
         devices=cfg.hardware.num_devices,
         limit_val_batches=cfg.training.limit_val_batches,
         limit_train_batches=cfg.training.limit_train_batches,
-        callbacks=[ckpt_callback],
+        callbacks=callbacks,
         logger=[logger],
         max_epochs=cfg.training.epochs,
         num_nodes=cfg.hardware.num_nodes,
@@ -115,7 +128,19 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
         ckpt_path=cfg.paths.ckpt_path,
     )
-    save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    save_checkpoint_metadata_sidecar(
+        model_save_dir,
+        lightning_module,
+        extra={
+            "completed_epochs": int(trainer.current_epoch) + 1,
+            "optimizer_steps": int(trainer.global_step),
+            "training_examples_seen": int(
+                lightning_module.training_examples_seen.item()
+            ),
+            "training_tokens_seen": int(lightning_module.training_tokens_seen.item()),
+            "checkpoint_milestone_epochs": [int(value) for value in milestones],
+        },
+    )
     mark_training_complete(model_save_dir, cfg)
 
 

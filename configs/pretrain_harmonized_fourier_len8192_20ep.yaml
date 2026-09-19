@@ -37,6 +37,9 @@ training:
   batch_size: 4
   accumulate_grad_batches: 32  # effective batch size = 128
   epochs: 20
+  # Preserve the exact state after ten completed passes for comparison with
+  # the 10-epoch PHAIR checkpoint while continuing the optimization to 20.
+  checkpoint_milestone_epochs: [10]
   learning_rate: 3e-4
   scheduler_warmup_epochs: 0.1
   optimizer_epsilon: 1e-6

@@ -8,7 +8,10 @@ from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
 from bonsai.functional.pathing import get_experiment_output_path
-from bonsai.functional.checkpointing import save_checkpoint_metadata_sidecar
+from bonsai.functional.checkpointing import (
+    CompletedEpochCheckpoint,
+    save_checkpoint_metadata_sidecar,
+)
 from bonsai.functional.model_config import validate_pretraining_attention
 from bonsai.functional.input_contract import input_contract_metadata
 from bonsai.functional.versioning import generate_unused_run_id
@@ -142,6 +145,14 @@ def main(cfg: DictConfig) -> None:
     )
 
     callbacks = [ckpt_callback]
+    milestones = list(cfg.training.get("checkpoint_milestone_epochs", []))
+    if any(int(epoch) >= int(cfg.training.epochs) for epoch in milestones):
+        raise ValueError(
+            "checkpoint_milestone_epochs must be earlier than training.epochs; "
+            "last.ckpt already preserves the final epoch."
+        )
+    if milestones:
+        callbacks.append(CompletedEpochCheckpoint(model_save_dir, milestones))
     if cfg.training.get("early_stopping_patience"):
         callbacks.append(
             EarlyStopping(
@@ -170,7 +181,19 @@ def main(cfg: DictConfig) -> None:
         datamodule=data_module,
         ckpt_path=cfg.paths.ckpt_path,
     )
-    save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
+    save_checkpoint_metadata_sidecar(
+        model_save_dir,
+        lightning_module,
+        extra={
+            "completed_epochs": int(trainer.current_epoch) + 1,
+            "optimizer_steps": int(trainer.global_step),
+            "training_examples_seen": int(
+                lightning_module.training_examples_seen.item()
+            ),
+            "training_tokens_seen": int(lightning_module.training_tokens_seen.item()),
+            "checkpoint_milestone_epochs": [int(value) for value in milestones],
+        },
+    )
 
 
 if __name__ == "__main__":

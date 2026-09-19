@@ -123,6 +123,12 @@ class PretrainModule(L.LightningModule):
         self.val_code_loss = MeanMetric()
         self.val_value_regression_loss = MeanMetric()
         self._val_has_numeric = False
+        self.register_buffer(
+            "training_examples_seen", torch.zeros((), dtype=torch.long), persistent=True
+        )
+        self.register_buffer(
+            "training_tokens_seen", torch.zeros((), dtype=torch.long), persistent=True
+        )
 
         hparams = self.model.hparams.copy()
         hparams.update(
@@ -161,6 +167,16 @@ class PretrainModule(L.LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
+        with torch.no_grad():
+            batch_size = int(batch["code"].shape[0])
+            if "attention_mask" in batch:
+                token_count = batch["attention_mask"].long().sum()
+            else:
+                token_count = torch.tensor(
+                    batch["code"].numel(), device=self.training_tokens_seen.device
+                )
+            self.training_examples_seen.add_(batch_size)
+            self.training_tokens_seen.add_(token_count.to(self.training_tokens_seen))
         output = self.model(batch)
         loss, _, _, losses = compute_pretrain_loss(
             output,
@@ -171,6 +187,18 @@ class PretrainModule(L.LightningModule):
             value_regression_loss_weight=self.value_regression_loss_weight,
         )
         self.log("train/loss", loss, prog_bar=True)
+        self.log(
+            "train/examples_seen",
+            self.training_examples_seen,
+            on_step=False,
+            on_epoch=True,
+        )
+        self.log(
+            "train/tokens_seen",
+            self.training_tokens_seen,
+            on_step=False,
+            on_epoch=True,
+        )
         if "value_regression" in losses:
             self.log("train/code_loss", losses["code"], prog_bar=False)
             if "value_bin" in losses:
