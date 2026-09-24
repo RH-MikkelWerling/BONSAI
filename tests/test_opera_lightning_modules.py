@@ -25,12 +25,29 @@ from opera.modules.lightningmodules.MOLModule import MOLModule
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.networks.joint_finetune_net import JointFinetuneModel
 from opera.modules.networks.mol_net import MultiOutcomeModel
+from opera.run.contrastive_multicohort import _uses_gradient_cache
 
 
 HIDDEN = 8
 SEQ_LEN = 3
 BATCH = 4
 OUTCOMES = ["mortality", "relapse"]
+
+
+@pytest.mark.parametrize(
+    ("logical_batch_size", "expected"),
+    [(None, False), (8, False), (16, True), (256, True)],
+)
+def test_gradient_cache_requires_more_than_one_physical_batch(
+    logical_batch_size, expected
+):
+    assert (
+        _uses_gradient_cache(
+            batch_size=8,
+            logical_batch_size=logical_batch_size,
+        )
+        is expected
+    )
 
 
 class _StubEncoder(nn.Module):
@@ -200,6 +217,42 @@ def test_direct_competing_risk_mode_skips_and_freezes_contrastive_projection():
     assert model.competing_risk_head.weight.grad is not None
 
 
+def test_direct_multi_horizon_bce_uses_same_head_and_backpropagates():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "objective": "horizon_bce",
+        }
+    )
+    batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+
+    result = model(batch, survival)
+    result["loss"].backward()
+
+    assert model.competing_risk_loss.objective == "horizon_bce"
+    assert torch.isfinite(result["loss"])
+    assert "cr/horizon_bce/loss/mortality/30d" in result
+    assert "cr/horizon_bce/loss/relapse/90d" in result
+    assert model.competing_risk_head.weight.grad is not None
+    assert torch.isfinite(model.competing_risk_head.weight.grad).all()
+    module = OperaContrastiveModule(
+        model,
+        OUTCOMES,
+        log_per_outcome_metrics=False,
+    )
+    assert not module._should_log_metric("cr/horizon_bce/loss/mortality/30d")
+
+
 def test_family_competing_risk_trunks_keep_outcomes_separate_and_backpropagate():
     families = {"survival": ["mortality"], "disease": ["relapse"]}
     model = _make_opera_model(
@@ -245,6 +298,199 @@ def test_family_competing_risk_trunks_keep_outcomes_separate_and_backpropagate()
     for outcome in OUTCOMES:
         expected = torch.tensor(fitted[outcome]).reshape(-1)
         assert torch.equal(model.competing_risk_head.heads[outcome].bias, expected)
+
+
+def test_outcome_mlp_heads_specialize_shared_cls_and_backpropagate():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "outcome_mlp",
+            "outcome_mlp_hidden_dim": 6,
+            "outcome_mlp_dropout": 0.0,
+        }
+    )
+    batch = _opera_survival_batch()
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+
+    result = model(batch, survival)
+    result["loss"].backward()
+
+    assert torch.isfinite(result["loss"])
+    assert set(model.competing_risk_head.trunks) == set(OUTCOMES)
+    assert all(
+        model.competing_risk_head.heads[name].weight.grad is not None
+        for name in OUTCOMES
+    )
+
+
+def test_outcome_attention_starts_at_shared_cls_then_learns_task_readouts():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "outcome_attention",
+            "outcome_attention_heads": 2,
+            "outcome_attention_dropout": 0.0,
+        },
+    )
+    batch = _opera_survival_batch()
+    with torch.no_grad():
+        shared = model._pool(batch)
+        task_states = model.get_objective_representations(batch)
+    assert task_states.shape == (len(shared), len(OUTCOMES), shared.shape[-1])
+    assert torch.allclose(task_states, shared.unsqueeze(1).expand_as(task_states))
+
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+    result = model(batch, survival)
+    result["loss"].backward()
+    assert model.outcome_attention_readout.residual_gates.grad is not None
+    assert all(
+        model.competing_risk_head.heads[name].weight.grad is not None
+        for name in OUTCOMES
+    )
+
+
+def test_shared_attention_prototypes_mix_shared_summaries_and_backpropagate():
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "shared_attention_prototypes",
+            "prototype_attention_num_prototypes": 3,
+            "prototype_attention_heads": 2,
+            "prototype_attention_dropout": 0.0,
+            "prototype_mixture_temperature": 1.0,
+        },
+    )
+    batch = _opera_survival_batch()
+    readout = model.outcome_attention_readout
+    with torch.no_grad():
+        shared = model._pool(batch)
+        task_states = model.get_objective_representations(batch)
+        mixture_weights = readout.mixture_weights()
+
+    assert task_states.shape == (len(shared), len(OUTCOMES), shared.shape[-1])
+    assert torch.allclose(task_states, shared.unsqueeze(1).expand_as(task_states))
+    assert mixture_weights.shape == (len(OUTCOMES), 3)
+    assert torch.allclose(mixture_weights.sum(dim=1), torch.ones(len(OUTCOMES)))
+    assert torch.allclose(mixture_weights, torch.full_like(mixture_weights, 1 / 3))
+
+    # At exactly zero residual gates, the first update intentionally reaches
+    # only the gates and hazard heads. Open the gates to verify the full path.
+    with torch.no_grad():
+        readout.residual_gates.fill_(0.25)
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+    model(batch, survival)["loss"].backward()
+
+    assert readout.residual_gates.grad is not None
+    assert readout.prototype_queries.grad is not None
+    assert torch.isfinite(readout.prototype_queries.grad).all()
+    assert readout.prototype_queries.grad.abs().sum() > 0
+    assert readout.outcome_mixture_logits.grad is not None
+    assert torch.isfinite(readout.outcome_mixture_logits.grad).all()
+    assert readout.outcome_mixture_logits.grad.abs().sum() > 0
+
+
+def test_factorized_cohort_outcome_prototypes_share_and_specialize_attention():
+    model = _make_opera_model(
+        cohort_names=["cohort_a", "cohort_b"],
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "factorized_cohort_outcome_prototypes",
+            "prototype_attention_num_prototypes": 3,
+            "prototype_interaction_rank": 2,
+            "prototype_attention_heads": 2,
+            "prototype_attention_dropout": 0.0,
+            "prototype_mixture_temperature": 1.0,
+        },
+    )
+    batch = _opera_survival_batch()
+    batch["cohort_index"] = torch.tensor([0, 0, 1, 1])
+    readout = model.outcome_attention_readout
+
+    with torch.no_grad():
+        shared = model._pool(batch)
+        task_states = model.get_objective_representations(batch)
+        initial_weights = readout.mixture_weights(batch["cohort_index"])
+
+    assert task_states.shape == (len(shared), len(OUTCOMES), shared.shape[-1])
+    assert torch.allclose(task_states, shared.unsqueeze(1).expand_as(task_states))
+    assert initial_weights.shape == (BATCH, len(OUTCOMES), 3)
+    assert torch.allclose(initial_weights.sum(dim=-1), torch.ones(BATCH, len(OUTCOMES)))
+    assert torch.allclose(initial_weights, torch.full_like(initial_weights, 1 / 3))
+
+    with torch.no_grad():
+        readout.cohort_mixture_logits[1, 0] = 1.0
+        readout.outcome_mixture_logits[1, 1] = 1.0
+        readout.interaction_projection[0, 2] = 1.0
+        readout.residual_gates.fill_(0.25)
+    specialized = readout.mixture_weights(batch["cohort_index"])
+    assert not torch.allclose(specialized[0, 0], specialized[2, 0])
+    assert not torch.allclose(specialized[0, 0], specialized[0, 1])
+
+    survival = {
+        name: {
+            "times": batch[f"time_{name}"],
+            "events": batch[f"event_{name}"],
+        }
+        for name in OUTCOMES
+    }
+    model(batch, survival)["loss"].backward()
+
+    assert readout.prototype_queries.grad is not None
+    assert readout.cohort_mixture_logits.grad is not None
+    assert readout.outcome_mixture_logits.grad is not None
+    assert readout.interaction_projection.grad is not None
+    assert torch.isfinite(readout.interaction_projection.grad).all()
+
+
+def test_factorized_cohort_outcome_attention_requires_batch_cohort_index():
+    model = _make_opera_model(
+        cohort_names=["cohort_a", "cohort_b"],
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "factorized_cohort_outcome_prototypes",
+            "prototype_attention_heads": 2,
+        },
+    )
+
+    with pytest.raises(ValueError, match="requires cohort_index"):
+        model.get_objective_representations(_opera_survival_batch())
 
 
 def test_family_projection_uses_auxiliary_spaces_but_preserves_pooled_representation():
@@ -370,6 +616,179 @@ def test_cached_opera_runs_through_lightning_manual_optimization():
     )
     trainer.fit(module, train_dataloaders=loader, val_dataloaders=loader)
     assert trainer.global_step == 1
+
+
+def test_cached_outcome_attention_runs_through_logical_batch_trainer():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "outcome_attention",
+            "outcome_attention_heads": 2,
+            "outcome_attention_dropout": 0.0,
+        }
+    )
+    module = OperaContrastiveModule(
+        model,
+        OUTCOMES,
+        gradient_cache=True,
+        scheduler_warmup_epochs=0,
+    )
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+
+    trainer.fit(
+        module,
+        train_dataloaders=DataLoader(LogicalDataset(), batch_size=None),
+    )
+
+    assert trainer.global_step == 1
+    assert not torch.equal(
+        model.outcome_attention_readout.residual_gates,
+        torch.zeros_like(model.outcome_attention_readout.residual_gates),
+    )
+
+
+def test_cached_shared_attention_prototypes_run_through_logical_batch_trainer():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    model = _make_opera_model(
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "shared_attention_prototypes",
+            "prototype_attention_num_prototypes": 3,
+            "prototype_attention_heads": 2,
+            "prototype_attention_dropout": 0.0,
+        }
+    )
+    module = OperaContrastiveModule(
+        model,
+        OUTCOMES,
+        gradient_cache=True,
+        scheduler_warmup_epochs=0,
+    )
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+
+    trainer.fit(
+        module,
+        train_dataloaders=DataLoader(LogicalDataset(), batch_size=None),
+    )
+
+    assert trainer.global_step == 1
+    assert not torch.equal(
+        model.outcome_attention_readout.residual_gates,
+        torch.zeros_like(model.outcome_attention_readout.residual_gates),
+    )
+
+
+def test_cached_factorized_attention_runs_through_logical_batch_trainer():
+    class LogicalDataset(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            batch = _opera_survival_batch()
+            batch["cohort_index"] = torch.tensor([0, 0, 1, 1])
+            return [
+                {
+                    key: value[start : start + 2] if torch.is_tensor(value) else value
+                    for key, value in batch.items()
+                }
+                for start in (0, 2)
+            ]
+
+    model = _make_opera_model(
+        cohort_names=["cohort_a", "cohort_b"],
+        competing_risk_config={
+            "loss_weight": 1.0,
+            "contrastive_loss_weight": 0.0,
+            "interval_boundaries_days": [30.0, 90.0],
+            "no_competing_outcomes": [],
+            "head_mode": "linear",
+            "readout_mode": "factorized_cohort_outcome_prototypes",
+            "prototype_attention_num_prototypes": 3,
+            "prototype_interaction_rank": 2,
+            "prototype_attention_heads": 2,
+            "prototype_attention_dropout": 0.0,
+        },
+    )
+    module = OperaContrastiveModule(
+        model,
+        OUTCOMES,
+        gradient_cache=True,
+        scheduler_warmup_epochs=0,
+    )
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        num_sanity_val_steps=0,
+    )
+
+    trainer.fit(
+        module,
+        train_dataloaders=DataLoader(LogicalDataset(), batch_size=None),
+    )
+
+    assert trainer.global_step == 1
+    assert not torch.equal(
+        model.outcome_attention_readout.residual_gates,
+        torch.zeros_like(model.outcome_attention_readout.residual_gates),
+    )
 
 
 def test_cached_opera_skips_second_encoder_pass_when_frozen():

@@ -996,7 +996,168 @@ python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_365d.yam
 python -m opera.run.sweep --config opera/configs/generated/grouped_ipcw_cif_365d.yaml
 ```
 
+## Six-way outcome-readout experiment plus multi-horizon BCE
+
+The architecture pilot changes one readout/head choice at a time while holding
+the pretrained checkpoint, outcome panel, cohorts, curriculum, loss aggregation,
+horizons, optimization, validation selection, and seed fixed. A seventh matched
+run keeps the shared-linear architecture fixed and changes only the training
+objective from exact-time likelihood to censor-aware BCE across all horizons.
+The configs are:
+
+| Config | Patient readout | Outcome head | Training objective |
+|---|---|---|---|
+| `direct_cr_architecture_shared_linear` | shared appended CLS | linear | exact-time competing-risk likelihood |
+| `direct_cr_architecture_outcome_mlp` | shared appended CLS | independent residual MLP per outcome | exact-time competing-risk likelihood |
+| `direct_cr_architecture_family_trunks` | shared appended CLS | clinical-family trunk, then outcome head | exact-time competing-risk likelihood |
+| `direct_cr_architecture_outcome_attention` | learned outcome query over final token states | linear | exact-time competing-risk likelihood |
+| `direct_cr_architecture_shared_attention_prototypes` | outcome-specific soft mixture of 10 shared attention prototypes | linear | exact-time competing-risk likelihood |
+| `direct_cr_architecture_factorized_cohort_outcome_prototypes` | cohort- and outcome-conditioned mixture of 10 shared attention prototypes | linear | exact-time competing-risk likelihood |
+| `direct_cr_objective_horizon_bce` | shared appended CLS | linear | cumulative CIF BCE at all six horizons |
+
+All seven use seed 42 and the 30, 60, 90, 180, 365, and 730 day competing-risk
+grid.  Outcome attention still runs the encoder once and trains all outcomes
+jointly.  It specializes only the final readout: each outcome query attends to
+the same encoder token states.  Its residual gate starts at zero, so the model
+starts exactly at the shared-CLS representation rather than discarding the
+pretrained representation on the first update.
+
+The horizon-BCE run converts the same cause-specific hazards into monotonic
+target-event CIFs and applies BCE jointly at every boundary. A primary event by
+the boundary is positive; an observed event-free patient or competing death is
+negative; administrative censoring before the boundary is masked. Consequently
+this changes the optimization signal without changing the estimand, prediction
+format, competing-event handling, or held-out evaluation.
+
+The shared-prototype variant tests the middle ground between one shared CLS and
+one independent query per outcome. Ten learned queries produce reusable patient
+summaries; every outcome learns a soft mixture over those summaries. Outcomes
+can therefore share some attention patterns and differ on others without a
+hand-authored, mutually exclusive trunk assignment. Its residual gates also
+start at zero, and its mixture weights start uniformly, making the initial
+prediction path exactly comparable to shared CLS.
+
+The factorized cohort-outcome variant adds disease context without learning an
+independent attention query for every disease-outcome cell. It combines global,
+cohort, and outcome mixture effects with a rank-8 cohort-by-outcome interaction,
+then mixes the same ten shared token-attention prototypes. The production
+cohort IDs are the ten `cohort_grouped` disease groups. This structure lets a
+sparse cell borrow an outcome effect learned in other diseases and a disease
+effect learned from other outcomes. Its logits start at a uniform mixture and
+its residual path starts at shared CLS, matching the other attention ablations.
+
+After the new pretraining checkpoint is selected, assign one config to each GPU
+or partition.  Run the preflight on the login/CPU node first, then submit the
+same config to its GPU partition:
+
+```bash
+export DAPT_CKPT=/path/to/new/pretraining/checkpoint.ckpt
+export ARCH_ROOT="$BONSAI_RESULTS_ROOT/outcome_readout_pilot"
+export ARCH_CONFIG=direct_cr_architecture_shared_linear  # change per job
+
+python -m opera.run.preflight_direct_competing_risk \
+  --config-name "generated/$ARCH_CONFIG" \
+  --require-existing-paths \
+  --override dapt_ckpt="$DAPT_CKPT"
+
+python -u -m opera.run.contrastive_multicohort \
+  --config-name "generated/$ARCH_CONFIG" \
+  dapt_ckpt="$DAPT_CKPT" \
+  hydra.run.dir="$ARCH_ROOT/$ARCH_CONFIG"
+```
+
+Use these values for `ARCH_CONFIG` on the seven jobs:
+
+```text
+direct_cr_architecture_shared_linear
+direct_cr_architecture_outcome_mlp
+direct_cr_architecture_family_trunks
+direct_cr_architecture_outcome_attention
+direct_cr_architecture_shared_attention_prototypes
+direct_cr_architecture_factorized_cohort_outcome_prototypes
+direct_cr_objective_horizon_bce
+```
+
+Select each checkpoint only by the configured validation family-macro CIF-AUC.
+Do not inspect held-out performance until all seven checkpoints are frozen.
+Evaluate every selected checkpoint with the same held-out command and six
+horizons.  The seven configs are ordinary Hydra configs and reconstruct the
+readout from checkpoint metadata, so a later BONSAI encoder implementation only
+needs to keep the existing final-hidden-state adapter contract.
+
+```bash
+export SELECTED_CKPT="$ARCH_ROOT/$ARCH_CONFIG/best.ckpt"
+
+python -u -m opera.run.evaluate_direct_competing_risk \
+  --checkpoint "$SELECTED_CKPT" \
+  --config-name "generated/$ARCH_CONFIG" \
+  --override dapt_ckpt="$DAPT_CKPT" \
+  --split held_out \
+  --horizons 30,60,90,180,365,730 \
+  --output-dir "$ARCH_ROOT/$ARCH_CONFIG/held_out"
+```
+
 ## Family-trunk competing-risk production run
+
+### Data-driven trunk discovery
+
+The clinical families above are a prespecified baseline.  To learn an
+alternative partition from optimization dynamics, first fit a short **linear
+head** competing-risk probe on training data only.  Do not discover groups from
+a family-trunk checkpoint: its shared trunks have already changed the gradient
+geometry being measured.  The existing Kendall-null config is suitable for the
+probe; a three-to-five epoch checkpoint is enough because this is a diagnostic,
+not the final model.
+
+Measure per-outcome gradients on training batches.  The permutation correction
+is important: it removes agreement attributable to cohort, event status, and
+follow-up strata rather than useful shared updates.
+
+```bash
+export TRUNK_DIAGNOSTICS="$BONSAI_RESULTS_ROOT/trunk_discovery"
+
+python -u -m opera.diagnostics.representation_gradient_conflict \
+  --checkpoints "$LINEAR_PROBE_CKPT" \
+  --config-name generated/direct_cr_kendall_null \
+  --override dapt_ckpt="$DAPT_CKPT" \
+  --objective competing_risk \
+  --gradient-components full_likelihood \
+  --null-permutations 8 \
+  --batches 64 \
+  --logical-batch-size 256 \
+  --min-overlap 8 \
+  --output-dir "$TRUNK_DIAGNOSTICS/gradients"
+```
+
+Then turn the null-corrected batch affinities into candidate trunks:
+
+```bash
+export GRADIENT_RUN="$TRUNK_DIAGNOSTICS/gradients/00_$(basename "$LINEAR_PROBE_CKPT" .ckpt)"
+
+python -u -m opera.diagnostics.outcome_trunk_discovery \
+  --pair-batches "$GRADIENT_RUN/gradient_components_batches.csv" \
+  --min-size 5 \
+  --max-size 10 \
+  --n-bootstrap 500 \
+  --output-dir "$TRUNK_DIAGNOSTICS/clusters"
+```
+
+`learned_outcome_families.yaml` is the mapping to place under
+`cross_outcome.outcome_families` in a family-trunk training config.  The output
+also includes the raw affinity matrix, relationship-annotated pair evidence,
+all feasible cluster-count scores, bootstrap co-assignment probabilities,
+per-outcome membership stability, and an ordered heatmap.  G2+/G3+ definitions,
+declared composites/components, and aliases are constrained to the same trunk,
+but are excluded from the partition score because their agreement is partly
+deterministic.  With no explicit `--n-clusters`, the selected count is the
+feasible value nearest the midpoint of the requested size range; use
+`candidate_cluster_counts.csv` as a sensitivity analysis, not as a reason to
+optimize the grouping on held-out results.
+
+Freeze the mapping before tuning and held-out evaluation.  The confirmatory
+comparison should use the same encoder checkpoint, curriculum, weighting,
+seeds, and evaluation protocol for (1) clinical trunks, (2) learned trunks,
+and (3) a linear-head/no-trunk control.
 
 The primary cross-cohort/cross-outcome adaptation config is
 `generated/direct_cr_family_trunks_curriculum.yaml`. It uses the six agreed

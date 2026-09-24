@@ -15,18 +15,37 @@ from opera.evaluation.metrics import _km_admin_censoring_fn
 _HORIZON_PATTERN = re.compile(r"_(\d+)d_predictions\.csv$")
 
 
-def _tabular_artifacts(root: Path) -> dict[tuple[str, int], Path]:
-    artifacts: dict[tuple[str, int], Path] = {}
-    for metadata_path in root.glob("*_metadata.json"):
+def _tabular_artifacts(
+    root: Path,
+    *,
+    model_family: str | None = None,
+    model_name: str | None = None,
+) -> dict[tuple[str, str, int], Path]:
+    """Index tabular predictions by fine cohort, outcome, and horizon."""
+    artifacts: dict[tuple[str, str, int], Path] = {}
+    for metadata_path in root.glob("**/*_metadata.json"):
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if model_family and str(metadata.get("model_family")) != model_family:
+            continue
+        if model_name and str(metadata.get("model_name")) != model_name:
+            continue
         prediction_path = Path(metadata.get("prediction_file", ""))
+        if not prediction_path.is_absolute():
+            candidate = metadata_path.parent / prediction_path
+            if candidate.is_file():
+                prediction_path = candidate
         match = _HORIZON_PATTERN.search(prediction_path.name)
         outcome = str(metadata.get("outcome_name", ""))
-        if not match or not outcome or not prediction_path.is_file():
+        cohort = str(metadata.get("cohort", ""))
+        if not match or not outcome or not cohort or not prediction_path.is_file():
             continue
-        key = (outcome, int(match.group(1)))
+        key = (cohort, outcome, int(match.group(1)))
         if key in artifacts:
-            raise ValueError(f"Duplicate tabular artifact for {key}: {prediction_path}")
+            raise ValueError(
+                f"Duplicate tabular artifact for {key}: {artifacts[key]} and "
+                f"{prediction_path}. Filter with --tabular-model-family and/or "
+                "--tabular-model-name."
+            )
         artifacts[key] = prediction_path
     return artifacts
 
@@ -90,6 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--tabular-model-family", default="tabular_ehr")
+    parser.add_argument("--tabular-model-name", default="xgboost")
     return parser
 
 
@@ -102,7 +123,11 @@ def main() -> None:
     missing = required - set(direct)
     if missing:
         raise ValueError(f"Direct predictions are missing columns: {sorted(missing)}")
-    artifacts = _tabular_artifacts(args.tabular_dir)
+    artifacts = _tabular_artifacts(
+        args.tabular_dir,
+        model_family=args.tabular_model_family,
+        model_name=args.tabular_model_name,
+    )
     if not artifacts:
         raise ValueError(
             f"No tabular prediction/metadata pairs found in {args.tabular_dir}"
@@ -111,17 +136,26 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
     rows: list[dict] = []
     bootstrap_rows: list[dict] = []
-    for (outcome, horizon), prediction_path in sorted(artifacts.items()):
+    direct_has_cohort = "cohort" in direct.columns
+    if not direct_has_cohort and len({key[0] for key in artifacts}) > 1:
+        raise ValueError(
+            "Direct predictions have no cohort column but tabular artifacts span "
+            "multiple cohorts. Cohort-paired comparison would be ambiguous."
+        )
+    for (cohort, outcome, horizon), prediction_path in sorted(artifacts.items()):
         print(
-            f"Comparing {outcome} at {horizon}d "
+            f"Comparing {cohort}/{outcome} at {horizon}d "
             f"({args.n_bootstrap} paired bootstraps)...",
             flush=True,
         )
         direct_column = f"cif_{horizon}d"
         if direct_column not in direct:
             continue
+        direct_mask = direct["outcome"].astype(str) == outcome
+        if direct_has_cohort:
+            direct_mask &= direct["cohort"].astype(str) == cohort
         outcome_direct = direct.loc[
-            direct["outcome"].astype(str) == outcome,
+            direct_mask,
             ["subject_id", "time_days", "event", direct_column],
         ]
         tabular = pd.read_csv(prediction_path)[["subject_id", "probability"]]
@@ -134,11 +168,14 @@ def main() -> None:
             }
         )
         if paired.empty:
-            raise ValueError(f"No paired subjects for {outcome}/{horizon}d")
+            raise ValueError(
+                f"No paired subjects for {cohort}/{outcome}/{horizon}d"
+            )
         opera = _metrics(paired, "opera_probability", horizon)
         tabular_metrics = _metrics(paired, "tabular_probability", horizon)
         rows.append(
             {
+                "cohort": cohort,
                 "outcome": outcome,
                 "horizon_days": horizon,
                 "n_paired": len(paired),
@@ -159,22 +196,36 @@ def main() -> None:
             tabular_draw = _metrics(sample, "tabular_probability", horizon)
             bootstrap_rows.append(
                 {
+                    "cohort": cohort,
                     "outcome": outcome,
                     "horizon_days": horizon,
                     "draw": draw,
+                    "opera_cif_auc": opera_draw["cif_auc"],
+                    "tabular_cif_auc": tabular_draw["cif_auc"],
                     "delta_cif_auc": opera_draw["cif_auc"] - tabular_draw["cif_auc"],
+                    "opera_cif_brier": opera_draw["cif_brier"],
+                    "tabular_cif_brier": tabular_draw["cif_brier"],
                     "delta_cif_brier": opera_draw["cif_brier"]
                     - tabular_draw["cif_brier"],
                 }
             )
-        print(f"  completed {outcome}/{horizon}d", flush=True)
+        print(f"  completed {cohort}/{outcome}/{horizon}d", flush=True)
 
     results = pd.DataFrame(rows)
     draws = pd.DataFrame(bootstrap_rows)
     if results.empty:
         raise ValueError("No matching outcome/horizon artifacts were comparable.")
     intervals = (
-        draws.groupby(["outcome", "horizon_days"])[["delta_cif_auc", "delta_cif_brier"]]
+        draws.groupby(["cohort", "outcome", "horizon_days"])[
+            [
+                "opera_cif_auc",
+                "tabular_cif_auc",
+                "delta_cif_auc",
+                "opera_cif_brier",
+                "tabular_cif_brier",
+                "delta_cif_brier",
+            ]
+        ]
         .quantile([0.025, 0.975])
         .unstack()
     )
@@ -183,7 +234,9 @@ def main() -> None:
         for metric, quantile in intervals.columns
     ]
     results = results.merge(
-        intervals.reset_index(), on=["outcome", "horizon_days"], how="left"
+        intervals.reset_index(),
+        on=["cohort", "outcome", "horizon_days"],
+        how="left",
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     results.to_csv(args.output_dir / "paired_comparison.csv", index=False)

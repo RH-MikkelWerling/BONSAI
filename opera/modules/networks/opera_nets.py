@@ -151,6 +151,389 @@ class FamilyCompetingRiskHead(nn.Module):
         )
 
 
+class OutcomeMLPCompetingRiskHead(nn.Module):
+    """Independent residual MLP and prediction head for every outcome."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        outcome_names: List[str],
+        outputs_per_outcome: int,
+        *,
+        dropout: float = 0.1,
+        initial_bias: float = -2.3,
+    ):
+        super().__init__()
+        self.outcome_names = list(outcome_names)
+        self.trunks = nn.ModuleDict(
+            {
+                outcome: nn.Sequential(
+                    nn.Linear(input_dim, hidden_dim),
+                    nn.GELU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_dim, input_dim),
+                    nn.LayerNorm(input_dim),
+                )
+                for outcome in self.outcome_names
+            }
+        )
+        self.heads = nn.ModuleDict(
+            {
+                outcome: nn.Linear(input_dim, outputs_per_outcome)
+                for outcome in self.outcome_names
+            }
+        )
+        for head in self.heads.values():
+            nn.init.normal_(head.weight, mean=0.0, std=0.01)
+            nn.init.constant_(head.bias, initial_bias)
+
+    def forward(self, pooled: torch.Tensor) -> torch.Tensor:
+        if pooled.ndim != 2:
+            raise ValueError("Outcome MLP heads require a shared (batch, hidden) readout.")
+        return torch.stack(
+            [
+                self.heads[outcome](pooled + self.trunks[outcome](pooled))
+                for outcome in self.outcome_names
+            ],
+            dim=1,
+        )
+
+
+class OutcomeLinearCompetingRiskHead(nn.Module):
+    """Independent linear heads for outcome-specific patient representations."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        outcome_names: List[str],
+        outputs_per_outcome: int,
+        *,
+        initial_bias: float = -2.3,
+    ):
+        super().__init__()
+        self.outcome_names = list(outcome_names)
+        self.heads = nn.ModuleDict(
+            {
+                outcome: nn.Linear(input_dim, outputs_per_outcome)
+                for outcome in self.outcome_names
+            }
+        )
+        for head in self.heads.values():
+            nn.init.normal_(head.weight, mean=0.0, std=0.01)
+            nn.init.constant_(head.bias, initial_bias)
+
+    def forward(self, representations: torch.Tensor) -> torch.Tensor:
+        if representations.ndim != 3:
+            raise ValueError(
+                "Outcome-linear heads require (batch, outcome, hidden) representations."
+            )
+        if representations.shape[1] != len(self.outcome_names):
+            raise ValueError("Outcome representation count does not match configured heads.")
+        return torch.stack(
+            [
+                self.heads[outcome](representations[:, index])
+                for index, outcome in enumerate(self.outcome_names)
+            ],
+            dim=1,
+        )
+
+
+class OutcomeAttentionReadout(nn.Module):
+    """Read one outcome-conditioned patient summary from shared token states.
+
+    The encoder is evaluated once. Learned outcome queries then cross-attend to
+    its final token states in one batched operation. A zero-initialized residual
+    gate makes every outcome representation equal to the ordinary shared pooled
+    representation at initialization.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        outcome_names: List[str],
+        *,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        if hidden_size % num_heads:
+            raise ValueError("Outcome-attention heads must divide the encoder hidden size.")
+        self.outcome_names = list(outcome_names)
+        self.queries = nn.Parameter(torch.empty(len(outcome_names), hidden_size))
+        nn.init.normal_(self.queries, mean=0.0, std=0.02)
+        self.attention = nn.MultiheadAttention(
+            hidden_size,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.residual_gates = nn.Parameter(torch.zeros(len(outcome_names)))
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        shared: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        if hidden.ndim != 3 or shared.ndim != 2:
+            raise ValueError("Expected hidden=(batch, sequence, hidden) and shared=(batch, hidden).")
+        valid = attention_mask.bool().clone()
+        lengths = valid.sum(dim=1).long().sub(1).clamp_min(0)
+        rows = torch.arange(hidden.shape[0], device=hidden.device)
+        # Do not let the auxiliary queries merely copy the appended CLS token.
+        valid[rows, lengths] = False
+        empty = ~valid.any(dim=1)
+        if empty.any():
+            valid[rows[empty], lengths[empty]] = True
+        queries = self.queries.unsqueeze(0).expand(hidden.shape[0], -1, -1)
+        context, _ = self.attention(
+            queries,
+            hidden,
+            hidden,
+            key_padding_mask=~valid,
+            need_weights=False,
+        )
+        gates = torch.tanh(self.residual_gates).view(1, -1, 1)
+        return shared.unsqueeze(1) + gates * self.dropout(context)
+
+
+class SharedAttentionPrototypeReadout(nn.Module):
+    """Mix a small bank of shared attention summaries for every outcome.
+
+    The encoder and prototype attention are shared across tasks. Each outcome
+    learns a soft mixture over the prototype summaries, providing overlapping,
+    data-driven task groups rather than one entirely separate query per outcome.
+    Zero-initialized residual gates preserve the ordinary shared CLS readout at
+    initialization.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        outcome_names: List[str],
+        *,
+        num_prototypes: int = 10,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        mixture_temperature: float = 1.0,
+    ):
+        super().__init__()
+        if hidden_size % num_heads:
+            raise ValueError("Prototype-attention heads must divide the encoder hidden size.")
+        if num_prototypes < 1:
+            raise ValueError("Prototype attention requires at least one prototype.")
+        if mixture_temperature <= 0:
+            raise ValueError("Prototype mixture temperature must be positive.")
+        self.outcome_names = list(outcome_names)
+        self.mixture_temperature = float(mixture_temperature)
+        self.prototype_queries = nn.Parameter(torch.empty(num_prototypes, hidden_size))
+        nn.init.normal_(self.prototype_queries, mean=0.0, std=0.02)
+        self.attention = nn.MultiheadAttention(
+            hidden_size,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.outcome_mixture_logits = nn.Parameter(
+            torch.zeros(len(outcome_names), num_prototypes)
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.residual_gates = nn.Parameter(torch.zeros(len(outcome_names)))
+
+    def mixture_weights(self) -> torch.Tensor:
+        """Return the outcome-by-prototype simplex used by the readout."""
+        return torch.softmax(
+            self.outcome_mixture_logits / self.mixture_temperature,
+            dim=-1,
+        )
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        shared: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        if hidden.ndim != 3 or shared.ndim != 2:
+            raise ValueError("Expected hidden=(batch, sequence, hidden) and shared=(batch, hidden).")
+        valid = attention_mask.bool().clone()
+        lengths = valid.sum(dim=1).long().sub(1).clamp_min(0)
+        rows = torch.arange(hidden.shape[0], device=hidden.device)
+        # Keep prototypes from taking the trivial shortcut of copying appended CLS.
+        valid[rows, lengths] = False
+        empty = ~valid.any(dim=1)
+        if empty.any():
+            valid[rows[empty], lengths[empty]] = True
+        queries = self.prototype_queries.unsqueeze(0).expand(hidden.shape[0], -1, -1)
+        prototype_context, _ = self.attention(
+            queries,
+            hidden,
+            hidden,
+            key_padding_mask=~valid,
+            need_weights=False,
+        )
+        outcome_context = torch.einsum(
+            "ok,bkh->boh",
+            self.mixture_weights(),
+            prototype_context,
+        )
+        gates = torch.tanh(self.residual_gates).view(1, -1, 1)
+        return shared.unsqueeze(1) + gates * self.dropout(outcome_context)
+
+
+class FactorizedCohortOutcomePrototypeReadout(nn.Module):
+    """Share attention maps while adapting their mixture by cohort and outcome.
+
+    A small bank of token-attention prototypes is evaluated once per patient.
+    The mixture over those prototypes has additive global, cohort, and outcome
+    terms plus a low-rank cohort-by-outcome interaction. This lets an outcome
+    attend differently across disease cohorts without allocating an isolated
+    query (or a full parameter table) to every cohort-outcome cell.
+
+    The low-rank interaction is a CP factorization::
+
+        interaction[d, o, k] = sum_r D[d, r] * O[o, r] * P[r, k]
+
+    All mixture logits and the interaction projection start at zero, so the
+    initial mixture is uniform. As in the other attention readouts, zeroed
+    residual gates make the complete initial prediction path exactly equal to
+    shared CLS.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int,
+        outcome_names: List[str],
+        cohort_names: List[str],
+        *,
+        num_prototypes: int = 10,
+        interaction_rank: int = 8,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        mixture_temperature: float = 1.0,
+    ):
+        super().__init__()
+        if hidden_size % num_heads:
+            raise ValueError(
+                "Prototype-attention heads must divide the encoder hidden size."
+            )
+        if num_prototypes < 1:
+            raise ValueError("Prototype attention requires at least one prototype.")
+        if interaction_rank < 1:
+            raise ValueError("Factorized prototype attention requires a positive rank.")
+        if mixture_temperature <= 0:
+            raise ValueError("Prototype mixture temperature must be positive.")
+        if not cohort_names:
+            raise ValueError(
+                "Factorized cohort-outcome attention requires configured cohorts."
+            )
+
+        self.outcome_names = list(outcome_names)
+        self.cohort_names = list(cohort_names)
+        self.mixture_temperature = float(mixture_temperature)
+        self.prototype_queries = nn.Parameter(
+            torch.empty(num_prototypes, hidden_size)
+        )
+        nn.init.normal_(self.prototype_queries, mean=0.0, std=0.02)
+        self.attention = nn.MultiheadAttention(
+            hidden_size,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        self.global_mixture_logits = nn.Parameter(torch.zeros(num_prototypes))
+        self.outcome_mixture_logits = nn.Parameter(
+            torch.zeros(len(outcome_names), num_prototypes)
+        )
+        self.cohort_mixture_logits = nn.Parameter(
+            torch.zeros(len(cohort_names), num_prototypes)
+        )
+        self.cohort_factors = nn.Parameter(
+            torch.empty(len(cohort_names), interaction_rank)
+        )
+        self.outcome_factors = nn.Parameter(
+            torch.empty(len(outcome_names), interaction_rank)
+        )
+        self.interaction_projection = nn.Parameter(
+            torch.zeros(interaction_rank, num_prototypes)
+        )
+        nn.init.normal_(self.cohort_factors, mean=0.0, std=0.02)
+        nn.init.normal_(self.outcome_factors, mean=0.0, std=0.02)
+
+        self.dropout = nn.Dropout(dropout)
+        self.residual_gates = nn.Parameter(torch.zeros(len(outcome_names)))
+
+    def mixture_weights(self, cohort_indices: torch.Tensor) -> torch.Tensor:
+        """Return patient-by-outcome-by-prototype mixture weights."""
+        if cohort_indices.ndim != 1:
+            raise ValueError("cohort_index must have shape (batch,).")
+        cohort_indices = cohort_indices.long()
+        if cohort_indices.numel() and (
+            cohort_indices.min() < 0
+            or cohort_indices.max() >= len(self.cohort_names)
+        ):
+            raise ValueError("cohort_index contains an unknown configured cohort.")
+
+        cohort_main = self.cohort_mixture_logits[cohort_indices]
+        cohort_factor = self.cohort_factors[cohort_indices]
+        interaction = torch.einsum(
+            "br,or,rk->bok",
+            cohort_factor,
+            self.outcome_factors,
+            self.interaction_projection,
+        )
+        logits = (
+            self.global_mixture_logits.view(1, 1, -1)
+            + cohort_main.unsqueeze(1)
+            + self.outcome_mixture_logits.unsqueeze(0)
+            + interaction
+        )
+        return torch.softmax(logits / self.mixture_temperature, dim=-1)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        shared: torch.Tensor,
+        attention_mask: torch.Tensor,
+        cohort_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        if hidden.ndim != 3 or shared.ndim != 2:
+            raise ValueError(
+                "Expected hidden=(batch, sequence, hidden) and shared=(batch, hidden)."
+            )
+        if cohort_indices.shape[0] != hidden.shape[0]:
+            raise ValueError(
+                "cohort_index batch dimension does not match token states."
+            )
+
+        valid = attention_mask.bool().clone()
+        lengths = valid.sum(dim=1).long().sub(1).clamp_min(0)
+        rows = torch.arange(hidden.shape[0], device=hidden.device)
+        valid[rows, lengths] = False
+        empty = ~valid.any(dim=1)
+        if empty.any():
+            valid[rows[empty], lengths[empty]] = True
+        queries = self.prototype_queries.unsqueeze(0).expand(
+            hidden.shape[0], -1, -1
+        )
+        prototype_context, _ = self.attention(
+            queries,
+            hidden,
+            hidden,
+            key_padding_mask=~valid,
+            need_weights=False,
+        )
+        outcome_context = torch.einsum(
+            "bok,bkh->boh",
+            self.mixture_weights(cohort_indices),
+            prototype_context,
+        )
+        gates = torch.tanh(self.residual_gates).view(1, -1, 1)
+        return shared.unsqueeze(1) + gates * self.dropout(outcome_context)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Multi-outcome contrastive loss (SupCon + Kendall weighting)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1387,6 +1770,7 @@ class OperaContrastiveModel(nn.Module):
         pooling: str = "cls_last",
         dapt_embedding_store: Optional[Dict] = None,
         competing_risk_config: Optional[Mapping[str, object]] = None,
+        cohort_names: Optional[List[str]] = None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -1422,7 +1806,99 @@ class OperaContrastiveModel(nn.Module):
             "freeze_encoder": freeze_encoder,
             "pooling": pooling,
             "competing_risk_config": competing_risk_settings,
+            "cohort_names": list(cohort_names or []),
         }
+
+        self.outcome_readout_mode = str(
+            competing_risk_settings.get("readout_mode", "shared")
+        ).lower()
+        if self.outcome_readout_mode not in {
+            "shared",
+            "outcome_attention",
+            "shared_attention_prototypes",
+            "factorized_cohort_outcome_prototypes",
+        }:
+            raise ValueError(
+                "competing_risk.readout_mode must be 'shared', 'outcome_attention', "
+                "'shared_attention_prototypes', or "
+                "'factorized_cohort_outcome_prototypes'."
+            )
+        self.outcome_attention_readout = None
+        if self.outcome_readout_mode != "shared":
+            if self.competing_risk_weight <= 0:
+                raise ValueError(
+                    "Outcome-conditioned attention requires a competing-risk objective."
+                )
+            if self.contrastive_loss_weight > 0:
+                raise ValueError(
+                    "Outcome-conditioned attention currently supports direct competing-risk "
+                    "training only; set contrastive_loss_weight=0."
+                )
+            if self.outcome_readout_mode == "outcome_attention":
+                self.outcome_attention_readout = OutcomeAttentionReadout(
+                    hidden_size,
+                    outcome_names,
+                    num_heads=int(
+                        competing_risk_settings.get("outcome_attention_heads", 8)
+                    ),
+                    dropout=float(
+                        competing_risk_settings.get("outcome_attention_dropout", 0.1)
+                    ),
+                )
+            elif self.outcome_readout_mode == "shared_attention_prototypes":
+                self.outcome_attention_readout = SharedAttentionPrototypeReadout(
+                    hidden_size,
+                    outcome_names,
+                    num_prototypes=int(
+                        competing_risk_settings.get(
+                            "prototype_attention_num_prototypes", 10
+                        )
+                    ),
+                    num_heads=int(
+                        competing_risk_settings.get("prototype_attention_heads", 8)
+                    ),
+                    dropout=float(
+                        competing_risk_settings.get("prototype_attention_dropout", 0.1)
+                    ),
+                    mixture_temperature=float(
+                        competing_risk_settings.get(
+                            "prototype_mixture_temperature", 1.0
+                        )
+                    ),
+                )
+            else:
+                self.outcome_attention_readout = (
+                    FactorizedCohortOutcomePrototypeReadout(
+                        hidden_size,
+                        outcome_names,
+                        list(cohort_names or []),
+                        num_prototypes=int(
+                            competing_risk_settings.get(
+                                "prototype_attention_num_prototypes", 10
+                            )
+                        ),
+                        interaction_rank=int(
+                            competing_risk_settings.get(
+                                "prototype_interaction_rank", 8
+                            )
+                        ),
+                        num_heads=int(
+                            competing_risk_settings.get(
+                                "prototype_attention_heads", 8
+                            )
+                        ),
+                        dropout=float(
+                            competing_risk_settings.get(
+                                "prototype_attention_dropout", 0.1
+                            )
+                        ),
+                        mixture_temperature=float(
+                            competing_risk_settings.get(
+                                "prototype_mixture_temperature", 1.0
+                            )
+                        ),
+                    )
+                )
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -1510,6 +1986,11 @@ class OperaContrastiveModel(nn.Module):
                 cross_outcome_config=cross_outcome_config,
                 weighter=str(competing_risk_settings.get("weighter", "uniform")),
                 null_log_hazards=competing_risk_settings.get("null_log_hazards"),
+                objective=str(
+                    competing_risk_settings.get(
+                        "objective", "piecewise_exponential"
+                    )
+                ),
             )
             outputs_per_outcome = 2 * self.competing_risk_loss.n_intervals
             head_mode = str(competing_risk_settings.get("head_mode", "linear"))
@@ -1517,10 +1998,34 @@ class OperaContrastiveModel(nn.Module):
                 competing_risk_settings.get("initial_log_hazard", -2.3)
             )
             if head_mode == "linear":
-                n_outputs = len(outcome_names) * outputs_per_outcome
-                self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
-                nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
-                nn.init.constant_(self.competing_risk_head.bias, initial_bias)
+                if self.outcome_readout_mode != "shared":
+                    self.competing_risk_head = OutcomeLinearCompetingRiskHead(
+                        hidden_size,
+                        outcome_names,
+                        outputs_per_outcome,
+                        initial_bias=initial_bias,
+                    )
+                else:
+                    n_outputs = len(outcome_names) * outputs_per_outcome
+                    self.competing_risk_head = nn.Linear(hidden_size, n_outputs)
+                    nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
+                    nn.init.constant_(self.competing_risk_head.bias, initial_bias)
+            elif head_mode == "outcome_mlp":
+                if self.outcome_readout_mode != "shared":
+                    raise ValueError(
+                        "outcome_mlp is a shared-readout ablation; combine outcome "
+                        "attention with head_mode=linear."
+                    )
+                self.competing_risk_head = OutcomeMLPCompetingRiskHead(
+                    hidden_size,
+                    int(competing_risk_settings.get("outcome_mlp_hidden_dim", 128)),
+                    outcome_names,
+                    outputs_per_outcome,
+                    dropout=float(
+                        competing_risk_settings.get("outcome_mlp_dropout", 0.1)
+                    ),
+                    initial_bias=initial_bias,
+                )
             elif head_mode == "family_trunks":
                 self.competing_risk_head = FamilyCompetingRiskHead(
                     hidden_size,
@@ -1535,8 +2040,8 @@ class OperaContrastiveModel(nn.Module):
                 )
             else:
                 raise ValueError(
-                    "competing_risk.head_mode must be 'linear' or "
-                    "'family_trunks'."
+                    "competing_risk.head_mode must be 'linear', 'outcome_mlp', "
+                    "or 'family_trunks'."
                 )
 
     def initialize_competing_risk_biases(
@@ -1568,21 +2073,21 @@ class OperaContrastiveModel(nn.Module):
                         [values[name] for name in self.competing_risk_loss.outcome_names]
                     )
                 )
-            elif isinstance(self.competing_risk_head, FamilyCompetingRiskHead):
+            elif hasattr(self.competing_risk_head, "heads"):
                 for outcome, value in values.items():
                     self.competing_risk_head.heads[outcome].bias.copy_(value)
             else:
                 raise ValueError(
-                    "Empirical hazard initialization supports linear and "
-                    "family_trunks competing-risk heads."
+                    "Empirical hazard initialization does not support this "
+                    "competing-risk head."
                 )
 
-    def _pool(
+    def _encode_hidden(
         self,
         batch: dict,
         enable_dropout: bool = False,
-    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Return the pooled encoder representation before projection."""
+    ) -> torch.Tensor:
+        """Return final token states through the BONSAI compatibility boundary."""
         if enable_dropout:
             # Temporarily set encoder to train mode to activate dropout
             prev_training = self.encoder.training
@@ -1594,7 +2099,10 @@ class OperaContrastiveModel(nn.Module):
         if enable_dropout and not prev_training:
             self.encoder.eval()
 
-        hidden = encoder_hidden_state(outputs)  # (B, L, H)
+        return encoder_hidden_state(outputs)  # (B, L, H)
+
+    def _pool_hidden(self, hidden: torch.Tensor, batch: dict) -> torch.Tensor:
+        """Pool already-computed token states into the canonical patient vector."""
 
         if self.pooling == "bigru":
             return self.pooler(hidden, batch["attention_mask"], return_embedding=True)
@@ -1608,6 +2116,44 @@ class OperaContrastiveModel(nn.Module):
             weights = recent_content.unsqueeze(-1).to(hidden.dtype)
             return (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1.0)
         return hidden[torch.arange(hidden.size(0), device=hidden.device), lengths]
+
+    def _pool(
+        self,
+        batch: dict,
+        enable_dropout: bool = False,
+    ) -> torch.Tensor:
+        """Return the canonical shared patient representation before projection."""
+        hidden = self._encode_hidden(batch, enable_dropout=enable_dropout)
+        return self._pool_hidden(hidden, batch)
+
+    def get_objective_representations(self, batch: dict) -> torch.Tensor:
+        """Return shared or outcome-conditioned representations for the loss.
+
+        This is the only method the training/evaluation pipeline needs to call.
+        Backbone-specific output handling remains isolated in ``_encode_hidden``.
+        """
+        if self.outcome_attention_readout is None:
+            # Preserve the long-standing shared-readout boundary so existing
+            # encoders, instrumentation, and future BONSAI adapters continue
+            # to need no knowledge of outcome-conditioned pooling.
+            return self._pool(batch)
+        hidden = self._encode_hidden(batch)
+        shared = self._pool_hidden(hidden, batch)
+        if self.outcome_readout_mode == "factorized_cohort_outcome_prototypes":
+            if "cohort_index" not in batch:
+                raise ValueError(
+                    "Factorized cohort-outcome attention requires cohort_index "
+                    "in every batch."
+                )
+            return self.outcome_attention_readout(
+                hidden,
+                shared,
+                batch["attention_mask"],
+                batch["cohort_index"],
+            )
+        return self.outcome_attention_readout(
+            hidden, shared, batch["attention_mask"]
+        )
 
     def get_embeddings(
         self,
@@ -1716,7 +2262,7 @@ class OperaContrastiveModel(nn.Module):
             outcome_survival : dict mapping outcome name →
                                {"times": (B,) float, "events": (B,) int}.
         """
-        pooled = self._pool(batch)
+        pooled = self.get_objective_representations(batch)
         return self.forward_from_pooled(
             pooled, outcome_survival, batch.get("subject_id", None)
         )
@@ -1729,6 +2275,10 @@ class OperaContrastiveModel(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         """Compute all OPERA objectives from cached pooled representations."""
         if self.contrastive_loss_weight > 0.0:
+            if pooled.ndim != 2:
+                raise ValueError(
+                    "Contrastive training requires one shared representation per patient."
+                )
             embeddings = self.projection(pooled)
             log_dict = self.contrastive_loss(
                 embeddings,
@@ -1762,7 +2312,11 @@ class OperaContrastiveModel(nn.Module):
             # deliberately ignores private keys in OperaContrastiveModule.
             log_dict["_competing_risk_log_hazards"] = log_hazards
 
-        anchor_loss = self._compute_anchor_loss(pooled, subject_ids)
+        anchor_loss = (
+            self._compute_anchor_loss(pooled, subject_ids)
+            if pooled.ndim == 2
+            else None
+        )
         if anchor_loss is not None:
             total_loss = total_loss + self.dapt_anchor_weight * anchor_loss
             log_dict["anchor_loss"] = anchor_loss.detach()

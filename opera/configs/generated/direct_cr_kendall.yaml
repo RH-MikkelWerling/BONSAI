@@ -13,6 +13,7 @@ output_path: null
 overwrite: false
 paths:
   vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins/vocabulary.pt
+  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
 cohorts:
   AMYLOIDOSIS:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins
@@ -657,9 +658,20 @@ competing_risk:
   - treatment_failure
   - treatment_failure_transformation
   weighter: kendall
+  objective: piecewise_exponential
   head_mode: linear
+  readout_mode: shared
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1
+  outcome_mlp_hidden_dim: 128
+  outcome_mlp_dropout: 0.1
+  outcome_attention_heads: 8
+  outcome_attention_dropout: 0.1
+  prototype_attention_num_prototypes: 10
+  prototype_attention_heads: 8
+  prototype_attention_dropout: 0.1
+  prototype_mixture_temperature: 1.0
+  prototype_interaction_rank: 8
   initialize_from_null_hazards: true
   initialization_event_pseudocount: 0.5
   curriculum:
@@ -798,6 +810,7 @@ training:
   log_per_outcome_metrics: false
   limit_val_batches: 1.0
   limit_train_batches: 1.0
+  auto_resume: true
   evaluation_horizons_days:
   - 30
   - 60

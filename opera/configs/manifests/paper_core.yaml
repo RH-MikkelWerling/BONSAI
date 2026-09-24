@@ -55,6 +55,16 @@ stages:
   - name: per_task_finetuning
     script: opera.run.finetune
     artifact: checkpoint
+    description: Fixed-horizon binary specialist baseline; one run per horizon.
+  - name: cohort_outcome_all_horizons_finetuning
+    script: opera.run.finetune_all_horizons
+    artifact: checkpoint
+    depends_on:
+      - direct_multioutcome_competing_risk_adaptation
+    description: >
+      Full end-to-end specialist fine-tuning for one cohort_fine and outcome,
+      retaining the selected parent model's complete multi-horizon prediction
+      path and producing every prespecified horizon in one run.
   - name: joint_finetuning
     script: opera.run.joint_finetune
     artifact: checkpoint
@@ -121,6 +131,7 @@ outputs:
     - result.jsonl
     - metrics.json
     - predictions.npz
+    - direct_cr_predictions.parquet
   required_metadata:
     - model_family
     - training_stage

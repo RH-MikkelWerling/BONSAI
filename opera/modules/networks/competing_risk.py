@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from opera.modules.networks.cross_outcome_weighters import KendallWeighter
 
@@ -236,11 +237,18 @@ def estimate_piecewise_null_log_hazards(
 
 
 class PiecewiseExponentialCompetingRiskLoss(nn.Module):
-    """Exact-time competing-risk likelihood with locally constant hazards.
+    """Competing-risk objectives over locally constant cause-specific hazards.
 
     Event codes are ``0`` for administrative censoring, ``1`` for the target
     event, and ``2`` for death before the target event. Times remain continuous:
-    interval boundaries only determine where the hazard is allowed to change.
+    interval boundaries determine where the hazard is allowed to change.
+
+    ``objective="piecewise_exponential"`` fits the exact-time likelihood.
+    ``objective="horizon_bce"`` converts the same hazards to cumulative
+    incidence at every configured boundary and optimizes all known binary
+    horizon labels jointly. The latter is an objective ablation: architecture,
+    competing-event semantics, monotonic CIF construction, and evaluation all
+    remain unchanged.
     """
 
     def __init__(
@@ -254,6 +262,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         cross_outcome_config: Mapping[str, object] | None = None,
         weighter: str = "uniform",
         null_log_hazards: Mapping[str, Sequence[Sequence[float]]] | None = None,
+        objective: str = "piecewise_exponential",
     ):
         super().__init__()
         boundaries = torch.as_tensor(interval_boundaries_days, dtype=torch.float32)
@@ -284,6 +293,12 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self.no_competing_outcomes = set(no_competing_outcomes)
         self.time_scale_days = float(time_scale_days)
         self.smoothness_weight = float(smoothness_weight)
+        self.objective = str(objective).lower()
+        if self.objective not in {"piecewise_exponential", "horizon_bce"}:
+            raise ValueError(
+                "competing_risk.objective must be 'piecewise_exponential' or "
+                "'horizon_bce'."
+            )
         self.weighter_name = str(weighter).lower()
         if self.weighter_name not in {"uniform", "kendall", "kendall_null"}:
             raise ValueError(
@@ -408,6 +423,60 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         tail = torch.clamp(scaled - starts[-1], min=0.0).unsqueeze(1)
         return torch.cat([finite, tail], dim=1)
 
+    def _horizon_targets(
+        self,
+        times: torch.Tensor,
+        events: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return cumulative binary targets and censor-aware observation mask."""
+        horizons = self.boundaries.to(times) * self.time_scale_days
+        observed_time = times.unsqueeze(1)
+        event_code = events.unsqueeze(1)
+        positive = (event_code == 1) & (observed_time <= horizons)
+        # Status is known when the primary event occurred, follow-up reaches the
+        # horizon, or a competing death permanently rules out the primary event.
+        known = (
+            positive
+            | (observed_time >= horizons)
+            | ((event_code == 2) & (observed_time <= horizons))
+        )
+        return positive.to(dtype=times.dtype), known
+
+    def _horizon_cif(
+        self,
+        log_hazards: torch.Tensor,
+        outcome_name: str,
+    ) -> torch.Tensor:
+        """Return target-event CIF at every configured finite boundary."""
+        no_competing = torch.tensor(
+            [outcome_name in self.no_competing_outcomes],
+            dtype=torch.bool,
+            device=log_hazards.device,
+        )
+        return piecewise_exponential_cif(
+            log_hazards.unsqueeze(1),
+            self.boundaries * self.time_scale_days,
+            self.boundaries * self.time_scale_days,
+            time_scale_days=self.time_scale_days,
+            no_competing_outcome_mask=no_competing,
+        )[:, 0].float()
+
+    @staticmethod
+    def _masked_horizon_bce(
+        cif: torch.Tensor,
+        targets: torch.Tensor,
+        known: torch.Tensor,
+    ) -> torch.Tensor:
+        if not bool(known.any()):
+            raise ValueError("Horizon BCE requires at least one known horizon label.")
+        probabilities = cif.clamp(min=1e-6, max=1.0 - 1e-6)
+        cell_loss = F.binary_cross_entropy(
+            probabilities,
+            targets.to(probabilities),
+            reduction="none",
+        )
+        return cell_loss[known].mean()
+
     def forward(
         self,
         log_hazards: torch.Tensor,
@@ -472,46 +541,76 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                     "but contains event=2 observations."
                 )
 
-            outcome_hazards = hazards[valid, outcome_index]
-            if name in self.no_competing_outcomes:
-                total_hazard = outcome_hazards[:, 0]
-            else:
-                total_hazard = outcome_hazards.sum(dim=1)
-
-            exposure = self._exposure(times)
-            cumulative_hazard = (exposure * total_hazard).sum(dim=1)
-            interval = torch.bucketize(times / self.time_scale_days, self.boundaries)
-            row = torch.arange(times.numel(), device=times.device)
             target = events == 1
             competing = events == 2
             active_log_hazards = safe_log_hazards[valid, outcome_index]
-            target_log_hazard = active_log_hazards[row, 0, interval]
-            competing_log_hazard = active_log_hazards[row, 1, interval]
-            # Components share the same valid-observation denominator, so they
-            # sum exactly to the unsmoothed full likelihood.  This is important
-            # for gradient diagnostics: event-conditional means would silently
-            # rescale rare outcomes and manufacture apparent alignment.
-            exposure_loss = cumulative_hazard.mean()
-            primary_event_loss = -(
-                target.to(cumulative_hazard.dtype)
-                * target_log_hazard.to(cumulative_hazard.dtype)
-            ).mean()
-            competing_event_loss = -(
-                competing.to(cumulative_hazard.dtype)
-                * competing_log_hazard.to(cumulative_hazard.dtype)
-            ).mean()
-            likelihood_loss = (
-                exposure_loss + primary_event_loss + competing_event_loss
-            )
-            # A continuous density's NLL depends on its time unit. Hazards are
-            # parameterized per ``time_scale_days`` (normally per year), which
-            # can make common early-event NLLs negative and invalid as inputs
-            # to Kendall weighting. Convert event-density terms to per-day NLL
-            # for cross-task aggregation. This adds only the exact Jacobian
-            # constant and does not alter fitted hazards or their gradients.
-            event_fraction = (target | competing).to(likelihood_loss.dtype).mean()
-            unit_adjustment = event_fraction * math.log(self.time_scale_days)
-            aggregation_loss = likelihood_loss + unit_adjustment
+            horizon_targets = None
+            horizon_known = None
+            if self.objective == "horizon_bce":
+                horizon_targets, horizon_known = self._horizon_targets(times, events)
+                if not bool(horizon_known.any()):
+                    continue
+                cif = self._horizon_cif(active_log_hazards, name)
+                likelihood_loss = self._masked_horizon_bce(
+                    cif, horizon_targets, horizon_known
+                )
+                # Retain the component contract used by gradient diagnostics.
+                # Horizon BCE is one indivisible component rather than an
+                # exposure term plus event-density terms.
+                exposure_loss = likelihood_loss * 0.0
+                primary_event_loss = likelihood_loss
+                competing_event_loss = likelihood_loss * 0.0
+                aggregation_loss = likelihood_loss
+                cell_loss = F.binary_cross_entropy(
+                    cif.clamp(min=1e-6, max=1.0 - 1e-6),
+                    horizon_targets.to(cif),
+                    reduction="none",
+                )
+                for horizon_index, horizon in enumerate(
+                    self.boundaries * self.time_scale_days
+                ):
+                    known_at_horizon = horizon_known[:, horizon_index]
+                    suffix = f"{int(round(float(horizon)))}d"
+                    diagnostics[f"cr/horizon_bce/n_known/{name}/{suffix}"] = (
+                        known_at_horizon.sum().float().detach()
+                    )
+                    if bool(known_at_horizon.any()):
+                        diagnostics[f"cr/horizon_bce/loss/{name}/{suffix}"] = (
+                            cell_loss[known_at_horizon, horizon_index].mean().detach()
+                        )
+            else:
+                outcome_hazards = hazards[valid, outcome_index]
+                if name in self.no_competing_outcomes:
+                    total_hazard = outcome_hazards[:, 0]
+                else:
+                    total_hazard = outcome_hazards.sum(dim=1)
+
+                exposure = self._exposure(times)
+                cumulative_hazard = (exposure * total_hazard).sum(dim=1)
+                interval = torch.bucketize(times / self.time_scale_days, self.boundaries)
+                row = torch.arange(times.numel(), device=times.device)
+                target_log_hazard = active_log_hazards[row, 0, interval]
+                competing_log_hazard = active_log_hazards[row, 1, interval]
+                # Components share the same valid-observation denominator, so
+                # they sum exactly to the unsmoothed full likelihood. Event-
+                # conditional means would silently rescale rare outcomes.
+                exposure_loss = cumulative_hazard.mean()
+                primary_event_loss = -(
+                    target.to(cumulative_hazard.dtype)
+                    * target_log_hazard.to(cumulative_hazard.dtype)
+                ).mean()
+                competing_event_loss = -(
+                    competing.to(cumulative_hazard.dtype)
+                    * competing_log_hazard.to(cumulative_hazard.dtype)
+                ).mean()
+                likelihood_loss = (
+                    exposure_loss + primary_event_loss + competing_event_loss
+                )
+                # Convert annual event-density terms to per-day NLL for stable
+                # cross-task Kendall aggregation. This is a constant Jacobian.
+                event_fraction = (target | competing).to(likelihood_loss.dtype).mean()
+                unit_adjustment = event_fraction * math.log(self.time_scale_days)
+                aggregation_loss = likelihood_loss + unit_adjustment
             if self.weighter_name == "kendall_null" and not _skip_aggregation:
                 reference = self.null_log_hazards[outcome_index].to(log_hazards)
                 if not torch.isfinite(reference).all():
@@ -519,18 +618,29 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                         "kendall_null requires train-only null hazards; "
                         f"none were installed for {name!r}."
                     )
-                reference_rates = reference.exp()
-                reference_total = (
-                    reference_rates[0]
-                    if name in self.no_competing_outcomes
-                    else reference_rates.sum(dim=0)
-                )
-                null_cumulative = (exposure * reference_total.unsqueeze(0)).sum(dim=1)
-                null_loss = (
-                    null_cumulative
-                    - target.to(null_cumulative.dtype) * reference[0, interval]
-                    - competing.to(null_cumulative.dtype) * reference[1, interval]
-                ).mean() + unit_adjustment
+                if self.objective == "horizon_bce":
+                    reference_cif = self._horizon_cif(
+                        reference.unsqueeze(0).expand(times.numel(), -1, -1),
+                        name,
+                    )
+                    null_loss = self._masked_horizon_bce(
+                        reference_cif, horizon_targets, horizon_known
+                    )
+                else:
+                    reference_rates = reference.exp()
+                    reference_total = (
+                        reference_rates[0]
+                        if name in self.no_competing_outcomes
+                        else reference_rates.sum(dim=0)
+                    )
+                    null_cumulative = (
+                        exposure * reference_total.unsqueeze(0)
+                    ).sum(dim=1)
+                    null_loss = (
+                        null_cumulative
+                        - target.to(null_cumulative.dtype) * reference[0, interval]
+                        - competing.to(null_cumulative.dtype) * reference[1, interval]
+                    ).mean() + unit_adjustment
                 if not torch.isfinite(null_loss) or float(null_loss) <= 0.0:
                     raise RuntimeError(
                         f"Training-null likelihood for {name!r} must be positive; "
@@ -538,9 +648,11 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                         "or inspect this outcome's training support."
                     )
                 null_reference_losses[name] = null_loss.detach()
-            outcome_loss = (
-                aggregation_loss if self.weighter is not None else likelihood_loss
-            )
+            uses_learned_weighter = self.weighter_name in {
+                "kendall",
+                "kendall_null",
+            }
+            outcome_loss = aggregation_loss if uses_learned_weighter else likelihood_loss
             smoothness_loss = outcome_loss * 0.0
             if self.smoothness_weight and self.n_intervals > 1:
                 active_log_hazards = log_hazards[valid, outcome_index]
@@ -560,10 +672,16 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 "exposure_loss": exposure_loss,
                 "primary_event_loss": primary_event_loss,
                 "competing_event_loss": competing_event_loss,
+                "horizon_bce_loss": (
+                    likelihood_loss
+                    if self.objective == "horizon_bce"
+                    else likelihood_loss * 0.0
+                ),
                 "smoothness_loss": smoothness_loss,
                 "valid_mask": valid,
                 "target_mask": target,
                 "competing_mask": competing,
+                "horizon_known_mask": horizon_known,
             }
             diagnostics[f"cr/loss/{name}"] = outcome_loss.detach()
             diagnostics[f"cr/n_valid/{name}"] = valid.sum().float().detach()
@@ -583,7 +701,12 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 return total, diagnostics, per_outcome
             return total, diagnostics
 
-        if self.weighter is not None:
+        if self.weighter_name in {"kendall", "kendall_null"}:
+            if self.weighter is None:
+                raise RuntimeError(
+                    "Learned competing-risk weighting was selected without a "
+                    "configured weighter module."
+                )
             if self.aggregation != "macro":
                 raise ValueError(
                     "Kendall survival weighting currently requires "

@@ -12,10 +12,11 @@ dapt_embedding_store: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/opera_
 output_path: null
 overwrite: false
 paths:
-  vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care/vocabulary.pt
+  vocabulary: ${paths.sequence_data_dir}/vocabulary.pt
+  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
 cohorts:
   AMYLOIDOSIS:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: AMYLOIDOSIS
     ipi_score_col: null
@@ -27,7 +28,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: AMYLOIDOSIS
   BL_LBL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: BL_LBL
     ipi_score_col: null
@@ -39,7 +40,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: BL_LBL
   CLL_SLL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: CLL_SLL
     ipi_score_col: null
@@ -47,7 +48,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: CLL_SLL
   DLBCL_like:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: DLBCL_like
     ipi_score_col: null
@@ -55,7 +56,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: DLBCL_like
   HCL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: HCL
     ipi_score_col: null
@@ -67,7 +68,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: HCL
   HL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: HL
     ipi_score_col: null
@@ -75,7 +76,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: HL
   Indolent_B_NHL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: Indolent_B_NHL
     ipi_score_col: null
@@ -83,7 +84,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: Indolent_B_NHL
   MCL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: MCL
     ipi_score_col: null
@@ -91,7 +92,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: MCL
   MM:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: MM
     ipi_score_col: null
@@ -99,7 +100,7 @@ cohorts:
     cohort_fine_col: cohort_grouped
     cohort_fine_value: MM
   T_NHL:
-    data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+    data_dir: ${paths.sequence_data_dir}
     population_file: ${oc.env:BONSAI_COHORT_MEMBERSHIP}
     clinical_group: T_NHL
     ipi_score_col: null
@@ -657,9 +658,20 @@ competing_risk:
   - treatment_failure
   - treatment_failure_transformation
   weighter: uniform
+  objective: piecewise_exponential
   head_mode: linear
+  readout_mode: shared
   family_trunk_hidden_dim: 128
   family_trunk_dropout: 0.1
+  outcome_mlp_hidden_dim: 128
+  outcome_mlp_dropout: 0.1
+  outcome_attention_heads: 8
+  outcome_attention_dropout: 0.1
+  prototype_attention_num_prototypes: 10
+  prototype_attention_heads: 8
+  prototype_attention_dropout: 0.1
+  prototype_mixture_temperature: 1.0
+  prototype_interaction_rank: 8
   initialize_from_null_hazards: true
   initialization_event_pseudocount: 0.5
   curriculum:
@@ -798,6 +810,7 @@ training:
   log_per_outcome_metrics: false
   limit_val_batches: 1.0
   limit_train_batches: 1.0
+  auto_resume: true
   evaluation_horizons_days:
   - 30
   - 60

@@ -10,6 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.checkpointing import (
     CompletedEpochCheckpoint,
+    resolve_resume_checkpoint,
     save_checkpoint_metadata_sidecar,
 )
 from bonsai.functional.model_config import validate_pretraining_attention
@@ -176,10 +177,15 @@ def main(cfg: DictConfig) -> None:
         precision=cfg.hardware.precision,
     )
 
+    resume_checkpoint = resolve_resume_checkpoint(
+        model_save_dir,
+        cfg.paths.ckpt_path,
+        auto_resume=bool(cfg.training.get("auto_resume", False)),
+    )
     trainer.fit(
         model=lightning_module,
         datamodule=data_module,
-        ckpt_path=cfg.paths.ckpt_path,
+        ckpt_path=resume_checkpoint,
     )
     save_checkpoint_metadata_sidecar(
         model_save_dir,

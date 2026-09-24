@@ -26,6 +26,7 @@ from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.functional.checkpointing import (
     extract_encoder_state_dict,
     get_saved_encoder_config,
+    resolve_resume_checkpoint,
     save_checkpoint_metadata_sidecar,
 )
 from bonsai.functional.checkpointing import (
@@ -76,6 +77,17 @@ _TRANSFER_METADATA_FIELDS = (
     "source_dapt_checkpoint",
     "selection_outcomes",
 )
+
+
+def _uses_gradient_cache(
+    *,
+    batch_size: int,
+    logical_batch_size: int | None,
+) -> bool:
+    """Return whether logical batches are actually split into microbatches."""
+    if logical_batch_size is None:
+        return False
+    return int(logical_batch_size) > int(batch_size)
 
 
 def _validate_transfer_config(cfg: DictConfig, outcome_names: list[str]) -> dict | None:
@@ -341,6 +353,7 @@ def main(cfg: DictConfig) -> None:
             cfg.get("competing_risk", {}),
             resolve=True,
         ),
+        cohort_names=sorted(str(name) for name in cohort_configs),
     )
 
     # ── Data ───────────────────────────────────────────────────────────
@@ -467,7 +480,10 @@ def main(cfg: DictConfig) -> None:
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
-        gradient_cache=cfg.training.get("logical_batch_size") is not None,
+        gradient_cache=_uses_gradient_cache(
+            batch_size=cfg.training.batch_size,
+            logical_batch_size=cfg.training.get("logical_batch_size"),
+        ),
         probe_every_n_epochs=cfg.training.get("probe_every_n_epochs", 1),
         enable_validation_probe=cfg.training.get("enable_validation_probe", True),
         log_per_outcome_metrics=cfg.training.get("log_per_outcome_metrics", True),
@@ -524,7 +540,16 @@ def main(cfg: DictConfig) -> None:
         log_every_n_steps=int(cfg.training.get("log_every_n_steps", 10)),
     )
 
-    trainer.fit(model=lightning_module, datamodule=data_module)
+    resume_checkpoint = resolve_resume_checkpoint(
+        model_save_dir,
+        cfg.paths.get("resume_ckpt"),
+        auto_resume=bool(cfg.training.get("auto_resume", False)),
+    )
+    trainer.fit(
+        model=lightning_module,
+        datamodule=data_module,
+        ckpt_path=resume_checkpoint,
+    )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
     mark_training_complete(model_save_dir, cfg)
 

@@ -433,6 +433,13 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
+        # Sorting makes the mapping deterministic across Hydra/YAML ordering and
+        # checkpoint reconstruction. These names are the configured
+        # cohort_grouped disease groups in the production registry.
+        self.cohort_names = sorted(str(name) for name in cohort_configs)
+        self.cohort_to_index = {
+            name: index for index, name in enumerate(self.cohort_names)
+        }
         self._physical_subject_pools: dict[tuple[str, ...], list[dict]] = {}
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
@@ -611,6 +618,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             background_length=background_length,
             max_len=self.max_len,
             numeric_value_control=self.numeric_value_control,
+            cohort_index=self.cohort_to_index[cohort_name],
         )
 
     # ── Lightning interface ───────────────────────────────────────────

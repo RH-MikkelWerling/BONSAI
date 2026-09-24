@@ -347,20 +347,43 @@ def build_joint_opera_ablation_config(
 def build_direct_cr_config(
     registry: dict[str, Any], *, family_trunks: bool = False, curriculum: bool = False,
     survival_weighter: str = "uniform", contrastive_loss_weight: float = 0.0,
-    cls_pooling: bool = False,
+    cls_pooling: bool = False, head_mode: str | None = None,
+    readout_mode: str = "shared",
+    objective: str = "piecewise_exponential",
 ) -> dict[str, Any]:
     """Direct multi-outcome competing-risk adaptation ablation."""
     config = copy.deepcopy(build_joint_opera_config(registry))
     config["dataset"] = "daly_care_direct_competing_risk"
+    # Keep every sequence consumer on one explicitly overridable processed-data
+    # root. This is essential when evaluating a newly harmonized vocabulary:
+    # changing one path updates both token IDs and every cohort's EHR records.
+    config["paths"]["sequence_data_dir"] = (
+        "${oc.env:BONSAI_PROCESSED_DATA}/daly_care"
+    )
+    config["paths"]["vocabulary"] = "${paths.sequence_data_dir}/vocabulary.pt"
+    for cohort in config["cohorts"].values():
+        cohort["data_dir"] = "${paths.sequence_data_dir}"
     config["competing_risk"]["contrastive_loss_weight"] = float(
         contrastive_loss_weight
     )
     config["competing_risk"]["weighter"] = survival_weighter
-    config["competing_risk"]["head_mode"] = (
+    config["competing_risk"]["objective"] = objective
+    resolved_head_mode = head_mode or (
         "family_trunks" if family_trunks else "linear"
     )
+    config["competing_risk"]["head_mode"] = resolved_head_mode
+    config["competing_risk"]["readout_mode"] = readout_mode
     config["competing_risk"]["family_trunk_hidden_dim"] = 128
     config["competing_risk"]["family_trunk_dropout"] = 0.1
+    config["competing_risk"]["outcome_mlp_hidden_dim"] = 128
+    config["competing_risk"]["outcome_mlp_dropout"] = 0.1
+    config["competing_risk"]["outcome_attention_heads"] = 8
+    config["competing_risk"]["outcome_attention_dropout"] = 0.1
+    config["competing_risk"]["prototype_attention_num_prototypes"] = 10
+    config["competing_risk"]["prototype_attention_heads"] = 8
+    config["competing_risk"]["prototype_attention_dropout"] = 0.1
+    config["competing_risk"]["prototype_mixture_temperature"] = 1.0
+    config["competing_risk"]["prototype_interaction_rank"] = 8
     config["competing_risk"]["interval_boundaries_days"] = [
         30, 60, 90, 180, 365, 730
     ]
@@ -379,7 +402,12 @@ def build_direct_cr_config(
         # Learned outcome weights operate directly on task likelihoods. Do not
         # combine them with the separate hand-designed family/support weights.
         config["cross_outcome"]["aggregation"] = "macro"
-    use_cls_pooling = cls_pooling or family_trunks or curriculum
+    use_cls_pooling = (
+        cls_pooling
+        or resolved_head_mode != "linear"
+        or readout_mode != "shared"
+        or curriculum
+    )
     if use_cls_pooling:
         config["model"]["pooling"] = "cls_last"
         config["model"]["dapt_anchor_weight"] = 0.0
@@ -388,6 +416,7 @@ def build_direct_cr_config(
     config["training"].update(
         {
             "epochs": 30,
+            "auto_resume": True,
             "learning_rate": 5e-4,
             "encoder_lr_multiplier": 0.05,
             "scheduler_warmup_epochs": 2,
@@ -537,6 +566,61 @@ def generate_configs(
             family_trunks=True,
             curriculum=True,
             survival_weighter="kendall_null",
+        ),
+        "direct_cr_architecture_shared_linear.yaml": dict(
+            build_direct_cr_config(registry, curriculum=True, cls_pooling=True),
+            seed=42,
+        ),
+        "direct_cr_architecture_outcome_mlp.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                head_mode="outcome_mlp",
+            ),
+            seed=42,
+        ),
+        "direct_cr_architecture_family_trunks.yaml": dict(
+            build_direct_cr_config(
+                registry, family_trunks=True, curriculum=True, cls_pooling=True
+            ),
+            seed=42,
+        ),
+        "direct_cr_architecture_outcome_attention.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="outcome_attention",
+            ),
+            seed=42,
+        ),
+        "direct_cr_architecture_shared_attention_prototypes.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="shared_attention_prototypes",
+            ),
+            seed=42,
+        ),
+        "direct_cr_architecture_factorized_cohort_outcome_prototypes.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="factorized_cohort_outcome_prototypes",
+            ),
+            seed=42,
+        ),
+        "direct_cr_objective_horizon_bce.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                objective="horizon_bce",
+            ),
+            seed=42,
         ),
         "direct_cr_uniform_cls.yaml": build_joined_bins_direct_cr_config(
             registry, cls_pooling=True

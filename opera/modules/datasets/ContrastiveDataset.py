@@ -54,6 +54,7 @@ class ContrastiveDataset(Dataset):
         background_length: int,
         max_len: int = 8192,
         numeric_value_control: str = "observed",
+        cohort_index: int | None = None,
     ):
         self.subjects = subjects
         self.outcome_dicts = outcome_dicts
@@ -64,6 +65,9 @@ class ContrastiveDataset(Dataset):
         self.numeric_value_control = validate_numeric_value_control(
             numeric_value_control
         )
+        if cohort_index is not None and int(cohort_index) < 0:
+            raise ValueError("cohort_index must be non-negative when provided.")
+        self.cohort_index = None if cohort_index is None else int(cohort_index)
         self._validate_shared_prediction_origins()
 
     def _validate_shared_prediction_origins(self) -> None:
@@ -116,6 +120,12 @@ class ContrastiveDataset(Dataset):
         )
         subject["segment"] = normalize_segments(subject["segment"])
         subject["attention_mask"] = torch.ones(len(subject["code"]), dtype=torch.bool)
+        if self.cohort_index is not None:
+            # Stable integer identity for cohort-conditioned model readouts.
+            # A scalar tensor is preserved by BONSAI's ordinary dynamic collate.
+            subject["cohort_index"] = torch.tensor(
+                self.cohort_index, dtype=torch.long
+            )
 
         # Attach survival fields per outcome
         for name in self.outcome_names:

@@ -89,6 +89,7 @@ def test_contrastive_dataset_indexing_does_not_mutate_subject():
         predict_token_id=1,
         background_length=2,
         max_len=4,
+        cohort_index=3,
     )
 
     first = dataset[0]
@@ -97,6 +98,7 @@ def test_contrastive_dataset_indexing_does_not_mutate_subject():
     _assert_samples_equal(first, second)
     _assert_subject_unchanged(subjects[0], original)
     assert "outcome_mortality" not in subjects[0]
+    assert first["cohort_index"].item() == 3
 
 
 def test_contrastive_dataset_passes_through_competing_death_event():

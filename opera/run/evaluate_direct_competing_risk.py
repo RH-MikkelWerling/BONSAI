@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import torch
 from dotenv import load_dotenv
@@ -25,6 +24,11 @@ from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
     compute_pooled_event_time_probability_grids,
 )
 from opera.modules.networks.competing_risk import piecewise_exponential_cif
+from opera.run.finetune_all_horizons import (
+    _set_dataset_cohort_index,
+    build_specialist_cohort_config,
+    resolve_parent_cohort,
+)
 
 
 def _device(value: str) -> torch.device:
@@ -38,6 +42,39 @@ def _move(batch: dict, device: torch.device) -> dict:
         key: value.to(device) if isinstance(value, torch.Tensor) else value
         for key, value in batch.items()
     }
+
+
+def _factorized_prototype_weights(model) -> pd.DataFrame | None:
+    """Make the learned cohort-by-outcome attention routing inspectable."""
+    if (
+        getattr(model, "outcome_readout_mode", None)
+        != "factorized_cohort_outcome_prototypes"
+    ):
+        return None
+    readout = model.outcome_attention_readout
+    reference = next(readout.parameters())
+    cohort_indices = torch.arange(
+        len(readout.cohort_names), device=reference.device
+    )
+    with torch.inference_mode():
+        weights = readout.mixture_weights(cohort_indices).detach().cpu()
+        gates = torch.tanh(readout.residual_gates).detach().cpu()
+    rows = []
+    for cohort_index, cohort in enumerate(readout.cohort_names):
+        for outcome_index, outcome in enumerate(readout.outcome_names):
+            for prototype_index, weight in enumerate(
+                weights[cohort_index, outcome_index]
+            ):
+                rows.append(
+                    {
+                        "cohort": cohort,
+                        "outcome": outcome,
+                        "prototype": int(prototype_index),
+                        "mixture_weight": float(weight),
+                        "residual_gate": float(gates[outcome_index]),
+                    }
+                )
+    return pd.DataFrame(rows)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,6 +93,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--outcome",
+        default=None,
+        help="Evaluate only this outcome from a retained multi-outcome head.",
+    )
+    parser.add_argument(
+        "--cohort-fine",
+        default=None,
+        help="Restrict evaluation to this fine diagnosis.",
+    )
+    parser.add_argument("--cohort-fine-col", default="cohort_fine")
+    parser.add_argument(
+        "--parent-cohort",
+        default=None,
+        help="Grouped parent used by the source model; normally inferred.",
+    )
     return parser
 
 
@@ -74,12 +127,40 @@ def main() -> None:
     ):
         cfg = compose(config_name=args.config_name, overrides=args.override)
 
-    cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
-    outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
-    outcome_names = sorted(outcome_configs)
+    source_cohort_configs = OmegaConf.to_container(cfg.cohorts, resolve=True)
+    source_outcome_configs = OmegaConf.to_container(cfg.outcomes, resolve=True)
+    outcome_names = sorted(source_outcome_configs)
+    if args.outcome is not None and args.outcome not in source_outcome_configs:
+        raise ValueError(
+            f"Outcome {args.outcome!r} is absent from the source config; "
+            f"available={outcome_names}."
+        )
+    if bool(args.cohort_fine) != bool(args.outcome):
+        raise ValueError(
+            "Specialist evaluation requires --cohort-fine and --outcome together."
+        )
+    parent_cohort = None
+    if args.cohort_fine:
+        parent_cohort = resolve_parent_cohort(
+            args.cohort_fine, args.parent_cohort, source_cohort_configs
+        )
+        cohort_configs = {
+            parent_cohort: build_specialist_cohort_config(
+                source_cohort_configs[parent_cohort],
+                cohort_fine_col=args.cohort_fine_col,
+                cohort_fine_value=args.cohort_fine,
+                outcome=args.outcome,
+            )
+        }
+        outcome_configs = {args.outcome: source_outcome_configs[args.outcome]}
+        active_outcome_names = [args.outcome]
+    else:
+        cohort_configs = source_cohort_configs
+        outcome_configs = source_outcome_configs
+        active_outcome_names = outcome_names
     time_grids, probability_grids = compute_pooled_event_time_probability_grids(
-        cohort_configs,
-        outcome_configs,
+        source_cohort_configs,
+        source_outcome_configs,
         split="train",
         require_all_configured_cells=bool(
             cfg.training.get("require_all_configured_cells", True)
@@ -122,9 +203,18 @@ def main() -> None:
     if objective is None or model.competing_risk_head is None:
         raise ValueError("Checkpoint does not contain a direct competing-risk head.")
     no_competing = torch.tensor(
-        [name in objective.no_competing_outcomes for name in outcome_names],
+        [name in objective.no_competing_outcomes for name in active_outcome_names],
         dtype=torch.bool,
         device=device,
+    )
+    active_outcome_indices = [
+        objective.outcome_index[name] for name in active_outcome_names
+    ]
+    checkpoint_cohorts = list(model.model_init_config.get("cohort_names", []))
+    parent_index = (
+        checkpoint_cohorts.index(parent_cohort)
+        if parent_cohort is not None
+        else None
     )
 
     prediction_rows: list[dict] = []
@@ -134,6 +224,8 @@ def main() -> None:
         )
         if dataset is None:
             continue
+        if parent_index is not None:
+            _set_dataset_cohort_index(dataset, parent_index)
         loader = DataLoader(
             dataset,
             batch_size=args.batch_size,
@@ -145,19 +237,19 @@ def main() -> None:
         with torch.inference_mode():
             for raw_batch in loader:
                 batch = _move(raw_batch, device)
-                pooled = model._pool(batch)
-                hazards = model.competing_risk_head(pooled).reshape(
-                    len(pooled), len(outcome_names), 2, objective.n_intervals
+                representations = model.get_objective_representations(batch)
+                hazards = model.competing_risk_head(representations).reshape(
+                    len(representations), len(outcome_names), 2, objective.n_intervals
                 )
                 cif = piecewise_exponential_cif(
-                    hazards,
+                    hazards[:, active_outcome_indices],
                     objective.boundaries * objective.time_scale_days,
                     horizons,
                     time_scale_days=objective.time_scale_days,
                     no_competing_outcome_mask=no_competing,
                 ).cpu().numpy()
                 subject_ids = batch["subject_id"].detach().cpu().numpy()
-                for outcome_index, outcome in enumerate(outcome_names):
+                for outcome_index, outcome in enumerate(active_outcome_names):
                     times = batch[f"time_{outcome}"].detach().cpu().numpy()
                     events = batch[f"event_{outcome}"].detach().cpu().numpy()
                     for row_index, subject_id in enumerate(subject_ids):
@@ -165,7 +257,9 @@ def main() -> None:
                             continue
                         row = {
                             "subject_id": int(subject_id),
-                            "cohort": cohort_name,
+                            "cohort": args.cohort_fine or cohort_name,
+                            "cohort_fine": args.cohort_fine,
+                            "cohort_grouped": cohort_name,
                             "split": args.split,
                             "outcome": outcome,
                             "time_days": float(times[row_index]),
@@ -233,6 +327,11 @@ def main() -> None:
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)
     pooled_metrics.to_csv(output_dir / "direct_cr_pooled_metrics.csv", index=False)
     family_summary.to_csv(output_dir / "direct_cr_family_metrics.csv", index=False)
+    prototype_weights = _factorized_prototype_weights(model)
+    if prototype_weights is not None:
+        prototype_weights.to_csv(
+            output_dir / "cohort_outcome_prototype_weights.csv", index=False
+        )
     summary = {
         "checkpoint": str(args.checkpoint),
         "split": args.split,
@@ -242,6 +341,9 @@ def main() -> None:
         "macro_cif_brier": float(metrics["cif_brier"].mean()),
         "pooled_macro_cif_auc": float(pooled_metrics["cif_auc"].mean()),
         "pooled_macro_cif_brier": float(pooled_metrics["cif_brier"].mean()),
+        "specialist_outcome": args.outcome,
+        "cohort_fine": args.cohort_fine,
+        "parent_cohort_grouped": parent_cohort,
     }
     if not family_summary.empty:
         summary.update(

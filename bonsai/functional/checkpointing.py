@@ -22,6 +22,35 @@ MODEL_INIT_CONFIG_KEY = "model_init_config"
 COMPLETION_MARKER = "training_complete.json"
 
 
+def resolve_resume_checkpoint(
+    output_dir: str | Path,
+    configured_checkpoint: str | Path | None,
+    *,
+    auto_resume: bool = False,
+) -> str | None:
+    """Resolve an explicit checkpoint or an existing ``last.ckpt``.
+
+    Automatic discovery is deliberately opt-in and scoped to the current run
+    directory. This prevents an invocation from silently inheriting weights
+    from a different experiment while making scheduler requeues restart-safe.
+    """
+    if configured_checkpoint not in (None, ""):
+        checkpoint = Path(configured_checkpoint)
+        if not checkpoint.is_file():
+            raise FileNotFoundError(
+                f"Configured resume checkpoint does not exist: {checkpoint}"
+            )
+        print(f"Resuming training from configured checkpoint: {checkpoint}")
+        return str(checkpoint)
+    if not auto_resume:
+        return None
+    checkpoint = Path(output_dir) / "last.ckpt"
+    if checkpoint.is_file():
+        print(f"Auto-resuming interrupted training from: {checkpoint}")
+        return str(checkpoint)
+    return None
+
+
 class CompletedEpochCheckpoint(Callback):
     """Save named checkpoints after exact numbers of completed epochs.
 

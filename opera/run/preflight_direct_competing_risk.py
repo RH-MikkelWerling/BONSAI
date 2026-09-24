@@ -13,6 +13,18 @@ from omegaconf import OmegaConf
 from opera.functional.direct_cr_contract import validate_direct_cr_config
 
 
+def _register_resolvers() -> None:
+    # ``run_id`` only determines an output-directory suffix and is irrelevant
+    # to this read-only preflight. Training registers the production resolver;
+    # use a stable sentinel here so fully resolving the same config cannot fail.
+    OmegaConf.register_new_resolver(
+        "version",
+        lambda: 0,
+        use_cache=True,
+        replace=True,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-name", required=True)
@@ -46,6 +58,7 @@ def _required_paths(config: dict) -> dict[str, Path]:
 def main() -> None:
     args = build_parser().parse_args()
     load_dotenv()
+    _register_resolvers()
     GlobalHydra.instance().clear()
     with initialize_config_dir(
         config_dir=str(args.config_dir.resolve()), version_base="1.2"
@@ -65,6 +78,7 @@ def main() -> None:
         "Direct competing-risk preflight passed: "
         f"{len(resolved['cohorts'])} cohorts, {len(resolved['outcomes'])} outcomes, "
         f"boundaries={resolved['competing_risk']['interval_boundaries_days']}, "
+        f"objective={resolved['competing_risk'].get('objective', 'piecewise_exponential')}, "
         f"head={resolved['competing_risk'].get('head_mode', 'linear')}, "
         f"weighter={resolved['competing_risk'].get('weighter', 'uniform')}."
     )

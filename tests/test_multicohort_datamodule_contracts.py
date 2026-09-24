@@ -79,6 +79,19 @@ def test_validation_loader_uses_logical_batch_size_with_physical_microbatches():
     assert loader.batch_size == 24
 
 
+def test_multicohort_indices_are_stable_and_sorted():
+    module = MultiCohortContrastiveDataModule(
+        cohort_configs={"DLBCL_like": {}, "CLL_SLL": {}},
+        outcome_configs={},
+        predict_token_id=1,
+        batch_size=2,
+        num_workers=0,
+    )
+
+    assert module.cohort_names == ["CLL_SLL", "DLBCL_like"]
+    assert module.cohort_to_index == {"CLL_SLL": 0, "DLBCL_like": 1}
+
+
 def test_compute_pooled_class_counts_uses_training_labels(tmp_path):
     data_dir = tmp_path / "dlbcl"
     outcomes_dir = data_dir / "outcomes"

@@ -33,6 +33,8 @@ model:
   value_embedding_mode: legacy
 
 training:
+  # Reusing the same hydra.run.dir safely continues from version_0/last.ckpt.
+  auto_resume: true
   max_len: ${model.max_seqlen}
   batch_size: 4
   accumulate_grad_batches: 32  # effective batch size = 128

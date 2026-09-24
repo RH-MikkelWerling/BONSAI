@@ -220,6 +220,9 @@ def _load_model(
         ),
         dapt_embedding_store=dapt_store,
         competing_risk_config=competing_risk_config,
+        cohort_names=list(
+            model_init.get("cohort_names", sorted(str(name) for name in cfg.cohorts))
+        ),
     )
     if is_opera_checkpoint:
         load_state_dict_checked(model, clean_state, strict=True)
@@ -676,7 +679,11 @@ def diagnose_checkpoint(
             for cpu_microbatch in microbatches:
                 microbatch = _move_to_device(cpu_microbatch, device)
                 embedding_parts.append(
-                    model.get_embeddings(microbatch, return_pre_projection=True)
+                    model.get_objective_representations(microbatch)
+                    if objective == "competing_risk"
+                    else model.get_embeddings(
+                        microbatch, return_pre_projection=True
+                    )
                 )
                 subject_parts.append(microbatch["subject_id"])
                 micro_survival = _outcome_survival(microbatch, outcome_names)
@@ -693,39 +700,41 @@ def diagnose_checkpoint(
 
         with torch.enable_grad():
             representation = pooled.detach().clone().requires_grad_(True)
-            projected = model.projection(representation)
-            projected_spaces = (
-                {"shared": projected}
-                if isinstance(projected, torch.Tensor)
-                else projected
-            )
-            for space, values in projected_spaces.items():
-                similarities = values @ values.T
-                off_diagonal = ~torch.eye(
-                    values.shape[0], dtype=torch.bool, device=values.device
+            projected = None
+            if representation.ndim == 2:
+                projected = model.projection(representation)
+                projected_spaces = (
+                    {"shared": projected}
+                    if isinstance(projected, torch.Tensor)
+                    else projected
                 )
-                projection_geometry_records.append(
-                    {
-                        "checkpoint": str(checkpoint),
-                        "batch_index": batch_index,
-                        "projection_space": space,
-                        "coordinate_std_mean": float(
-                            values.std(dim=0, unbiased=False).mean().detach().item()
-                        ),
-                        "coordinate_std_min": float(
-                            values.std(dim=0, unbiased=False).min().detach().item()
-                        ),
-                        "mean_off_diagonal_cosine": float(
-                            similarities[off_diagonal].mean().detach().item()
-                        ),
-                        "std_off_diagonal_cosine": float(
-                            similarities[off_diagonal]
-                            .std(unbiased=False)
-                            .detach()
-                            .item()
-                        ),
-                    }
-                )
+                for space, values in projected_spaces.items():
+                    similarities = values @ values.T
+                    off_diagonal = ~torch.eye(
+                        values.shape[0], dtype=torch.bool, device=values.device
+                    )
+                    projection_geometry_records.append(
+                        {
+                            "checkpoint": str(checkpoint),
+                            "batch_index": batch_index,
+                            "projection_space": space,
+                            "coordinate_std_mean": float(
+                                values.std(dim=0, unbiased=False).mean().detach().item()
+                            ),
+                            "coordinate_std_min": float(
+                                values.std(dim=0, unbiased=False).min().detach().item()
+                            ),
+                            "mean_off_diagonal_cosine": float(
+                                similarities[off_diagonal].mean().detach().item()
+                            ),
+                            "std_off_diagonal_cosine": float(
+                                similarities[off_diagonal]
+                                .std(unbiased=False)
+                                .detach()
+                                .item()
+                            ),
+                        }
+                    )
             if objective == "competing_risk":
                 if model.competing_risk_head is None:
                     raise ValueError(
@@ -742,6 +751,8 @@ def diagnose_checkpoint(
                 )
                 active_names = list(terms)
             else:
+                if projected is None:
+                    raise ValueError("Contrastive diagnostics require shared representations.")
                 terms, _ = model.contrastive_loss.compute_per_outcome_losses(
                     projected,
                     survival,
@@ -775,6 +786,12 @@ def diagnose_checkpoint(
                     representation,
                     retain_graph=term_index < len(gradient_jobs) - 1,
                 )[0]
+                if gradient.ndim == 3:
+                    # Outcome-attention readouts expose one representation slot
+                    # per task. Compare each task's gradient in its own slot;
+                    # flattening the complete tensor would make disjoint slots
+                    # appear spuriously orthogonal.
+                    gradient = gradient[:, outcome_names.index(name), :]
                 gradients_by_component[component][name] = gradient.detach()
             gradients = gradients_by_component[requested_components[0]]
             null_gradient_cache: dict[

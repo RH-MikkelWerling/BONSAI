@@ -158,6 +158,67 @@ def test_piecewise_exponential_masks_missing_outcomes_and_backpropagates():
     assert torch.isfinite(log_hazards.grad).all()
 
 
+def test_horizon_bce_trains_all_known_horizons_and_masks_early_censoring():
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["endpoint"],
+        [30.0, 90.0],
+        no_competing_outcomes=[],
+        time_scale_days=1.0,
+        objective="horizon_bce",
+    )
+    torch.manual_seed(7)
+    log_hazards = (torch.randn(4, 1, 2, 3) - 3.0).requires_grad_()
+    times = torch.tensor([10.0, 20.0, 50.0, 100.0])
+    events = torch.tensor([1, 0, 2, 0])
+
+    loss, diagnostics, terms = loss_fn(
+        log_hazards,
+        {"endpoint": {"times": times, "events": events}},
+        return_per_outcome=True,
+    )
+    loss.backward()
+
+    expected_known = torch.tensor(
+        [
+            [True, True],   # primary event before both horizons
+            [False, False], # administratively censored before both horizons
+            [True, True],   # event-free at 30d, competing death before 90d
+            [True, True],   # observed event-free through both horizons
+        ]
+    )
+    assert torch.equal(terms["endpoint"]["horizon_known_mask"], expected_known)
+    assert diagnostics["cr/horizon_bce/n_known/endpoint/30d"].item() == 3
+    assert diagnostics["cr/horizon_bce/n_known/endpoint/90d"].item() == 3
+    assert torch.isfinite(loss)
+    with torch.no_grad():
+        cif = piecewise_exponential_cif(
+            log_hazards,
+            [30.0, 90.0],
+            [30.0, 90.0],
+            time_scale_days=1.0,
+        )[:, 0]
+        targets = torch.tensor(
+            [[1.0, 1.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+        )
+        expected_cells = torch.nn.functional.binary_cross_entropy(
+            cif.clamp(1e-6, 1.0 - 1e-6), targets, reduction="none"
+        )
+    assert loss.item() == pytest.approx(expected_cells[expected_known].mean().item())
+    # The fully unknown early-censored patient contributes no gradient.
+    assert torch.equal(log_hazards.grad[1], torch.zeros_like(log_hazards.grad[1]))
+    assert log_hazards.grad[[0, 2, 3]].abs().sum() > 0
+
+
+def test_horizon_bce_rejects_unknown_objective():
+    with pytest.raises(ValueError, match="competing_risk.objective"):
+        PiecewiseExponentialCompetingRiskLoss(
+            ["endpoint"],
+            [30.0],
+            no_competing_outcomes=[],
+            objective="not_an_objective",
+        )
+
+
 def test_piecewise_exponential_supports_mixed_precision_log_hazards():
     loss_fn = PiecewiseExponentialCompetingRiskLoss(
         ["endpoint"],

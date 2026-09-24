@@ -489,6 +489,43 @@ missing subset tags, IPI rows, or duplicate aggregate keys. Use
 `--evaluation_subset ipi_complete --include_ipi` only for the standalone IPI
 credibility table.
 
+### Outcome Forest Figure
+
+The outcome forest combines absolute held-out performance with the paired
+model difference on aligned outcome rows. Outcomes are grouped by clinical
+family; patient and event counts remain visible. Bayesian posterior summaries
+can use `--interval-label "95% CrI"` and optionally provide
+`probability_superior`. Frequentist paired bootstrap summaries use
+`--interval-label "95% CI"`.
+
+The fastest route from the direct-risk/tabular comparison is:
+
+```bash
+python -m opera.run.plot_outcome_forest \
+  --paired-comparison ./paired_comparison.csv \
+  --family-map opera/configs/generated/direct_cr_full_panel.yaml \
+  --metric cif_auc \
+  --horizon 365 \
+  --model opera \
+  --model tabular_ehr \
+  --interval-label "95% CI" \
+  --output-dir ./paper_figures/outcome_forest
+```
+
+For Bayesian or other model comparisons, pass a canonical long absolute table
+with `--estimates` and a canonical long paired-difference table with
+`--contrasts`. Absolute rows require `outcome`, `model`, and `estimate`;
+contrast rows require `outcome`, `contrast`, and `estimate`. Both may include
+`outcome_family`, `cohort`, `horizon_days`, `lower`, `upper`, `n`, and
+`n_events`; contrasts may additionally include `comparator`, `baseline`, and
+`probability_superior`.
+
+Multiple cohorts are automatically rendered as separate supplement figures.
+Long outcome panels are paginated without splitting a clinical family when it
+fits on one page. Every run writes editable companion PDFs,
+`forest_plot_data.csv`, and `forest_plot_manifest.json`, so plotting can be
+iterated locally without retaining access to the training server.
+
 ## Rarity Analyses
 
 The code explicitly separates two scientific regimes:

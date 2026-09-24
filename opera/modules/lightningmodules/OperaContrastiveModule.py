@@ -123,6 +123,7 @@ class OperaContrastiveModule(L.LightningModule):
             "cr/loss_over_null/",
             "cr/outcome_weight/",
             "cr/log_sigma/",
+            "cr/horizon_bce/",
         )
         return not key.startswith(detailed_prefixes)
 
@@ -143,7 +144,7 @@ class OperaContrastiveModule(L.LightningModule):
         with torch.no_grad():
             for cpu_batch in microbatches:
                 batch = self._to_device(cpu_batch)
-                pooled_parts.append(self.model._pool(batch))
+                pooled_parts.append(self.model.get_objective_representations(batch))
                 survival = self._build_outcome_survival(batch)
                 for name in self.outcome_names:
                     if name in survival:
@@ -166,7 +167,7 @@ class OperaContrastiveModule(L.LightningModule):
             offset = 0
             for cpu_batch in microbatches:
                 batch = self._to_device(cpu_batch)
-                recomputed = self.model._pool(batch)
+                recomputed = self.model.get_objective_representations(batch)
                 count = recomputed.shape[0]
                 self.manual_backward(
                     (recomputed * pooled_grad[offset : offset + count]).sum()
@@ -259,6 +260,12 @@ class OperaContrastiveModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         if self.gradient_cache:
+            if not isinstance(batch, list):
+                raise TypeError(
+                    "Gradient caching requires a list of microbatch dictionaries. "
+                    "Set logical_batch_size greater than batch_size, or disable "
+                    "gradient caching when both sizes are equal."
+                )
             return self._cached_training_step(batch)
         return self._shared_step(batch, "train")
 
@@ -275,7 +282,9 @@ class OperaContrastiveModule(L.LightningModule):
             with torch.no_grad():
                 for cpu_batch in batch:
                     microbatch = self._to_device(cpu_batch)
-                    pooled_parts.append(self.model._pool(microbatch))
+                    pooled_parts.append(
+                        self.model.get_objective_representations(microbatch)
+                    )
                     survival = self._build_outcome_survival(microbatch)
                     for name, fields in survival.items():
                         survival_parts[name]["times"].append(fields["times"])
@@ -309,9 +318,12 @@ class OperaContrastiveModule(L.LightningModule):
                 self._val_probe_embs = {name: [] for name in self.outcome_names}
                 self._val_probe_labels = {name: [] for name in self.outcome_names}
                 self._val_probe_emb_store = []
-            self._val_probe_emb_store.append(
-                self.model.projection(pooled).detach().cpu()
-            )
+            if pooled.ndim != 2:
+                raise ValueError(
+                    "Validation probes require shared patient representations; "
+                    "disable them for outcome-attention experiments."
+                )
+            self._val_probe_emb_store.append(self.model.projection(pooled).detach().cpu())
             for name in self.outcome_names:
                 key = f"outcome_{name}"
                 labels = [micro[key].detach().cpu() for micro in batch if key in micro]
@@ -349,6 +361,22 @@ class OperaContrastiveModule(L.LightningModule):
         objective = getattr(self.model, "competing_risk_loss", None)
         if log_hazards is None or objective is None:
             return
+        # Specialist all-horizon finetuning deliberately keeps the complete
+        # parent model (and therefore all parent output rows) while exposing
+        # labels for only one active outcome. Select those rows by name rather
+        # than assuming ``self.outcome_names`` spans the complete head. The
+        # ordinary multi-outcome path is unchanged because its selection is
+        # simply every row in the original order.
+        unknown = [
+            name for name in self.outcome_names if name not in objective.outcome_index
+        ]
+        if unknown:
+            raise ValueError(
+                "Validation requested outcomes absent from the competing-risk "
+                f"head: {unknown}."
+            )
+        active_indices = [objective.outcome_index[name] for name in self.outcome_names]
+        active_log_hazards = log_hazards[:, active_indices]
         horizons = self.evaluation_horizons_days or [
             float(value) * objective.time_scale_days
             for value in objective.boundaries.detach().cpu().tolist()
@@ -358,7 +386,7 @@ class OperaContrastiveModule(L.LightningModule):
             device=log_hazards.device,
         )
         predictions = piecewise_exponential_cif(
-            log_hazards.detach(),
+            active_log_hazards.detach(),
             objective.boundaries * objective.time_scale_days,
             horizons,
             time_scale_days=objective.time_scale_days,

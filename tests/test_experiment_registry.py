@@ -28,7 +28,7 @@ def test_production_registry_has_locked_inventory() -> None:
         )
         == 38_905
     )
-    assert registry["horizons_days"] == [30, 90, 180, 365, 730]
+    assert registry["horizons_days"] == [30, 60, 90, 180, 365, 730]
     assert set(registry["outcomes_containing_death"]) == {
         "overall_survival",
         "treatment_failure",
@@ -42,8 +42,8 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 46
-    assert len(sweep_paths) == 32
+    assert len(paths) == 59
+    assert len(sweep_paths) == 38
     for path in sweep_paths:
         load_sweep_config(path)
 
@@ -175,6 +175,90 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     )
     assert family_kendall_null["competing_risk"]["weighter"] == "kendall_null"
     assert family_kendall_null["cross_outcome"]["aggregation"] == "macro"
+
+    architecture_linear = yaml.safe_load(
+        (tmp_path / "direct_cr_architecture_shared_linear.yaml").read_text()
+    )
+    architecture_mlp = yaml.safe_load(
+        (tmp_path / "direct_cr_architecture_outcome_mlp.yaml").read_text()
+    )
+    architecture_family = yaml.safe_load(
+        (tmp_path / "direct_cr_architecture_family_trunks.yaml").read_text()
+    )
+    architecture_attention = yaml.safe_load(
+        (tmp_path / "direct_cr_architecture_outcome_attention.yaml").read_text()
+    )
+    architecture_prototypes = yaml.safe_load(
+        (
+            tmp_path / "direct_cr_architecture_shared_attention_prototypes.yaml"
+        ).read_text()
+    )
+    architecture_factorized = yaml.safe_load(
+        (
+            tmp_path
+            / "direct_cr_architecture_factorized_cohort_outcome_prototypes.yaml"
+        ).read_text()
+    )
+    horizon_bce = yaml.safe_load(
+        (tmp_path / "direct_cr_objective_horizon_bce.yaml").read_text()
+    )
+    assert architecture_linear["competing_risk"]["head_mode"] == "linear"
+    assert architecture_mlp["competing_risk"]["head_mode"] == "outcome_mlp"
+    assert architecture_family["competing_risk"]["head_mode"] == "family_trunks"
+    assert architecture_attention["competing_risk"]["head_mode"] == "linear"
+    assert (
+        architecture_attention["competing_risk"]["readout_mode"]
+        == "outcome_attention"
+    )
+    assert architecture_prototypes["competing_risk"]["head_mode"] == "linear"
+    assert (
+        architecture_prototypes["competing_risk"]["readout_mode"]
+        == "shared_attention_prototypes"
+    )
+    assert (
+        architecture_prototypes["competing_risk"][
+            "prototype_attention_num_prototypes"
+        ]
+        == 10
+    )
+    assert architecture_factorized["competing_risk"]["head_mode"] == "linear"
+    assert (
+        architecture_factorized["competing_risk"]["readout_mode"]
+        == "factorized_cohort_outcome_prototypes"
+    )
+    assert (
+        architecture_factorized["competing_risk"]["prototype_interaction_rank"]
+        == 8
+    )
+    for architecture in (
+        architecture_linear,
+        architecture_mlp,
+        architecture_family,
+        architecture_attention,
+        architecture_prototypes,
+        architecture_factorized,
+        horizon_bce,
+    ):
+        assert architecture["seed"] == 42
+        assert architecture["model"]["pooling"] == "cls_last"
+        assert architecture["paths"]["vocabulary"] == (
+            "${paths.sequence_data_dir}/vocabulary.pt"
+        )
+        assert set(
+            cohort["data_dir"] for cohort in architecture["cohorts"].values()
+        ) == {"${paths.sequence_data_dir}"}
+        assert architecture["competing_risk"]["curriculum"]["enabled"] is True
+        assert architecture["training"]["evaluation_horizons_days"] == [
+            30,
+            60,
+            90,
+            180,
+            365,
+            730,
+        ]
+    assert horizon_bce["competing_risk"]["objective"] == "horizon_bce"
+    assert horizon_bce["competing_risk"]["head_mode"] == "linear"
+    assert horizon_bce["competing_risk"]["readout_mode"] == "shared"
 
     uniform_cls = yaml.safe_load(
         (tmp_path / "direct_cr_uniform_cls.yaml").read_text()
