@@ -1,0 +1,97 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  % Common encoder, visibly separated from the six readouts.
+  \node[softpanel,minimum width=16.1cm,minimum height=1.15cm,anchor=north west] (base) at (0,0) {};
+  \node[eyebrow,anchor=west] at (.30,-.38) {COMMON ENCODER};
+  \foreach \i/\lab/\col in {0/[CLS]/OperaIndigo,1/diag/OperaPeriwinkle,2/lab/OperaTeal,
+      3/drug/OperaTerracotta,4/visit/OperaOchre,5/proc/OperaLavender}
+    \node[token,draw=\col!75,fill=\col!7] (t\i) at (4.10+.72*\i,-.55) {\lab};
+  \node[stageblue,minimum width=2.8cm] (enc) at (10.15,-.55) {causal transformer};
+  \draw[flowblue] (t5.east)--(enc.west);
+  \node[latent] (globalz) at (12.25,-.55) {$z$};
+  \draw[flowblue] (enc.east)--(globalz.west);
+  \node[labelsmall,anchor=west] at (12.72,-.55) {patient summary $z$ and token states $H$};
+
+  \draw[divider] (5.35,-1.50)--(5.35,-8.65);
+  \draw[divider] (10.72,-1.50)--(10.72,-8.65);
+  \draw[divider] (0,-5.08)--(16.1,-5.08);
+
+  % Panel headings have their own band; diagrams begin at least 8 mm below.
+  \node[panelletter,anchor=north west] at (.10,-1.55) {A};
+  \node[eyebrow,anchor=north west] at (.58,-1.58) {SHARED LINEAR};
+  \node[latent] (az) at (1.05,-3.20) {$z$};
+  \node[stage,minimum width=1.55cm] (aw) at (2.55,-3.20) {$Wz+b$};
+  \node[outcome] (a1) at (4.25,-2.58) {$\lambda_{1,t}$};
+  \node[outcome] (a2) at (4.25,-3.20) {$\lambda_{2,t}$};
+  \node[outcome] (ak) at (4.25,-3.82) {$\lambda_{K,t}$};
+  \draw[flowblue] (az)--(aw);
+  \foreach \n in {a1,a2,ak}{\draw[flowwarm] (aw)--(\n);}
+  \node[captionnote,text width=4.45cm] at (2.68,-4.55)
+    {One summary; outcome-specific rows in a single linear map.};
+
+  \node[panelletter,anchor=north west] at (5.48,-1.55) {B};
+  \node[eyebrow,anchor=north west] at (5.96,-1.58) {OUTCOME MLP};
+  \node[latent] (bz) at (6.30,-3.20) {$z$};
+  \foreach \i/\yy/\col in {1/-2.58/OperaTerracotta,2/-3.20/OperaTeal,3/-3.82/OperaLavender}{
+    \node[stage,minimum width=1.25cm,fill=\col!7] (bg\i) at (7.80,\yy) {$g_{\i}$};
+    \node[outcome] (bo\i) at (9.65,\yy) {$\lambda_{\i,t}$};
+    \draw[flowblue] (bz)--(bg\i); \draw[flowwarm] (bg\i)--(bo\i);
+  }
+  \node[captionnote,text width=4.45cm] at (8.05,-4.55)
+    {Nonlinear outcome-specific functions above a shared encoder.};
+
+  \node[panelletter,anchor=north west] at (10.85,-1.55) {C};
+  \node[eyebrow,anchor=north west] at (11.33,-1.58) {OUTCOME ATTENTION};
+  \node[stageblue,minimum width=1.25cm] (ch) at (11.72,-3.20) {$H$};
+  \foreach \i/\yy/\col in {1/-2.58/OperaTerracotta,2/-3.20/OperaTeal,3/-3.82/OperaLavender}{
+    \node[stage,minimum width=1.15cm,fill=\col!7] (cq\i) at (13.25,\yy) {$q_{\i}$};
+    \node[outcome] (co\i) at (15.12,\yy) {$\lambda_{\i,t}$};
+    \draw[flowteal] (ch)--(cq\i); \draw[flowwarm] (cq\i)--(co\i);
+  }
+  \node[captionnote,text width=4.45cm] at (13.42,-4.55)
+    {Each outcome learns where to look in the event sequence.};
+
+  \node[panelletter,anchor=north west] at (.10,-5.25) {D};
+  \node[eyebrow,anchor=north west] at (.58,-5.28) {FAMILY TRUNKS};
+  \node[latent] (dz) at (1.05,-6.87) {$z$};
+  \foreach \i/\yy/\col in {1/-6.25/OperaTerracotta,2/-6.87/OperaTeal,3/-7.49/OperaLavender}{
+    \node[stage,minimum width=1.35cm,fill=\col!7] (df\i) at (2.52,\yy) {$f_{\i}$};
+    \node[outcome] (do\i) at (4.18,\yy) {family $\i$};
+    \draw[flowblue] (dz)--(df\i); \draw[flowwarm] (df\i)--(do\i);
+  }
+  \node[captionnote,text width=4.45cm] at (2.68,-8.22)
+    {Related outcomes share an intermediate nonlinear trunk.};
+
+  \node[panelletter,anchor=north west] at (5.48,-5.25) {E};
+  \node[eyebrow,anchor=north west] at (5.96,-5.28) {SHARED ATTENTION PROTOTYPES};
+  \node[stageblue,minimum width=1.15cm] (eh) at (6.28,-6.87) {$H$};
+  \node[latent] (ep1) at (7.62,-6.28) {$p_1$};
+  \node[latent] (ep2) at (7.62,-6.87) {$p_2$};
+  \node[latent] (epp) at (7.62,-7.46) {$p_P$};
+  \node[stage,minimum width=1.35cm] (mix) at (8.95,-6.87) {mix $\pi_k$};
+  \node[outcome] (eout) at (10.02,-6.87) {$\lambda_{k,t}$};
+  \foreach \p in {ep1,ep2,epp}{\draw[flowteal] (eh)--(\p); \draw[flowblue] (\p)--(mix);}
+  \draw[flowwarm] (mix)--(eout);
+  \node[captionnote,text width=4.45cm] at (8.05,-8.22)
+    {Outcomes mix a small shared vocabulary of attention patterns.};
+
+  \node[panelletter,anchor=north west] at (10.85,-5.25) {F};
+  \node[eyebrow,anchor=north west] at (11.33,-5.28) {COHORT--OUTCOME FACTORIZATION};
+  \node[stageblue,minimum width=1.1cm] (fh) at (11.65,-6.87) {$H$};
+  \node[latent] (fp1) at (12.85,-6.32) {$p_1$};
+  \node[latent] (fpp) at (12.85,-7.42) {$p_P$};
+  \node[stage,minimum width=1.60cm,fill=OperaLavender!7] (gate) at (14.18,-6.87)
+    {$\pi_{c,k}$\\low-rank};
+  \node[outcome] (fout) at (15.55,-6.87) {$\lambda_{c,k,t}$};
+  \draw[flowteal] (fh)--(fp1); \draw[flowteal] (fh)--(fpp);
+  \draw[flowblue] (fp1)--(gate); \draw[flowblue] (fpp)--(gate);
+  \draw[flowwarm] (gate)--(fout);
+  \node[captionnote,text width=4.45cm] at (13.42,-8.22)
+    {Cohort and outcome effects determine the prototype mixture.};
+
+  \node[softpanel,minimum width=16.1cm,minimum height=1.10cm,anchor=north west] (obj) at (0,-8.88) {};
+  \node[eyebrow,anchor=west] at (.30,-9.22) {COMMON OUTPUT};
+  \node[labelsmall,anchor=west] at (2.58,-9.22)
+    {interval hazards $\rightarrow$ cumulative incidence at 30, 60, 90, 180, 365 and 730 days};
+  \node[labelsmall,text=OperaSienna,anchor=east] at (15.80,-9.22)
+    {exact-time likelihood or horizon BCE};
+\end{tikzpicture}

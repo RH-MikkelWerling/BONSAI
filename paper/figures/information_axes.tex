@@ -1,0 +1,136 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  \draw[divider] (7.25,.05)--(7.25,-8.88);
+
+  \node[panelletter,anchor=north west] at (0,0) {A};
+  \node[eyebrow,anchor=north west] at (.48,-.03) {SOURCES OF PREDICTIVE INFORMATION};
+  \node[heading,anchor=north west] at (.48,-.38) {Broaden the learning problem along five axes};
+  \node[labelsmall,anchor=north west,align=left,text width=5.9cm] at (.48,-.82)
+    {Moving right adds information to the learning problem.};
+
+  % Concrete before-to-after examples are easier to read than abstract axes.
+  \node[eyebrow,text=OperaIndigo,anchor=east] at (1.58,-1.90) {PATIENTS};
+  \foreach \x/\y in {1.92/-1.76,2.12/-2.03,2.35/-1.80}
+    \fill[OperaIndigo!55] (\x,\y) circle (1.8pt);
+  \draw[flowblue] (2.62,-1.90)--(3.42,-1.90);
+  \foreach \x/\y in {3.72/-1.70,3.93/-2.02,4.15/-1.78,4.38/-2.07,4.58/-1.69,
+      4.82/-1.94,5.05/-1.74,5.28/-2.06,5.52/-1.84}
+    \fill[OperaIndigo!65] (\x,\y) circle (1.8pt);
+  \node[labelsmall,anchor=west] at (1.82,-2.27) {larger sample};
+
+  \node[eyebrow,text=OperaTeal,anchor=east] at (1.58,-3.15) {VARIABLES};
+  \draw[OperaTeal!55,line width=.55pt] (1.86,-3.41) rectangle (2.52,-2.89);
+  \draw[OperaTeal!55,line width=.45pt] (2.18,-3.41)--(2.18,-2.89);
+  \draw[flowteal] (2.72,-3.15)--(3.42,-3.15);
+  \draw[OperaTeal!65,line width=.55pt] (3.70,-3.51) rectangle (5.48,-2.79);
+  \foreach \x in {4.05,4.40,4.75,5.10}\draw[OperaTeal!45,line width=.4pt] (\x,-3.51)--(\x,-2.79);
+  \node[labelsmall,anchor=west] at (1.82,-3.72) {richer phenotype};
+
+  \node[eyebrow,text=OperaSienna,anchor=east] at (1.58,-4.45) {TIME};
+  \fill[OperaSienna!65] (2.18,-4.45) circle (2.2pt);
+  \draw[flowwarm] (2.72,-4.45)--(3.42,-4.45);
+  \draw[OperaSienna!70,line width=.65pt] (3.70,-4.45)--(5.48,-4.45);
+  \foreach \x in {3.82,4.18,4.55,4.94,5.34}\fill[OperaSienna!70] (\x,-4.45) circle (1.9pt);
+  \node[labelsmall,anchor=west] at (1.82,-4.85) {longer history};
+
+  \draw[draw=OperaBorder,densely dashed,line width=.5pt] (1.82,-5.16)--(5.62,-5.16);
+
+  \node[eyebrow,text=OperaIndigo,anchor=east] at (1.58,-5.72) {DISEASES};
+  \foreach \x/\y/\col in {1.98/-5.63/OperaIndigo,2.28/-5.81/OperaPeriwinkle}
+    \fill[\col!70] (\x,\y) circle (2.3pt);
+  \draw[flowblue] (2.72,-5.72)--(3.42,-5.72);
+  \foreach \x/\y/\col in {3.72/-5.58/OperaIndigo,4.05/-5.82/OperaPeriwinkle,
+      4.38/-5.62/OperaTeal,4.72/-5.84/OperaLavender,5.05/-5.57/OperaIndigo,
+      5.38/-5.79/OperaTeal,5.66/-5.62/OperaPeriwinkle}
+    \fill[\col!72] (\x,\y) circle (2.3pt);
+  \node[labelsmall,anchor=west] at (1.82,-6.08) {broader cohort space};
+
+  \node[eyebrow,text=OperaTeal,anchor=east] at (1.58,-6.82) {OUTCOMES};
+  \foreach \x/\y in {2.02/-6.72,2.32/-6.92}
+    \fill[OperaTeal!55] (\x-.08,\y-.08) rectangle (\x+.08,\y+.08);
+  \draw[flowteal] (2.72,-6.82)--(3.42,-6.82);
+  \foreach \x/\y/\tone in {3.72/-6.68/38,4.05/-6.92/48,4.38/-6.72/58,
+      4.72/-6.94/68,5.05/-6.67/44,5.38/-6.88/76,5.66/-6.70/56}
+    \fill[OperaTeal!\tone] (\x-.08,\y-.08) rectangle (\x+.08,\y+.08);
+  \node[labelsmall,anchor=west] at (1.82,-7.18) {more learning tasks};
+  \node[eyebrow,text=OperaGreen,anchor=east] at (1.58,-7.48) {MORE INFORMATION};
+  \draw[-{Latex[length=2.2mm]},draw=OperaGreen,line width=1pt] (1.82,-7.48)--(5.48,-7.48);
+  \node[labelsmall,text=OperaGreen] at (3.65,-7.76)
+    {higher attainable performance};
+  \node[captionnote,text width=5.7cm] at (3.35,-8.45)
+    {Illustrative rather than unbounded: gains can plateau and irrelevant information can add noise.};
+
+  \node[panelletter,anchor=north west] at (7.60,0) {B};
+  \node[eyebrow,anchor=north west] at (8.08,-.03) {THE SAME SCALING PRINCIPLE};
+  \node[heading,anchor=north west] at (8.08,-.38) {Broaden supervision across cohorts and tasks};
+  \node[labelsmall,anchor=north west,align=left,text width=7.6cm] at (8.08,-.82)
+    {More disease cohorts and more outcome tasks add structured information around a low-support target.};
+
+  \draw[-{Latex[length=1.8mm]},draw=OperaIndigo,line width=.75pt]
+    (10.36,-1.70)--(16.72,-1.70);
+  \node[eyebrow,text=OperaIndigo] at (13.54,-1.49) {MORE OUTCOME TASKS};
+
+  \foreach \r/\disease in {0/DLBCL,1/Multiple myeloma,2/CLL,3/Hodgkin lymphoma,4/PTCL}
+    \node[labelsmall,anchor=east] at (10.22,-2.55-.84*\r) {\disease};
+  \draw[-{Latex[length=1.8mm]},draw=OperaTeal,line width=.75pt]
+    (7.88,-2.25)--(7.88,-7.48);
+  \node[eyebrow,text=OperaTeal,rotate=90] at (7.61,-4.86) {MORE DISEASE COHORTS};
+  \foreach \col/\outcome in {0/Anaemia,1/Infection,2/Renal,3/Fracture,4/Survival}
+    \node[labelsmall,anchor=south] at (10.82+1.12*\col,-2.16) {\outcome};
+  \node[labelsmall,anchor=south] at (16.72,-2.16) {Outcome$_n$};
+  \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
+    \pgfmathtruncatemacro{\tone}{7+3*\r+2*\col}
+    \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
+      minimum width=8.8mm,minimum height=5.7mm] (m\r\col)
+      at (10.82+1.12*\col,-2.57-.84*\r) {};
+  }}
+  \foreach \r in {0,...,4}{
+    \node[font=\sffamily\scriptsize,text=OperaInkMuted]
+      at (16.01,-2.57-.84*\r) {$\cdots$};
+  }
+  \foreach \r in {0,...,4}{
+    \pgfmathtruncatemacro{\tone}{16+3*\r}
+    \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
+      minimum width=8.8mm,minimum height=5.7mm] (mn\r) at (16.72,-2.57-.84*\r) {};
+  }
+  \foreach \x in {10.82,11.94,13.06,14.18,15.30,16.72}{
+    \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (\x,-6.46) {$\vdots$};
+  }
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (16.01,-6.46) {$\ddots$};
+  \node[labelsmall,anchor=east] at (10.22,-7.14) {Disease$_m$};
+  \foreach \col in {0,...,4}{
+    \pgfmathtruncatemacro{\tone}{22+2*\col}
+    \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
+      minimum width=8.8mm,minimum height=5.7mm] (mm\col)
+      at (10.82+1.12*\col,-7.14) {};
+  }
+  \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!34,
+    minimum width=8.8mm,minimum height=5.7mm] (mmn) at (16.72,-7.14) {};
+  \node[rounded corners=.35mm,draw=OperaSienna,line width=1.1pt,fill=OperaSienna!8,
+    minimum width=8.8mm,minimum height=5.7mm] (target) at (11.94,-5.93) {};
+  % All tasks share parameters; proximity is visualized as stronger contribution.
+  \begin{scope}[on background layer]
+    \foreach \r in {0,...,3}{\foreach \col in {0,...,4}{
+      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (m\r\col)--(target);
+    }}
+    \foreach \col in {0,2,3,4}{
+      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (m4\col)--(target);
+    }
+    \foreach \r in {0,1,2,3}{
+      \draw[draw=OperaTeal,opacity=.88,line width=1.02pt] (m\r1)--(target);
+    }
+    \foreach \col in {0,2,3,4}{
+      \draw[draw=OperaTeal,opacity=.88,line width=1.02pt] (m4\col)--(target);
+    }
+    \foreach \r in {0,...,4}{
+      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mn\r)--(target);
+    }
+    \foreach \col in {0,...,4}{
+      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mm\col)--(target);
+    }
+    \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mmn)--(target);
+  \end{scope}
+  \node[labelsmall,text=OperaTeal] at (13.20,-7.72)
+    {all cells contribute; line strength indicates illustrative relatedness};
+  \node[captionnote,text width=8.5cm] at (13.20,-8.45)
+    {A task can borrow from the same outcome in other diseases and from related outcomes in the same disease.};
+\end{tikzpicture}

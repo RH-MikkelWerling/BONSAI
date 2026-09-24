@@ -8,7 +8,6 @@ from collections.abc import Mapping, Sequence
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from opera.modules.networks.cross_outcome_weighters import KendallWeighter
 
@@ -462,20 +461,33 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         )[:, 0].float()
 
     @staticmethod
+    def _horizon_bce_cells(
+        cif: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return per-cell BCE for CIF probabilities.
+
+        ``F.binary_cross_entropy`` is banned inside an autocast region, and the
+        CIF is a probability rather than a logit, so the logit round-trip that
+        ``binary_cross_entropy_with_logits`` would need is avoided by writing
+        the loss out directly in float32.
+        """
+        probabilities = cif.float().clamp(min=1e-6, max=1.0 - 1e-6)
+        labels = targets.to(probabilities)
+        return -(
+            labels * probabilities.log() + (1.0 - labels) * torch.log1p(-probabilities)
+        )
+
+    @classmethod
     def _masked_horizon_bce(
+        cls,
         cif: torch.Tensor,
         targets: torch.Tensor,
         known: torch.Tensor,
     ) -> torch.Tensor:
         if not bool(known.any()):
             raise ValueError("Horizon BCE requires at least one known horizon label.")
-        probabilities = cif.clamp(min=1e-6, max=1.0 - 1e-6)
-        cell_loss = F.binary_cross_entropy(
-            probabilities,
-            targets.to(probabilities),
-            reduction="none",
-        )
-        return cell_loss[known].mean()
+        return cls._horizon_bce_cells(cif, targets)[known].mean()
 
     def forward(
         self,
@@ -561,11 +573,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 primary_event_loss = likelihood_loss
                 competing_event_loss = likelihood_loss * 0.0
                 aggregation_loss = likelihood_loss
-                cell_loss = F.binary_cross_entropy(
-                    cif.clamp(min=1e-6, max=1.0 - 1e-6),
-                    horizon_targets.to(cif),
-                    reduction="none",
-                )
+                cell_loss = self._horizon_bce_cells(cif, horizon_targets)
                 for horizon_index, horizon in enumerate(
                     self.boundaries * self.time_scale_days
                 ):

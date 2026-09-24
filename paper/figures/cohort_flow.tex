@@ -1,0 +1,45 @@
+\begin{tikzpicture}[opera,node distance=6mm and 10mm]
+  \node[stageblue,text width=6.0cm,minimum height=10mm] (registry)
+    {Linked haematology registry and longitudinal EHR\\\placeholder{source population $N$}};
+  \node[stage,text width=6.0cm,minimum height=10mm,below=of registry] (filter)
+    {Haematology-relevant treatment records\\diagnosis linkage, indication text and drug specificity\\\placeholder{$n$ with qualifying records}};
+  \node[stage,text width=6.0cm,minimum height=12mm,below=of filter] (pass1)
+    {Pass 1: reconstruct first-line episode\\{\scriptsize search from 90 days before earliest diagnosis; merge records within 21 days; assign disease within $\pm14$ days}\\\placeholder{$n$ classified}};
+  \node[stageteal,text width=6.0cm,minimum height=11mm,below=of pass1] (pass2)
+    {Pass 2: forward-diagnosis rescue\\{\scriptsize re-anchor at earliest specific diagnosis and repeat treatment search; regimen-based rescue when unambiguous}\\\placeholder{$n$ additionally classified}};
+  \node[stageblue,text width=6.0cm,minimum height=10mm,below=of pass2] (cohort)
+    {First-line treatment cohort\\24 fine cohorts nested in 10 disease groups\\\placeholder{$n$ patients}};
+  \draw[flowblue,shorten >=1pt] (registry) -- (filter);
+  \draw[flowblue,shorten >=1pt] (filter) -- (pass1);
+  \draw[flowteal,shorten >=1pt] (pass1) -- (pass2);
+  \draw[flowblue,shorten >=1pt] (pass2) -- (cohort);
+
+  \node[softpanel,text width=4.5cm,align=left,anchor=west,right=12mm of filter] (ex1)
+    {\sffamily\bfseries Excluded before episode reconstruction\par\vspace{1mm}\normalfont
+     no qualifying treatment: \placeholder{$n$}\par
+     no supported treatment episode: \placeholder{$n$}};
+  \node[softpanel,text width=4.5cm,align=left,anchor=west,right=12mm of pass2] (ex2)
+    {\sffamily\bfseries Excluded after reconstruction\par\vspace{1mm}\normalfont
+     disease remained unclassifiable: \placeholder{$n$}\par
+     implausible first-line episode: \placeholder{$n$}};
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (filter.east) -- (ex1.west);
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (pass2.east) -- (ex2.west);
+
+  \node[stage,text width=3.55cm,below left=10mm and 14mm of cohort] (train)
+    {Training\\index through 2021\\\placeholder{$n$}};
+  \node[stage,text width=3.55cm,below=10mm of cohort] (tune)
+    {Tuning\\index in 2022\\\placeholder{$n$}};
+  \node[stage,text width=3.55cm,below right=10mm and 14mm of cohort] (held)
+    {Held-out\\index from 2023\\\placeholder{$n$}};
+  \draw[flowblue,shorten >=1pt] (cohort) -- (train);
+  \draw[flowblue,shorten >=1pt] (cohort) -- (tune);
+  \draw[flowblue,shorten >=1pt] (cohort) -- (held);
+
+  \node[softpanel,text width=12.0cm,below=8mm of tune] (risksets)
+    {\sffamily\bfseries Outcome-specific eligible risk sets\par
+     \normalfont 87 outcomes × six horizons; eligibility, competing events and
+     available follow-up applied separately within each temporal split};
+  \draw[flowteal,shorten >=1pt] (train) -- (risksets.north west);
+  \draw[flowteal,shorten >=1pt] (tune) -- (risksets.north);
+  \draw[flowteal,shorten >=1pt] (held) -- (risksets.north east);
+\end{tikzpicture}

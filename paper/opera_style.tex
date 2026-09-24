@@ -1,0 +1,105 @@
+% Shared manuscript and TikZ visual language for the OPERA paper.
+% Keep colours synchronized with opera/visualization/style.py.
+
+\definecolor{OperaIndigo}{HTML}{2D3A8C}
+\definecolor{OperaNavy}{HTML}{1A237E}
+\definecolor{OperaPeriwinkle}{HTML}{5C7AEA}
+\definecolor{OperaSlate}{HTML}{737D8C}
+\definecolor{OperaTeal}{HTML}{408579}
+\definecolor{OperaGreen}{HTML}{1B7A4A}
+\definecolor{OperaSienna}{HTML}{B5451B}
+\definecolor{OperaTerracotta}{HTML}{C16A58}
+\definecolor{OperaOchre}{HTML}{B18B4D}
+\definecolor{OperaLavender}{HTML}{8974AC}
+\definecolor{OperaInk}{HTML}{17212B}
+\definecolor{OperaInkSecondary}{HTML}{485463}
+\definecolor{OperaInkMuted}{HTML}{657180}
+\definecolor{OperaBorder}{HTML}{CBD2DA}
+\definecolor{OperaGrid}{HTML}{E8ECF1}
+\definecolor{OperaPaper}{HTML}{F7F8FA}
+
+\tikzset{
+  opera/.style={font=\sffamily\small, text=OperaInk},
+  panel/.style={draw=none, fill=white, inner sep=0pt},
+  softpanel/.style={
+    rounded corners=0.8mm,
+    draw=OperaGrid,
+    line width=0.45pt,
+    fill=OperaPaper,
+    inner sep=2.4mm,
+  },
+  stage/.style={
+    rounded corners=0.7mm,
+    draw=OperaBorder,
+    line width=0.6pt,
+    fill=white,
+    align=center,
+    minimum height=8mm,
+    inner xsep=3mm,
+    inner ysep=1.8mm,
+  },
+  stageblue/.style={stage, draw=OperaIndigo!55, fill=OperaIndigo!7},
+  stageteal/.style={stage, draw=OperaTeal!65, fill=OperaTeal!8},
+  stagewarm/.style={stage, draw=OperaSienna!60, fill=OperaSienna!7},
+  latent/.style={
+    circle,
+    draw=OperaIndigo!65,
+    fill=OperaIndigo!9,
+    line width=0.6pt,
+    minimum size=6mm,
+    inner sep=0pt,
+    font=\sffamily\scriptsize\bfseries,
+  },
+  token/.style={
+    rounded corners=0.7mm,
+    draw=OperaBorder,
+    fill=white,
+    minimum width=6.2mm,
+    minimum height=4.8mm,
+    inner sep=0.5mm,
+    font=\sffamily\tiny,
+    align=center,
+  },
+  outcome/.style={
+    rounded corners=1mm,
+    draw=OperaTerracotta!70,
+    fill=OperaTerracotta!9,
+    minimum height=5.8mm,
+    inner xsep=1.8mm,
+    font=\sffamily\scriptsize,
+    align=center,
+  },
+  flow/.style={
+    -{Latex[length=2mm,width=1.2mm]},
+    line width=0.75pt,
+    draw=OperaInkSecondary,
+  },
+  flowblue/.style={flow, draw=OperaIndigo},
+  flowteal/.style={flow, draw=OperaTeal},
+  flowwarm/.style={flow, draw=OperaSienna},
+  relation/.style={
+    -{Latex[length=1.8mm,width=1.1mm]},
+    line width=0.65pt,
+    draw=OperaLavender,
+    densely dashed,
+  },
+  captionnote/.style={
+    font=\sffamily\fontsize{6.6}{7.5}\selectfont,
+    text=OperaInkMuted,
+    align=center,
+  },
+  labelsmall/.style={
+    font=\sffamily\fontsize{7}{8}\selectfont,
+    text=OperaInkSecondary,
+    align=center,
+  },
+  heading/.style={
+    font=\sffamily\fontsize{9}{10}\selectfont\bfseries,
+    text=OperaInk,
+    align=left,
+  },
+  panelletter/.style={font=\sffamily\bfseries\normalsize, text=OperaInk},
+  divider/.style={draw=OperaBorder, line width=0.45pt},
+  eyebrow/.style={font=\sffamily\fontsize{6.5}{7.5}\selectfont\bfseries,
+    text=OperaIndigo, align=left},
+}

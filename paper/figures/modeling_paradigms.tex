@@ -1,0 +1,123 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  \draw[divider] (5.55,.05)--(5.55,-6.18);
+  \draw[divider] (11.15,.05)--(11.15,-6.18);
+
+  % Shared semantic bands make the three paradigms directly comparable.
+  \begin{scope}[on background layer]
+    \draw[draw=OperaBorder,densely dashed,line width=.45pt] (-.42,-2.70)--(16.55,-2.70);
+    \draw[draw=OperaBorder,densely dashed,line width=.45pt] (-.42,-4.72)--(16.55,-4.72);
+  \end{scope}
+  \node[eyebrow,anchor=east,text=OperaInkMuted] at (-.54,-2.15) {INPUT};
+  \node[eyebrow,anchor=east,text=OperaInkMuted] at (-.54,-3.68) {MODEL};
+  \node[eyebrow,anchor=east,text=OperaInkMuted] at (-.54,-5.62) {OUTPUT};
+
+  % A — clinical score
+  \node[panelletter,anchor=north west] at (0,0) {A};
+  \node[eyebrow,anchor=north west] at (.48,-.03) {CLINICAL SCORE};
+  \node[heading,anchor=north west] at (.48,-.36) {A diagnostic snapshot};
+  \node[labelsmall,anchor=north west,align=left,text width=4.65cm] at (.48,-.78)
+    {Few variables, fixed combination, one disease};
+  \foreach \name/\x/\lab in {age/.72/Age,stage/1.68/Stage,
+      ldh/2.65/LDH,ps/3.62/PS,sites/4.58/Sites}
+    \node[circle,draw=OperaSienna!55,fill=OperaSienna!7,minimum size=7.4mm,
+      font=\sffamily\scriptsize] (\name) at (\x,-2.15) {\lab};
+  \node[stagewarm,minimum width=2.15cm,minimum height=7mm] (score) at (2.65,-3.70) {risk score};
+  \foreach \name in {age,stage,ldh,ps,sites}
+    \draw[-{Latex[length=1.5mm]},draw=OperaSienna,line width=.65pt]
+      (\name.south)--(score.north);
+  \draw[flowwarm,shorten >=1pt] (score.south)--(2.65,-5.25);
+  % Clinical scores define discrete strata, not a continuous probability scale.
+  \node[labelsmall] at (1.38,-5.48) {low};
+  \node[labelsmall] at (2.65,-5.48) {intermediate};
+  \node[labelsmall] at (3.92,-5.48) {high};
+  \fill[OperaSienna!16] (.75,-6.00) rectangle (2.02,-5.72);
+  \fill[OperaSienna!43] (2.02,-6.00) rectangle (3.28,-5.72);
+  \fill[OperaSienna!82] (3.28,-6.00) rectangle (4.55,-5.72);
+  \draw[white,line width=.8pt] (2.02,-6.00)--(2.02,-5.72);
+  \draw[white,line width=.8pt] (3.28,-6.00)--(3.28,-5.72);
+  %\node[captionnote,text width=4.4cm] at (2.65,-6.72)
+  %  {Interpretable and portable, but most prior history is compressed away.};
+
+  % B — tabular model
+  \node[panelletter,anchor=north west] at (5.86,0) {B};
+  \node[eyebrow,anchor=north west] at (6.34,-.03) {TABULAR MACHINE LEARNING};
+  \node[heading,anchor=north west] at (6.34,-.36) {History becomes features};
+  \node[labelsmall,anchor=north west,align=left,text width=4.55cm] at (6.34,-.78)
+    {Longitudinal history, engineered summaries, one task};
+  \draw[OperaInkMuted,line width=.55pt] (6.35,-2.15)--(10.38,-2.15);
+  \foreach \x/\col in {6.55/OperaPeriwinkle,7.22/OperaTeal,7.95/OperaTerracotta,
+      8.63/OperaTeal,9.42/OperaOchre,10.08/OperaPeriwinkle}
+    \fill[\col] (\x,-2.15) circle (2.1pt);
+  % One history, partitioned into look-back intervals for aggregation.
+  \foreach \x in {6.55,8.42,9.56,10.18}
+    \draw[draw=OperaTeal!68,line width=.65pt] (\x,-2.03)--(\x,-2.27);
+  \node[font=\sffamily\tiny,text=OperaTeal] at (7.48,-2.43) {365 d};
+  \node[font=\sffamily\tiny,text=OperaTeal] at (8.99,-2.43) {180 d};
+  \node[font=\sffamily\tiny,text=OperaTeal] at (9.87,-2.43) {30 d};
+  \node[stage,draw=OperaTeal!65,fill=OperaTeal!7,minimum width=2.80cm,
+    minimum height=7mm] (ml) at (8.36,-3.70)
+    {ML algorithm\\{\scriptsize e.g. XGBoost}};
+  \draw[flowteal,shorten >=1pt] (8.36,-2.42)--(ml.north);
+  \node[labelsmall] (prob) at (8.36,-5.48) {$P(\mathrm{outcome}_n\ \mathrm{by}\ t)$};
+  \draw[flowteal,shorten >=1pt] (ml.south)--(prob.north);
+  \foreach \i in {0,...,23}{
+    \pgfmathsetmacro{\xa}{6.80+0.13*\i}
+    \pgfmathsetmacro{\xb}{6.80+0.13*(\i+1)}
+    \pgfmathtruncatemacro{\tone}{6+3*\i}
+    \fill[OperaTeal!\tone] (\xa,-6.00) rectangle (\xb,-5.72);
+  }
+  %\node[captionnote,text width=4.4cm] at (8.36,-6.72)
+  %  {A separate predictor is typically fitted for each outcome and horizon.};
+
+  % C — sequence model
+  \node[panelletter,anchor=north west] at (11.46,0) {C};
+  \node[eyebrow,anchor=north west] at (11.94,-.03) {LONGITUDINAL SEQUENCE MODEL};
+  \node[heading,anchor=north west] at (11.94,-.36) {The timeline remains visible};
+  \node[labelsmall,anchor=north west,align=left,text width=4.75cm] at (11.94,-.78)
+    {Ordered events, contextual states, reusable learning};
+  \draw[OperaIndigo,line width=.65pt] (11.95,-2.15)--(16.25,-2.15);
+  \foreach \x/\col/\lab in {12.12/OperaPeriwinkle/D,12.82/OperaTeal/L,
+      13.52/OperaTerracotta/M,14.22/OperaOchre/V,14.92/OperaTeal/L,15.62/OperaLavender/P}
+    \node[circle,draw=\col,fill=white,minimum size=5.8mm,font=\sffamily\tiny] at (\x,-2.15) {\lab};
+  \draw[flowblue] (14.10,-2.51)--(14.10,-2.80);
+  \node[stageblue,minimum width=3.00cm,minimum height=7mm] (enc) at (14.10,-3.23)
+    {transformer encoder};
+  \node[softpanel,draw=OperaIndigo!42,fill=OperaIndigo!4,
+    minimum width=2.25cm,minimum height=5.5mm,font=\sffamily\tiny]
+    (z) at (14.10,-4.20) {shared representation $z$};
+  \draw[flowblue,shorten >=1pt] (enc.south)--(z.north);
+  \node[labelsmall] (c1) at (12.20,-5.48) {$P($tox. by $t)$};
+  \node[labelsmall] (c2) at (13.70,-5.48) {$P($anemia by $t)$};
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (14.80,-5.48) {$\cdots$};
+  \node[labelsmall] (cn) at (16.02,-5.48) {$P($outcome$_n$ by $t)$};
+  \draw[flowblue,shorten >=1pt] (z)--(c1.north);
+  \draw[flowblue,shorten >=1pt] (z)--(c2.north);
+  \draw[flowblue,shorten >=1pt] (z)--(cn.north);
+  % Each task emits its own continuous probability, aligned with panel B.
+  \begin{scope}[shift={(11.72,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-6.00) rectangle (\xb,-5.72);
+    }
+  \end{scope}
+  \begin{scope}[shift={(13.22,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-6.00) rectangle (\xb,-5.72);
+    }
+  \end{scope}
+  \begin{scope}[shift={(15.54,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-6.00) rectangle (\xb,-5.72);
+    }
+  \end{scope}
+  %\node[captionnote,text width=4.55cm] at (14.10,-6.72)
+  %  {The encoder may be pretrained; one representation can support many outcomes and horizons.};
+\end{tikzpicture}

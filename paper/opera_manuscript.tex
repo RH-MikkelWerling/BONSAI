@@ -1,0 +1,460 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[a4paper,margin=1.65cm,columnsep=0.7cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext,newtxmath}
+\usepackage[scaled=0.91]{helvet}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,calc,fit,matrix,positioning,shapes.geometric}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+\usepackage{balance}
+\usepackage{titlesec}
+
+\input{opera_style}
+
+\captionsetup{font=small,labelfont={bf,sf},labelsep=period,justification=raggedright,singlelinecheck=false}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt plus 1pt minus 1pt}
+\setlist{nosep,leftmargin=*}
+\titleformat{\section}{\sffamily\bfseries\Large\color{OperaInk}}{}{0pt}{}
+\titleformat{\subsection}{\sffamily\bfseries\normalsize\color{OperaInk}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{16pt}{5pt}
+\titlespacing*{\subsection}{0pt}{10pt}{2pt}
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \newpage\null\vspace{-8mm}
+  {\sffamily\fontsize{8}{10}\selectfont\bfseries\color{OperaIndigo} ARTICLE}\par\vspace{5mm}
+  {\sffamily\fontsize{23}{26}\selectfont\bfseries\color{OperaInk}\@title\par}
+  \vspace{3mm}{\normalsize\@author\par}\vspace{2mm}
+  {\small\color{OperaInkMuted}\@date\par}\vspace{5mm}
+  \color{OperaIndigo}\rule{\textwidth}{1.1pt}\color{black}\vspace{5mm}}
+\makeatother
+\newcommand{\opera}{\textsc{opera}}
+\newcommand{\placeholder}[1]{\textcolor{OperaSienna}{\textbf{[#1]}}}
+\newcommand{\todo}[1]{\textcolor{OperaSienna}{\textbf{TODO: #1}}}
+\newcommand{\modelname}{Outcome-guided Patient Embedding for Registry Adaptation}
+\newcommand{\plotplaceholder}[2]{%
+  \begin{center}\fcolorbox{OperaBorder}{OperaPaper}{%
+  \begin{minipage}[c][4.0cm][c]{0.92\linewidth}\centering
+  {\sffamily\bfseries\color{OperaInk}#1\par}\vspace{2mm}
+  {\sffamily\footnotesize\color{OperaInkMuted}#2\par}
+  \end{minipage}}\end{center}}
+
+\title{Learning across diseases and outcomes in longitudinal haematology records}
+\author{\placeholder{Authors and affiliations}}
+\date{Working manuscript --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Clinical prediction in haematology is commonly organized as a collection of
+isolated problems: a disease-specific score or model is trained for one cohort,
+one endpoint, and one prediction horizon. This design discards potentially
+reusable structure across related diseases and outcomes. We assembled a linked,
+longitudinal resource spanning 24 haematological disease cohorts and 87 clinical
+outcomes, and evaluated prediction at 30, 60, 90, 180, 365, and 730 days. We
+compared established diagnostic risk scores, task-specific gradient-boosted
+trees, locally pretrained sequence models, and a large-scale electronic health
+record foundation model. We then tested whether a shared longitudinal encoder
+could borrow information across disease cohorts and outcome tasks using
+multi-outcome time-to-event learning, structured prediction heads, and
+cohort-specific specialist adaptation. \placeholder{Insert locked headline
+results: foundation versus local pretraining; transformer versus XGBoost;
+joint versus cohort-specific training; benefit in rare cohorts.} These results
+define when scale, temporal resolution, cohort relatedness, and task relatedness
+provide useful information for clinical prediction, and provide a systematic
+map of predictability across haematological care.
+\end{abstract}
+
+\vspace{2mm}
+\noindent\textbf{Editorial summary}\quad
+\textit{This study tests whether learning across diseases and clinical
+outcomes can expand the effective information available for longitudinal
+prediction, particularly where labelled data are scarce.}
+
+\section*{Introduction}
+Risk stratification in haematology has traditionally begun with concise
+clinical scores measured near diagnosis. Such scores are transparent and
+portable, but compress a patient's state into a small number of variables and
+are ordinarily developed for one disease and one endpoint. Classical machine
+learning expands the feature set by aggregating diagnoses, laboratory values,
+procedures, and medication histories into a tabular representation. This can
+improve discrimination, but the aggregation discards event order and models
+are still usually fitted separately for every cohort--outcome--horizon
+combination (\cref{fig:paradigms}).
+
+Transformer models offer a different representation of clinical information.
+They operate directly on ordered sequences of coded events, can retain repeated
+measurements and long-range temporal context, and can be pretrained without
+outcome labels \citep{li2020behrt,rasmy2021med,odgaard2024core}. Large-scale
+pretraining is often presented as the defining source of foundation-model
+performance. Yet specialized registries expose two additional forms of
+structure: related patient populations and related clinical outcomes. A rare
+disease may provide few labelled patients for one complication while sharing
+pathophysiology, treatment exposures, and adverse-event trajectories with more
+common diseases. Similarly, a sparse endpoint may be statistically connected
+to laboratory abnormalities, treatment escalation, infections, or survival.
+
+We therefore frame clinical information along five axes. The conventional
+axes are the number of patients, the number of measured variables, and the
+number of longitudinal observations. We add cohort breadth and task breadth:
+the possibility that a target predictor can gain inductive information from
+related diseases and outcomes without treating them as identical
+(\cref{fig:information}). This framing yields three central questions. First,
+does large-scale general-population pretraining outperform local haematology
+pretraining and task-specific tabular models? Second, can joint training reduce
+the penalty associated with rare diseases and limited labelled data? Third,
+which forms of cross-outcome sharing improve prediction, and which merely move
+performance between endpoints?
+
+To answer these questions, we linked longitudinal electronic health records to
+a multi-disease haematology registry, defined a prospective temporal evaluation
+with held-out patients indexed from 2023 onward, and evaluated 87 outcomes
+across 24 fine disease cohorts and six horizons. We compared clinical scores,
+EHR-only and registry-augmented XGBoost models, multiple pretraining scopes,
+joint and cohort-specific neural models, and structured multi-outcome readouts.
+The study is designed both as a model comparison and as an empirical atlas of
+what can be predicted from routinely collected longitudinal data.
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/modeling_paradigms}}
+  \caption{\textbf{Three paradigms for haematological risk prediction.}
+  \textbf{A}, Representative clinical risk scores combine a small diagnostic
+  snapshot using a fixed rule and assign broad risk strata. \textbf{B},
+  classical machine learning uses a wider history but ordinarily requires
+  temporal aggregation into a task-specific feature table. \textbf{C}, a
+  longitudinal sequence model consumes ordered clinical events and can share
+  a contextual patient representation across outcomes. Its encoder may be
+  pretrained locally or at foundation-model scale. The comparison concerns
+  information available to each predictor; it does not imply that every score
+  or tabular implementation has exactly the illustrated structure.}
+  \label{fig:paradigms}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/information_axes}}
+  \caption{\textbf{Cohort breadth and task breadth as additional axes of
+  predictive information.} \textbf{A}, conventional scaling increases the
+  number of patients, variables, or observations available to an isolated
+  prediction problem. \textbf{B}, joint modelling can additionally borrow
+  statistical strength across related cohorts (columns) and outcomes (rows).
+  Sharing is restricted to training data and acts through a common encoder and
+  structured readout; it does not transfer future information or assume that
+  diseases and endpoints are exchangeable.}
+  \label{fig:information}
+\end{figure*}
+
+\section*{Results}
+
+\subsection*{A longitudinal prediction atlas across haematological disease}
+The study population comprised \placeholder{final eligible patient count}
+patients assigned to 24 fine disease cohorts nested within 10 broader disease
+groups. Cohort size ranged from \placeholder{minimum} to
+\placeholder{maximum}, creating a natural test of performance under data
+scarcity. We prespecified 87 outcomes covering disease control, treatment
+trajectory, infection, organ toxicity, haematological toxicity, acute care,
+subsequent malignancy, and survival. Each outcome was evaluated at 30, 60, 90,
+180, 365, and 730 days when adequate events and follow-up were available.
+
+\placeholder{Insert cohort flow and outcome-support results.} The primary
+predictability atlas reports held-out cumulative/dynamic area under the ROC
+curve (AUC) at 365 days, with all horizons reported in supplementary figures.
+Calibration and Brier scores accompany discrimination throughout. Outcomes
+with inadequate event support are shown as not estimable rather than silently
+removed.
+
+\input{tables/table1}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{0.94\textwidth}{!}{\input{figures/cohort_flow}}
+  \caption{\textbf{Construction of the longitudinal study population.}
+  Haematology-relevant treatment records are assembled into candidate episodes,
+  assigned to diseases contemporaneously or through a forward-diagnosis rescue,
+  and filtered to a reconstructed first-line cohort. The locked temporal split
+  precedes outcome-specific eligibility and risk-set construction. Counts in
+  the main nodes are unique patients; detailed attrition and endpoint-specific
+  flows are provided in the supplement.}
+  \label{fig:cohort-flow}
+\end{figure*}
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 4 · Predictability atlas}
+    {Primary panel: held-out 365-day AUC for every outcome, ordered within
+    clinical domains, with uncertainty and event support. Insets: outcome ×
+    cohort coverage and calibration. Supplement: the same atlas at all six
+    horizons and within each fine cohort.}
+  \caption{\textbf{The landscape of predictable outcomes across
+  haematology.} Final artwork will be generated from the locked long-format
+  results table; missing or unsupported cells remain visible as not estimable.}
+  \label{fig:atlas}
+\end{figure*}
+
+\subsection*{What is gained by foundation-model pretraining?}
+We compared randomly initialized sequence models, models pretrained only in
+the local haematology population, a general-population pretrained model, and
+haematology domain-adapted models. This ladder separates architecture from
+pretraining scale and domain adaptation. \placeholder{Insert paired held-out
+contrasts and uncertainty.}
+
+The primary contrast is general-population versus local haematology
+pretraining under an otherwise matched downstream protocol. We additionally
+test whether any advantage is concentrated among patients who are atypical in
+the local embedding distribution. This analysis addresses whether broad
+pretraining contributes reusable clinical structure or merely more examples of
+common haematological patterns.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 5 · Scale, transfer and data scarcity}
+    {Paired effects of general-population versus local pretraining; joint
+    versus cohort-specific learning; and the interaction between benefit,
+    cohort size and event support. Show posterior intervals, raw task points
+    and the prespecified region of practical equivalence.}
+  \caption{\textbf{When broader pretraining and joint learning add value.}
+  The primary estimand is the paired held-out performance difference on
+  identical patients, summarized hierarchically across tasks.}
+  \label{fig:scale-transfer}
+\end{figure*}
+
+\subsection*{Can related cohorts compensate for scarce disease-specific data?}
+For every eligible cohort--outcome cell, we compare a model trained within the
+fine disease cohort with a joint model trained across all cohorts and evaluated
+on exactly the same held-out patients. We model the paired performance
+difference as a function of cohort size and event support, with partial pooling
+over outcomes and horizons. \placeholder{Insert posterior mean joint-training
+effect, rare-cohort interaction, and representative disease estimates.}
+
+This analysis distinguishes population-level performance from task-balanced
+performance. The former weights patients according to their frequency in the
+registry; the latter gives each estimable cohort--outcome target equal standing
+and is central to the rare-disease claim.
+
+\subsection*{Sharing information across outcomes}
+We compared a shared linear head, nonlinear outcome-specific heads, clinically
+grouped family trunks, outcome-specific attention, shared attention
+prototypes, and a low-rank cohort--outcome factorization
+(\cref{fig:architectures}). All readouts retained the same longitudinal
+encoder and produced multi-horizon competing-risk estimates in one pass.
+
+The initial architecture screen used a common curriculum and hierarchical
+support-weighted loss. \placeholder{Insert final validation-screen summary.}
+Because architecture changes may redistribute rather than uniformly improve
+performance, the confirmatory comparison uses paired predictions and reports
+the mean effect, the proportion of tasks improved, lower-tail degradation,
+calibration, and heterogeneity across clinical domains. Outcome reliability
+weighting and empirically derived task groupings are treated as explicit
+ablations rather than embedded in the definition of the primary metric.
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/readout_architectures}}
+  \caption{\textbf{Multi-outcome readout architectures.} Every model uses the
+  same longitudinal encoder. \textbf{A}, a shared linear head predicts all
+  outcome-specific interval hazards from one patient summary. \textbf{B}, an
+  outcome MLP adds nonlinear task-specific capacity. \textbf{C}, learned
+  outcome queries attend to different portions of the sequence. \textbf{D},
+  related outcomes share a nonlinear family trunk. \textbf{E}, outcomes mix a
+  small set of shared sequence-attention prototypes. \textbf{F}, the
+  factorized model combines global, cohort, outcome, and low-rank interaction
+  effects to mix the same prototypes. Heads produce cause-specific interval
+  hazards and cumulative incidence at all prespecified horizons; a multi-horizon
+  binary cross-entropy objective is evaluated as an alternative to the
+  exact-time likelihood.}
+  \label{fig:architectures}
+\end{figure*}
+
+\subsection*{Sequence models versus task-specific tabular learning}
+For each fine cohort, outcome, and horizon, we trained XGBoost using an EHR-only
+feature representation and compared predictions on the same held-out patients.
+Where registry quality variables or established clinical scores were
+available, these were evaluated on their shared complete-case population.
+\placeholder{Insert hierarchical OPERA--XGBoost contrast and forest plot.}
+
+The purpose of this comparison is not to require one model class to dominate
+every task. Instead, we estimate where temporal representation, cross-cohort
+sharing, or cross-outcome sharing changes the performance frontier, and where
+a task-specific tabular model remains the appropriate benchmark.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 6 · Comparative model performance}
+    {Forest plot of OPERA versus task-specific XGBoost at 365 days, grouped by
+    clinical domain. Accompanying panels: posterior distribution of the global
+    contrast, proportion of tasks improved, and calibration/Brier contrasts.}
+  \caption{\textbf{Sequence learning compared with task-specific tabular
+  models.} All contrasts use paired held-out predictions and identical
+  endpoint eligibility.}
+  \label{fig:model-comparison}
+\end{figure*}
+
+\subsection*{The geometry and limits of learned patient representations}
+We characterize the embedding space through vocabulary neighborhoods,
+contextual perturbations, patient-level projections, and outcome-density maps.
+\placeholder{Insert representation findings.} To avoid interpreting a
+two-dimensional projection as a predictive model, density maps are accompanied
+by held-out predictive metrics and uncertainty, and colours are defined once
+across all outcome panels.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 7 · Structure of the learned representation}
+    {Faceted patient-embedding maps with held-out outcome-probability surfaces;
+    representative vocabulary neighbourhoods; and perturbation/probe evidence
+    that contextual states encode time and clinical trajectory.}
+  \caption{\textbf{Clinical structure in the learned embedding space.}
+  Probability surfaces are descriptive held-out smooths, not independent
+  estimates of model discrimination or causal effects.}
+  \label{fig:representation}
+\end{figure*}
+
+\section*{Discussion}
+This study evaluates a proposition that extends beyond a single architecture:
+clinical information can be increased not only by observing more patients,
+variables, or time points, but also by structuring how related diseases and
+outcomes contribute to learning. The linked haematology setting is unusually
+suited to this question because it combines shared care pathways with marked
+variation in disease frequency, treatment, follow-up, and endpoint support.
+
+\placeholder{Insert concise interpretation of the four principal results.}
+Several outcomes may remain better served by task-specific gradient boosting,
+particularly when a compact set of recent measurements dominates risk. Such a
+finding would not invalidate the foundation-model approach; it identifies the
+conditions under which representation learning adds value and prevents model
+complexity from being treated as an end in itself.
+
+The study also separates three often conflated decisions: how outcomes share
+model capacity, how noisy tasks are weighted during optimization, and how model
+performance is averaged for selection. Family definitions used for clinical
+reporting need not determine loss weights or neural trunks. Our confirmatory
+analysis therefore treats task reliability and task grouping as explicit,
+auditable components.
+
+Limitations include the single national healthcare context, residual changes
+in coding and measurement practices, variation in registry coverage, and the
+possibility that temporal transport from 2021 to 2023+ reflects both disease
+and healthcare-system drift. The large endpoint panel also creates multiplicity
+and correlated estimands. We address these issues using prospective temporal
+splits, outcome-specific eligibility, paired patient-level comparisons,
+hierarchical uncertainty models, and complete reporting of the prediction
+atlas rather than selective endpoint publication.
+
+\section*{Methods}
+
+\subsection*{Data sources and study population}
+\placeholder{Insert approved descriptions of DALY-CARE, linked EHR sources,
+RKKP/quality data, ethical approvals, data governance, and linkage keys.}
+Patients entered a supervised prediction cohort only when registry eligibility
+and the outcome-specific risk-set definition were satisfied at index time.
+Self-supervised pretraining could additionally include patients with eligible
+pre-index longitudinal records, and its denominator is reported separately.
+
+\subsection*{Temporal study design}
+All splits were defined at the patient level using a shared index date. Training
+included index dates through 31 December 2021, model selection used index dates
+from 1 January through 31 December 2022, and held-out evaluation began on 1
+January 2023. Held-out labels were not used for architecture, checkpoint, task
+weight, or hyperparameter selection. Patient histories were truncated at the
+prediction time. During masked-language-model pretraining, long histories were
+expanded into non-overlapping context windows so that earlier history remained
+available without future leakage.
+
+\subsection*{Cohorts, outcomes, and competing events}
+The canonical inventory contained 24 fine diagnoses nested within 10 grouped
+cohorts. Outcomes were represented as time to primary event, time to competing
+death where applicable, or censoring. Outcomes already containing death as
+part of their definition were modelled as one-cause endpoints. Prediction was
+evaluated at 30, 60, 90, 180, 365, and 730 days. Full definitions, code lists,
+eligibility rules, and cohort-flow counts are provided in
+\placeholder{Supplementary Tables}.
+
+\subsection*{Sequence representation and pretraining}
+Longitudinal records were converted to ordered sequences of diagnoses,
+procedures, medications, laboratory concepts, encounter descriptors, and
+background tokens. Numerical measurements were represented using prespecified
+bins. The encoder used a causal four-layer transformer with Fourier absolute
+time encoding and a maximum context of 8,192 tokens in the local experiments.
+Masked-language-model pretraining was evaluated at prespecified milestones to
+separate training duration from population scale. \placeholder{Insert final
+10-million-patient encoder specification when delivered.}
+
+\subsection*{Multi-outcome prediction}
+The direct model produced outcome- and interval-specific primary-event and
+competing-event hazards. Piecewise-constant hazards were transformed into
+monotone cumulative incidence functions at each evaluation horizon. We
+compared exact-time competing-risk likelihood with a censoring-aware
+multi-horizon binary cross-entropy objective. A curriculum introduced tasks
+according to outcome support. Alternative readouts are summarized in
+\cref{fig:architectures}.
+
+\subsection*{Specialist fine-tuning}
+After selecting one joint architecture using tuning data, we initialized one
+specialist per fine cohort and outcome from the complete parent prediction
+path. Each specialist retained all six horizons and was fine-tuned end to end.
+For factorized cohort--outcome attention, fine diagnoses inherited the routing
+of their prespecified grouped parent before specialization. This stage tests
+whether joint learning is most useful as a final predictor or as post-training
+initialization for a local specialist.
+
+\subsection*{Comparator models}
+Clinical scores were evaluated without refitting where their required inputs
+were available. XGBoost models were trained separately for each cohort,
+outcome, and horizon using locked EHR-derived feature matrices. Registry-
+augmented tabular models were restricted to patients with registry quality
+variables available at prediction time. Hyperparameters were selected using
+the 2022 tuning split and all comparisons used identical held-out subjects.
+
+\subsection*{Model selection and statistical analysis}
+We distinguish checkpoint selection, architecture selection, and held-out
+reporting. Checkpoints were selected using tuning data only. The confirmatory
+architecture score first averages horizons within an outcome and then averages
+outcomes, preventing outcomes with more estimable horizons from receiving
+greater weight. Population-weighted and equal-cohort summaries are reported as
+complementary estimands.
+
+Held-out model differences are calculated from paired patient predictions.
+Bootstrap intervals resample patients within the evaluation population. A
+hierarchical Bayesian model estimates the overall model contrast and variation
+by cohort, outcome, horizon, clinical domain, and training support. We report
+posterior probabilities of superiority and practical equivalence using a
+prespecified AUC region of practical equivalence
+\placeholder{lock threshold, proposed $\pm0.005$}. Discrimination is reported
+using cumulative/dynamic AUC; probabilistic accuracy and calibration are
+reported using Brier score, calibration intercept, and calibration slope.
+
+\subsection*{Reproducibility}
+Every run records the temporal split, source checkpoint, configuration hash,
+seed, cohort and outcome inventory, and software revision. Compact patient-
+level prediction artifacts are retained for paired comparisons and local figure
+generation. \placeholder{Insert code/data availability statement.}
+
+\section*{Data availability}
+\placeholder{Controlled-access statement and application procedure.}
+
+\section*{Code availability}
+\placeholder{Repository, archival DOI, license, and reproducible environment.}
+
+\section*{Acknowledgements}
+\placeholder{Funding, collaborators, and compute resources.}
+
+\section*{Author contributions}
+\placeholder{CRediT statement.}
+
+\section*{Competing interests}
+\placeholder{Statement.}
+
+\bibliographystyle{unsrtnat}
+\bibliography{paper}
+
+\end{document}
