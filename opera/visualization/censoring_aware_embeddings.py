@@ -9,7 +9,6 @@ import numpy as np
 from matplotlib.colors import Normalize
 from opera.visualization.style import (
     clean_2d_axes,
-    sequential_cmap,
     PALETTE,
 )
 
@@ -38,8 +37,12 @@ def _censor_survival(times: np.ndarray, events: np.ndarray):
 
     def evaluate(query):
         query = np.asarray(query, dtype=float)
-        indices = np.searchsorted(knots, query, side="right") - 1
-        return np.where(indices >= 0, left[np.maximum(indices, 0)], 1.0)
+        # G(query-): include censoring at earlier knots, not at query itself.
+        indices = np.searchsorted(knots, query, side="left")
+        if not len(left):
+            return np.ones_like(query)
+        extended = np.append(left, survival)
+        return extended[indices]
 
     return evaluate
 
@@ -77,7 +80,9 @@ def horizon_ipcw_data(
 def _default_bandwidth(coords: np.ndarray) -> float:
     from sklearn.neighbors import NearestNeighbors
 
-    k = min(50, max(2, len(coords) - 1))
+    if len(coords) < 2:
+        return 1.0
+    k = min(50, len(coords) - 1)
     distances = NearestNeighbors(n_neighbors=k).fit(coords).kneighbors()[0][:, -1]
     positive = distances[distances > 0]
     return float(np.median(positive)) if positive.size else 1.0
@@ -339,7 +344,9 @@ def spatial_calibration_residual(
             )
             if draws is not None:
                 resampled_total = kernel @ draws
-                resampled_event = (kernel * local_target[None]) @ draws
+                # Bootstrap the paired observed-minus-predicted residual,
+                # rather than only the outcome surface. Model and G stay fixed.
+                resampled_event = (kernel * (local_target - local_predicted)[None]) @ draws
                 replicates = np.where(
                     resampled_total > 0, resampled_event / resampled_total, np.nan
                 )
@@ -392,8 +399,10 @@ def plot_censoring_aware_embedding_panel(
     bandwidth: float | None = None,
     grid_size: int = 80,
     min_effective_support: float = 25.0,
+    min_density_fraction: float = 0.01,
     n_neighbors: int = 50,
-    residual_standardize: bool = True,
+    residual_standardize: bool = False,
+    residual_use_full_embedding: bool = False,
     residual_bootstrap: int = 200,
     residual_z_limit: float = 4.0,
     random_state: int = 0,
@@ -403,23 +412,40 @@ def plot_censoring_aware_embedding_panel(
 
     Panel D needs ``predicted_cif``: the model's predicted cause-specific
     cumulative incidence at ``horizon``, one value per patient, from a model
-    that did not train on them. ``embedding`` supplies the full representation
-    the neighbourhoods are defined in; ``held_out`` flags which patients are
-    admissible for the calibration comparison. Set ``residual_standardize`` to
-    ``False`` to read panel D as raw D(x) in cumulative-incidence units.
+    that did not train on them. ``held_out`` restricts ALL panels to the same
+    evaluation patients. By default C and D use the same 2D kernel and D is
+    observed minus predicted in CIF units. Full-embedding residual neighborhoods
+    are an explicit alternative via ``residual_use_full_embedding``; then D's
+    observed surface is not C. Standardized residuals are exploratory, not
+    simultaneous significance tests: the bootstrap does not refit model or G.
+    Support is Kish ESS, not a count of distinct neighbors; a separate relative
+    kernel-mass threshold prevents displaying extrapolated Gaussian tails.
     """
     coords = np.asarray(coords, dtype=float)
     times = np.asarray(times, dtype=float)
     events = np.asarray(events, dtype=float)
+    if not 0 <= min_density_fraction < 1:
+        raise ValueError("min_density_fraction must be in [0, 1).")
+    if held_out is not None:
+        selected = np.asarray(held_out, dtype=bool)
+        coords, times, events = coords[selected], times[selected], events[selected]
+        if predicted_cif is not None:
+            predicted_cif = np.asarray(predicted_cif)[selected]
+        if embedding is not None:
+            embedding = np.asarray(embedding)[selected]
+        held_out = None
     data = horizon_ipcw_data(times, events, horizon)
     eligible = data.eligible
     local_coords = coords[eligible]
+    if not len(local_coords):
+        raise ValueError("No eligible patients at this horizon.")
     local_target = data.target[eligible]
     local_weights = data.weights[eligible]
     if bandwidth is None:
         bandwidth = _default_bandwidth(local_coords)
     local_embedding = (
-        None if embedding is None else np.asarray(embedding, dtype=float)[eligible]
+        None if not residual_use_full_embedding or embedding is None
+        else np.asarray(embedding, dtype=float)[eligible]
     )
     xx, yy, risk, support, density = _kernel_surfaces(
         local_coords,
@@ -428,7 +454,14 @@ def plot_censoring_aware_embedding_panel(
         bandwidth=bandwidth,
         grid_size=grid_size,
     )
-    mask = support < min_effective_support
+    mask = (support < min_effective_support) | (
+        density < min_density_fraction * np.max(density)
+    )
+    density_margin = density - min_density_fraction * np.max(density)
+    risk_margin = np.minimum(
+        support / max(min_effective_support, 1e-12) - 1,
+        density_margin / max(float(np.max(density)), 1e-12),
+    )
     risk = np.ma.masked_where(mask, risk)
     local_held_out = (
         None if held_out is None else np.asarray(held_out, dtype=bool)[eligible]
@@ -468,20 +501,67 @@ def plot_censoring_aware_embedding_panel(
     color_axes[0].set_axis_off()
     legend_axis = fig.add_subplot(layout[1, 2])
     legend_axis.set_axis_off()
+
+    def surface(axis, values, margin, *, cmap, vmin=None, vmax=None):
+        """Interpolate for display only; retain the numerical support boundary.
+
+        Interpolating the continuous support criterion rather than a boolean
+        pixel mask removes coarse stair steps without expanding eligibility.
+        """
+        from scipy.ndimage import zoom
+        from matplotlib.path import Path
+
+        factor = max(1.0, 500 / max(xx.shape))
+        raw = np.asarray(np.ma.getdata(values), dtype=float)
+        valid = np.isfinite(raw)
+        field = zoom(np.where(valid, raw, 0), factor, order=1)
+        display_margin = zoom(margin, factor, order=1)
+        if not valid.all():
+            display_margin = np.where(
+                zoom(valid.astype(float), factor, order=1) >= 1 - 1e-8,
+                display_margin, -1.,
+            )
+        image = axis.imshow(
+            field, origin="lower",
+            extent=(xx.min(), xx.max(), yy.min(), yy.max()),
+            interpolation="bilinear", cmap=plt.get_cmap(cmap).with_extremes(bad="white"),
+            vmin=vmin, vmax=vmax, aspect="equal", rasterized=True,
+        )
+        # A geometric contour clips the continuous image, avoiding the stair
+        # steps of a boolean raster mask. Compound paths preserve islands/holes.
+        if np.max(display_margin) >= 0:
+            outline = axis.contourf(
+                np.linspace(xx.min(), xx.max(), field.shape[1]),
+                np.linspace(yy.min(), yy.max(), field.shape[0]),
+                display_margin, levels=[0, max(float(display_margin.max()), 1e-12) + 1],
+                colors="none",
+            )
+            paths = outline.get_paths()
+            image.set_clip_path(Path.make_compound_path(*paths), axis.transData)
+            outline.remove()
+        else:
+            image.set_visible(False)
+        return image
     colors = {
         "primary event": PALETTE["positive"],
-        "competing death": PALETTE["negative"],
-        "known event-free": "#697481",
+        "competing death": "#482878",
+        "known event-free": "#168577",
         "ineligible/early censor": "#CDD3DC",
     }
-    for status, color in colors.items():
+    status_markers = {
+        "primary event": "^", "competing death": "X",
+        "known event-free": "o", "ineligible/early censor": "+",
+    }
+    for status in reversed(colors):
+        color = colors[status]
         selected = data.status == status
         axes[0].scatter(
             coords[selected, 0],
             coords[selected, 1],
             s=7,
             alpha=0.68,
-            linewidths=0,
+            linewidths=0.5 if status == "ineligible/early censor" else 0,
+            marker=status_markers[status],
             rasterized=True,
             c=color,
             label=f"{status} (n={selected.sum():,})",
@@ -495,7 +575,7 @@ def plot_censoring_aware_embedding_panel(
             coords[selected, 0],
             coords[selected, 1],
             c=np.minimum(times[selected], horizon),
-            cmap=sequential_cmap("tabular_rkkp"),
+            cmap="plasma",
             norm=Normalize(0, horizon),
             s=7,
             alpha=0.8,
@@ -511,8 +591,8 @@ def plot_censoring_aware_embedding_panel(
         label="Time to status (days; clipped)",
     )
     axes[1].set_title("Time to observed status")
-    risk_plot = axes[2].pcolormesh(
-        xx, yy, risk, shading="auto", cmap=sequential_cmap("opera"), vmin=0, vmax=1
+    risk_plot = surface(
+        axes[2], risk, risk_margin, cmap="plasma", vmin=0, vmax=1
     )
     fig.colorbar(
         risk_plot,
@@ -525,11 +605,11 @@ def plot_censoring_aware_embedding_panel(
         visible = residual.display.compressed()
         peak = float(np.max(np.abs(visible))) if visible.size else 0.0
         bound = float(residual_z_limit) if residual_standardize else max(peak, 1e-6)
-        residual_plot = axes[3].pcolormesh(
-            xx,
-            yy,
+        residual_plot = surface(
+            axes[3],
             residual.display,
-            shading="auto",
+            np.minimum(risk_margin, residual.support / max(min_effective_support, 1e-12) - 1)
+            if local_embedding is None else risk_margin,
             cmap="RdBu_r",
             vmin=-bound,
             vmax=bound,
@@ -554,8 +634,9 @@ def plot_censoring_aware_embedding_panel(
             color=PALETTE["ink_secondary"],
         )
     axes[3].set_title("Calibration residual")
-    support_plot = axes[4].pcolormesh(
-        xx, yy, support, shading="auto", cmap=sequential_cmap("pretrain")
+    support_plot = surface(
+        axes[4], support, density_margin, cmap="plasma", vmin=0,
+        vmax=float(np.max(support[density_margin >= 0])) if np.any(density_margin >= 0) else 1,
     )
     fig.colorbar(
         support_plot,
@@ -611,7 +692,7 @@ def plot_censoring_aware_embedding_panel(
         legend_axis.plot(
             0.025,
             y,
-            marker="o",
+            marker=status_markers[status],
             markersize=5,
             color=color,
             linestyle="none",
@@ -663,6 +744,9 @@ def plot_censoring_aware_embedding_panel(
         "n_primary": int(local_target.sum()),
         "bandwidth": float(bandwidth),
         "min_effective_support": float(min_effective_support),
+        "min_density_fraction": float(min_density_fraction),
+        "support_definition": "Kish ESS: (sum kernel*IPCW)^2 / sum (kernel*IPCW)^2",
+        "censoring_assumption": "Marginal independent censoring; G clipped at 0.05",
         "max_kernel_density": float(np.nanmax(density)),
         "n_neighbors": int(n_neighbors),
         "residual_z_limit": float(residual_z_limit),

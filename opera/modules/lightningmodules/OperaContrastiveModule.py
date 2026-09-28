@@ -42,6 +42,9 @@ class OperaContrastiveModule(L.LightningModule):
         log_per_outcome_metrics: bool = True,
         evaluation_horizons_days: List[float] = None,
         outcome_families: Mapping[str, List[str]] = None,
+        endpoint_groups: Mapping[str, List[str]] = None,
+        selection_min_cases: int = 20,
+        selection_min_controls: int = 20,
         checkpoint_metadata: dict = None,
     ):
         super().__init__()
@@ -78,6 +81,9 @@ class OperaContrastiveModule(L.LightningModule):
             for outcome in members
         }
         self._val_cr_predictions = {}
+        self.endpoint_groups = dict(endpoint_groups or {})
+        self.selection_min_cases = int(selection_min_cases)
+        self.selection_min_controls = int(selection_min_controls)
         if self.gradient_cache:
             self.automatic_optimization = False
 
@@ -124,6 +130,7 @@ class OperaContrastiveModule(L.LightningModule):
             "cr/outcome_weight/",
             "cr/log_sigma/",
             "cr/horizon_bce/",
+            "cr/route_source/",
         )
         return not key.startswith(detailed_prefixes)
 
@@ -141,6 +148,7 @@ class OperaContrastiveModule(L.LightningModule):
             name: {"times": [], "events": []} for name in self.outcome_names
         }
         subject_parts = []
+        fine_parts = []
         with torch.no_grad():
             for cpu_batch in microbatches:
                 batch = self._to_device(cpu_batch)
@@ -151,6 +159,8 @@ class OperaContrastiveModule(L.LightningModule):
                         survival_parts[name]["times"].append(survival[name]["times"])
                         survival_parts[name]["events"].append(survival[name]["events"])
                 subject_parts.append(batch["subject_id"])
+                if self.model.source_adapter_readout is not None:
+                    fine_parts.append(batch["cohort_fine_index"])
         pooled = torch.cat(pooled_parts).detach().requires_grad_(True)
         outcome_survival = {
             name: {key: torch.cat(parts) for key, parts in fields.items()}
@@ -158,7 +168,8 @@ class OperaContrastiveModule(L.LightningModule):
             if fields["times"]
         }
         result = self.model.forward_from_pooled(
-            pooled, outcome_survival, torch.cat(subject_parts)
+            pooled, outcome_survival, torch.cat(subject_parts),
+            torch.cat(fine_parts) if fine_parts else None,
         )
         loss = result["loss"]
         self.manual_backward(loss)
@@ -279,6 +290,7 @@ class OperaContrastiveModule(L.LightningModule):
             survival_parts = {
                 name: {"times": [], "events": []} for name in self.outcome_names
             }
+            fine_parts = []
             with torch.no_grad():
                 for cpu_batch in batch:
                     microbatch = self._to_device(cpu_batch)
@@ -290,6 +302,8 @@ class OperaContrastiveModule(L.LightningModule):
                         survival_parts[name]["times"].append(fields["times"])
                         survival_parts[name]["events"].append(fields["events"])
                     subject_parts.append(microbatch["subject_id"])
+                    if self.model.source_adapter_readout is not None:
+                        fine_parts.append(microbatch["cohort_fine_index"])
                 pooled = torch.cat(pooled_parts)
                 result = self.model.forward_from_pooled(
                     pooled,
@@ -299,6 +313,7 @@ class OperaContrastiveModule(L.LightningModule):
                         if fields["times"]
                     },
                     torch.cat(subject_parts),
+                    torch.cat(fine_parts) if fine_parts else None,
                 )
             self._accumulate_competing_risk_validation(
                 result.get("_competing_risk_log_hazards"),
@@ -409,6 +424,9 @@ class OperaContrastiveModule(L.LightningModule):
             store["cif"].append(predictions[valid, outcome_index])
 
     def _log_competing_risk_validation(self) -> None:
+        if self.endpoint_groups and self.trainer.sanity_checking:
+            self._val_cr_predictions = {}
+            return
         if not self._val_cr_predictions:
             return
         horizons = self.evaluation_horizons_days or [
@@ -419,6 +437,7 @@ class OperaContrastiveModule(L.LightningModule):
         briers = []
         outcome_aucs = {}
         outcome_briers = {}
+        selection_aucs, selection_briers, inventory = {}, {}, []
         for name, store in self._val_cr_predictions.items():
             times = torch.cat(store["times"]).numpy()
             events = torch.cat(store["events"]).numpy()
@@ -430,6 +449,17 @@ class OperaContrastiveModule(L.LightningModule):
                 suffix = f"{int(horizon)}d"
                 auc = float(metrics["cif_auc"])
                 brier = float(metrics["cif_brier"])
+                if self.endpoint_groups:
+                    admitted = (metrics["n_cases"] >= self.selection_min_cases
+                                and metrics["n_controls"] >= self.selection_min_controls)
+                    inventory.append({"outcome": name, "horizon_days": horizon,
+                                      "n_cases": metrics["n_cases"], "n_controls": metrics["n_controls"],
+                                      "included": admitted})
+                    if admitted:
+                        if not np.isfinite(auc) or not np.isfinite(brier):
+                            raise RuntimeError("Supported selection cell has nonfinite metrics.")
+                        selection_aucs.setdefault(name, []).append(auc)
+                        selection_briers.setdefault(name, []).append(brier)
                 if np.isfinite(auc):
                     aucs.append(auc)
                     outcome_aucs.setdefault(name, []).append(auc)
@@ -467,6 +497,24 @@ class OperaContrastiveModule(L.LightningModule):
                     float(np.mean(family_means)),
                     prog_bar=higher_is_better,
                 )
+        if self.endpoint_groups:
+            from opera.functional.endpoint_groups import endpoint_group_score
+            import json
+            from pathlib import Path
+            # Inventory depends only on tuning labels, never predictions.
+            destination = Path(self.trainer.default_root_dir) / "endpoint_selection_inventory.json"
+            if destination.exists():
+                if json.loads(destination.read_text()) != inventory:
+                    raise RuntimeError("Tuning selection inventory changed; use full fixed validation data.")
+            else:
+                destination.write_text(json.dumps(inventory, indent=2))
+            for metric, values in (("auc", selection_aucs), ("brier", selection_briers)):
+                score, coverage = endpoint_group_score(values, self.endpoint_groups)
+                if not np.isfinite(score):
+                    raise RuntimeError("No endpoint groups meet the prespecified tuning support threshold.")
+                self.log(f"val/cr_cif_{metric}_endpoint_group_macro", score, prog_bar=metric == "auc")
+                self.log(f"val/cr_cif_{metric}_selection_groups", float(coverage))
+            self.log("val/cr_cif_selection_cells", float(sum(row["included"] for row in inventory)))
         self._val_cr_predictions = {}
 
     def on_validation_epoch_end(self):

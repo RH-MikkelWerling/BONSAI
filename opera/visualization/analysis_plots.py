@@ -1862,11 +1862,12 @@ def plot_landscape_summary(
     fracs = [r["frac_high_error"] for r in rows_data]
     sigmas = [r["sigma"] for r in rows_data]
 
-    # Color by sigma: low sigma = deep indigo (most structured), high = grey
+    # A common plasma normalization is used for both bars and the colorbar.
     if any(np.isfinite(s) for s in sigmas):
-        s_arr = np.array([s if np.isfinite(s) else 1.5 for s in sigmas])
-        s_norm = (s_arr - s_arr.min()) / max(s_arr.max() - s_arr.min(), 1e-8)
-        bar_colors = [plt.cm.Blues_r(0.3 + 0.5 * v) for v in s_norm]
+        finite_sigmas = [s for s in sigmas if np.isfinite(s)]
+        sigma_norm = plt.Normalize(min(finite_sigmas), max(finite_sigmas))
+        sigma_cmap = sequential_cmap("opera")
+        bar_colors = [sigma_cmap(sigma_norm(s)) if np.isfinite(s) else PALETTE["missing"] for s in sigmas]
     else:
         bar_colors = [PALETTE["opera"]] * n_out
 
@@ -1909,19 +1910,14 @@ def plot_landscape_summary(
 
     # Colorbar legend for sigma
     if any(np.isfinite(s) for s in sigmas):
-        import matplotlib.cm as cm
-
         sm = plt.cm.ScalarMappable(
-            cmap=cm.Blues_r,
-            norm=plt.Normalize(
-                vmin=min(s for s in sigmas if np.isfinite(s)),
-                vmax=max(s for s in sigmas if np.isfinite(s)),
-            ),
+            cmap=sigma_cmap,
+            norm=sigma_norm,
         )
         sm.set_array([])
         cbar = fig.colorbar(sm, ax=[ax_frac, ax_err], shrink=0.6, pad=0.01, aspect=20)
         cbar.set_label(
-            "σ  (low = strongly structured)",
+            "Learned σ",
             fontsize=NOTE_SIZE,
             color=PALETTE["ink_secondary"],
         )

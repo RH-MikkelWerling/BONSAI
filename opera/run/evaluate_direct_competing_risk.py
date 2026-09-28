@@ -104,6 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Restrict evaluation to this fine diagnosis.",
     )
     parser.add_argument("--cohort-fine-col", default="cohort_fine")
+    parser.add_argument("--export-routes", action="store_true", help="Export per-patient source route weights.")
+    parser.add_argument("--remove-source", action="append", default=[], help="Diagnostic route ablation, e.g. disease:DLBCL.")
     parser.add_argument(
         "--parent-cohort",
         default=None,
@@ -189,6 +191,8 @@ def main() -> None:
         numeric_value_control=resolve_numeric_value_control(
             cfg.training.get("numeric_value_control", "inherit"), checkpoint_hparams
         ),
+        fine_names=cfg.competing_risk.get("fine_names") if cfg.competing_risk.get("readout_mode") in {"source_anchored_adapters", "unanchored_adapters"} else None,
+        fine_column=str(cfg.competing_risk.get("fine_column", "cohort_fine")),
     )
     device = _device(args.device)
     model = _load_model(
@@ -218,6 +222,15 @@ def main() -> None:
     )
 
     prediction_rows: list[dict] = []
+    route_rows: list[dict] = []
+    source_names = []
+    if model.source_adapter_readout is not None:
+        source_names = [
+            *("disease:" + name for name in model.source_adapter_readout.fine_names),
+            *("outcome:" + name for name in model.source_adapter_readout.outcome_names),
+        ]
+    if (args.export_routes or args.remove_source) and not source_names:
+        raise ValueError("Route export and removal require a source-adapter checkpoint")
     for cohort_name, cohort_cfg in cohort_configs.items():
         dataset = data_module._build_dataset_for_cohort(
             cohort_name, cohort_cfg, args.split
@@ -238,9 +251,22 @@ def main() -> None:
             for raw_batch in loader:
                 batch = _move(raw_batch, device)
                 representations = model.get_objective_representations(batch)
-                hazards = model.competing_risk_head(representations).reshape(
-                    len(representations), len(outcome_names), 2, objective.n_intervals
+                hazards, routes = model.competing_risk_log_hazards(
+                    representations, batch.get("cohort_fine_index"), return_routes=True
                 )
+                removed_cif = None
+                if args.remove_source:
+                    removed_hazards = model.competing_risk_log_hazards(
+                        representations, batch["cohort_fine_index"],
+                        removed_sources=args.remove_source,
+                    )
+                    removed_cif = piecewise_exponential_cif(
+                        removed_hazards[:, active_outcome_indices],
+                        objective.boundaries * objective.time_scale_days,
+                        horizons,
+                        time_scale_days=objective.time_scale_days,
+                        no_competing_outcome_mask=no_competing,
+                    ).cpu().numpy()
                 cif = piecewise_exponential_cif(
                     hazards[:, active_outcome_indices],
                     objective.boundaries * objective.time_scale_days,
@@ -269,7 +295,24 @@ def main() -> None:
                             row[f"cif_{int(horizon)}d"] = float(
                                 cif[row_index, outcome_index, horizon_index]
                             )
+                            if removed_cif is not None:
+                                row[f"removed_source_cif_{int(horizon)}d"] = float(
+                                    removed_cif[row_index, outcome_index, horizon_index]
+                                )
                         prediction_rows.append(row)
+                        if args.export_routes and routes is not None:
+                            target_index = active_outcome_indices[outcome_index]
+                            weights = routes[row_index, target_index].detach().cpu().tolist()
+                            route_rows.append({
+                                "subject_id": int(subject_id),
+                                "cohort": args.cohort_fine or cohort_name,
+                                "split": args.split,
+                                "outcome": outcome,
+                                "fine_index": int(batch["cohort_fine_index"][row_index]),
+                                "shared_weight": weights[0],
+                                "disease_weights": json.dumps(dict(zip(source_names[:model.source_adapter_readout.n_disease], weights[1:1+model.source_adapter_readout.n_disease]))),
+                                "outcome_weights": json.dumps(dict(zip(source_names[model.source_adapter_readout.n_disease:], weights[1+model.source_adapter_readout.n_disease:]))),
+                            })
 
     predictions = pd.DataFrame(prediction_rows)
     if predictions.empty:
@@ -324,6 +367,8 @@ def main() -> None:
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(output_dir / "direct_cr_predictions.parquet", index=False)
+    if route_rows:
+        pd.DataFrame(route_rows).to_parquet(output_dir / "source_route_weights.parquet", index=False)
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)
     pooled_metrics.to_csv(output_dir / "direct_cr_pooled_metrics.csv", index=False)
     family_summary.to_csv(output_dir / "direct_cr_family_metrics.csv", index=False)
@@ -344,6 +389,7 @@ def main() -> None:
         "specialist_outcome": args.outcome,
         "cohort_fine": args.cohort_fine,
         "parent_cohort_grouped": parent_cohort,
+        "route_removal_diagnostic": args.remove_source,
     }
     if not family_summary.empty:
         summary.update(

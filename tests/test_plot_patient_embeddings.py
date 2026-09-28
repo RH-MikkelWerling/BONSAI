@@ -1,12 +1,16 @@
 import numpy as np
 import pandas as pd
 import pytest
+import matplotlib.pyplot as plt
 
 from opera.run.plot_patient_embeddings import (
+    _kernel_probability_surface,
     _ordered_levels,
     categorical_colors,
+    discover_outcome_paths,
     load_embedding_frame,
     load_outcome_time_columns,
+    plot_outcome_probability_facets,
     reduce_patient_embeddings,
 )
 from opera.visualization.style import PALETTE
@@ -154,3 +158,90 @@ def test_pca_patient_projection_is_reproducible():
 
     assert method == "pca"
     assert np.allclose(first, second)
+
+
+def test_discover_outcome_paths_excludes_both_audit_spellings(tmp_path):
+    for name in (
+        "anemia_g3plus.parquet",
+        "anemia_g3plus__audit.parquet",
+        "infection_audit.parquet",
+        "infections_IV_based__ungated.parquet",
+    ):
+        (tmp_path / name).touch()
+
+    paths = discover_outcome_paths(tmp_path)
+
+    assert [path.name for path in paths] == ["anemia_g3plus.parquet"]
+
+
+def test_kernel_probability_surface_masks_low_support_and_tracks_signal():
+    rng = np.random.default_rng(7)
+    negative_x = rng.normal(-1.0, 0.18, 200)
+    positive_x = rng.normal(1.0, 0.18, 200)
+    x = np.concatenate([negative_x, positive_x])
+    y = rng.normal(0.0, 0.18, len(x))
+    labels = np.concatenate([np.zeros(200), np.ones(200)])
+
+    _, _, probability = _kernel_probability_surface(
+        x, y, labels, bins=50, bandwidth_bins=2.0, min_support=0.02
+    )
+
+    left = np.nanmean(probability[:15])
+    right = np.nanmean(probability[-15:])
+    assert left < 0.2
+    assert right > 0.8
+    assert np.isnan(probability).any()
+
+
+def test_outcome_probability_facets_accept_nullable_boolean_labels(tmp_path):
+    rng = np.random.default_rng(8)
+    frame = pd.DataFrame(
+        {
+            "component_1": rng.normal(size=90),
+            "component_2": rng.normal(size=90),
+            "event_within_30d": pd.array(
+                [True] * 30 + [False] * 30 + [None] * 30,
+                dtype="boolean",
+            ),
+        }
+    )
+
+    paths = plot_outcome_probability_facets(
+        frame,
+        ["event_within_30d"],
+        method="pca",
+        output_dir=tmp_path,
+        horizon_days=30,
+        min_class_size=20,
+    )
+
+    assert len(paths) == 1
+    assert paths[0].exists()
+    assert plt.imread(paths[0]).shape[1] < 1500  # one facet, not four empty columns
+
+
+def test_kde_facets_can_share_projection_grid_despite_different_known_patients():
+    x = np.array([-3.0, -1.0, 0.0, 1.0, 3.0])
+    y = np.array([0.0, 1.0, -1.0, 0.5, -0.5])
+    labels = np.array([0, 0, 1, 1, 1])
+    common = {"bins": 25, "x_range": (-3.0, 3.0), "y_range": (-1.0, 1.0)}
+    first_x, first_y, _ = _kernel_probability_surface(x, y, labels, **common)
+    second_x, second_y, _ = _kernel_probability_surface(
+        x[1:-1], y[1:-1], labels[1:-1], **common
+    )
+    np.testing.assert_array_equal(first_x, second_x)
+    np.testing.assert_array_equal(first_y, second_y)
+
+
+def test_kde_resolution_preserves_coordinate_smoothing_scale():
+    rng = np.random.default_rng(72)
+    x, y = rng.normal(size=(2, 3000))
+    labels = (rng.random(len(x)) < 1 / (1 + np.exp(-x))).astype(float)
+    _, _, coarse = _kernel_probability_surface(x, y, labels, bins=90)
+    _, _, fine = _kernel_probability_surface(x, y, labels, bins=450)
+    assert fine.shape == (450, 450)
+    # Compare the same physical cell centers, allowing histogram discretization.
+    sampled = fine[2::5, 2::5]
+    valid = np.isfinite(coarse) & np.isfinite(sampled)
+    assert valid.sum() > 100
+    assert np.mean(np.abs(coarse[valid] - sampled[valid])) < 0.035

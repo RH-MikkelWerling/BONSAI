@@ -422,11 +422,12 @@ def plot_outcome_performance_forest(
     }
     n_rows = len(rows)
     has_contrasts = not contrasts.empty
-    width_ratios = [1.8, 1.35, 0.72] if has_contrasts else [2.2, 0.75]
+    width_ratios = [1.8, 1.35, 0.95] if has_contrasts else [2.2, 0.85]
+    figure_height = max(4.8, 0.30 * n_rows + 2.1)
     fig, axes = plt.subplots(
         1,
         len(width_ratios),
-        figsize=(10.2 if has_contrasts else 7.4, max(4.8, 0.30 * n_rows + 2.1)),
+        figsize=(10.2 if has_contrasts else 7.4, figure_height),
         sharey=True,
         gridspec_kw={"width_ratios": width_ratios, "wspace": 0.08},
     )
@@ -493,14 +494,12 @@ def plot_outcome_performance_forest(
 
     handles, labels = ax_absolute.get_legend_handles_labels()
     unique = dict(zip(labels, handles))
-    fig.legend(
-        unique.values(),
-        unique.keys(),
-        loc="upper left",
-        bbox_to_anchor=(0.27, 0.938),
-        ncol=max(1, len(unique)),
-        fontsize=LEGEND_SIZE,
-    )
+    if unique:
+        fig.legend(
+            unique.values(), unique.keys(), loc="upper left",
+            bbox_to_anchor=(0.30, 1 - 0.43 / figure_height),
+            ncol=max(1, len(unique)), fontsize=LEGEND_SIZE,
+        )
 
     if has_contrasts and ax_delta is not None:
         contrast_names = list(
@@ -553,11 +552,11 @@ def plot_outcome_performance_forest(
                 ax_delta.set_xlim(-extent, extent)
         direction = "Higher is better" if higher_is_better else "Lower is better"
         ax_delta.text(
-            0.5,
+            0.98,
             0.985,
             direction,
             transform=ax_delta.transAxes,
-            ha="center",
+            ha="right",
             va="top",
             fontsize=NOTE_SIZE,
             color=PALETTE["ink_muted"],
@@ -577,7 +576,13 @@ def plot_outcome_performance_forest(
             tick.set_color(_family_color(value))
 
     ax_info.set_xlim(0, 1)
-    ax_info.set_title("Patients / events")
+    shows_probability = bool(
+        has_contrasts and contrasts["probability_superior"].notna().any()
+    )
+    ax_info.set_title(
+        "n / events / P(Δ>0)" if shows_probability else "n / events",
+        fontsize=9,
+    )
     ax_info.axis("off")
     annotation_source = contrasts if has_contrasts else estimates
     for outcome, y in y_by_outcome.items():
@@ -590,8 +595,8 @@ def plot_outcome_performance_forest(
             pieces.append(f"{int(row['n']):,}")
         if np.isfinite(row.get("n_events", np.nan)):
             pieces.append(f"{int(row['n_events']):,}")
-        if has_contrasts and np.isfinite(row.get("probability_superior", np.nan)):
-            pieces.append(f"P={float(row['probability_superior']):.2f}")
+        if shows_probability and np.isfinite(row.get("probability_superior", np.nan)):
+            pieces.append(f"{float(row['probability_superior']):.2f}")
         ax_info.text(
             0.02,
             y,
@@ -609,9 +614,20 @@ def plot_outcome_performance_forest(
     if horizon is not None:
         descriptor.append(f"{int(round(horizon))}-day horizon")
     figure_title = title or "Predictability across hematologic outcomes"
+    fig.suptitle(
+        figure_title, y=1 - 0.12 / figure_height,
+        fontsize=12, fontweight="semibold",
+    )
     if descriptor:
-        figure_title += " — " + ", ".join(descriptor)
-    fig.suptitle(figure_title, y=0.992, fontsize=12, fontweight="semibold")
-    fig.subplots_adjust(left=0.27, right=0.98, top=0.84, bottom=0.08)
+        fig.text(
+            0.30, 1 - 0.35 / figure_height, ", ".join(descriptor),
+            ha="left", va="top", fontsize=NOTE_SIZE,
+            color=PALETTE["ink_secondary"],
+        )
+    fig.subplots_adjust(
+        left=0.30, right=0.98,
+        top=1 - 1.20 / figure_height,
+        bottom=0.48 / figure_height,
+    )
     save_fig(fig, None if save_path is None else str(save_path))
     return fig

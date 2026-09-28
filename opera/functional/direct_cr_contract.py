@@ -40,6 +40,18 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         )
 
     families = dict(cross.get("outcome_families", {}))
+    if cross.get("aggregation") == "endpoint_group_macro" or cross.get("endpoint_groups"):
+        from opera.functional.endpoint_groups import validate_endpoint_groups
+        validate_endpoint_groups(cross.get("endpoint_groups", {}), outcomes)
+        if objective != "horizon_bce" or competing.get("weighter", "uniform") != "uniform":
+            raise ValueError("Endpoint-group pilot requires uniform horizon BCE.")
+        if float(competing.get("contrastive_loss_weight", 0)) != 0:
+            raise ValueError("Endpoint-group pilot is direct BCE only.")
+        if training.get("limit_val_batches", 1.) != 1.:
+            raise ValueError("Endpoint-group selection requires complete tuning validation.")
+        if min(int(training.get("selection_min_cases", 20)),
+               int(training.get("selection_min_controls", 20))) < 1:
+            raise ValueError("Selection support thresholds must be positive.")
     members = [outcome for values in families.values() for outcome in values]
     duplicate = sorted({name for name in members if members.count(name) > 1})
     missing = sorted(outcomes - set(members))
@@ -64,6 +76,8 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         "outcome_attention",
         "shared_attention_prototypes",
         "factorized_cohort_outcome_prototypes",
+        "source_anchored_adapters",
+        "unanchored_adapters",
     }
     if readout_mode not in {"shared", *attention_readouts}:
         raise ValueError(
@@ -105,6 +119,18 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             )
         if int(competing.get("prototype_interaction_rank", 8)) < 1:
             raise ValueError("prototype_interaction_rank must be positive.")
+    if readout_mode in {"source_anchored_adapters", "unanchored_adapters"}:
+        fine_names = list(competing.get("fine_names", []))
+        if not fine_names or len(set(fine_names)) != len(fine_names):
+            raise ValueError("Adapter readout requires unique fine_names")
+        if objective != "horizon_bce" or head_mode != "linear":
+            raise ValueError("Adapter readout requires horizon_bce and a linear head")
+        if model.get("pooling") != "cls_last":
+            raise ValueError("Adapter readout requires cls_last pooling")
+        if float(competing.get("contrastive_loss_weight", 0)) != 0:
+            raise ValueError("Adapter readout requires direct risk training")
+        if not config.get("source_opera_ckpt"):
+            raise ValueError("Adapter readout requires source_opera_ckpt")
 
     weighter = str(competing.get("weighter", "uniform")).lower()
     if weighter == "kendall_null":

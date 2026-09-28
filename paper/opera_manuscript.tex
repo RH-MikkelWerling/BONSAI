@@ -61,10 +61,15 @@
 \begin{abstract}
 Clinical prediction in haematology is commonly organized as a collection of
 isolated problems: a disease-specific score or model is trained for one cohort,
-one endpoint, and one prediction horizon. This design discards potentially
-reusable structure across related diseases and outcomes. We assembled a linked,
-longitudinal resource spanning 24 haematological disease cohorts and 87 clinical
-outcomes, and evaluated prediction at 30, 60, 90, 180, 365, and 730 days. We
+one endpoint, and one prediction horizon. Borrowing labelled information across
+related diseases is known to help, and pretraining a sequence model across an
+entire population is the limiting form of that idea; whether this so-called
+foundation-model approach delivers on its promise where labelled data are
+genuinely scarce is unresolved. Using a nationwide
+linked resource covering Danish adults diagnosed with lymphoid cancers, we
+assembled a longitudinal prediction cohort spanning 24 haematological disease
+cohorts and 87 clinical outcomes, and evaluated prediction at 30, 60, 90, 180,
+365, and 730 days. We
 compared established diagnostic risk scores, task-specific gradient-boosted
 trees, locally pretrained sequence models, and a large-scale electronic health
 record foundation model. We then tested whether a shared longitudinal encoder
@@ -80,48 +85,160 @@ map of predictability across haematological care.
 
 \vspace{2mm}
 \noindent\textbf{Editorial summary}\quad
-\textit{This study tests whether learning across diseases and clinical
-outcomes can expand the effective information available for longitudinal
-prediction, particularly where labelled data are scarce.}
+\textit{Borrowing information across related diseases is an established way to
+improve clinical prediction, and population-scale pretraining is its most
+ambitious form. This study asks whether that approach delivers where labelled
+data are genuinely scarce, and which forms of sharing across diseases and
+outcomes are responsible for any benefit.}
 
 \section*{Introduction}
-Risk stratification in haematology has traditionally begun with concise
-clinical scores measured near diagnosis. Such scores are transparent and
-portable, but compress a patient's state into a small number of variables and
-are ordinarily developed for one disease and one endpoint. Classical machine
-learning expands the feature set by aggregating diagnoses, laboratory values,
-procedures, and medication histories into a tabular representation. This can
-improve discrimination, but the aggregation discards event order and models
-are still usually fitted separately for every cohort--outcome--horizon
-combination (\cref{fig:paradigms}).
+Anticipating a patient's future state is one of the central tasks of clinical
+medicine. In haematology, prognosis determines whether a patient receives
+intensive or attenuated therapy, whether transplantation or maintenance is
+considered, which clinical trials they are eligible for and which trials are
+enriched for the patients most likely to benefit, and which prophylactic and
+monitoring precautions are put in place. A prognostic estimate is therefore not
+an academic quantity: it is an input to decisions that change what treatment a
+patient receives and what harms they are protected against. Improving these
+estimates, and knowing which of them can be improved at all, has direct
+clinical consequences.
 
-Transformer models offer a different representation of clinical information.
+Risk stratification in haematology has traditionally begun with concise
+clinical scores measured near diagnosis, such as the NCCN International
+Prognostic Index in diffuse large B-cell lymphoma or the CLL-IPI in chronic
+lymphocytic leukaemia \citep{zhou2014nccnipi,cllipi2016}. Such scores are
+transparent and portable, but compress a patient's state into a small number of
+variables and are ordinarily developed for one disease and one endpoint.
+Machine learning has since been applied across haematological malignancy
+\citep{radakovich2020ml}, typically by aggregating diagnoses, laboratory
+values, procedures, and medication histories into a tabular representation;
+work in chronic lymphocytic leukaemia, for example, has used this approach to
+predict infection and treatment need from routinely collected data
+\citep{agius2020clltim}. Wider feature sets can improve discrimination, but the
+aggregation discards event order, and models are still usually fitted
+separately for every cohort--outcome--horizon combination
+(\cref{fig:paradigms}).
+
+That labelled data can be borrowed across related diseases is not a new idea,
+and it is already established. Multi-task learning trains one model on several
+clinical endpoints so that each benefits from the others
+\citep{harutyunyan2019multitask}, and meta-learning formalizes the same
+intuition by learning across a set of related risk-prediction tasks in order to
+predict a target task for which few labels exist
+\citep{finn2017maml,zhang2019metapred}. MetaPred in particular showed that a
+predictor for a low-resource clinical risk can be improved by training across
+other, better-resourced risks rather than on the target alone
+\citep{zhang2019metapred}. The principle that motivates this study is therefore
+not in question; what remains open is how far it extends, and in what form it
+is best realized.
+
+Transformer models are the modern instantiation of that same principle.
 They operate directly on ordered sequences of coded events, can retain repeated
 measurements and long-range temporal context, and can be pretrained without
-outcome labels \citep{li2020behrt,rasmy2021med,odgaard2024core}. Large-scale
-pretraining is often presented as the defining source of foundation-model
-performance. Yet specialized registries expose two additional forms of
-structure: related patient populations and related clinical outcomes. A rare
-disease may provide few labelled patients for one complication while sharing
-pathophysiology, treatment exposures, and adverse-event trajectories with more
-common diseases. Similarly, a sparse endpoint may be statistically connected
-to laboratory abnormalities, treatment escalation, infections, or survival.
+outcome labels \citep{li2020behrt,rasmy2021med,pang2021cehr,odgaard2024core}.
+Pretraining on a broad patient population is cohort breadth taken to its limit:
+instead of selecting a handful of related tasks, the model is fitted to every
+disease and every recorded event in a health system, and the target task is
+reached by fine-tuning. This has been scaled in several directions. Predictive
+models have been built directly on raw longitudinal records rather than curated
+variables \citep{rajkomar2018scalable}; pretraining objectives have been
+extended from masked tokens to predicting all of a patient's future diagnoses
+at once \citep{yang2023transformehr}; models have been trained at health-system
+scale and deployed prospectively \citep{jiang2023nyutron}; and national
+registry sequences have been used to predict cancer risk from disease
+trajectories and to model life trajectories as sequences of events
+\citep{placido2023pancreatic,savcisens2024life2vec}. The last two are
+particularly relevant here, since both operate on Danish nationwide registry
+data and establish that sequence models are informative in this data
+environment. Closest to the present work, time-to-event pretraining across many
+outcomes has been shown to improve label efficiency and robustness to temporal
+shift \citep{steinberg2023motor}. The limiting case, and the one this study is
+positioned against, is a model pretrained across all diseases in an entire
+national population.
+
+Whether that promise holds in practice is one of the central questions of this
+study. Foundation models are frequently presented as a general solution to label
+scarcity, which would make them exactly the right tool for rare haematological
+diseases and sparse endpoints. The supporting evidence is more equivocal than
+the framing suggests. Critical reviews find that most clinical foundation
+models are trained and evaluated on narrow datasets and tasks that reveal
+little about their usefulness to health systems \citep{wornow2023shaky};
+benchmarks have been built specifically because few-shot benefit could not
+otherwise be measured \citep{wornow2023ehrshot}; compact domain-specific models
+have been found to match or exceed much larger general-purpose ones
+\citep{lehman2023clinical}; and on tabular data of the size typical of a single
+clinical cohort, gradient-boosted trees remain difficult to beat
+\citep{grinsztajn2022tabular}. A study of a specialized registry is an
+informative place to ask the question, because it contains precisely the
+low-resource cells where the promise should matter most.
+
+Specialized registries also expose a second form of structure that this
+literature has largely left unexamined. Alongside related patient populations
+there are related clinical outcomes: a sparse endpoint may be statistically
+connected to laboratory abnormalities, treatment escalation, infections, or
+survival. Existing multi-outcome models generally treat the outcome panel as a
+convenience for pretraining or as a set of independent heads, rather than
+asking which diseases and which endpoints actually inform one another.
+
+Our own previous work in this setting motivates that question directly. We
+first assembled a nationwide linked resource for lymphoid cancers
+\citep{brieghel2025dalycare}, and then used it to develop gradient-boosted
+models of treatment failure after first-line therapy in diffuse large B-cell
+lymphoma, which improved on established prognostic indices and reduced
+age-driven misclassification \citep{werling2026dlbcl}. Two aspects of that
+study, rather than its headline performance, motivate the present one. First,
+training across all aggressive lymphoma subtypes performed about as well on
+diffuse large B-cell lymphoma as restricting training to that diagnosis,
+suggesting that prognostic structure is partly shared between related diseases.
+This is consistent with the meta-learning results above, although it was
+obtained with an aggregated tabular model and without that framing. The
+observation was incidental to the aim of the study, concerned a single endpoint
+within one closely related group of lymphomas, and was never tested as a
+hypothesis in its own right. Second, constructing the feature table required
+aggregating each history into fixed lookback windows, discarding the order and
+spacing of clinical events; we identified this as the principal remaining
+source of unused information. Whether cross-disease transfer extends across the
+full range of haematological diagnoses, whether it holds for endpoints other
+than treatment failure, and whether related outcomes support one another in the
+same way, are questions a single-disease study cannot answer.
 
 We therefore frame clinical information along five axes. The conventional
 axes are the number of patients, the number of measured variables, and the
-number of longitudinal observations. We add cohort breadth and task breadth:
-the possibility that a target predictor can gain inductive information from
-related diseases and outcomes without treating them as identical
-(\cref{fig:information}). This framing yields three central questions. First,
-does large-scale general-population pretraining outperform local haematology
-pretraining and task-specific tabular models? Second, can joint training reduce
-the penalty associated with rare diseases and limited labelled data? Third,
-which forms of cross-outcome sharing improve prediction, and which merely move
+number of longitudinal observations. To these we add cohort breadth and task
+breadth: the extent to which a target predictor gains inductive information
+from related diseases and outcomes without treating them as identical
+(\cref{fig:information}). Neither added axis is novel in itself, and both are
+implicit in the meta-learning and pretraining literature above. What has been
+missing is a setting in which they can be varied deliberately and measured
+against each other, and against the conventional axes, on the same patients and
+the same endpoints.
+
+This framing yields three central questions. First, does the promise of
+large-scale pretraining hold here: does a general-population foundation model
+outperform local haematology pretraining and task-specific tabular models, and
+is any advantage concentrated where labelled data are scarce? Second, can joint
+training across diseases reduce the penalty associated with rare cohorts and
+limited labels, as the meta-learning literature would predict? Third, which
+forms of cross-outcome sharing improve prediction, and which merely move
 performance between endpoints?
 
-To answer these questions, we linked longitudinal electronic health records to
-a multi-disease haematology registry, defined a prospective temporal evaluation
-with held-out patients indexed from 2023 onward, and evaluated 87 outcomes
+To answer these questions we used DALY-CARE, a nationwide linked resource that
+integrates ten Danish national registers with hospital electronic health
+records, laboratory results, and disease-specific quality registries for adults
+diagnosed with lymphoid cancers since 2002 \citep{brieghel2025dalycare}. The
+resource description reported the cohort available at the time of that report;
+the present study draws a later extract, so the denominators here are not
+expected to match those figures. Our study population is also defined
+differently from our earlier lymphoma analysis. That study indexed at the start
+of first-line therapy in aggressive lymphoma and asked one question at one
+horizon, whereas the present study indexes first-line treatment episodes across
+the full haematological spectrum and evaluates many endpoints at several
+horizons. The two populations overlap substantially and share a common data
+substrate, but they are not identical and the results are not directly
+comparable patient for patient.
+
+On this basis we defined a prospective temporal evaluation with held-out
+patients indexed from 2023 onward, and evaluated 87 outcomes
 across 24 fine disease cohorts and six horizons. We compared clinical scores,
 EHR-only and registry-augmented XGBoost models, multiple pretraining scopes,
 joint and cohort-specific neural models, and structured multi-outcome readouts.
@@ -217,6 +334,13 @@ test whether any advantage is concentrated among patients who are atypical in
 the local embedding distribution. This analysis addresses whether broad
 pretraining contributes reusable clinical structure or merely more examples of
 common haematological patterns.
+
+Because the case for foundation models rests largely on their behaviour when
+labels are scarce, we do not report this contrast only as a single average.
+Each pretraining comparison is additionally summarized as a function of cohort
+size and event support, so that a benefit concentrated in well-populated
+cohorts is distinguishable from one that materializes where task-specific
+training is least viable.
 
 \begin{figure*}[t]
   \plotplaceholder{Figure 5 · Scale, transfer and data scarcity}
@@ -327,12 +451,53 @@ outcomes contribute to learning. The linked haematology setting is unusually
 suited to this question because it combines shared care pathways with marked
 variation in disease frequency, treatment, follow-up, and endpoint support.
 
+The underlying idea is not new. Multi-task and meta-learning approaches
+established that a low-resource clinical prediction task can be improved by
+training across related, better-resourced tasks
+\citep{harutyunyan2019multitask,zhang2019metapred}, and population-scale
+pretraining is the most ambitious expression of that idea rather than a
+departure from it. What is contested is whether the ambitious version pays for
+itself, and in particular whether it resolves the label scarcity that makes
+rare diseases difficult in the first place. Our results speak to that question
+in a setting where scarcity is structural rather than simulated: cohort sizes
+and event counts vary by orders of magnitude within a single linked resource
+and a single care system, so the low-resource cells are real clinical
+populations rather than subsampled ones.
+
 \placeholder{Insert concise interpretation of the four principal results.}
 Several outcomes may remain better served by task-specific gradient boosting,
 particularly when a compact set of recent measurements dominates risk. Such a
 finding would not invalidate the foundation-model approach; it identifies the
 conditions under which representation learning adds value and prevents model
 complexity from being treated as an end in itself.
+
+This comparison is not made against a convenient baseline. The tabular
+comparator is built by the same feature-construction pipeline as our earlier
+lymphoma models, which improved on established prognostic indices in this
+setting \citep{werling2026dlbcl}, so the two model classes see the same source
+data assembled in the same way. What the present study removes are the two
+constraints that approach imposed: the aggregation of each history into fixed
+lookback windows, and the fitting of a separate model for every
+cohort--outcome--horizon cell. Interpreted this way, the results describe not
+whether machine learning helps in haematology, which we and others have already
+shown \citep{radakovich2020ml,agius2020clltim}, but whether temporal resolution
+and structured sharing across diseases and endpoints add information beyond a
+strong task-specific tabular model. Our earlier observation that training
+across aggressive lymphoma subtypes did not degrade diffuse large B-cell
+lymphoma performance is here promoted from an incidental finding to a
+prespecified estimand, evaluated across the full disease spectrum and the
+complete endpoint panel rather than a single cohort and endpoint.
+
+The study also differs from existing clinical foundation-model work in what it
+varies. Prior time-to-event pretraining has demonstrated that many-outcome
+objectives improve label efficiency \citep{steinberg2023motor}, and few-shot
+benchmarks have been built to measure adaptation under label scarcity
+\citep{wornow2023ehrshot}, but both hold the downstream task structure fixed
+and vary the encoder. Here the encoder is held fixed and the sharing structure
+is varied, which addresses the concern that clinical foundation models are
+often evaluated in ways that do not identify where their benefit originates
+\citep{wornow2023shaky}. Reporting the full outcome panel, including cells that
+are not estimable, is intended to serve the same end.
 
 The study also separates three often conflated decisions: how outcomes share
 model capacity, how noisy tasks are weighted during optimization, and how model
@@ -344,7 +509,11 @@ auditable components.
 Limitations include the single national healthcare context, residual changes
 in coding and measurement practices, variation in registry coverage, and the
 possibility that temporal transport from 2021 to 2023+ reflects both disease
-and healthcare-system drift. The large endpoint panel also creates multiplicity
+and healthcare-system drift. Because the cohort definition, index date, and
+data extract differ from our earlier lymphoma analysis, the two studies cannot
+be compared directly, and any apparent change in performance for overlapping
+endpoints reflects these design differences as well as the change in model
+class. The large endpoint panel also creates multiplicity
 and correlated estimands. We address these issues using prospective temporal
 splits, outcome-specific eligibility, paired patient-level comparisons,
 hierarchical uncertainty models, and complete reporting of the prediction
@@ -353,8 +522,26 @@ atlas rather than selective endpoint publication.
 \section*{Methods}
 
 \subsection*{Data sources and study population}
-\placeholder{Insert approved descriptions of DALY-CARE, linked EHR sources,
-RKKP/quality data, ethical approvals, data governance, and linkage keys.}
+All data were obtained from DALY-CARE, which links ten Danish national
+registers with hospital electronic health records, laboratory results,
+pathology, microbiology, and disease-specific quality registries for adults
+diagnosed with lymphoid cancers since 2002 \citep{brieghel2025dalycare}. The
+resource publication describes the data available at the time of that report;
+the present study uses a later extract with additional accrued follow-up, and
+cohort counts therefore differ from the published resource description.
+\placeholder{Insert approved descriptions of the specific linked EHR sources,
+RKKP/quality data, extract date, ethical approvals, data governance, and
+linkage keys.}
+
+The index date is the start of a reconstructed first-line treatment episode.
+This differs from our earlier lymphoma study, which indexed first-line therapy
+in aggressive lymphoma only and required registry-confirmed treatment
+\citep{werling2026dlbcl}; the present cohort spans all included haematological
+diseases and admits episodes reconstructed from treatment records where
+registry confirmation is unavailable (\cref{fig:cohort-flow}). Patient overlap
+between the two studies is therefore substantial but partial, and no result
+reported here should be read as a direct replication of that analysis.
+
 Patients entered a supervised prediction cohort only when registry eligibility
 and the outcome-specific risk-set definition were satisfied at index time.
 Self-supervised pretraining could additionally include patients with eligible
@@ -391,11 +578,16 @@ separate training duration from population scale. \placeholder{Insert final
 
 \subsection*{Multi-outcome prediction}
 The direct model produced outcome- and interval-specific primary-event and
-competing-event hazards. Piecewise-constant hazards were transformed into
-monotone cumulative incidence functions at each evaluation horizon. We
-compared exact-time competing-risk likelihood with a censoring-aware
-multi-horizon binary cross-entropy objective. A curriculum introduced tasks
-according to outcome support. Alternative readouts are summarized in
+competing-event hazards, following the discrete-time and competing-risk
+formulations established for neural survival models
+\citep{gensheimer2019nnetsurvival,lee2018deephit} and extended here to many
+outcomes in a single pass \citep{steinberg2023motor}. Piecewise-constant
+hazards were transformed into monotone cumulative incidence functions at each
+evaluation horizon. We compared exact-time competing-risk likelihood with a
+censoring-aware multi-horizon binary cross-entropy objective. Where outcomes
+were weighted by learned task uncertainty, we used homoscedastic uncertainty
+weighting \citep{kendall2018multitask}. A curriculum introduced tasks according
+to outcome support. Alternative readouts are summarized in
 \cref{fig:architectures}.
 
 \subsection*{Specialist fine-tuning}
@@ -410,10 +602,18 @@ initialization for a local specialist.
 \subsection*{Comparator models}
 Clinical scores were evaluated without refitting where their required inputs
 were available. XGBoost models were trained separately for each cohort,
-outcome, and horizon using locked EHR-derived feature matrices. Registry-
-augmented tabular models were restricted to patients with registry quality
-variables available at prediction time. Hyperparameters were selected using
-the 2022 tuning split and all comparisons used identical held-out subjects.
+outcome, and horizon using locked EHR-derived feature matrices. These feature
+matrices were produced by the same feature-construction pipeline used in our
+earlier lymphoma study, which aggregates each data modality over fixed lookback
+windows before the index date \citep{werling2026dlbcl}; only the cohort,
+endpoint, and horizon definitions differ. The tabular comparator is therefore
+the same modelling approach applied to the present task inventory, not a
+reimplementation, and the contrast with the sequence model isolates temporal
+representation and cross-task sharing rather than differences in feature
+engineering. Registry-augmented tabular models were restricted to patients with
+registry quality variables available at prediction time. Hyperparameters were
+selected using the 2022 tuning split and all comparisons used identical
+held-out subjects.
 
 \subsection*{Model selection and statistical analysis}
 We distinguish checkpoint selection, architecture selection, and held-out

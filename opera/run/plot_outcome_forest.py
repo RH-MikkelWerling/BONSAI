@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", action="append", default=[])
     parser.add_argument("--contrast", action="append", default=[])
     parser.add_argument("--family-order", default=None)
-    parser.add_argument("--max-outcomes-per-page", type=int, default=35)
+    parser.add_argument("--max-outcomes-per-page", type=int, default=18)
     parser.add_argument("--lower-is-better", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--output-prefix", default="outcome_forest")

@@ -7,13 +7,13 @@ hydra:
   searchpath:
   - file://${oc.env:BONSAI_CONFIG_PATH}
 dataset: daly_care_direct_competing_risk
-dapt_ckpt: ${oc.env:BONSAI_CHECKPOINT_ROOT}/daly_care_pretrain/best.ckpt
+dapt_ckpt: ${oc.env:BONSAI_MODELS}/daly_care_t100_joined_bins_harmonized_v4/pretrain_harmonized_fourier_len8192_allwindows_20ep/version_0/best.ckpt
 dapt_embedding_store: null
 output_path: null
 overwrite: false
 paths:
   vocabulary: ${paths.sequence_data_dir}/vocabulary.pt
-  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t100_joined_bins_harmonized_v4
 cohorts:
   AMYLOIDOSIS:
     data_dir: ${paths.sequence_data_dir}

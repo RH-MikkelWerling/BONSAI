@@ -19,6 +19,7 @@ Rendering notes (why this differs from the first version):
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import math
 import textwrap
 from pathlib import Path
@@ -30,6 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Ellipse
+from scipy.ndimage import gaussian_filter
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
@@ -210,6 +212,33 @@ def load_outcome_time_columns(
     return derived
 
 
+def discover_outcome_paths(
+    outcome_dir: str | Path,
+    *,
+    pattern: str = "*.parquet",
+    exclude_patterns: tuple[str, ...] = ("*ungated*",),
+) -> list[Path]:
+    """Discover primary outcome tables, excluding audit/diagnostic variants."""
+    root = Path(outcome_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"Outcome directory does not exist: {root}")
+    paths = sorted(
+        path
+        for path in root.glob(pattern)
+        if path.is_file()
+        and not path.stem.casefold().endswith(("__audit", "_audit"))
+        and not any(
+            fnmatch.fnmatchcase(path.name.casefold(), item.casefold())
+            for item in exclude_patterns
+        )
+    )
+    if not paths:
+        raise ValueError(
+            f"No outcome tables matching {pattern!r} were found in {root}."
+        )
+    return paths
+
+
 # --------------------------------------------------------------------------- #
 # projection
 # --------------------------------------------------------------------------- #
@@ -299,12 +328,12 @@ def reduce_patient_embeddings(
 def point_style(n: int) -> tuple[float, float]:
     """Marker area and alpha that keep density legible as n grows."""
     if n <= 2_000:
-        return 14.0, 0.80
+        return 6.0, 0.65
     if n <= 10_000:
-        return 6.0, 0.45
+        return 3.0, 0.40
     if n <= 40_000:
-        return 3.0, 0.28
-    return 1.6, 0.18
+        return 1.5, 0.25
+    return 0.8, 0.18
 
 
 def palette(n_levels: int) -> list:
@@ -434,8 +463,9 @@ def plot_categorical_points(
             markersize=6,
             color=colors[level],
             label=(
-                f"{_display_label(level, width=34)} "
-                f"(n={int((values[valid] == level).sum()):,})"
+                _display_label(
+                    f"{level} (n={int((values[valid] == level).sum()):,})", width=26
+                )
             ),
         )
         for level in levels
@@ -465,7 +495,38 @@ def plot_categorical_facets(
     method: str,
     output_path: Path,
     seed: int,
-    max_facets: int = 30,
+    max_facets: int = 12,
+) -> list[Path]:
+    """Paginate all groups, keeping coordinates and category colors fixed."""
+    if max_facets < 1:
+        raise ValueError("max_facets must be positive.")
+    levels = _ordered_levels(values, valid)
+    colors = categorical_colors(levels)
+    written = []
+    for page, start in enumerate(range(0, len(levels), max_facets), 1):
+        path = output_path if len(levels) <= max_facets else output_path.with_name(
+            f"{output_path.stem}_page_{page:02d}{output_path.suffix}"
+        )
+        _plot_categorical_facet_page(
+            frame, values, valid, color_by=color_by, method=method,
+            output_path=path, seed=seed,
+            levels=levels[start:start + max_facets], colors=colors,
+        )
+        written.append(path)
+    return written
+
+
+def _plot_categorical_facet_page(
+    frame: pd.DataFrame,
+    values: np.ndarray,
+    valid: np.ndarray,
+    *,
+    color_by: str,
+    method: str,
+    output_path: Path,
+    seed: int,
+    levels: list[str],
+    colors: dict[str, object],
 ) -> None:
     """Small multiples: one highlighted level per panel over a grey backdrop.
 
@@ -473,12 +534,10 @@ def plot_categorical_facets(
     answers "does this level occupy a distinct region" per level, which is the
     question a mixed confetti plot cannot answer at all.
     """
-    levels = _ordered_levels(values, valid)[:max_facets]
-    colors = categorical_colors(levels)
     # Four moderately wide columns remain legible in a paper PDF and leave
     # enough vertical room for two-line regimen names. Six narrow columns did
     # not: titles collided before the data could be read.
-    n_cols = min(4, max(2, math.ceil(math.sqrt(len(levels)))))
+    n_cols = min(4, len(levels))
     n_rows = math.ceil(len(levels) / n_cols)
     fig, axes = plt.subplots(
         n_rows,
@@ -786,8 +845,8 @@ def plot_colored_coordinates(
     method: str,
     output_dir: Path,
     seed: int = 0,
-    max_categories: int = 24,
-    facet_threshold: int = 8,
+    max_categories: int = 60,
+    facet_threshold: int = 6,
     categorical_max_unique: int = 12,
     continuous_mode: str = "gradient",
     continuous_bins: int = 6,
@@ -851,7 +910,7 @@ def plot_colored_coordinates(
         written.append(path)
     else:
         path = output_dir / f"patient_{method}_by_{safe_name}_facets.png"
-        plot_categorical_facets(
+        written.extend(plot_categorical_facets(
             frame,
             values,
             valid,
@@ -859,9 +918,10 @@ def plot_colored_coordinates(
             method=method,
             output_path=path,
             seed=seed,
-        )
-        written.append(path)
-    if also_centroids and n_levels > 2:
+        ))
+    # Overlapping high-cardinality centroids and long keys add little beyond
+    # the facets. Retain this diagnostic only for a legible number of groups.
+    if also_centroids and 2 < n_levels <= 8:
         path = output_dir / f"patient_{method}_by_{safe_name}_centroids.png"
         plot_categorical_centroids(
             frame,
@@ -871,6 +931,165 @@ def plot_colored_coordinates(
             method=method,
             output_path=path,
         )
+        written.append(path)
+    return written
+
+
+def _kernel_probability_surface(
+    x: np.ndarray,
+    y: np.ndarray,
+    labels: np.ndarray,
+    *,
+    bins: int = 450,
+    bandwidth_bins: float = 1.25,
+    min_support: float = 0.08,
+    x_range: tuple[float, float] | None = None,
+    y_range: tuple[float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Estimate P(Y=1 | 2-D location) as a ratio of smoothed densities.
+
+    The numerator and denominator use the same Gaussian kernel. ``min_support``
+    is relative to the densest grid cell and masks extrapolation into empty
+    parts of a projection. ``bandwidth_bins`` is measured on the original
+    90-cell reference grid, so changing resolution does not change the
+    smoothing length in projection coordinates.
+    """
+    if bins < 20 or bandwidth_bins <= 0 or not 0 <= min_support < 1:
+        raise ValueError("Invalid KDE grid, bandwidth, or support threshold.")
+    x_min, x_max = x_range if x_range is not None else (float(x.min()), float(x.max()))
+    y_min, y_max = y_range if y_range is not None else (float(y.min()), float(y.max()))
+    padding_x = max((x_max - x_min) * 0.025, 1e-6)
+    padding_y = max((y_max - y_min) * 0.025, 1e-6)
+    x_edges = np.linspace(x_min - padding_x, x_max + padding_x, bins + 1)
+    y_edges = np.linspace(y_min - padding_y, y_max + padding_y, bins + 1)
+    total, _, _ = np.histogram2d(x, y, bins=(x_edges, y_edges))
+    positive, _, _ = np.histogram2d(
+        x, y, bins=(x_edges, y_edges), weights=labels.astype(float)
+    )
+    sigma = bandwidth_bins * bins / 90.0
+    total_density = gaussian_filter(total, sigma, mode="constant")
+    positive_density = gaussian_filter(positive, sigma, mode="constant")
+    probability = np.divide(
+        positive_density,
+        total_density,
+        out=np.full_like(positive_density, np.nan),
+        where=total_density > 0,
+    )
+    if total_density.max() > 0:
+        probability[total_density < min_support * total_density.max()] = np.nan
+    return x_edges, y_edges, probability
+
+
+def plot_outcome_probability_facets(
+    frame: pd.DataFrame,
+    columns: list[str],
+    *,
+    method: str,
+    output_dir: Path,
+    horizon_days: float,
+    min_class_size: int = 20,
+    facets_per_page: int = 12,
+    bins: int = 450,
+    bandwidth_bins: float = 1.25,
+    min_support: float = 0.08,
+    colormap: str = "plasma",
+) -> list[Path]:
+    """Paginated KDE-smoothed outcome probability maps on fixed coordinates."""
+    eligible: list[tuple[str, np.ndarray, np.ndarray]] = []
+    for column in columns:
+        numeric = pd.to_numeric(frame[column], errors="coerce")
+        known = numeric.notna().to_numpy()
+        # Horizon columns are pandas nullable booleans because early-censored
+        # patients are genuinely unknown. Older pandas versions reject
+        # ``BooleanArray.fillna(0)`` before ``to_numpy(dtype=float)`` gets a
+        # chance to coerce it, so convert to nullable floating point first.
+        labels = numeric.astype("Float64").fillna(0.0).to_numpy(dtype=float)
+        positives = int((known & (labels == 1)).sum())
+        negatives = int((known & (labels == 0)).sum())
+        if positives >= min_class_size and negatives >= min_class_size:
+            eligible.append((column, known, labels))
+    if not eligible:
+        return []
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    x_all = frame["component_1"].to_numpy(dtype=float)
+    y_all = frame["component_2"].to_numpy(dtype=float)
+    x_range = (float(np.nanmin(x_all)), float(np.nanmax(x_all)))
+    y_range = (float(np.nanmin(y_all)), float(np.nanmax(y_all)))
+    for page, start in enumerate(range(0, len(eligible), facets_per_page), 1):
+        page_items = eligible[start : start + facets_per_page]
+        n_cols = min(4, len(page_items))
+        n_rows = math.ceil(len(page_items) / n_cols)
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(3.15 * n_cols, 3.05 * n_rows + 0.95),
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+        )
+        mesh = None
+        for ax, (column, known, labels) in zip(axes.ravel(), page_items):
+            x_edges, y_edges, probability = _kernel_probability_surface(
+                x_all[known],
+                y_all[known],
+                labels[known],
+                bins=bins,
+                bandwidth_bins=bandwidth_bins,
+                min_support=min_support,
+                x_range=x_range,
+                y_range=y_range,
+            )
+            mesh = ax.imshow(
+                probability.T,
+                origin="lower",
+                extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+                cmap=plt.get_cmap(colormap).with_extremes(bad="white"),
+                vmin=0,
+                vmax=1,
+                interpolation="nearest",
+                rasterized=True,
+            )
+            n_positive = int((labels[known] == 1).sum())
+            title = column.removesuffix(f"_within_{horizon_days:g}d")
+            ax.set_title(
+                f"{_display_label(title, width=27)}\n"
+                f"{n_positive:,} / {int(known.sum()):,} events",
+                fontsize=8.2,
+                pad=6,
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_aspect("equal", adjustable="box")
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        for ax in axes.ravel()[len(page_items) :]:
+            ax.set_visible(False)
+        if mesh is not None:
+            colorbar_ax = fig.add_axes([0.18, 0.045, 0.64, 0.018])
+            cbar = fig.colorbar(
+                mesh,
+                cax=colorbar_ax,
+                orientation="horizontal",
+            )
+            cbar.set_label(
+                f"Smoothed observed event fraction by {horizon_days:g} days"
+            )
+        figure_title(
+            fig,
+            f"Outcome landscape at {horizon_days:g} days",
+            "Known horizon status only; low-density regions masked. Descriptive, not calibrated risk.",
+            y=0.995,
+        )
+        fig.subplots_adjust(
+            top=0.85 if n_rows == 1 else 0.90,
+            bottom=0.17 if n_rows == 1 else 0.115,
+            left=0.035, right=0.985, hspace=0.38, wspace=0.12,
+        )
+        path = output_dir / f"patient_{method}_outcome_kde_{horizon_days:g}d_page_{page:02d}.png"
+        save_fig(fig, str(path))
+        plt.close(fig)
         written.append(path)
     return written
 
@@ -965,13 +1184,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-categories",
         type=int,
-        default=24,
+        default=60,
         help="Keep the most frequent categorical levels and combine the rest.",
     )
     parser.add_argument(
         "--facet-threshold",
         type=int,
-        default=8,
+        default=6,
         help="Above this many levels, render small multiples instead of one panel.",
     )
     parser.add_argument(
@@ -1020,6 +1239,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--outcome-dir",
+        default=None,
+        help=(
+            "Load every real outcome table in this directory. Audit files are "
+            "excluded automatically; use --outcome-pattern to restrict discovery."
+        ),
+    )
+    parser.add_argument("--outcome-pattern", default="*.parquet")
+    parser.add_argument(
+        "--outcome-exclude-pattern",
+        action="append",
+        default=None,
+        help=(
+            "Case-insensitive filename pattern excluded from --outcome-dir; "
+            "repeatable. Defaults to '*ungated*'. Audit files are always excluded."
+        ),
+    )
+    parser.add_argument(
         "--outcome-name",
         action="append",
         default=[],
@@ -1040,6 +1277,25 @@ def build_parser() -> argparse.ArgumentParser:
             "applied to all supplied outcomes."
         ),
     )
+    parser.add_argument(
+        "--outcome-kde-horizon-days",
+        type=float,
+        action="append",
+        default=[],
+        help=(
+            "Write paginated, censoring-aware KDE probability maps for all "
+            "loaded outcomes at this horizon; repeatable."
+        ),
+    )
+    parser.add_argument("--outcome-kde-min-class-size", type=int, default=20)
+    parser.add_argument("--outcome-kde-facets-per-page", type=int, default=12)
+    parser.add_argument("--outcome-kde-grid-bins", type=int, default=450)
+    parser.add_argument("--outcome-kde-colormap", choices=("plasma", "inferno", "viridis", "magma"), default="plasma")
+    parser.add_argument(
+        "--outcome-kde-bandwidth-bins", type=float, default=1.25,
+        help="Gaussian smoothing width in cells of the original 90-cell reference grid; independent of rendering resolution.",
+    )
+    parser.add_argument("--outcome-kde-min-support", type=float, default=0.08)
     parser.add_argument(
         "--outcome-n-hours-start-include",
         type=int,
@@ -1062,19 +1318,44 @@ def main() -> None:
     args = build_parser().parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if args.outcome_name and len(args.outcome_name) != len(args.outcome):
+    explicit_outcomes = list(args.outcome)
+    if args.outcome_name and len(args.outcome_name) != len(explicit_outcomes):
         raise ValueError(
             "--outcome-name must be given once per --outcome, or omitted entirely."
         )
-    outcome_names = args.outcome_name or [None] * len(args.outcome)
+    discovered_outcomes = (
+        discover_outcome_paths(
+            args.outcome_dir,
+            pattern=args.outcome_pattern,
+            exclude_patterns=tuple(args.outcome_exclude_pattern or ["*ungated*"]),
+        )
+        if args.outcome_dir is not None
+        else []
+    )
+    duplicate_paths = {
+        str(Path(path).resolve()) for path in explicit_outcomes
+    } & {str(path.resolve()) for path in discovered_outcomes}
+    if duplicate_paths:
+        raise ValueError(
+            "Outcome tables were supplied both explicitly and via --outcome-dir: "
+            f"{sorted(duplicate_paths)}"
+        )
+    outcome_paths: list[str | Path] = [*explicit_outcomes, *discovered_outcomes]
+    outcome_names = [
+        *(args.outcome_name or [None] * len(explicit_outcomes)),
+        *([None] * len(discovered_outcomes)),
+    ]
+    requested_horizons = tuple(
+        dict.fromkeys([*args.outcome_horizon_days, *args.outcome_kde_horizon_days])
+    )
     outcome_frames = [
         load_outcome_time_columns(
             outcome_path,
             outcome_name=outcome_name,
             n_hours_start_include=args.outcome_n_hours_start_include,
-            horizons_days=tuple(args.outcome_horizon_days),
+            horizons_days=requested_horizons,
         )
-        for outcome_path, outcome_name in zip(args.outcome, outcome_names)
+        for outcome_path, outcome_name in zip(outcome_paths, outcome_names)
     ]
 
     if args.reuse_coordinates is not None:
@@ -1221,6 +1502,26 @@ def main() -> None:
             max_categories=args.max_categories,
         )
     )
+    for horizon_days in args.outcome_kde_horizon_days:
+        suffix = f"_within_{horizon_days:g}d"
+        outcome_columns = [
+            column for column in frame.columns if column.endswith(suffix)
+        ]
+        written.extend(
+            plot_outcome_probability_facets(
+                frame,
+                outcome_columns,
+                method=resolved_method,
+                output_dir=output_dir,
+                horizon_days=horizon_days,
+                min_class_size=args.outcome_kde_min_class_size,
+                facets_per_page=args.outcome_kde_facets_per_page,
+                bins=args.outcome_kde_grid_bins,
+                colormap=args.outcome_kde_colormap,
+                bandwidth_bins=args.outcome_kde_bandwidth_bins,
+                min_support=args.outcome_kde_min_support,
+            )
+        )
     print(
         f"Wrote {len(frame):,} {resolved_method.upper()} coordinates and "
         f"{len(written)} plot(s) to {output_dir}."

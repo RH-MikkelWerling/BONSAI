@@ -21,7 +21,6 @@ from opera.visualization.style import (
     despine,
     ci_ribbon,
     FIG_FULL,
-    FIG_TALL,
     model_color,
     model_label,
     ANNOT_SIZE,
@@ -440,11 +439,21 @@ def plot_outcome_dot_matrix(
     df = results_df.copy()
     if "evaluation_subset" in df.columns:
         df = df[df["evaluation_subset"].fillna("full") == "full"]
-    models = ["tabular_rkkp", "tabular_ehr", "dapt", "mol", "opera", "opera_joint"]
-    df = df[df["model_family"].isin(models)]
+    model_order = ["tabular_rkkp", "tabular_ehr", "dapt", "mol", "opera", "opera_joint"]
+    df = df[df["model_family"].isin(model_order)].copy()
+    models = [model for model in model_order if model in set(df["model_family"])]
+    if not models:
+        raise ValueError("No supported model families are present in the input.")
     df["task"] = df["cohort"].astype(str) + " / " + df["outcome"].astype(str)
     tasks = sorted(df["task"].unique())
-    fig, ax = plt.subplots(figsize=FIG_TALL if len(tasks) > 14 else FIG_FULL)
+    if len(tasks) > 60:
+        raise ValueError(
+            "A single dot-matrix page cannot legibly show more than 60 "
+            "cohort–outcome tasks; filter or paginate the input first."
+        )
+    fig, ax = plt.subplots(
+        figsize=(max(5.5, 1.3 * len(models) + 2.9), max(FIG_FULL[1], 1.5 + 0.26 * len(tasks)))
+    )
     for y, task in enumerate(tasks):
         task_df = df[df["task"] == task]
         best = (

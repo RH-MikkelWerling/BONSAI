@@ -430,6 +430,8 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         logical_batch_size: Optional[int] = None,
         logical_val_batch_size: Optional[int] = None,
         numeric_value_control: str = "observed",
+        fine_names: Optional[list[str]] = None,
+        fine_column: str = "cohort_fine",
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -440,6 +442,9 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.cohort_to_index = {
             name: index for index, name in enumerate(self.cohort_names)
         }
+        self.fine_names = tuple(sorted(fine_names or ()))
+        self.fine_to_index = {name: i for i, name in enumerate(self.fine_names)}
+        self.fine_column = fine_column
         self._physical_subject_pools: dict[tuple[str, ...], list[dict]] = {}
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
@@ -575,6 +580,23 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             return None
 
         population = _read_population(cohort_cfg, data_dir)
+        fine_index_by_subject = None
+        if self.fine_names:
+            if self.fine_column not in population:
+                raise ValueError(
+                    f"Fine disease column {self.fine_column!r} is absent from "
+                    f"membership for {cohort_name!r}."
+                )
+            identities = population[["subject_id", self.fine_column]].drop_duplicates()
+            if identities["subject_id"].duplicated().any():
+                raise ValueError("A subject has conflicting fine disease identities")
+            unknown = set(identities[self.fine_column].dropna().astype(str)) - set(self.fine_names)
+            if unknown:
+                raise ValueError(f"Unconfigured fine disease identities: {sorted(unknown)}")
+            fine_index_by_subject = {
+                row.subject_id: self.fine_to_index.get(str(getattr(row, self.fine_column)), -1)
+                for row in identities.itertuples(index=False)
+            }
 
         pool_key = tuple(subject_paths)
         if pool_key not in self._physical_subject_pools:
@@ -619,6 +641,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             max_len=self.max_len,
             numeric_value_control=self.numeric_value_control,
             cohort_index=self.cohort_to_index[cohort_name],
+            fine_index_by_subject=fine_index_by_subject,
         )
 
     # ── Lightning interface ───────────────────────────────────────────

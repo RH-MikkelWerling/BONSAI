@@ -144,7 +144,11 @@ def plot_transfer_matrix(
     )
     diagonal = diagonal.where(np.isfinite(diagonal) & (diagonal > 0))
     norm = matrix.div(diagonal.reindex(matrix.columns), axis="columns")
-    fig, ax = plt.subplots(figsize=FIG_FULL)
+    n_rows, n_cols = norm.shape
+    fig, ax = plt.subplots(
+        figsize=(max(FIG_FULL[0], 2.6 + 0.43 * n_cols),
+                 max(FIG_FULL[1], 1.5 + 0.38 * n_rows))
+    )
     values = norm.to_numpy(float)
     finite = values[np.isfinite(values)]
     bound = max(0.25, float(np.max(np.abs(finite - 1))) if finite.size else 0.25)
@@ -169,10 +173,12 @@ def plot_transfer_matrix(
     ax.tick_params(length=0)
     ax.set_xlabel("Target disease")
     ax.set_ylabel("Source disease")
+    tick_size = 7.5 if max(n_rows, n_cols) > 12 else 8.5
     ax.set_xticks(
-        range(len(norm.columns)), labels=norm.columns, rotation=45, ha="right"
+        range(len(norm.columns)), labels=norm.columns, rotation=45, ha="right",
+        fontsize=tick_size,
     )
-    ax.set_yticks(range(len(norm.index)), labels=norm.index)
+    ax.set_yticks(range(len(norm.index)), labels=norm.index, fontsize=tick_size)
     fig.colorbar(im, ax=ax, label="Transfer AUROC / diagonal")
     fig.tight_layout()
     save_fig(fig, save_path)

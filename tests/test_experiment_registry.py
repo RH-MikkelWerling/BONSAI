@@ -42,8 +42,21 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 59
+    assert len(paths) == 65
     assert len(sweep_paths) == 38
+    shared_bce = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce.yaml").read_text())
+    factorized_bce = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce_factorized_cohort_outcome_prototypes.yaml").read_text())
+    anchored = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce_source_anchored_adapters.yaml").read_text())
+    unanchored = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce_unanchored_adapters.yaml").read_text())
+    assert shared_bce["competing_risk"]["objective"] == "horizon_bce"
+    assert factorized_bce["competing_risk"]["objective"] == "horizon_bce"
+    assert factorized_bce["competing_risk"]["readout_mode"] == "factorized_cohort_outcome_prototypes"
+    for config in (anchored, unanchored):
+        assert config["competing_risk"]["objective"] == "horizon_bce"
+        assert len(config["competing_risk"]["fine_names"]) == 24
+        assert config["model"]["freeze_encoder"] is True
+        assert config["source_opera_ckpt"] == "${oc.env:OPERA_SHARED_BCE_CKPT}"
+        assert config["paths"]["sequence_data_dir"] == shared_bce["paths"]["sequence_data_dir"]
     for path in sweep_paths:
         load_sweep_config(path)
 
@@ -202,6 +215,26 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     horizon_bce = yaml.safe_load(
         (tmp_path / "direct_cr_objective_horizon_bce.yaml").read_text()
     )
+    horizon_bce_mlp = yaml.safe_load(
+        (tmp_path / "direct_cr_objective_horizon_bce_outcome_mlp.yaml").read_text()
+    )
+    horizon_bce_attention = yaml.safe_load(
+        (
+            tmp_path / "direct_cr_objective_horizon_bce_outcome_attention.yaml"
+        ).read_text()
+    )
+    horizon_bce_prototypes = yaml.safe_load(
+        (
+            tmp_path
+            / "direct_cr_objective_horizon_bce_shared_attention_prototypes.yaml"
+        ).read_text()
+    )
+    horizon_bce_factorized = yaml.safe_load(
+        (
+            tmp_path
+            / "direct_cr_objective_horizon_bce_factorized_cohort_outcome_prototypes.yaml"
+        ).read_text()
+    )
     assert architecture_linear["competing_risk"]["head_mode"] == "linear"
     assert architecture_mlp["competing_risk"]["head_mode"] == "outcome_mlp"
     assert architecture_family["competing_risk"]["head_mode"] == "family_trunks"
@@ -238,11 +271,25 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         architecture_prototypes,
         architecture_factorized,
         horizon_bce,
+        horizon_bce_mlp,
+        horizon_bce_attention,
+        horizon_bce_prototypes,
+        horizon_bce_factorized,
     ):
         assert architecture["seed"] == 42
         assert architecture["model"]["pooling"] == "cls_last"
         assert architecture["paths"]["vocabulary"] == (
             "${paths.sequence_data_dir}/vocabulary.pt"
+        )
+        assert architecture["paths"]["sequence_data_dir"] == (
+            "${oc.env:BONSAI_PROCESSED_DATA}/"
+            "daly_care_t100_joined_bins_harmonized_v4"
+        )
+        assert architecture["dapt_ckpt"] == (
+            "${oc.env:BONSAI_MODELS}/"
+            "daly_care_t100_joined_bins_harmonized_v4/"
+            "pretrain_harmonized_fourier_len8192_allwindows_20ep/"
+            "version_0/best.ckpt"
         )
         assert set(
             cohort["data_dir"] for cohort in architecture["cohorts"].values()
@@ -259,6 +306,34 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
     assert horizon_bce["competing_risk"]["objective"] == "horizon_bce"
     assert horizon_bce["competing_risk"]["head_mode"] == "linear"
     assert horizon_bce["competing_risk"]["readout_mode"] == "shared"
+    for combined in (
+        horizon_bce_mlp,
+        horizon_bce_attention,
+        horizon_bce_prototypes,
+        horizon_bce_factorized,
+    ):
+        assert combined["competing_risk"]["objective"] == "horizon_bce"
+    assert horizon_bce_mlp["competing_risk"]["head_mode"] == "outcome_mlp"
+    assert horizon_bce_mlp["competing_risk"]["readout_mode"] == "shared"
+    assert horizon_bce_attention["competing_risk"]["head_mode"] == "linear"
+    assert (
+        horizon_bce_attention["competing_risk"]["readout_mode"]
+        == "outcome_attention"
+    )
+    assert horizon_bce_prototypes["competing_risk"]["head_mode"] == "linear"
+    assert (
+        horizon_bce_prototypes["competing_risk"]["readout_mode"]
+        == "shared_attention_prototypes"
+    )
+    assert horizon_bce_factorized["competing_risk"]["head_mode"] == "linear"
+    assert (
+        horizon_bce_factorized["competing_risk"]["readout_mode"]
+        == "factorized_cohort_outcome_prototypes"
+    )
+    assert (
+        horizon_bce_factorized["competing_risk"]["prototype_interaction_rank"]
+        == 8
+    )
 
     uniform_cls = yaml.safe_load(
         (tmp_path / "direct_cr_uniform_cls.yaml").read_text()

@@ -43,6 +43,8 @@ def _required_paths(config: dict) -> dict[str, Path]:
         "DAPT checkpoint": Path(str(config["dapt_ckpt"])),
         "vocabulary": Path(str(config["paths"]["vocabulary"])),
     }
+    if config.get("source_opera_ckpt"):
+        paths["shared BCE source checkpoint"] = Path(str(config["source_opera_ckpt"]))
     for cohort, cohort_config in config["cohorts"].items():
         paths[f"cohort {cohort} data_dir"] = Path(str(cohort_config["data_dir"]))
         population = cohort_config.get("population_file")

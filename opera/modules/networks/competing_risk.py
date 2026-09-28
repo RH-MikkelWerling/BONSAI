@@ -311,6 +311,12 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         )
         settings = dict(cross_outcome_config or {})
         self.aggregation = str(settings.get("aggregation", "macro"))
+        self.endpoint_groups = dict(settings.get("endpoint_groups", {}))
+        if self.aggregation == "endpoint_group_macro":
+            from opera.functional.endpoint_groups import validate_endpoint_groups
+            validate_endpoint_groups(self.endpoint_groups, self.outcome_names)
+            if self.objective != "horizon_bce" or self.weighter_name != "uniform":
+                raise ValueError("endpoint_group_macro requires uniform horizon BCE.")
         self.outcome_family = {
             outcome: family
             for family, members in dict(settings.get("outcome_families", {})).items()
@@ -563,9 +569,17 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 if not bool(horizon_known.any()):
                     continue
                 cif = self._horizon_cif(active_log_hazards, name)
-                likelihood_loss = self._masked_horizon_bce(
-                    cif, horizon_targets, horizon_known
-                )
+                if self.aggregation == "endpoint_group_macro":
+                    cells = self._horizon_bce_cells(cif, horizon_targets)
+                    counts = horizon_known.sum(dim=0)
+                    likelihood_loss = (
+                        (cells * horizon_known).sum(dim=0)[counts > 0]
+                        / counts[counts > 0]
+                    ).mean()
+                else:
+                    likelihood_loss = self._masked_horizon_bce(
+                        cif, horizon_targets, horizon_known
+                    )
                 # Retain the component contract used by gradient diagnostics.
                 # Horizon BCE is one indivisible component rather than an
                 # exposure term plus event-density terms.
@@ -780,6 +794,18 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
             diagnostics["cr/log_sigma_mean"] = self.weighter.log_sigma[active].mean().detach()
             if self.weighter_name == "kendall_null":
                 diagnostics["cr/loss_over_null_mean"] = active_losses.mean().detach()
+        elif self.aggregation == "endpoint_group_macro":
+            group_losses = []
+            for members in self.endpoint_groups.values():
+                indices = [i for i, name in enumerate(loss_names)
+                           if name in members and self._curriculum_outcome_multiplier(name) > 0]
+                if indices:
+                    # Fixed grade denominator preserves curriculum ramp amplitude.
+                    group_losses.append(sum(
+                        losses[i] * self._curriculum_outcome_multiplier(loss_names[i])
+                        for i in indices
+                    ) / sum(name in loss_names for name in members))
+            total = torch.stack(group_losses).mean() if group_losses else log_hazards.sum() * 0.
         elif self.aggregation == "hierarchical_support":
             outcome_multipliers = {
                 name: self._curriculum_outcome_multiplier(name) for name in loss_names

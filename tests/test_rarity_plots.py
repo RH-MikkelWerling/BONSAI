@@ -1,6 +1,25 @@
 import pytest
 
 
+def test_rarity_delta_uses_event_counts_and_draws_trend():
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from opera.visualization.rarity_plots import plot_rarity_delta
+
+    rows = [
+        dict(cohort="DLBCL", outcome=f"outcome_{i}", model_family=model,
+             n_events_train=events, auroc=0.7 + (0.08 / (i + 1) if model == "opera" else 0))
+        for i, events in enumerate((10, 30, 100, 300, 1000))
+        for model in ("tabular_ehr", "opera")
+    ]
+    fig = plot_rarity_delta(pd.DataFrame(rows))
+    ax = fig.axes[0]
+    assert ax.get_xscale() == "log"
+    assert ax.get_xlabel() == "Training events"
+    assert any("smoothed trend" in line.get_label() for line in ax.lines)
+    plt.close(fig)
+
+
 def test_rarity_plot_helpers_generate_files(tmp_path):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("matplotlib")

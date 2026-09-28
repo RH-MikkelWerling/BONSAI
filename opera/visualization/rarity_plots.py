@@ -809,6 +809,7 @@ def plot_rarity_delta(
     results_df: pd.DataFrame,
     baseline_model: str = "tabular_ehr",
     save_path: Optional[str] = None,
+    annotate_tasks: bool = False,
 ) -> plt.Figure:
     """
     Plot OPERA minus tabular-EHR AUROC by cohort-outcome rarity.
@@ -829,7 +830,7 @@ def plot_rarity_delta(
         index=key_cols, columns="model_family", values="auroc", aggfunc="first"
     )
     meta_cols = [
-        c for c in ["n_events_train", "n_train", "rarity_tier"] if c in df.columns
+        c for c in ["n_events_train", "n_train", "rarity_tier", "supplement_only"] if c in df.columns
     ]
     meta = (
         df.groupby(key_cols, dropna=False)[meta_cols].first()
@@ -846,6 +847,9 @@ def plot_rarity_delta(
     rarity_col = _rarity_x_column(plot_df)
     sort_col = rarity_col if rarity_col is not None else "delta"
     plot_df = plot_df.dropna(subset=["delta"]).sort_values(sort_col)
+    if rarity_col is not None:
+        plot_df[rarity_col] = pd.to_numeric(plot_df[rarity_col], errors="coerce")
+        plot_df = plot_df[plot_df[rarity_col] > 0]
 
     fig, ax = plt.subplots(figsize=FIG_FULL)
     ax.axhspan(
@@ -854,18 +858,41 @@ def plot_rarity_delta(
         color="#F3F3F3",
         zorder=0,
     )
+    # Dense panels convey the distribution and rarity trend; individual task
+    # identities belong in the accompanying table, not overlapping plot labels.
+    highlight = set(range(len(plot_df))) if annotate_tasks and len(plot_df) <= 12 else set()
     for i, row in plot_df.reset_index(drop=True).iterrows():
+        x_value = row[rarity_col] if rarity_col is not None else i
         tier = str(row.get("rarity_tier", "unknown"))
         color = model_color(tier)
-        ax.scatter(i, row["delta"], color=color, s=38, zorder=3)
-        ax.text(
-            i, row["delta"], row["label"], fontsize=ANNOT_SIZE, ha="center", va="bottom"
-        )
+        ax.scatter(x_value, row["delta"], color=color, s=38, zorder=3)
+        if i in highlight:
+            ax.annotate(
+                row["label"], (x_value, row["delta"]), xytext=(0, 6),
+                textcoords="offset points", fontsize=ANNOT_SIZE,
+                ha="center", va="bottom",
+            )
     ax.axhline(0, color=PALETTE["zero_line"], linewidth=0.9)
-    ax.set_xlabel(
-        f"Cohort-outcome cells sorted by {_rarity_x_label(rarity_col).lower()}"
-    )
-    ax.set_ylabel(f"AUROC(OPERA) - AUROC({baseline_model})")
+    if rarity_col is not None:
+        ax.set_xscale("log")
+        _plot_smoothed_trend(
+            ax, plot_df, x_col=rarity_col, y_col="delta",
+            color=PALETTE["ink"], label="Descriptive smoothed trend",
+            stable_only=True, log_x=True,
+        )
+    handles, _ = ax.get_legend_handles_labels()
+    if "rarity_tier" in plot_df.columns:
+        tiers = sorted(plot_df["rarity_tier"].dropna().astype(str).unique())
+        if len(tiers) > 1:
+            handles.extend(
+                Line2D([], [], marker="o", linestyle="none", color=model_color(tier),
+                       label=f"{tier.replace('_', ' ').title()} cells", markersize=5)
+                for tier in tiers
+            )
+    if handles:
+        ax.legend(handles=handles, loc="best", frameon=False, fontsize=LEGEND_SIZE)
+    ax.set_xlabel(_rarity_x_label(rarity_col) if rarity_col is not None else "Cohort–outcome cells (ordered by difference)")
+    ax.set_ylabel(f"Δ AUROC (OPERA − {model_label(baseline_model)})")
     fig.tight_layout()
     save_fig(fig, save_path)
     return fig

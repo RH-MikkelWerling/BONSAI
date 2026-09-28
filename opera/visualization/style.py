@@ -361,10 +361,12 @@ def style_legend(legend) -> None:
 
 
 def sequential_cmap(hue: str = "opera"):
-    """A one-hue light→dark colormap for continuous metadata (age, risk
-    score, ...), matching the categorical palette instead of a generic
-    matplotlib rainbow (viridis/plasma) that doesn't read as part of the
-    same visual system as the rest of the figure."""
+    """Continuous OPERA quantities use plasma; non-OPERA hues stay one-hue.
+
+    Categorical identities and signed effects do not use this sequential scale.
+    """
+    if hue == "opera":
+        return mpl.colormaps["plasma"].with_extremes(bad=PALETTE["missing"])
     import matplotlib.colors as mcolors
 
     dark = PALETTE.get(hue, hue)

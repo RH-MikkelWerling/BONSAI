@@ -106,9 +106,22 @@ def plot_roc_comparison(
     """Multi-model ROC curves on a single axis."""
     fig, ax = plt.subplots(figsize=(7.09, 4.0))
     bootstrap_cis = bootstrap_cis or {}
+    used_styles = set()
 
     for name, (labels, probs) in results.items():
         color = model_color(name)
+        linestyle = model_linestyle(name)
+        # Hash-based fallback identities can collide for arbitrary model names.
+        # Keep canonical colors, but distinguish coincident identities by dash.
+        alternatives = ["-", "--", "-.", ":"] + [
+            (0, (length, 2, 1, 2)) for length in range(3, len(results) + 4)
+        ]
+        for candidate in [linestyle, *alternatives]:
+            identity = (color, str(candidate))
+            if identity not in used_styles:
+                linestyle = candidate
+                used_styles.add(identity)
+                break
         fpr, tpr, _ = roc_curve(labels, probs)
         auroc = _integrate_curve(tpr, fpr)
         ci = bootstrap_cis.get(name, {}).get("auroc", {})
@@ -118,7 +131,7 @@ def plot_roc_comparison(
             fpr,
             tpr,
             color=color,
-            linestyle=model_linestyle(name),
+            linestyle=linestyle,
             lw=1.8,
             label=display,
             zorder=3,
@@ -253,7 +266,7 @@ def plot_calibration(
         ax1.text(
             0.97,
             0.05,
-            f"HL  p = {hl_p:.3f}",
+            "HL  p < 0.001" if hl_p < 0.001 else f"HL  p = {hl_p:.3f}",
             transform=ax1.transAxes,
             ha="right",
             va="bottom",
@@ -342,7 +355,13 @@ def plot_decision_curve(
     ax.set_xlim(0, 1)
 
     y_lo = min(-0.05, float(dca["net_benefit_model"].min()) - 0.02)
-    ax.set_ylim(y_lo, None)
+    # The divergent treat-all tail must not determine the autoscale margins.
+    # Otherwise its extreme negative values create a huge empty upper range.
+    y_hi = max(
+        0.02, float(dca["net_benefit_model"].max()),
+        float(dca["net_benefit_treat_all"].max()),
+    ) + 0.02
+    ax.set_ylim(y_lo, y_hi)
     if dca["net_benefit_treat_all"].min() < y_lo:
         ax.text(
             0.98,
@@ -352,6 +371,7 @@ def plot_decision_curve(
             ha="right",
             fontsize=7,
             color=PALETTE["ink_secondary"],
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 2},
         )
     despine(ax, "y")
 

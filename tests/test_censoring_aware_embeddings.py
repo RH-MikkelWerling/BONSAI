@@ -88,7 +88,36 @@ def test_censoring_aware_panel_smoke():
     )
     assert len(fig.axes) >= 5
     assert diagnostics["n_total"] == n
-    assert diagnostics["residual_units"] == "local z"
+    assert diagnostics["residual_units"] == "CIF"
+    maps = {ax.get_label(): ax for ax in fig.axes}
+    assert maps["calibration-map:C"].images[0].get_array().shape[0] >= 499
+    assert maps["calibration-map:C"].images[0].get_cmap().name == "plasma"
+    assert maps["calibration-map:E"].images[0].get_cmap().name == "plasma"
+    assert maps["calibration-map:B"].collections[0].get_cmap().name == "plasma"
+    assert maps["calibration-map:C"].images[0].get_clip_path() is not None
+
+
+def test_ipcw_includes_censoring_before_a_between_knot_horizon():
+    data = horizon_ipcw_data(
+        np.array([10., 20., 100., 120.]), np.array([0, 1, 0, 0]), 60.
+    )
+    assert data.weights[1:] == pytest.approx([4 / 3, 4 / 3, 4 / 3])
+
+
+def test_all_map_panels_use_the_selected_evaluation_patients():
+    rng = np.random.default_rng(8)
+    selected = np.arange(40) % 2 == 0
+    fig, diagnostics = plot_censoring_aware_embedding_panel(
+        rng.normal(size=(40, 2)), np.full(40, 100.), np.zeros(40),
+        horizon=60., predicted_cif=np.full(40, .2), held_out=selected,
+        embedding=rng.normal(size=(40, 5)), grid_size=8,
+        min_effective_support=1, residual_bootstrap=0,
+    )
+    assert diagnostics["n_total"] == 20
+    assert diagnostics["n_residual_patients"] == 20
+    assert diagnostics["observed_surface_reuse_max_difference"] == 0.
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 def test_panel_d_still_draws_without_predictions():

@@ -92,6 +92,16 @@ def test_multicohort_indices_are_stable_and_sorted():
     assert module.cohort_to_index == {"CLL_SLL": 0, "DLBCL_like": 1}
 
 
+def test_fine_source_indices_are_separate_from_grouped_cohort_indices():
+    module = MultiCohortContrastiveDataModule(
+        cohort_configs={"DLBCL_like": {}, "CLL_SLL": {}},
+        outcome_configs={}, predict_token_id=1, batch_size=2, num_workers=0,
+        fine_names=["DLBCL", "PMBCL", "CLL"],
+    )
+    assert module.cohort_to_index == {"CLL_SLL": 0, "DLBCL_like": 1}
+    assert module.fine_to_index == {"CLL": 0, "DLBCL": 1, "PMBCL": 2}
+
+
 def test_compute_pooled_class_counts_uses_training_labels(tmp_path):
     data_dir = tmp_path / "dlbcl"
     outcomes_dir = data_dir / "outcomes"

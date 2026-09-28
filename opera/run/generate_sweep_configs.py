@@ -358,7 +358,13 @@ def build_direct_cr_config(
     # root. This is essential when evaluating a newly harmonized vocabulary:
     # changing one path updates both token IDs and every cohort's EHR records.
     config["paths"]["sequence_data_dir"] = (
-        "${oc.env:BONSAI_PROCESSED_DATA}/daly_care"
+        "${oc.env:BONSAI_PROCESSED_DATA}/"
+        "daly_care_t100_joined_bins_harmonized_v4"
+    )
+    config["dapt_ckpt"] = (
+        "${oc.env:BONSAI_MODELS}/daly_care_t100_joined_bins_harmonized_v4/"
+        "pretrain_harmonized_fourier_len8192_allwindows_20ep/version_0/"
+        "best.ckpt"
     )
     config["paths"]["vocabulary"] = "${paths.sequence_data_dir}/vocabulary.pt"
     for cohort in config["cohorts"].values():
@@ -432,6 +438,31 @@ def build_direct_cr_config(
     return config
 
 
+def build_source_adapter_config(registry: dict[str, Any], *, anchored: bool) -> dict[str, Any]:
+    """Matched horizon-BCE transfer condition with fine-disease source identities."""
+    config = build_direct_cr_config(
+        registry, curriculum=True, cls_pooling=True, objective="horizon_bce"
+    )
+    config["competing_risk"].update({
+        "readout_mode": (
+            "source_anchored_adapters" if anchored else "unanchored_adapters"
+        ),
+        "fine_names": sorted(
+            name
+            for group in registry["cohort_groups"].values()
+            for name in group["fine"]
+        ),
+        "fine_column": "cohort_fine",
+        "adapter_bottleneck": 8,
+        "adapter_residual_scale": 0.1,
+        "adapter_home_floor": 0.1,
+        "adapter_event_tau": 20.0,
+    })
+    config["model"]["freeze_encoder"] = True
+    config["source_opera_ckpt"] = "${oc.env:OPERA_SHARED_BCE_CKPT}"
+    return config
+
+
 def build_joined_bins_direct_cr_config(
     registry: dict[str, Any], **kwargs: Any
 ) -> dict[str, Any]:
@@ -488,6 +519,23 @@ def build_multi_outcome_config(registry: dict[str, Any]) -> dict[str, Any]:
             "limit_train_batches": 1.0,
         },
     }
+
+
+def build_endpoint_weighting_pilot(registry, *, revised=True):
+    from opera.functional.endpoint_groups import endpoint_groups_v1
+    config = dict(build_direct_cr_config(
+        registry, curriculum=True, cls_pooling=True,
+        readout_mode="factorized_cohort_outcome_prototypes", objective="horizon_bce",
+    ), seed=42)
+    config["cross_outcome"]["endpoint_groups"] = endpoint_groups_v1(config["outcomes"])
+    if revised:
+        config["cross_outcome"]["aggregation"] = "endpoint_group_macro"
+        config["cross_outcome"]["family_weights"] = {}
+    config["training"].update(
+        eval_monitor_metric="val/cr_cif_auc_endpoint_group_macro",
+        selection_min_cases=20, selection_min_controls=20,
+    )
+    return config
 
 
 def generate_configs(
@@ -622,6 +670,54 @@ def generate_configs(
             ),
             seed=42,
         ),
+        "direct_cr_objective_horizon_bce_outcome_mlp.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                head_mode="outcome_mlp",
+                objective="horizon_bce",
+            ),
+            seed=42,
+        ),
+        "direct_cr_objective_horizon_bce_outcome_attention.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="outcome_attention",
+                objective="horizon_bce",
+            ),
+            seed=42,
+        ),
+        "direct_cr_objective_horizon_bce_shared_attention_prototypes.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="shared_attention_prototypes",
+                objective="horizon_bce",
+            ),
+            seed=42,
+        ),
+        "direct_cr_objective_horizon_bce_factorized_cohort_outcome_prototypes.yaml": dict(
+            build_direct_cr_config(
+                registry,
+                curriculum=True,
+                cls_pooling=True,
+                readout_mode="factorized_cohort_outcome_prototypes",
+                objective="horizon_bce",
+            ),
+            seed=42,
+        ),
+        "direct_cr_objective_horizon_bce_unanchored_adapters.yaml": dict(
+            build_source_adapter_config(registry, anchored=False), seed=42
+        ),
+        "direct_cr_objective_horizon_bce_source_anchored_adapters.yaml": dict(
+            build_source_adapter_config(registry, anchored=True), seed=42
+        ),
+        "direct_cr_bce_lowrank_endpoint_groups_v1.yaml": build_endpoint_weighting_pilot(registry),
+        "direct_cr_bce_lowrank_weighting_reference_v1.yaml": build_endpoint_weighting_pilot(registry, revised=False),
         "direct_cr_uniform_cls.yaml": build_joined_bins_direct_cr_config(
             registry, cls_pooling=True
         ),

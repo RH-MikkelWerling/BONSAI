@@ -24,6 +24,8 @@ from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, Mode
 from bonsai.functional.pathing import get_experiment_output_path
 from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.functional.checkpointing import (
+    MODEL_INIT_CONFIG_KEY,
+    clean_lightning_state_dict,
     extract_encoder_state_dict,
     get_saved_encoder_config,
     resolve_resume_checkpoint,
@@ -77,6 +79,64 @@ _TRANSFER_METADATA_FIELDS = (
     "source_dapt_checkpoint",
     "selection_outcomes",
 )
+
+
+def _initialize_source_adapters(model, source_path: str, outcome_names: list[str]) -> None:
+    """Load every shared BCE tensor, allowing only new adapter/router tensors."""
+    source = torch.load(source_path, map_location="cpu", weights_only=False)
+    init = source.get("hyper_parameters", {}).get(MODEL_INIT_CONFIG_KEY, {})
+    risk = dict(init.get("competing_risk_config", {}))
+    if risk.get("objective") != "horizon_bce" or risk.get("readout_mode", "shared") != "shared":
+        raise ValueError("Adapter initialization requires a shared horizon-BCE checkpoint")
+    state = clean_lightning_state_dict(source["state_dict"])
+    if "competing_risk_head.weight" not in state:
+        raise ValueError("Source checkpoint has no shared competing-risk head")
+    if state["competing_risk_head.weight"].shape != model.competing_risk_head.weight.shape:
+        raise ValueError("Source head shape does not match the configured outcome panel")
+    if tuple(init.get("cohort_names", [])) != tuple(model.model_init_config["cohort_names"]):
+        raise ValueError("Source checkpoint cohort order does not match")
+    if tuple(source.get("hyper_parameters", {}).get("outcome_names", outcome_names)) != tuple(outcome_names):
+        raise ValueError("Source checkpoint outcome order does not match")
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    expected = {key for key in model.state_dict() if key.startswith("source_adapter_readout.")}
+    if set(missing) != expected or unexpected:
+        raise RuntimeError(
+            f"Source initialization mismatch: missing={sorted(set(missing)-expected)}, "
+            f"unexpected={unexpected}"
+        )
+
+
+def _set_source_training_support(model, train_dataset, output_path: str, event_tau: float) -> None:
+    """Count source support from eligible training records only."""
+    readout = model.source_adapter_readout
+    patients = [set() for _ in range(readout.n_sources)]
+    events = [0] * readout.n_sources
+    observations = [0] * readout.n_sources
+    datasets = getattr(train_dataset, "datasets", [train_dataset])
+    for dataset in datasets:
+        fine_map = dataset.fine_index_by_subject or {}
+        for outcome, records in dataset.outcome_dicts.items():
+            outcome_source = readout.n_disease + readout.outcome_names.index(outcome)
+            for subject_id, record in records.items():
+                if int(record.get("event", -1)) < 0 or float(record.get("time_days", -1)) < 0:
+                    continue
+                disease_source = fine_map.get(subject_id, -1)
+                for source in (outcome_source, disease_source):
+                    if source < 0:
+                        continue
+                    patients[source].add(subject_id)
+                    observations[source] += 1
+                    events[source] += int(record["event"] == 1)
+    readout.set_training_support(
+        [len(group) for group in patients], events, observations, event_tau=event_tau
+    )
+    names = [*("disease:" + n for n in readout.fine_names),
+             *("outcome:" + n for n in readout.outcome_names)]
+    with open(output_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["source_index", "source_name", "training_patients", "training_events", "eligible_observations", "shrinkage"])
+        for i, name in enumerate(names):
+            writer.writerow([i, name, len(patients[i]), events[i], observations[i], float(readout.source_shrinkage[i])])
 
 
 def _uses_gradient_cache(
@@ -193,6 +253,8 @@ def _checkpoint_metadata(
         "outcome_set": outcome_names,
         **input_contract_metadata(numeric_value_control),
     }
+    if cfg.get("source_opera_ckpt") is not None:
+        metadata["source_opera_checkpoint"] = str(cfg.source_opera_ckpt)
     if transfer_metadata is None:
         return metadata
     # Copy the condition-level metadata and add the actual runtime seed.  This
@@ -372,8 +434,19 @@ def main(cfg: DictConfig) -> None:
         logical_batch_size=cfg.training.get("logical_batch_size"),
         logical_val_batch_size=cfg.training.get("logical_val_batch_size"),
         numeric_value_control=numeric_value_control,
+        fine_names=competing_risk_config.get("fine_names") if model.source_adapter_readout is not None else None,
+        fine_column=str(competing_risk_config.get("fine_column", "cohort_fine")),
     )
     data_module.setup("fit")
+
+    if model.source_adapter_readout is not None:
+        _initialize_source_adapters(model, str(cfg.source_opera_ckpt), outcome_names)
+        _set_source_training_support(
+            model, data_module.train_dataset,
+            f"{model_save_dir}/source_training_support.csv",
+            float(competing_risk_config.get("adapter_event_tau", 20.0)),
+        )
+        print(f"Initialized source adapters from {cfg.source_opera_ckpt}")
 
     if float(competing_risk_config.get("loss_weight", 0.0)) > 0:
         support = summarize_competing_risk_support(
@@ -420,7 +493,7 @@ def main(cfg: DictConfig) -> None:
                 == "kendall_null"
             ):
                 model.competing_risk_loss.set_null_log_hazards(null_log_hazards)
-            if bool(
+            if model.source_adapter_readout is None and bool(
                 competing_risk_config.get("initialize_from_null_hazards", False)
             ):
                 model.initialize_competing_risk_biases(null_log_hazards)
@@ -492,6 +565,9 @@ def main(cfg: DictConfig) -> None:
             competing_risk_config.get("interval_boundaries_days", []),
         ),
         outcome_families=cross_outcome_config.get("outcome_families", {}),
+        endpoint_groups=cross_outcome_config.get("endpoint_groups", {}),
+        selection_min_cases=cfg.training.get("selection_min_cases", 20),
+        selection_min_controls=cfg.training.get("selection_min_controls", 20),
         checkpoint_metadata=_checkpoint_metadata(
             cfg,
             outcome_names,
@@ -523,6 +599,7 @@ def main(cfg: DictConfig) -> None:
         )
 
     trainer = L.Trainer(
+        default_root_dir=model_save_dir,
         accelerator=cfg.hardware.accelerator,
         accumulate_grad_batches=(
             1

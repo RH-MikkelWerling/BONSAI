@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import textwrap
+from matplotlib.lines import Line2D
 
 from opera.visualization.style import (
     PALETTE,
@@ -30,7 +32,6 @@ from opera.visualization.style import (
     add_panel_label,
     ANNOT_SIZE,
     LEGEND_SIZE,
-    LEGEND_TITLE_SIZE,
     NOTE_SIZE,
     SUBTITLE_SIZE,
     SUPTITLE_SIZE,
@@ -49,6 +50,12 @@ SOURCE_PALETTE = {
 }
 
 
+def _embedding_point_style(n_patients: int) -> tuple[float, float]:
+    """Smaller, lighter markers for dense patient clouds; never subsample."""
+    root_n = np.sqrt(max(n_patients, 1))
+    return float(np.clip(100 / root_n, 0.5, 6)), float(np.clip(40 / root_n, 0.2, 0.75))
+
+
 def _reduce_embeddings(
     embeddings: np.ndarray,
     method: str = "umap",
@@ -65,6 +72,10 @@ def _reduce_embeddings(
         }
         defaults.update(kwargs)
         return UMAP(n_components=2, **defaults).fit_transform(embeddings)
+    elif method == "pca":
+        from sklearn.decomposition import PCA
+
+        return PCA(n_components=2).fit_transform(embeddings)
     else:
         from sklearn.manifold import TSNE
 
@@ -107,14 +118,23 @@ def plot_embedding_projection(
     method: str = "umap",
     title: Optional[str] = None,
     label_names: Tuple[str, str] = ("Negative", "Positive"),
-    density_contours: bool = True,
+    density_contours: bool = False,
     save_path: Optional[str] = None,
     **reducer_kwargs,
 ) -> plt.Figure:
     """2D scatter of embeddings colored by binary label, with KDE contours."""
     coords = _reduce_embeddings(embeddings, method, **reducer_kwargs)
+    size, alpha = _embedding_point_style(len(coords))
 
     fig, ax = plt.subplots(figsize=(4.5, 4.2))
+    indices = np.flatnonzero(np.isin(labels, [0, 1]))
+    indices = indices[np.random.default_rng(0).permutation(len(indices))]
+    ax.scatter(
+        coords[indices, 0], coords[indices, 1],
+        c=[PALETTE["positive"] if labels[index] == 1 else PALETTE["negative"] for index in indices],
+        s=size, alpha=alpha, rasterized=True, linewidths=0, zorder=2,
+    )
+    handles = []
 
     for label_val, color, name in [
         (0, PALETTE["negative"], label_names[0]),
@@ -123,24 +143,16 @@ def plot_embedding_projection(
         mask = labels == label_val
         if mask.sum() == 0:
             continue
-        ax.scatter(
-            coords[mask, 0],
-            coords[mask, 1],
-            c=color,
-            s=5,
-            alpha=0.35,
-            label=f"{name} (n={mask.sum()})",
-            rasterized=True,
-            linewidths=0,
-            zorder=2,
-        )
+        handles.append(Line2D([], [], marker="o", linestyle="none", color=color,
+                              label=f"{name} (n={mask.sum():,})"))
         if density_contours and mask.sum() > 50:
             _density_contour(ax, coords[mask, 0], coords[mask, 1], color)
 
     ax.set_xlabel(f"{method.upper()} 1")
     ax.set_ylabel(f"{method.upper()} 2")
     ax.set_title(title or f"Embedding space  ({method.upper()})")
-    ax.legend(markerscale=3, framealpha=0.94, fontsize=LEGEND_SIZE)
+    ax.legend(handles=handles, frameon=False, fontsize=LEGEND_SIZE,
+              loc="upper left", bbox_to_anchor=(1.02, 1))
     clean_2d_axes(ax)
 
     fig.tight_layout()
@@ -167,11 +179,12 @@ def plot_embedding_survival_gradient(
     2D scatter colored by time-to-event, with censored patients shown as
     open circles overlaid.
 
-    This reveals where the model is certain (dense clusters of early/late
-    events) vs where clinical ambiguity exists (mixed time regions).
+    This describes observed event/follow-up timing, not model certainty.
+    Censored follow-up is not an observed time to the endpoint.
     """
     valid = np.isfinite(times) & (events >= 0)
     coords = _reduce_embeddings(embeddings, method, **reducer_kwargs)
+    size, alpha = _embedding_point_style(len(coords))
 
     fig, ax = plt.subplots(figsize=(5.2, 4.5))
 
@@ -182,8 +195,8 @@ def plot_embedding_survival_gradient(
         coords[:, 1],
         c=t_plot,
         cmap=sequential_cmap("opera"),
-        s=5,
-        alpha=0.55,
+        s=size,
+        alpha=alpha,
         rasterized=True,
         linewidths=0,
         zorder=2,
@@ -197,11 +210,11 @@ def plot_embedding_survival_gradient(
         ax.scatter(
             coords[cens_mask, 0],
             coords[cens_mask, 1],
-            s=7,
+            s=size * 1.4,
             facecolors="none",
             edgecolors=PALETTE["connector"],
             linewidths=0.4,
-            alpha=0.4,
+            alpha=min(alpha, 0.25),
             zorder=3,
             label=f"Admin censored (n={cens_mask.sum()})",
             rasterized=True,
@@ -213,11 +226,11 @@ def plot_embedding_survival_gradient(
         ax.scatter(
             coords[comp_mask, 0],
             coords[comp_mask, 1],
-            s=7,
+            s=size * 1.4,
             facecolors="none",
             edgecolors=PALETTE["positive"],
             linewidths=0.4,
-            alpha=0.4,
+            alpha=min(alpha, 0.25),
             zorder=3,
             label=f"Competing death (n={comp_mask.sum()})",
             rasterized=True,
@@ -225,7 +238,7 @@ def plot_embedding_survival_gradient(
 
     cbar = fig.colorbar(sc, ax=ax, shrink=0.85, pad=0.02)
     cbar.set_label(
-        f"Time to {outcome_name.replace('_', ' ')} (days)", fontsize=NOTE_SIZE
+        "Observed event or follow-up time (days)", fontsize=NOTE_SIZE
     )
     cbar.ax.tick_params(labelsize=NOTE_SIZE)
 
@@ -233,7 +246,8 @@ def plot_embedding_survival_gradient(
     ax.set_ylabel(f"{method.upper()} 2")
     ax.set_title(title or f"Embedding — {outcome_name.replace('_', ' ').title()}")
     if cens_mask.sum() > 0 or comp_mask.sum() > 0:
-        ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="lower right")
+        ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="upper left",
+                  bbox_to_anchor=(1.15, 1), frameon=False)
     clean_2d_axes(ax)
 
     fig.tight_layout()
@@ -251,6 +265,7 @@ def plot_embedding_multi_outcome(
     outcome_labels: Dict[str, np.ndarray],
     method: str = "umap",
     save_path: Optional[str] = None,
+    density_contours: bool = False,
     **reducer_kwargs,
 ) -> plt.Figure:
     """
@@ -261,6 +276,9 @@ def plot_embedding_multi_outcome(
 
     names = sorted(outcome_labels.keys())
     n = len(names)
+    if n == 0:
+        raise ValueError("At least one outcome is required.")
+    size, alpha = _embedding_point_style(len(coords))
     cols = min(n, 3)
     rows = (n + cols - 1) // cols
 
@@ -271,8 +289,8 @@ def plot_embedding_multi_outcome(
 
     for i, name in enumerate(names):
         ax = axes[i]
-        labs = outcome_labels[name]
-        valid = labs >= 0
+        labs = np.asarray(outcome_labels[name])
+        valid = np.isin(labs, [0, 1])
 
         ax.scatter(
             coords[~valid, 0],
@@ -284,36 +302,38 @@ def plot_embedding_multi_outcome(
             linewidths=0,
         )
 
+        indices = np.flatnonzero(valid)
+        indices = indices[np.random.default_rng(0).permutation(len(indices))]
+        ax.scatter(
+            coords[indices, 0], coords[indices, 1],
+            c=[PALETTE["positive"] if labs[index] == 1 else PALETTE["negative"] for index in indices],
+            s=size, alpha=alpha, rasterized=True, linewidths=0, zorder=2,
+        )
+
         for label_val, color in [(0, PALETTE["negative"]), (1, PALETTE["positive"])]:
             mask = valid & (labs == label_val)
-            lbl = "Positive" if label_val else "Negative"
-            ax.scatter(
-                coords[mask, 0],
-                coords[mask, 1],
-                c=color,
-                s=5,
-                alpha=0.4,
-                label=lbl,
-                rasterized=True,
-                linewidths=0,
-                zorder=2,
-            )
-            if mask.sum() > 50:
+            if density_contours and mask.sum() > 50:
                 _density_contour(ax, coords[mask, 0], coords[mask, 1], color, levels=4)
 
         ax.set_title(
-            name.replace("_", " ").title(),
+            textwrap.fill(name.replace("_", " ").title(), width=30)
+            + f"\n{int((labs == 1).sum()):,} / {int(valid.sum()):,} events",
             fontsize=SUBTITLE_SIZE,
             fontweight="semibold",
         )
-        ax.legend(markerscale=2, fontsize=LEGEND_SIZE, loc="lower right")
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(coords[:, 0].min(), coords[:, 0].max())
+        ax.set_ylim(coords[:, 1].min(), coords[:, 1].max())
         clean_2d_axes(ax)
 
     for j in range(n, len(axes)):
         axes[j].set_visible(False)
 
     fig.suptitle(f"Embedding space by outcome  ({method.upper()})", y=1.01)
-    fig.tight_layout()
+    handles = [Line2D([], [], marker="o", linestyle="none", color=PALETTE[key], label=label)
+               for key, label in (("negative", "No event"), ("positive", "Event"), ("missing", "Unknown status"))]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.07, 1, 1), h_pad=2)
     save_fig(fig, save_path)
     return fig
 
@@ -509,7 +529,10 @@ def plot_training_curves(
             for c in training_log.columns
             if c.startswith("train/") or c.startswith("val/")
         ]
-        bases = sorted({c.replace("train/", "").replace("val/", "") for c in all_cols})
+        bases = sorted({
+            c.split("/", 1)[1].removesuffix("_epoch")
+            for c in all_cols if not c.endswith("_step")
+        })
         metrics = bases  # Validation-only discrimination is still informative.
 
     if not metrics:
@@ -538,6 +561,10 @@ def plot_training_curves(
             ("val", PALETTE["positive"], "Val"),
         ]:
             col = f"{prefix}/{base}"
+            if x_col == "epoch" and f"{col}_epoch" in training_log.columns:
+                col = f"{col}_epoch"
+            if col.endswith("_step"):
+                continue
             if col in training_log.columns:
                 data = (
                     training_log[[x_col, col]]
@@ -545,6 +572,16 @@ def plot_training_curves(
                     .sort_values(x_col)
                     .reset_index(drop=True)
                 )
+                if x_col == "epoch" and data[x_col].duplicated().any():
+                    import warnings
+
+                    warnings.warn(
+                        f"Skipping {col}: multiple values per epoch; these cannot "
+                        "be treated as logged epoch aggregates.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
                 raw = data[col]
                 smth = _smooth(raw, smooth_window)
                 if smooth_window > 1:
@@ -561,7 +598,8 @@ def plot_training_curves(
         ax.set_xlabel(x_col.title())
         ax.set_ylabel(base.replace("_", " ").title())
         ax.set_title(base.replace("_", " ").title())
-        ax.legend(fontsize=LEGEND_SIZE)
+        if ax.lines:
+            ax.legend(fontsize=LEGEND_SIZE)
         despine(ax, "y")
 
     for j in range(n, len(axes)):
@@ -769,8 +807,8 @@ def plot_embedding_disease_map(
     coords: np.ndarray,
     group_labels: np.ndarray,
     group_names: Optional[Dict] = None,
-    density_contours: bool = True,
-    isolation_percentile: Optional[float] = 10.0,
+    density_contours: bool = False,
+    isolation_percentile: Optional[float] = None,
     prediction_errors: Optional[np.ndarray] = None,
     title: Optional[str] = None,
     save_path: Optional[str] = None,
@@ -779,8 +817,8 @@ def plot_embedding_disease_map(
     Main embedding figure: scatter colored by disease/cohort with KDE halos.
 
     Isolated patients (those in the lowest-density tail of the embedding) are
-    overlaid as hollow markers — position in sparse regions is associated with
-    higher prediction error (validated in plot_embedding_map_insights).
+    optionally overlaid as hollow markers. Sparse location alone does not
+    establish higher prediction error; evaluate that association separately.
 
     Parameters
     ----------
@@ -813,7 +851,8 @@ def plot_embedding_disease_map(
                 f"vs {err_rest:.3f} for remainder"
             )
 
-    fig, ax = plt.subplots(figsize=(5.2, 4.8))
+    fig, ax = plt.subplots(figsize=(7.1, max(4.8, 0.28 * len(unique))))
+    point_size, point_alpha = _embedding_point_style(len(coords))
 
     for g in unique:
         mask = (group_labels == g) & ~isolated
@@ -825,8 +864,8 @@ def plot_embedding_disease_map(
             coords[mask, 0],
             coords[mask, 1],
             c=color,
-            s=6,
-            alpha=0.40,
+            s=point_size,
+            alpha=point_alpha,
             label=f"{name}  (n={n_g:,})",
             rasterized=True,
             linewidths=0,
@@ -849,24 +888,15 @@ def plot_embedding_disease_map(
                 coords[mask_iso, 1],
                 facecolors="none",
                 edgecolors=colors[g],
-                s=18,
-                linewidths=0.9,
-                alpha=0.75,
+                s=point_size * 2,
+                linewidths=0.5,
+                alpha=0.4,
                 rasterized=True,
                 zorder=3,
             )
         # Single legend entry for isolated class
         from matplotlib.lines import Line2D
 
-        ax.add_artist(
-            ax.legend(
-                markerscale=2.5,
-                fontsize=LEGEND_SIZE,
-                framealpha=0.92,
-                loc="best",
-                borderpad=0.6,
-            )
-        )
         iso_handle = Line2D(
             [0],
             [0],
@@ -878,20 +908,11 @@ def plot_embedding_disease_map(
             markersize=6,
             label=f"Isolated  (n={isolated.sum():,})",
         )
-        ax.legend(
-            handles=[iso_handle],
-            fontsize=LEGEND_SIZE,
-            loc="lower right",
-            framealpha=0.92,
-        )
-    else:
-        ax.legend(
-            markerscale=2.5,
-            fontsize=LEGEND_SIZE,
-            framealpha=0.92,
-            loc="best",
-            borderpad=0.6,
-        )
+    handles, _ = ax.get_legend_handles_labels()
+    if isolated.any():
+        handles.append(iso_handle)
+    ax.legend(handles=handles, markerscale=2.5, fontsize=LEGEND_SIZE,
+              frameon=False, loc="upper left", bbox_to_anchor=(1.02, 1))
 
     if isolation_stat:
         ax.text(
@@ -1223,6 +1244,7 @@ def plot_embedding_stage_metadata_grid(
     n_patients = len(first_coords)
     if n_patients == 0:
         raise ValueError("At least one patient coordinate is required.")
+    point_size, point_alpha = _embedding_point_style(n_patients)
 
     normalized_coords: Dict[str, np.ndarray] = {}
     for stage, values in stage_coords.items():
@@ -1385,7 +1407,7 @@ def plot_embedding_stage_metadata_grid(
                     coords[missing, 0],
                     coords[missing, 1],
                     c=PALETTE["missing"],
-                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
+                    s=point_size,
                     alpha=0.32,
                     linewidths=0,
                     rasterized=True,
@@ -1403,8 +1425,8 @@ def plot_embedding_stage_metadata_grid(
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
-                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
-                    alpha=0.85,
+                    s=point_size,
+                    alpha=point_alpha,
                     linewidths=0,
                     rasterized=True,
                     zorder=2,
@@ -1420,8 +1442,8 @@ def plot_embedding_stage_metadata_grid(
                     coords[indices, 0],
                     coords[indices, 1],
                     c=colors,
-                    s=max(3.0, min(14.0, 260 / np.sqrt(n_patients))),
-                    alpha=0.70,
+                    s=point_size,
+                    alpha=point_alpha,
                     linewidths=0,
                     rasterized=True,
                     zorder=2,
@@ -1560,7 +1582,8 @@ def plot_clinical_variables_panel(
     clinical_vars : dict of variable_name → 1-D array (same length as coords).
         NaN / -1 / "" → shown as light grey "unknown" points.
     cmaps : optional override mapping variable_name → matplotlib cmap name.
-        Defaults: age → "YlOrRd", ipi / score → "RdYlGn_r", else "viridis".
+        Defaults: continuous variables use plasma; categorical variables retain
+        distinct category colors.
 
     Example
     -------
@@ -1574,17 +1597,18 @@ def plot_clinical_variables_panel(
     if n_vars == 0:
         return plt.figure()
 
-    cols = min(n_vars, max_cols)
+    cols = min(max_cols, int(np.ceil(np.sqrt(n_vars))))
     rows = (n_vars + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(3.8 * cols, 3.6 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(3.8 * cols, 4.3 * rows))
+    point_size, point_alpha = _embedding_point_style(len(coords))
     if n_vars == 1:
         axes = np.array([axes])
     axes_flat = np.array(axes).flatten()
 
     _default_cmaps = {
         "age": sequential_cmap("opera"),
-        "ipi": "RdYlGn_r",
-        "score": "RdYlGn_r",
+        "ipi": sequential_cmap("opera"),
+        "score": sequential_cmap("opera"),
         "stage": sequential_cmap("opera"),
         "default": sequential_cmap("opera"),
     }
@@ -1637,8 +1661,8 @@ def plot_clinical_variables_panel(
                     coords[mask, 0],
                     coords[mask, 1],
                     c=colors[g],
-                    s=5,
-                    alpha=0.45,
+                    s=point_size,
+                    alpha=point_alpha,
                     label=str(g),
                     rasterized=True,
                     linewidths=0,
@@ -1646,10 +1670,10 @@ def plot_clinical_variables_panel(
                 )
             ax.legend(
                 markerscale=2,
-                fontsize=LEGEND_SIZE,
-                borderpad=0.5,
-                title=var_name,
-                title_fontsize=LEGEND_TITLE_SIZE,
+                fontsize=NOTE_SIZE,
+                frameon=False,
+                loc="upper center", bbox_to_anchor=(0.5, -0.03),
+                ncol=2,
             )
         else:
             numeric_vals = vals.astype(float)
@@ -1663,23 +1687,24 @@ def plot_clinical_variables_panel(
                 cmap=cmap_name,
                 vmin=vmin,
                 vmax=vmax,
-                s=5,
-                alpha=0.55,
+                s=point_size,
+                alpha=point_alpha,
                 rasterized=True,
                 linewidths=0,
                 zorder=2,
             )
-            cb = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02, aspect=18)
+            cb = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.07, aspect=25,
+                              orientation="horizontal")
             cb.ax.tick_params(labelsize=NOTE_SIZE)
 
-        ax.set_title(var_name, fontsize=SUBTITLE_SIZE, fontweight="semibold")
+        ax.set_title(textwrap.fill(var_name, width=30), fontsize=SUBTITLE_SIZE, fontweight="semibold")
         clean_2d_axes(ax)
 
     for j in range(n_vars, len(axes_flat)):
         axes_flat[j].set_visible(False)
 
     fig.suptitle(title or "Clinical variables in embedding space", y=1.01)
-    fig.tight_layout()
+    fig.tight_layout(h_pad=4)
     save_fig(fig, save_path)
     return fig
 

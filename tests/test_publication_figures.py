@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from opera.visualization.classification_plots import plot_roc_comparison
+from opera.visualization.classification_plots import plot_roc_comparison, plot_decision_curve
 from opera.visualization.comparison_plots import plot_forest, plot_metric_comparison
 from opera.visualization.disease_geometry_plots import plot_transfer_matrix
 from opera.visualization.style import save_fig
@@ -23,6 +23,11 @@ def test_comparison_keeps_more_than_eight_models():
     fig = plot_roc_comparison(results)
     assert len(fig.axes[0].get_legend().get_texts()) == 12
     assert len(fig.axes[0].lines) == 13
+    identities = [
+        (line.get_color(), str(line._unscaled_dash_pattern))
+        for line in fig.axes[0].lines[:-1]
+    ]
+    assert len(set(identities)) == 12
 
 
 def test_pr_forest_does_not_invent_prevalence():
@@ -30,6 +35,13 @@ def test_pr_forest_does_not_invent_prevalence():
         {"opera": {"auprc": {"mean": 0.4, "lower": 0.3, "upper": 0.5}}}, metric="auprc"
     )
     assert len(fig.axes[0].lines) == 1
+
+
+def test_decision_curve_divergent_reference_does_not_expand_upper_limit():
+    labels = np.array([0] * 90 + [1] * 10)
+    probabilities = np.linspace(0.01, 0.4, 100)
+    fig = plot_decision_curve(labels, probabilities)
+    assert fig.axes[0].get_ylim()[1] < 0.3
 
 
 def test_shared_metric_axes_keep_input_order():

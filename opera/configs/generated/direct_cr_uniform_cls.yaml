@@ -13,7 +13,7 @@ output_path: null
 overwrite: false
 paths:
   vocabulary: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins/vocabulary.pt
-  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care
+  sequence_data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t100_joined_bins_harmonized_v4
 cohorts:
   AMYLOIDOSIS:
     data_dir: ${oc.env:BONSAI_PROCESSED_DATA}/daly_care_t200_joined_bins

@@ -1817,14 +1817,30 @@ class OperaContrastiveModel(nn.Module):
             "outcome_attention",
             "shared_attention_prototypes",
             "factorized_cohort_outcome_prototypes",
+            "source_anchored_adapters",
+            "unanchored_adapters",
         }:
             raise ValueError(
                 "competing_risk.readout_mode must be 'shared', 'outcome_attention', "
                 "'shared_attention_prototypes', or "
-                "'factorized_cohort_outcome_prototypes'."
+                "'factorized_cohort_outcome_prototypes', "
+                "'source_anchored_adapters', or 'unanchored_adapters'."
             )
         self.outcome_attention_readout = None
-        if self.outcome_readout_mode != "shared":
+        self.source_adapter_readout = None
+        if self.outcome_readout_mode in {"source_anchored_adapters", "unanchored_adapters"}:
+            from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
+
+            self.source_adapter_readout = SourceAnchoredReadout(
+                hidden_size,
+                competing_risk_settings.get("fine_names", []),
+                outcome_names,
+                bottleneck=int(competing_risk_settings.get("adapter_bottleneck", 8)),
+                residual_scale=float(competing_risk_settings.get("adapter_residual_scale", 0.1)),
+                home_floor=float(competing_risk_settings.get("adapter_home_floor", 0.1)),
+                anchored=self.outcome_readout_mode == "source_anchored_adapters",
+            )
+        elif self.outcome_readout_mode != "shared":
             if self.competing_risk_weight <= 0:
                 raise ValueError(
                     "Outcome-conditioned attention requires a competing-risk objective."
@@ -1998,7 +2014,7 @@ class OperaContrastiveModel(nn.Module):
                 competing_risk_settings.get("initial_log_hazard", -2.3)
             )
             if head_mode == "linear":
-                if self.outcome_readout_mode != "shared":
+                if self.outcome_attention_readout is not None:
                     self.competing_risk_head = OutcomeLinearCompetingRiskHead(
                         hidden_size,
                         outcome_names,
@@ -2011,7 +2027,7 @@ class OperaContrastiveModel(nn.Module):
                     nn.init.normal_(self.competing_risk_head.weight, mean=0.0, std=0.01)
                     nn.init.constant_(self.competing_risk_head.bias, initial_bias)
             elif head_mode == "outcome_mlp":
-                if self.outcome_readout_mode != "shared":
+                if self.outcome_attention_readout is not None:
                     raise ValueError(
                         "outcome_mlp is a shared-readout ablation; combine outcome "
                         "attention with head_mode=linear."
@@ -2155,6 +2171,34 @@ class OperaContrastiveModel(nn.Module):
             hidden, shared, batch["attention_mask"]
         )
 
+    def competing_risk_log_hazards(
+        self, pooled: torch.Tensor, fine_index: Optional[torch.Tensor] = None,
+        *, removed_sources: Sequence[str] = (), return_routes: bool = False,
+    ):
+        """Compute direct hazards; optionally expose source routes for export."""
+        routes = None
+        if self.source_adapter_readout is not None:
+            if fine_index is None:
+                raise ValueError("Source adapters require cohort_fine_index")
+            adapted, routes = self.source_adapter_readout(
+                pooled, fine_index, removed_sources=removed_sources,
+                return_weights=True,
+            )
+            head = self.competing_risk_head
+            if not isinstance(head, nn.Linear):
+                raise TypeError("Source adapters require the shared linear risk head")
+            outputs = head.weight.shape[0] // len(self.contrastive_loss.outcome_names)
+            weight = head.weight.reshape(len(self.contrastive_loss.outcome_names), outputs, -1)
+            bias = head.bias.reshape(len(self.contrastive_loss.outcome_names), outputs)
+            flat = torch.einsum("boh,okh->bok", adapted, weight) + bias[None]
+        else:
+            flat = self.competing_risk_head(pooled)
+        hazards = flat.reshape(
+            pooled.shape[0], len(self.contrastive_loss.outcome_names), 2,
+            self.competing_risk_loss.n_intervals,
+        )
+        return (hazards, routes) if return_routes else hazards
+
     def get_embeddings(
         self,
         batch: dict,
@@ -2264,7 +2308,8 @@ class OperaContrastiveModel(nn.Module):
         """
         pooled = self.get_objective_representations(batch)
         return self.forward_from_pooled(
-            pooled, outcome_survival, batch.get("subject_id", None)
+            pooled, outcome_survival, batch.get("subject_id", None),
+            batch.get("cohort_fine_index"),
         )
 
     def forward_from_pooled(
@@ -2272,6 +2317,7 @@ class OperaContrastiveModel(nn.Module):
         pooled: torch.Tensor,
         outcome_survival: Dict[str, Dict[str, torch.Tensor]],
         subject_ids: Optional[torch.Tensor] = None,
+        fine_index: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Compute all OPERA objectives from cached pooled representations."""
         if self.contrastive_loss_weight > 0.0:
@@ -2296,11 +2342,8 @@ class OperaContrastiveModel(nn.Module):
 
         if self.competing_risk_head is not None:
             n_intervals = self.competing_risk_loss.n_intervals
-            log_hazards = self.competing_risk_head(pooled).reshape(
-                pooled.shape[0],
-                len(self.contrastive_loss.outcome_names),
-                2,
-                n_intervals,
+            log_hazards, routes = self.competing_risk_log_hazards(
+                pooled, fine_index, return_routes=True
             )
             competing_risk_loss, competing_logs = self.competing_risk_loss(
                 log_hazards,
@@ -2311,6 +2354,24 @@ class OperaContrastiveModel(nn.Module):
             # Private tensor output for validation/inference. Lightning logging
             # deliberately ignores private keys in OperaContrastiveModule.
             log_dict["_competing_risk_log_hazards"] = log_hazards
+            if routes is not None:
+                log_dict["cr/route_shared_weight"] = routes[..., 0].mean().detach()
+                log_dict["cr/route_entropy"] = (
+                    -(routes.clamp_min(1e-8) * routes.clamp_min(1e-8).log())
+                    .sum(-1).mean().detach()
+                )
+                log_dict["cr/effective_residual_magnitude"] = (
+                    (log_hazards - self.competing_risk_head(pooled).reshape_as(log_hazards))
+                    .abs().mean().detach()
+                )
+                names = [
+                    *("disease/" + n for n in self.source_adapter_readout.fine_names),
+                    *("outcome/" + n for n in self.source_adapter_readout.outcome_names),
+                ]
+                for source_index, name in enumerate(names):
+                    log_dict[f"cr/route_source/{name}"] = (
+                        routes[..., 1 + source_index].mean().detach()
+                    )
 
         anchor_loss = (
             self._compute_anchor_loss(pooled, subject_ids)
