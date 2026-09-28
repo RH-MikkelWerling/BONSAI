@@ -95,6 +95,11 @@ def test_censoring_aware_panel_smoke():
     assert maps["calibration-map:E"].images[0].get_cmap().name == "plasma"
     assert maps["calibration-map:B"].collections[0].get_cmap().name == "plasma"
     assert maps["calibration-map:C"].images[0].get_clip_path() is not None
+    bottom = [maps[f"calibration-map:{letter}"].get_position() for letter in "CDE"]
+    assert bottom[0].y0 == pytest.approx(bottom[1].y0)
+    assert bottom[1].y0 == pytest.approx(bottom[2].y0)
+    assert bottom[0].x0 < bottom[1].x0 < bottom[2].x0
+    assert maps["calibration-map:legend"].get_position().y0 > bottom[0].y1
 
 
 def test_ipcw_includes_censoring_before_a_between_knot_horizon():
@@ -152,6 +157,17 @@ def test_kernel_surfaces_is_the_plain_two_dimensional_ipcw_kernel():
     assert risk[4, 4] == pytest.approx((kernel @ target) / kernel.sum())
     assert support[4, 4] == pytest.approx(kernel.sum() ** 2 / (kernel**2).sum())
     assert density[4, 4] == pytest.approx(kernel.sum())
+
+
+def test_kernel_grid_can_extend_beyond_supported_tails():
+    coords = np.array([[0., 0.], [1., 1.], [.5, .5]])
+    xx, yy, _, _, _ = _kernel_surfaces(
+        coords, np.array([0., 1., 0.]), np.ones(3), bandwidth=.5,
+        grid_size=15, bounds_coords=coords, min_padding=2.,
+    )
+    assert xx.min() == -2.
+    assert xx.max() == 3.
+    assert yy.min() == -2.
 
 
 def test_panel_d_observed_surface_is_panel_c_surface():

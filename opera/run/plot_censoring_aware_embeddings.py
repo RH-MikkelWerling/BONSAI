@@ -36,18 +36,19 @@ def main() -> None:
         "--embedding-cols",
         nargs="*",
         default=[],
-        help="Full embedding columns; panel D neighbourhoods are kNN in this space.",
+        help="Full embedding columns for the optional full-embedding residual neighborhood.",
     )
     parser.add_argument(
         "--held-out-col",
         help="Boolean column marking patients the model never trained on.",
     )
     parser.add_argument("--n-neighbors", type=int, default=50)
+    parser.add_argument("--residual-use-full-embedding", action="store_true")
     parser.add_argument(
         "--residual-units",
         choices=["z", "raw"],
-        default="z",
-        help="Panel D scale: local z (default) or raw D(x) in CIF units.",
+        default="raw",
+        help="Panel D scale: raw D(x) in CIF units (default), or exploratory local z.",
     )
     parser.add_argument("--residual-bootstrap", type=int, default=200)
     parser.add_argument(
@@ -131,6 +132,7 @@ def main() -> None:
         min_effective_support=args.min_effective_support,
         n_neighbors=args.n_neighbors,
         residual_standardize=args.residual_units == "z",
+        residual_use_full_embedding=args.residual_use_full_embedding,
         residual_bootstrap=args.residual_bootstrap,
         residual_z_limit=args.residual_z_limit,
         random_state=args.random_state,

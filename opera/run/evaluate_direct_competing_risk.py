@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import torch
 from dotenv import load_dotenv
 from hydra import compose, initialize_config_dir
@@ -93,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--export-embeddings", action="store_true",
+                        help="Export pooled patient encoder embeddings for this evaluation split alongside predictions.")
     parser.add_argument(
         "--outcome",
         default=None,
@@ -222,6 +225,7 @@ def main() -> None:
     )
 
     prediction_rows: list[dict] = []
+    embedding_ids, embedding_values = [], []
     route_rows: list[dict] = []
     source_names = []
     if model.source_adapter_readout is not None:
@@ -251,6 +255,12 @@ def main() -> None:
             for raw_batch in loader:
                 batch = _move(raw_batch, device)
                 representations = model.get_objective_representations(batch)
+                if args.export_embeddings:
+                    pooled = representations if representations.ndim == 2 else model.get_embeddings(batch, return_pre_projection=True)
+                    if pooled.ndim != 2:
+                        raise ValueError("Embedding export requires a pooled patient representation.")
+                    embedding_ids.append(batch["subject_id"].detach().cpu().numpy())
+                    embedding_values.append(pooled.detach().float().cpu().numpy())
                 hazards, routes = model.competing_risk_log_hazards(
                     representations, batch.get("cohort_fine_index"), return_routes=True
                 )
@@ -367,6 +377,18 @@ def main() -> None:
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(output_dir / "direct_cr_predictions.parquet", index=False)
+    if args.export_embeddings:
+        ids = np.concatenate(embedding_ids)
+        values = np.concatenate(embedding_values)
+        if len(np.unique(ids)) != len(ids):
+            raise ValueError("Duplicate patients across cohort embedding exports; cannot create a unique projection.")
+        np.savez_compressed(output_dir / "patient_embeddings.npz", subject_ids=ids,
+                            embeddings=values, splits=np.full(len(ids), args.split))
+        (output_dir / "patient_embeddings.metadata.json").write_text(json.dumps({
+            "checkpoint": str(args.checkpoint.resolve()), "split": args.split,
+            "config_name": args.config_name, "n_patients": len(ids),
+            "representation": "pooled encoder (before risk head)",
+        }, indent=2))
     if route_rows:
         pd.DataFrame(route_rows).to_parquet(output_dir / "source_route_weights.parquet", index=False)
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)

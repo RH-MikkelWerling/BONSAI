@@ -88,8 +88,8 @@ def _default_bandwidth(coords: np.ndarray) -> float:
     return float(np.median(positive)) if positive.size else 1.0
 
 
-def _display_grid(coords: np.ndarray, grid_size: int):
-    padding = 0.04 * np.maximum(np.ptp(coords, axis=0), 1e-6)
+def _display_grid(coords: np.ndarray, grid_size: int, min_padding: float = 0.):
+    padding = np.maximum(0.04 * np.maximum(np.ptp(coords, axis=0), 1e-6), min_padding)
     xs = np.linspace(
         coords[:, 0].min() - padding[0], coords[:, 0].max() + padding[0], grid_size
     )
@@ -143,8 +143,11 @@ def _kernel_surfaces(
     *,
     bandwidth: float,
     grid_size: int,
+    bounds_coords: np.ndarray | None = None,
+    min_padding: float = 0.,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    xx, yy, grid = _display_grid(coords, grid_size)
+    xx, yy, grid = _display_grid(coords if bounds_coords is None else bounds_coords,
+                                grid_size, min_padding=min_padding)
     numerator = np.zeros(len(grid))
     denominator = np.zeros(len(grid))
     squared = np.zeros(len(grid))
@@ -397,6 +400,7 @@ def plot_censoring_aware_embedding_panel(
     embedding: np.ndarray | None = None,
     held_out: np.ndarray | None = None,
     bandwidth: float | None = None,
+    bandwidth_scale: float = 1.,
     grid_size: int = 80,
     min_effective_support: float = 25.0,
     min_density_fraction: float = 0.01,
@@ -405,6 +409,7 @@ def plot_censoring_aware_embedding_panel(
     residual_use_full_embedding: bool = False,
     residual_bootstrap: int = 200,
     residual_z_limit: float = 4.0,
+    residual_probability_limit: float | None = None,
     random_state: int = 0,
     title: str = "Outcome",
 ):
@@ -443,6 +448,11 @@ def plot_censoring_aware_embedding_panel(
     local_weights = data.weights[eligible]
     if bandwidth is None:
         bandwidth = _default_bandwidth(local_coords)
+    if bandwidth <= 0 or bandwidth_scale <= 0:
+        raise ValueError("Bandwidth and bandwidth_scale must be positive.")
+    bandwidth *= bandwidth_scale
+    if residual_probability_limit is not None and residual_probability_limit <= 0:
+        raise ValueError("residual_probability_limit must be positive.")
     local_embedding = (
         None if not residual_use_full_embedding or embedding is None
         else np.asarray(embedding, dtype=float)[eligible]
@@ -453,6 +463,8 @@ def plot_censoring_aware_embedding_panel(
         local_weights,
         bandwidth=bandwidth,
         grid_size=grid_size,
+        bounds_coords=coords,
+        min_padding=4 * bandwidth,
     )
     mask = (support < min_effective_support) | (
         density < min_density_fraction * np.max(density)
@@ -492,14 +504,17 @@ def plot_censoring_aware_embedding_panel(
         2, 3, left=0.055, right=0.97, top=0.89, bottom=0.09, wspace=0.22, hspace=0.42
     )
     axes, color_axes = [], []
-    for index in range(5):
-        cell = layout[index // 3, index % 3].subgridspec(
+    # Status/time above; risk, residual and support share one comparison row.
+    positions = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2)]
+    for row, column in positions:
+        cell = layout[row, column].subgridspec(
             2, 1, height_ratios=[1, 0.055], hspace=0.10
         )
         axes.append(fig.add_subplot(cell[0]))
         color_axes.append(fig.add_subplot(cell[1]))
     color_axes[0].set_axis_off()
-    legend_axis = fig.add_subplot(layout[1, 2])
+    legend_axis = fig.add_subplot(layout[0, 2])
+    legend_axis.set_label("calibration-map:legend")
     legend_axis.set_axis_off()
 
     def surface(axis, values, margin, *, cmap, vmin=None, vmax=None):
@@ -604,7 +619,9 @@ def plot_censoring_aware_embedding_panel(
     if residual is not None:
         visible = residual.display.compressed()
         peak = float(np.max(np.abs(visible))) if visible.size else 0.0
-        bound = float(residual_z_limit) if residual_standardize else max(peak, 1e-6)
+        bound = (float(residual_z_limit) if residual_standardize else
+                 float(residual_probability_limit) if residual_probability_limit is not None
+                 else max(peak, 1e-6))
         residual_plot = surface(
             axes[3],
             residual.display,
@@ -743,6 +760,10 @@ def plot_censoring_aware_embedding_panel(
         "n_eligible": int(eligible.sum()),
         "n_primary": int(local_target.sum()),
         "bandwidth": float(bandwidth),
+        "bandwidth_scale": float(bandwidth_scale),
+        "grid_size": int(grid_size),
+        "grid_min_padding": float(4 * bandwidth),
+        "residual_probability_limit": residual_probability_limit,
         "min_effective_support": float(min_effective_support),
         "min_density_fraction": float(min_density_fraction),
         "support_definition": "Kish ESS: (sum kernel*IPCW)^2 / sum (kernel*IPCW)^2",
