@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
 
-from opera.run.plot_outcome_forest import main as plot_outcome_forest_main
+from opera.run.plot_outcome_forest import _family_map, main as plot_outcome_forest_main
 from opera.visualization.outcome_forest import (
     apply_outcome_family_map,
+    family_macro_summary,
     normalize_contrast_table,
     normalize_estimate_table,
     paginate_outcomes,
@@ -96,6 +98,33 @@ def test_family_mapping_and_pagination_keep_small_families_together():
     assert len({outcome for page in pages for outcome in page}) == 3
 
 
+def test_family_macro_summary_uses_equal_outcome_weights_without_fake_ci():
+    estimates, contrasts = paired_comparison_to_forest_tables(_paired())
+    estimates.loc[estimates["outcome"].eq("aki"), "outcome_family"] = "Hematologic"
+    summary = family_macro_summary(estimates, contrasts)
+    opera = summary.loc[
+        summary["record_type"].eq("absolute")
+        & summary["outcome_family"].eq("Hematologic")
+        & summary["series"].eq("opera")
+    ].iloc[0]
+    assert opera["estimate"] == pytest.approx((0.79 + 0.76) / 2)
+    assert opera["n_outcomes"] == 2
+    assert "lower" not in summary.columns
+
+
+def test_family_map_reads_hydra_config_without_resolving_unrelated_fields(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "cross_outcome:\n"
+        "  outcome_families:\n"
+        "    Renal toxicity: [aki_first_documented]\n"
+        "paths:\n"
+        "  output: ${version:run.id}\n",
+        encoding="utf-8",
+    )
+    assert _family_map(config) == {"aki_first_documented": "Renal toxicity"}
+
+
 def test_forest_draws_aligned_absolute_delta_and_annotation_panels(tmp_path):
     estimates, contrasts = paired_comparison_to_forest_tables(_paired())
     output = tmp_path / "forest.png"
@@ -112,6 +141,24 @@ def test_forest_draws_aligned_absolute_delta_and_annotation_panels(tmp_path):
     assert any(line.get_linestyle() == "--" for line in fig.axes[1].lines)
     assert output.is_file()
     assert output.with_suffix(".pdf").is_file()
+    assert np.array_equal(
+        fig.axes[0].collections[0].get_paths()[0].vertices,
+        fig.axes[1].collections[0].get_paths()[0].vertices,
+    )
+    assert np.allclose(
+        fig.axes[0].collections[0].get_facecolors(),
+        fig.axes[1].collections[0].get_facecolors(),
+    )
+    plt.close(fig)
+
+
+def test_forest_can_label_tuning_without_claiming_held_out():
+    estimates, contrasts = paired_comparison_to_forest_tables(_paired())
+    fig = plot_outcome_performance_forest(
+        estimates, contrasts, evaluation_label="tuning",
+    )
+    assert fig.axes[0].get_title(loc="left") == "A  Absolute performance"
+    assert any("Tuning only" in text.get_text() for text in fig.texts)
     plt.close(fig)
 
 
@@ -145,3 +192,18 @@ def test_plot_cli_writes_figure_data_and_manifest(tmp_path, monkeypatch):
     assert (output / "forest_plot_manifest.json").is_file()
     assert len(list(output.glob("*.png"))) == 2
     assert len(list(output.glob("*.pdf"))) == 2
+
+
+def test_plot_cli_all_outcomes_one_page(tmp_path, monkeypatch):
+    paired = tmp_path / "paired.csv"
+    output = tmp_path / "all"
+    _paired().to_csv(paired, index=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["plot_outcome_forest", "--paired-comparison", str(paired),
+         "--horizon", "365", "--max-outcomes-per-page", "2",
+         "--all-outcomes-one-page", "--output-dir", str(output)],
+    )
+    plot_outcome_forest_main()
+    assert len(list(output.glob("*.png"))) == 1
+    assert (output / "forest_family_macro_summary.csv").is_file()

@@ -12,6 +12,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import NullLocator
 
+from opera.visualization.outcome_names import outcome_display_name
 from opera.visualization.style import (
     ANNOT_SIZE,
     CATEGORICAL,
@@ -119,12 +120,6 @@ COURSE_ORDER = [
 ]
 
 
-def _titlecase_first(text: str) -> str:
-    if not text:
-        return text
-    return text[0].upper() + text[1:]
-
-
 def _ordered_values(
     values: Sequence[str], preferred: Optional[Sequence[str]]
 ) -> list[str]:
@@ -207,7 +202,7 @@ def _selected_labels(
         row["annotation_label"] = str(
             rule.get(
                 "label",
-                f"{cohort} × {_titlecase_first(str(outcome).replace('_', ' '))}",
+                f"{cohort} × {outcome_display_name(str(outcome))}",
             )
         )
         used_ids.add(row["cell_id"])
@@ -628,7 +623,7 @@ def plot_hierarchical_rarity_curve(
     target_x: list[float] = []
     target_y: list[float] = []
     for _, row in labels.iterrows():
-        outcome_display = _titlecase_first(str(row["outcome"]).replace("_", " "))
+        outcome_display = outcome_display_name(str(row["outcome"]))
         cell_label = row.get("annotation_label")
         if pd.isna(cell_label):
             cell_label = f"{row['cohort']} × {outcome_display}"

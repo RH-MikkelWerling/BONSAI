@@ -1,0 +1,17 @@
+defaults:
+  - pretrain_harmonized_scaled_time2vec_len8192_20ep
+  - _self_
+
+# Fresh local-only capacity-matched candidate. Not a checkpoint migration.
+# Confirm these architecture fields against the collaborator resolved config.
+model:
+  hidden_size: 256
+  num_attention_heads: ???
+  num_layers: ???
+
+training:
+  # Conservative single-GPU starting point; benchmark memory before the full fit.
+  batch_size: 1
+  accumulate_grad_batches: 128
+  learning_rate: 3e-4
+

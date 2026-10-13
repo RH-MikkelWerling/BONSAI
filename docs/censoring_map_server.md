@@ -46,3 +46,16 @@ maps use a shared +/-0.20 probability range and mark colorbar overflow. For the
 pooled batch script use `BANDWIDTH_SCALE=0.5 bash scripts/plot_pooled_bce_censoring_maps.sh ...`.
 Risk is the incidence of the coded primary event: for overall survival the risk
 panel is mortality probability, not probability of survival.
+
+Patient-footprint trial: the real-data CLI now defaults to `--footprint patients`.
+It restricts colored area to a union of equal-radius discs around patient
+coordinates, with radius estimated from the median eighth-neighbor distance.
+This geometry is label-independent and preserves gaps/islands larger than its
+chosen scale; smaller gaps may close. It is not a literal recovered manifold or
+confidence boundary. Signed-distance smoothing at 0.6 times the disc radius
+removes scalloping from the display outline only; isolated tiny patches can vanish.
+The patient status panels retain every point. Statistical support masking still applies
+inside the footprint. `--footprint-radius` adjusts only that display radius;
+`--bandwidth-scale` adjusts the estimator. `--footprint kernel` restores the
+previous outline for comparison. Share an explicit footprint radius across
+outcomes when their patient populations differ and visual comparability matters.

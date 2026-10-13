@@ -20,6 +20,7 @@ outcomes are the main knobs to tune.  Search for "# TUNE:" comments below.
 """
 
 from typing import Dict, List, Mapping, Optional, Sequence, Union
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -1839,7 +1840,15 @@ class OperaContrastiveModel(nn.Module):
                 residual_scale=float(competing_risk_settings.get("adapter_residual_scale", 0.1)),
                 home_floor=float(competing_risk_settings.get("adapter_home_floor", 0.1)),
                 anchored=self.outcome_readout_mode == "source_anchored_adapters",
+                query_mode=str(competing_risk_settings.get("adapter_query_mode", "additive")),
+                query_hidden_dim=int(competing_risk_settings.get("adapter_query_hidden_dim", 128)),
+                source_mode=str(competing_risk_settings.get("adapter_source_mode", "both")),
             )
+            shared_logit_init = float(competing_risk_settings.get("adapter_shared_logit_init", 3.0))
+            if not math.isfinite(shared_logit_init):
+                raise ValueError("adapter_shared_logit_init must be finite")
+            with torch.no_grad():
+                self.source_adapter_readout.shared_logit.fill_(shared_logit_init)
         elif self.outcome_readout_mode != "shared":
             if self.competing_risk_weight <= 0:
                 raise ValueError(
@@ -2341,7 +2350,6 @@ class OperaContrastiveModel(nn.Module):
         log_dict["contrastive_loss"] = contrastive_loss.detach()
 
         if self.competing_risk_head is not None:
-            n_intervals = self.competing_risk_loss.n_intervals
             log_hazards, routes = self.competing_risk_log_hazards(
                 pooled, fine_index, return_routes=True
             )

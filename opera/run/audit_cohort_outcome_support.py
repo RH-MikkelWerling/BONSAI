@@ -1,9 +1,9 @@
 """Audit exact cohort-by-outcome support before rarity experiments.
 
 The audit uses the same fixed-horizon, competing-event, cohort-membership and
-IPCW contracts as survival finetuning.  Candidate tiers depend only on the
-training and tuning splits; held-out event counts are reported for uncertainty
-assessment but never used to select tasks.
+IPCW contracts as survival finetuning. Candidate tiers depend only on the
+training and tuning splits. Held-out data can be omitted entirely when
+selecting pilot cells.
 """
 
 from __future__ import annotations
@@ -72,6 +72,9 @@ def audit_support(
     *,
     outcomes: Iterable[str],
     horizon_days: int,
+    fine_cohorts: Iterable[str] | None = None,
+    include_held_out: bool = True,
+    training_config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     registry = _expand(registry)
     paths = registry["paths"]
@@ -83,25 +86,41 @@ def audit_support(
     containing_death = set(registry.get("outcomes_containing_death", [death_name]))
     horizon_hours = int(horizon_days) * 24
     outcome_cache: dict[str, pd.DataFrame] = {}
-    death_frame = pd.read_parquet(death_path)
     rows: list[dict[str, Any]] = []
+    fine_filter = None if fine_cohorts is None else set(fine_cohorts)
+    known_fine = {fine for _, fine in _fine_cohorts(registry)}
+    if fine_filter is not None and not fine_filter <= known_fine:
+        raise ValueError(f"Unknown fine cohorts: {sorted(fine_filter - known_fine)}")
+    splits = SPLITS if include_held_out else SPLITS[:2]
+    split_filters = None if include_held_out else [("split", "in", list(splits))]
+    death_frame = pd.read_parquet(death_path, filters=split_filters)
 
     for outcome in outcomes:
         outcome_path = outcomes_dir / f"{outcome}.parquet"
-        outcome_cache[outcome] = pd.read_parquet(outcome_path)
+        outcome_cache[outcome] = pd.read_parquet(outcome_path, filters=split_filters)
         competing = None if outcome in containing_death else death_frame
         for grouped, fine in _fine_cohorts(registry):
-            if _excluded(registry, grouped, outcome):
+            if fine_filter is not None and fine not in fine_filter:
                 continue
+            if training_config is not None:
+                cohort_config = training_config["cohorts"].get(grouped)
+                if cohort_config is None or outcome in cohort_config.get("exclude_outcomes", []):
+                    continue
+                outcome_config = training_config["outcomes"][outcome]
+                eligibility_rule = outcome_config.get("eligibility_file")
+                outcome_competing = (
+                    death_frame if outcome_config.get("competing_outcome_path") else None
+                )
+            else:
+                if _excluded(registry, grouped, outcome):
+                    continue
+                eligibility_rule = registry.get("eligibility_files", {}).get(outcome)
+                outcome_competing = competing
             eligibility = eligibility_file_path(
                 data_dir,
                 fine,
                 outcome,
-                {
-                    "eligibility_file": registry.get("eligibility_files", {}).get(
-                        outcome
-                    )
-                },
+                {"eligibility_file": eligibility_rule},
             )
             allowed = population_subject_ids(
                 population_path,
@@ -114,13 +133,13 @@ def audit_support(
                 "outcome": outcome,
                 "horizon_days": int(horizon_days),
             }
-            for split in SPLITS:
+            for split in splits:
                 cohorts = build_evaluation_cohorts(
                     outcome_cache[outcome],
                     split=split,
                     n_hours_start_include=1,
                     n_hours_end_include=horizon_hours,
-                    competing_outcomes=competing,
+                    competing_outcomes=outcome_competing,
                     eligibility=eligibility,
                     cohort=fine,
                     outcome_name=outcome,
@@ -172,11 +191,12 @@ def audit_support(
                 if row["low_prevalence_train"]
                 else "data_rich"
             )
-            row["held_out_descriptive_support"] = (
-                "adequate"
-                if row["n_primary_events_held_out"] >= 10
-                else "unstable"
-            )
+            if include_held_out:
+                row["held_out_descriptive_support"] = (
+                    "adequate"
+                    if row["n_primary_events_held_out"] >= 10
+                    else "unstable"
+                )
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -189,20 +209,39 @@ def main() -> None:
         "--registry",
         default="opera/configs/experiment_registry.yaml",
     )
-    parser.add_argument("--outcomes", required=True, help="Comma-separated outcomes.")
+    outcome_source = parser.add_mutually_exclusive_group(required=True)
+    outcome_source.add_argument("--outcomes", help="Comma-separated outcomes, or all.")
+    outcome_source.add_argument("--outcomes-config", type=Path,
+                                help="Use exactly the outcomes in an approved training YAML.")
     parser.add_argument("--horizon-days", type=int, default=90)
+    parser.add_argument("--fine-cohort", action="append", default=[],
+                        help="Restrict to a fine cohort; repeat for more than one.")
+    parser.add_argument("--train-tuning-only", action="store_true",
+                        help="Do not load or report held-out labels.")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
     registry = load_registry(args.registry)
-    requested = [item.strip() for item in args.outcomes.split(",") if item.strip()]
-    unknown = sorted(set(requested) - set(registry["outcomes"]))
+    training_config = None
+    if args.outcomes_config:
+        training_config = yaml.safe_load(args.outcomes_config.read_text(encoding="utf-8"))
+        requested = list(training_config["outcomes"])
+    else:
+        requested = (
+            list(registry["outcomes"])
+            if args.outcomes == "all"
+            else [item.strip() for item in args.outcomes.split(",") if item.strip()]
+        )
+    unknown = sorted(set(requested) - set(registry["outcomes"])) if training_config is None else []
     if unknown:
         raise ValueError(f"Unknown outcomes: {unknown}")
     table = audit_support(
         registry,
         outcomes=requested,
         horizon_days=args.horizon_days,
+        fine_cohorts=args.fine_cohort or None,
+        include_held_out=not args.train_tuning_only,
+        training_config=training_config,
     )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -221,12 +260,12 @@ def main() -> None:
         "tier_counts": table["candidate_tier"].value_counts().to_dict(),
         "n_small_candidates": int(len(candidates)),
         "selection_uses_held_out_events": False,
+        "held_out_loaded": not args.train_tuning_only,
     }
     (output_dir / "support_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
-    print(candidates[
-        [
+    display_columns = [
             "cohort",
             "outcome",
             "candidate_tier",
@@ -234,10 +273,11 @@ def main() -> None:
             "n_primary_events_train",
             "primary_event_rate_train",
             "n_primary_events_tuning",
-            "n_primary_events_held_out",
             "ipcw_effective_n_train",
-        ]
-    ].to_string(index=False))
+    ]
+    if not args.train_tuning_only:
+        display_columns.insert(-1, "n_primary_events_held_out")
+    print(candidates[display_columns].to_string(index=False))
     print(f"Wrote support audit to {output_dir}")
 
 

@@ -538,6 +538,50 @@ def build_endpoint_weighting_pilot(registry, *, revised=True):
     return config
 
 
+def build_endpoint_group_router_config(registry, *, interacting=False):
+    """Anchored router with the endpoint-group pilot's aggregation/selection."""
+    from opera.functional.endpoint_groups import endpoint_groups_v1
+
+    config = dict(build_source_adapter_config(registry, anchored=True), seed=42)
+    config["cross_outcome"].update(
+        aggregation="endpoint_group_macro", family_weights={},
+        endpoint_groups=endpoint_groups_v1(config["outcomes"]),
+    )
+    config["training"].update(
+        eval_monitor_metric="val/cr_cif_auc_endpoint_group_macro",
+        selection_min_cases=20, selection_min_controls=20,
+    )
+    if interacting:
+        config["competing_risk"].update(
+            adapter_query_mode="interacting", adapter_query_hidden_dim=128,
+        )
+    return config
+
+
+def build_dapt_fresh_router_config(registry):
+    """Interacting router trained end-to-end without a shared-BCE warm start."""
+    config = build_endpoint_group_router_config(registry, interacting=True)
+    config["source_opera_ckpt"] = None
+    config["adapter_initialization"] = "dapt_fresh"
+    config["model"]["freeze_encoder"] = False
+    return config
+
+
+def build_minority_event_bce_config(registry):
+    """Matched low-rank BCE ablation with guarded 365-day event emphasis."""
+    config = build_endpoint_weighting_pilot(registry)
+    config["training"]["batch_sampling"] = {
+        "type": "minority_event_horizon_bce",
+        "horizon_days": 365,
+        "min_unique_events": 50,
+        "min_unique_controls": 50,
+        "event_slots_per_batch": 4,
+        "max_draws_per_patient": 2,
+        "seed": 42,
+    }
+    return config
+
+
 def generate_configs(
     registry_path: str | Path = DEFAULT_REGISTRY,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
@@ -717,6 +761,10 @@ def generate_configs(
             build_source_adapter_config(registry, anchored=True), seed=42
         ),
         "direct_cr_bce_lowrank_endpoint_groups_v1.yaml": build_endpoint_weighting_pilot(registry),
+        "direct_cr_bce_lowrank_minority_event_v1.yaml": build_minority_event_bce_config(registry),
+        "direct_cr_bce_router_endpoint_groups_v1.yaml": build_endpoint_group_router_config(registry),
+        "direct_cr_bce_router_interacting_endpoint_groups_v1.yaml": build_endpoint_group_router_config(registry, interacting=True),
+        "direct_cr_bce_router_interacting_dapt_fresh_v1.yaml": build_dapt_fresh_router_config(registry),
         "direct_cr_bce_lowrank_weighting_reference_v1.yaml": build_endpoint_weighting_pilot(registry, revised=False),
         "direct_cr_uniform_cls.yaml": build_joined_bins_direct_cr_config(
             registry, cls_pooling=True

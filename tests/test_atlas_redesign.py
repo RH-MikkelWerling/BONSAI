@@ -33,7 +33,7 @@ def test_atlas_legend_keeps_all_categories_and_removes_coordinate_ticks():
         for text in ax.get_legend().get_texts()
     ]
     assert len(labels) == 10
-    assert all(" ·  4" in text for text in labels)
+    assert all("(n=4)" in text for text in labels)
 
 
 def test_patient_pipeline_writes_paginated_atlas_from_saved_coordinates(tmp_path):

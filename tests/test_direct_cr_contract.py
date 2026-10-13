@@ -38,6 +38,28 @@ def test_direct_cr_contract_accepts_matched_horizon_bce():
     validate_direct_cr_config(config)
 
 
+def test_direct_cr_contract_accepts_complete_grid_ipw_sampling():
+    config = _config()
+    config["competing_risk"]["objective"] = "horizon_bce"
+    config["training"]["batch_sampling"] = {
+        "type": "ipw_event_horizon_bce",
+        "horizons_days": [30, 60, 90, 180, 365, 730],
+        "event_fraction": 0.5,
+    }
+    validate_direct_cr_config(config)
+
+
+def test_direct_cr_contract_rejects_partial_grid_ipw_sampling():
+    config = _config()
+    config["competing_risk"]["objective"] = "horizon_bce"
+    config["training"]["batch_sampling"] = {
+        "type": "ipw_event_horizon_bce",
+        "horizons_days": [365],
+    }
+    with pytest.raises(ValueError, match="complete BCE horizon grid"):
+        validate_direct_cr_config(config)
+
+
 def test_direct_cr_contract_rejects_horizon_bce_with_unmatched_evaluation_grid():
     config = _config()
     config["competing_risk"]["objective"] = "horizon_bce"
@@ -141,4 +163,21 @@ def test_direct_cr_contract_rejects_factorized_attention_without_cohorts():
     )
     config["training"]["enable_validation_probe"] = False
     with pytest.raises(ValueError, match="requires configured cohorts"):
+        validate_direct_cr_config(config)
+
+
+def test_dapt_fresh_adapter_requires_explicit_mode_and_no_source():
+    config = _config()
+    config["competing_risk"].update(
+        objective="horizon_bce", head_mode="linear",
+        readout_mode="source_anchored_adapters", fine_names=["CLL"],
+        contrastive_loss_weight=0.0,
+    )
+    config["training"]["enable_validation_probe"] = False
+    with pytest.raises(ValueError, match="requires source_opera_ckpt"):
+        validate_direct_cr_config(config)
+    config["adapter_initialization"] = "dapt_fresh"
+    validate_direct_cr_config(config)
+    config["source_opera_ckpt"] = "shared.ckpt"
+    with pytest.raises(ValueError, match="must not load source_opera_ckpt"):
         validate_direct_cr_config(config)

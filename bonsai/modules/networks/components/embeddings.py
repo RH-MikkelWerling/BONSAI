@@ -278,6 +278,7 @@ class AbsposFourierEncoding(nn.Module):
         max_period_years: float = 80.0,
         linear_ref_years: float = 12.0,
         linear_scale_years: float = 15.0,
+        input_unit: str = "hours",
     ):
         super().__init__()
         if output_dim < 1:
@@ -288,10 +289,13 @@ class AbsposFourierEncoding(nn.Module):
             )
         if linear_scale_years <= 0:
             raise ValueError("linear_scale_years must be positive.")
+        if input_unit not in {"hours", "thousand_hours"}:
+            raise ValueError("input_unit must be 'hours' or 'thousand_hours'.")
 
         num_pairs = (output_dim - 1) // 2
         self.output_dim = output_dim
         self.num_pairs = num_pairs
+        self.input_scale = 1000.0 if input_unit == "thousand_hours" else 1.0
         self.register_buffer("epoch_2000_hours", torch.tensor(30.0 * 8766.0))
         self.register_buffer("hours_per_year", torch.tensor(8766.0))
         self.register_buffer("linear_ref", torch.tensor(float(linear_ref_years)))
@@ -315,7 +319,7 @@ class AbsposFourierEncoding(nn.Module):
         output_dtype = self.phi.dtype
         with torch.autocast(device_type=tau.device.type, enabled=False):
             tau_years = (
-                tau.float() - self.epoch_2000_hours.float()
+                tau.float() * self.input_scale - self.epoch_2000_hours.float()
             ) / self.hours_per_year.float()
             linear = (
                 (tau_years - self.linear_ref.float()) / self.linear_scale.float()

@@ -18,9 +18,9 @@ Design philosophy
 
 Typography
 ──────────
-DejaVu Sans ships with Matplotlib, providing consistent glyph metrics on
-Windows, Linux and render hosts. PDF embeds TrueType fonts; SVG keeps text
-editable (the receiving editor needs the font installed).
+Prefer a restrained, editorial sans face: Arial on Windows and its
+metric-compatible Liberation Sans on Linux. DejaVu remains the last-resort
+fallback. PDF embeds TrueType fonts; SVG keeps text editable.
 
 Colorblind safety
 ─────────────────
@@ -45,6 +45,22 @@ from matplotlib.collections import PathCollection
 # ── Color palette ──────────────────────────────────────────────────────────────
 
 PALETTE = {
+    # Clean router query/scale tuning comparison. These are display aliases
+    # for the fixed-checkpoint comparison, not new model definitions.
+    "additive_01": "#697481",
+    "interactive_01": "#8296C6",
+    "interactive_02": "#567EAE",
+    "interactive_03": "#2D3A8C",
+    # Approved neural 2x3 encoder/readout comparison.
+    "shared": "#8A929C",
+    "family_trunks": "#527B72",
+    "router_additive_e2e": "#2D3A8C",
+    "time2vec_grouped_shared_bce": "#B86A55",
+    "time2vec_family_trunks": "#8974AC",
+    "time2vec_router_additive_e2e": "#567EAE",
+    "fourier_plain_shared_bce": "#697481",
+    "time2vec_plain_shared_bce": "#697481",
+    "time2vec_router_interacting_e2e": "#273F91",
     # Model tiers — luminance-ordered to encode hierarchy
     # Primary model is the most visually prominent (deepest, most saturated)
     "opera": "#2D3A8C",  # deep indigo          ← hero model
@@ -88,6 +104,19 @@ CATEGORICAL = [
 ]
 
 MODEL_DISPLAY = {
+    "additive_01": "Additive router · scale 0.1",
+    "interactive_01": "Interactive router · scale 0.1",
+    "interactive_02": "Interactive router · scale 0.2",
+    "interactive_03": "Interactive router · scale 0.3",
+    "shared": "Fourier - shared",
+    "family_trunks": "Fourier - family trunks",
+    "router_additive_e2e": "Fourier - additive router",
+    "time2vec_grouped_shared_bce": "Time2Vec - shared",
+    "time2vec_family_trunks": "Time2Vec - family trunks",
+    "time2vec_router_additive_e2e": "Time2Vec - additive router",
+    "fourier_plain_shared_bce": "Fourier - plain multi-horizon BCE",
+    "time2vec_plain_shared_bce": "Time2Vec - plain multi-horizon BCE",
+    "time2vec_router_interacting_e2e": "Time2Vec - interactive router",
     "opera": "OPERA",
     "opera_joint": "OPERA (joint)",
     "dapt": "DAPT",
@@ -101,7 +130,7 @@ MODEL_DISPLAY = {
 # A single type scale, used everywhere instead of scattered magic numbers.
 # Use the bundled font for reproducible layout on all render hosts.
 
-FONT_FAMILY = ["DejaVu Sans", "Arial", "sans-serif"]
+FONT_FAMILY = ["Arial", "Liberation Sans", "DejaVu Sans", "sans-serif"]
 
 SUPTITLE_SIZE = 13  # figure-level title (multi-panel figures)
 TITLE_SIZE = 11  # axes title / single-panel figure title
@@ -145,7 +174,7 @@ def setup_style() -> None:
             "font.sans-serif": FONT_FAMILY,
             "font.size": LABEL_SIZE,
             "axes.titlesize": TITLE_SIZE,
-            "axes.titleweight": "semibold",
+            "axes.titleweight": "normal",
             "axes.titlecolor": PALETTE["ink"],
             "axes.titlelocation": "left",
             "axes.titlepad": TITLE_PAD,
@@ -160,7 +189,7 @@ def setup_style() -> None:
             "legend.fontsize": LEGEND_SIZE,
             "legend.title_fontsize": LEGEND_TITLE_SIZE,
             "figure.titlesize": SUPTITLE_SIZE,
-            "figure.titleweight": "semibold",
+            "figure.titleweight": "normal",
             "mathtext.fontset": "dejavusans",
             "mathtext.default": "regular",
             # Spines and ticks
@@ -341,7 +370,7 @@ def figure_title(
         title,
         y=y,
         fontsize=SUPTITLE_SIZE,
-        fontweight="semibold",
+        fontweight="normal",
         color=PALETTE["ink"],
     )
 

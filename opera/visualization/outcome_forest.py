@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 
@@ -369,6 +370,37 @@ def paginate_outcomes(
     return pages
 
 
+def family_macro_summary(
+    estimates: pd.DataFrame,
+    contrasts: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Equal-outcome-weighted family means, without an inferred interval."""
+    parts = []
+    for kind, frame, series in (
+        ("absolute", estimates, "model"),
+        ("contrast", contrasts, "contrast"),
+    ):
+        if frame is None or frame.empty:
+            continue
+        valid = frame.dropna(subset=["estimate", "outcome_family", series])
+        if valid.empty:
+            continue
+        group_columns = [
+            column for column in ("cohort", "horizon_days") if column in valid
+        ] + ["outcome_family", series]
+        summary = (
+            valid.groupby(group_columns, sort=False, dropna=False)
+            .agg(estimate=("estimate", "mean"), n_outcomes=("outcome", "nunique"))
+            .reset_index()
+            .rename(columns={series: "series"})
+        )
+        summary.insert(0, "record_type", kind)
+        parts.append(summary)
+    if not parts:
+        return pd.DataFrame(columns=["record_type", "outcome_family", "series", "estimate", "n_outcomes"])
+    return pd.concat(parts, ignore_index=True)
+
+
 def plot_outcome_performance_forest(
     estimates: pd.DataFrame,
     contrasts: pd.DataFrame | None = None,
@@ -384,6 +416,7 @@ def plot_outcome_performance_forest(
     absolute_xlim: tuple[float, float] | None = None,
     delta_xlim: tuple[float, float] | None = None,
     title: str | None = None,
+    evaluation_label: str = "held-out",
     save_path: str | Path | None = None,
 ) -> plt.Figure:
     """Draw aligned absolute-performance and paired-difference forest panels."""
@@ -420,16 +453,22 @@ def plot_outcome_performance_forest(
     y_by_outcome = {
         value: index for index, (kind, value) in enumerate(rows) if kind == "outcome"
     }
+    y_by_family = {
+        value: index for index, (kind, value) in enumerate(rows) if kind == "family"
+    }
+    family_summary = family_macro_summary(estimates, contrasts)
     n_rows = len(rows)
     has_contrasts = not contrasts.empty
-    width_ratios = [1.8, 1.35, 0.95] if has_contrasts else [2.2, 0.85]
-    figure_height = max(4.8, 0.30 * n_rows + 2.1)
+    width_ratios = [1.3, 1.05, 0.29] if has_contrasts else [2.35, 0.29]
+    figure_height = max(7.2, 0.45 * n_rows + 2.25)
+    figure_width = 17.8 if has_contrasts else 13.2
+    left_margin = 4.65 / figure_width
     fig, axes = plt.subplots(
         1,
         len(width_ratios),
-        figsize=(10.2 if has_contrasts else 7.4, figure_height),
+        figsize=(figure_width, figure_height),
         sharey=True,
-        gridspec_kw={"width_ratios": width_ratios, "wspace": 0.08},
+        gridspec_kw={"width_ratios": width_ratios, "wspace": 0.30},
     )
     axes = np.atleast_1d(axes)
     ax_absolute = axes[0]
@@ -443,8 +482,9 @@ def plot_outcome_performance_forest(
                 axis.axhline(index + 0.45, color=PALETTE["panel_border"], lw=0.6)
 
     models = list(model_order or estimates["model"].dropna().astype(str).unique())
-    offsets = np.linspace(-0.18, 0.18, len(models)) if len(models) > 1 else [0.0]
+    offsets = np.linspace(-0.27, 0.27, len(models)) if len(models) > 1 else [0.0]
     markers = ("o", "s", "D", "^", "v", "P")
+    marker_by_model = {model: markers[i % len(markers)] for i, model in enumerate(models)}
     for model_index, model in enumerate(models):
         subset = estimates[estimates["model"].astype(str) == model]
         for _, row in subset.iterrows():
@@ -461,12 +501,23 @@ def plot_outcome_performance_forest(
                 row["estimate"],
                 y,
                 color=model_color(model),
-                marker=markers[model_index % len(markers)],
-                s=27,
+                marker=marker_by_model[model],
+                s=24,
                 linewidths=0,
-                label=model_label(model),
                 zorder=3,
             )
+        family_points = family_summary[
+            family_summary["record_type"].eq("absolute")
+            & family_summary["series"].eq(model)
+        ]
+        for _, family_row in family_points.iterrows():
+            y = y_by_family.get(str(family_row["outcome_family"]))
+            if y is not None:
+                ax_absolute.scatter(
+                    family_row["estimate"], y + offsets[model_index],
+                    color=model_color(model), marker=marker_by_model[model],
+                    s=34, edgecolors="white", linewidths=0.45, zorder=4,
+                )
     if absolute_reference is not None:
         ax_absolute.axvline(
             absolute_reference, color=PALETTE["diagonal"], ls="--", lw=0.8, zorder=1
@@ -474,11 +525,8 @@ def plot_outcome_performance_forest(
     has_absolute_intervals = bool(
         (estimates["lower"].notna() & estimates["upper"].notna()).any()
     )
-    absolute_axis_label = metric_label
-    if has_absolute_intervals:
-        absolute_axis_label += f" ({interval_label})"
-    ax_absolute.set_xlabel(absolute_axis_label, fontsize=LABEL_SIZE)
-    ax_absolute.set_title("Absolute held-out performance")
+    ax_absolute.set_xlabel(metric_label, fontsize=LABEL_SIZE, labelpad=9)
+    ax_absolute.set_title("A  Absolute performance", loc="left")
     if absolute_xlim is not None:
         ax_absolute.set_xlim(*absolute_xlim)
     else:
@@ -492,27 +540,34 @@ def plot_outcome_performance_forest(
             ax_absolute.set_xlim(max(0.0, low - pad), min(1.0, high + pad))
     despine(ax_absolute, "x")
 
-    handles, labels = ax_absolute.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    if unique:
-        fig.legend(
-            unique.values(), unique.keys(), loc="upper left",
-            bbox_to_anchor=(0.30, 1 - 0.43 / figure_height),
-            ncol=max(1, len(unique)), fontsize=LEGEND_SIZE,
-        )
+    legend_handles = [
+        Line2D([], [], linestyle="none", marker=marker_by_model[model],
+               color=model_color(model), markersize=5.5, label=model_label(model))
+        for model in models
+    ]
+    fig.legend(
+        handles=legend_handles, loc="upper left",
+        bbox_to_anchor=(left_margin, 1 - 0.52 / figure_height),
+        ncol=min(3, len(legend_handles)), fontsize=LEGEND_SIZE,
+        frameon=False, columnspacing=1.5, handletextpad=0.4,
+    )
 
     if has_contrasts and ax_delta is not None:
         contrast_names = list(
             contrast_order or contrasts["contrast"].dropna().astype(str).unique()
         )
         contrast_offsets = (
-            np.linspace(-0.15, 0.15, len(contrast_names))
+            np.linspace(-0.27, 0.27, len(contrast_names))
             if len(contrast_names) > 1
             else [0.0]
         )
         for contrast_index, contrast in enumerate(contrast_names):
             subset = contrasts[contrasts["contrast"].astype(str) == contrast]
-            color = CATEGORICAL[contrast_index % len(CATEGORICAL)]
+            comparator_values = subset["comparator"].dropna().astype(str).unique()
+            comparator_model = comparator_values[0] if len(comparator_values) == 1 else None
+            color = (model_color(comparator_model) if comparator_model is not None
+                     else CATEGORICAL[contrast_index % len(CATEGORICAL)])
+            marker = marker_by_model.get(comparator_model, "s")
             for _, row in subset.iterrows():
                 y = y_by_outcome.get(str(row["outcome"]))
                 if y is None or not np.isfinite(row["estimate"]):
@@ -527,20 +582,28 @@ def plot_outcome_performance_forest(
                         zorder=2,
                     )
                 ax_delta.scatter(
-                    row["estimate"], y, color=color, s=27, marker="s", zorder=3
+                    row["estimate"], y, color=color, s=24, marker=marker, zorder=3
                 )
+            family_points = family_summary[
+                family_summary["record_type"].eq("contrast")
+                & family_summary["series"].eq(contrast)
+            ]
+            for _, family_row in family_points.iterrows():
+                y = y_by_family.get(str(family_row["outcome_family"]))
+                if y is not None:
+                    ax_delta.scatter(
+                        family_row["estimate"], y + contrast_offsets[contrast_index],
+                        color=color, marker=marker, s=34, edgecolors="white",
+                        linewidths=0.45, zorder=4,
+                    )
         ax_delta.axvline(0, color=PALETTE["zero_line"], ls="--", lw=0.8)
-        ax_delta.set_xlabel(f"Paired difference ({interval_label})", fontsize=LABEL_SIZE)
-        comparator_values = contrasts["comparator"].dropna().astype(str).unique()
+        ax_delta.set_xlabel("Paired difference in CIF-AUC", fontsize=LABEL_SIZE, labelpad=9)
         baseline_values = contrasts["baseline"].dropna().astype(str).unique()
-        if len(comparator_values) == 1 and len(baseline_values) == 1:
-            contrast_title = (
-                f"{model_label(comparator_values[0])} − "
-                f"{model_label(baseline_values[0])}"
-            )
+        if len(baseline_values) == 1:
+            contrast_title = f"B  Difference from {model_label(baseline_values[0])}"
         else:
-            contrast_title = "Model contrast"
-        ax_delta.set_title(contrast_title)
+            contrast_title = "B  Paired model contrast"
+        ax_delta.set_title(contrast_title, loc="left")
         if delta_xlim is not None:
             ax_delta.set_xlim(*delta_xlim)
         else:
@@ -563,8 +626,10 @@ def plot_outcome_performance_forest(
         )
         despine(ax_delta, "x")
 
+    family_counts = estimates.groupby("outcome_family")["outcome"].nunique().to_dict()
     labels = [
-        value if kind == "family" else _display_outcome(value)
+        f"{value}  (n={family_counts.get(value, 0)})" if kind == "family"
+        else _display_outcome(value)
         for kind, value in rows
     ]
     ax_absolute.set_yticks(np.arange(n_rows))
@@ -576,13 +641,7 @@ def plot_outcome_performance_forest(
             tick.set_color(_family_color(value))
 
     ax_info.set_xlim(0, 1)
-    shows_probability = bool(
-        has_contrasts and contrasts["probability_superior"].notna().any()
-    )
-    ax_info.set_title(
-        "n / events / P(Δ>0)" if shows_probability else "n / events",
-        fontsize=9,
-    )
+    ax_info.set_title("C  n / events", fontsize=9, loc="left")
     ax_info.axis("off")
     annotation_source = contrasts if has_contrasts else estimates
     for outcome, y in y_by_outcome.items():
@@ -595,8 +654,6 @@ def plot_outcome_performance_forest(
             pieces.append(f"{int(row['n']):,}")
         if np.isfinite(row.get("n_events", np.nan)):
             pieces.append(f"{int(row['n_events']):,}")
-        if shows_probability and np.isfinite(row.get("probability_superior", np.nan)):
-            pieces.append(f"{float(row['probability_superior']):.2f}")
         ax_info.text(
             0.02,
             y,
@@ -613,21 +670,28 @@ def plot_outcome_performance_forest(
         descriptor.append(cohort)
     if horizon is not None:
         descriptor.append(f"{int(round(horizon))}-day horizon")
-    figure_title = title or "Predictability across hematologic outcomes"
+    figure_title = title or "OPERA outcome performance"
     fig.suptitle(
-        figure_title, y=1 - 0.12 / figure_height,
-        fontsize=12, fontweight="semibold",
+        figure_title, x=left_margin, ha="left",
+        y=1 - 0.16 / figure_height,
+        fontsize=13, fontweight="normal",
     )
     if descriptor:
         fig.text(
-            0.30, 1 - 0.35 / figure_height, ", ".join(descriptor),
+            left_margin, 1 - 0.37 / figure_height, ", ".join(descriptor),
             ha="left", va="top", fontsize=NOTE_SIZE,
             color=PALETTE["ink_secondary"],
         )
+    fig.text(
+        left_margin, 0.16 / figure_height,
+        f"{evaluation_label.capitalize()} only; {interval_label}. Shaded rows: equal-outcome family means, without intervals.",
+        ha="left", va="bottom", fontsize=NOTE_SIZE,
+        color=PALETTE["ink_secondary"],
+    )
     fig.subplots_adjust(
-        left=0.30, right=0.98,
-        top=1 - 1.20 / figure_height,
-        bottom=0.48 / figure_height,
+        left=left_margin, right=0.965,
+        top=1 - 1.35 / figure_height,
+        bottom=0.90 / figure_height,
     )
     save_fig(fig, None if save_path is None else str(save_path))
     return fig

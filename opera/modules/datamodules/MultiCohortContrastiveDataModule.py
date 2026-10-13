@@ -36,6 +36,7 @@ See opera/configs/contrastive_multicohort.yaml for the expected structure.
 
 from typing import Dict, Literal, Optional
 import os
+import time
 import numpy as np
 import pandas as pd
 import lightning as L
@@ -58,10 +59,13 @@ from opera.modules.datasets.ContrastiveDataset import ContrastiveDataset
 from opera.modules.datamodules.ContrastiveDataModule import contrastive_collate
 from opera.modules.datamodules.ContrastiveDataModule import _km_event_time_probabilities
 from opera.functional.stratified_sampling import (
+    ImportanceWeightedHorizonSampler,
+    MinorityEventBatchSampler,
     build_event_aware_batch_sampler,
     build_stratified_sampler,
     log_bucket_stats,
 )
+from opera.functional.outcome_label_cache import cache_contract, load_or_build_labels
 
 
 def _eligibility_path(data_dir: str, outcome_config: dict):
@@ -432,6 +436,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         numeric_value_control: str = "observed",
         fine_names: Optional[list[str]] = None,
         fine_column: str = "cohort_fine",
+        outcome_label_cache_dir: Optional[str] = None,
     ):
         super().__init__()
         self.cohort_configs = cohort_configs
@@ -446,6 +451,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.fine_to_index = {name: i for i, name in enumerate(self.fine_names)}
         self.fine_column = fine_column
         self._physical_subject_pools: dict[tuple[str, ...], list[dict]] = {}
+        self._population_by_cohort: dict[str, pd.DataFrame] = {}
         self.outcome_configs = outcome_configs
         self.predict_token_id = predict_token_id
         self.batch_size = batch_size
@@ -468,9 +474,15 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         self.batch_sampling = dict(batch_sampling or {})
         self.outcome_names = sorted(outcome_configs.keys())
         self.numeric_value_control = numeric_value_control
+        self.outcome_label_cache_dir = outcome_label_cache_dir
         self.train_batch_sampler = None
 
     # ── Internal helpers ──────────────────────────────────────────────
+
+    def _population_for_cohort(self, cohort_name: str, cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
+        if cohort_name not in self._population_by_cohort:
+            self._population_by_cohort[cohort_name] = _read_population(cohort_cfg, data_dir)
+        return self._population_by_cohort[cohort_name]
 
     def _load_outcomes_for_cohort(
         self,
@@ -500,56 +512,72 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 outcome_dicts[name] = {}
                 continue
 
-            df = pd.read_parquet(path)
-            df = _filter_membership(df, cohort_cfg, data_dir)
-            df = filter_outcome_eligibility(
-                df,
-                _eligibility_path(data_dir, ocfg),
-                cohort=cohort_name,
-                outcome_name=name,
-                eligibility_scope=self.eligibility_scope,
-            )
-            df = attach_prediction_censor_abspos(df)
-            df = filter_registry_eligible_outcomes(
-                df,
-                resolve_registry_start_date(cohort_cfg, ocfg),
-                cohort=cohort_name,
-                outcome_name=name,
-            )
-            split_df = df[df["split"] == split_key].copy()
+            def build_records() -> Dict[int, dict]:
+                df = pd.read_parquet(path)
+                population = self._population_for_cohort(cohort_name, cohort_cfg, data_dir)
+                df = df[df["subject_id"].isin(population["subject_id"])].copy()
+                df = filter_outcome_eligibility(
+                    df, _eligibility_path(data_dir, ocfg),
+                    cohort=cohort_name, outcome_name=name,
+                    eligibility_scope=self.eligibility_scope,
+                )
+                df = attach_prediction_censor_abspos(df)
+                df = filter_registry_eligible_outcomes(
+                    df, resolve_registry_start_date(cohort_cfg, ocfg),
+                    cohort=cohort_name, outcome_name=name,
+                )
+                split_df = df[df["split"] == split_key].copy()
+                if split_df.empty:
+                    if self.require_all_configured_cells:
+                        raise ValueError(
+                            f"Configured outcome {name!r} has no eligible rows for "
+                            f"cohort {cohort_name!r}, split {split_key!r}."
+                        )
+                    return {}
+                # Competing deaths remain event=2 rather than administrative censoring.
+                competing_df = None
+                competing_path = _competing_path(data_dir, ocfg)
+                if competing_path:
+                    if os.path.exists(competing_path):
+                        competing_df = pd.read_parquet(competing_path)
+                    elif self.require_all_configured_cells:
+                        raise FileNotFoundError(
+                            f"Configured competing outcome for {name!r} is missing "
+                            f"for cohort {cohort_name!r}: {competing_path}"
+                        )
+                return binarize_outcomes(
+                    split_df,
+                    n_hours_start_include=ocfg["n_hours_start_include"],
+                    n_hours_end_include=ocfg.get("n_hours_end_include"),
+                    require_min_followup=(
+                        self.require_min_followup_train
+                        if split_key == "train" else self.require_min_followup_val
+                    ),
+                    competing_event_df=competing_df,
+                )
 
-            if len(split_df) == 0:
-                if self.require_all_configured_cells:
-                    raise ValueError(
-                        f"Configured outcome {name!r} has no eligible rows for "
-                        f"cohort {cohort_name!r}, split {split_key!r}."
-                    )
-                outcome_dicts[name] = {}
+            if self.outcome_label_cache_dir is None:
+                outcome_dicts[name] = build_records()
                 continue
-
-            # Optional competing-event (death) table — annotates non-primary-event
-            # patients who died as event=2 rather than event=0 (admin censored).
-            competing_df = None
-            competing_path = _competing_path(data_dir, ocfg)
-            if competing_path:
-                if os.path.exists(competing_path):
-                    competing_df = pd.read_parquet(competing_path)
-                elif self.require_all_configured_cells:
-                    raise FileNotFoundError(
-                        f"Configured competing outcome for {name!r} is missing "
-                        f"for cohort {cohort_name!r}: {competing_path}"
-                    )
-
-            outcome_dicts[name] = binarize_outcomes(
-                split_df,
-                n_hours_start_include=ocfg["n_hours_start_include"],
-                n_hours_end_include=ocfg.get("n_hours_end_include"),
+            population_path = cohort_cfg.get(
+                "population_file", os.path.join(data_dir, "population_full.csv")
+            )
+            contract = cache_contract(
+                cohort_name=cohort_name, outcome_name=name, split=split_key,
+                cohort_config=cohort_cfg, outcome_config=ocfg,
+                eligibility_scope=self.eligibility_scope,
                 require_min_followup=(
                     self.require_min_followup_train
-                    if split_key == "train"
-                    else self.require_min_followup_val
+                    if split_key == "train" else self.require_min_followup_val
                 ),
-                competing_event_df=competing_df,
+                source_paths={
+                    "outcome": path, "population": population_path,
+                    "eligibility": _eligibility_path(data_dir, ocfg),
+                    "competing": _competing_path(data_dir, ocfg),
+                },
+            )
+            outcome_dicts[name] = load_or_build_labels(
+                self.outcome_label_cache_dir, contract, build_records,
             )
 
         return outcome_dicts
@@ -579,7 +607,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             print(f"  [{cohort_name}] Missing physical subject data, skipping.")
             return None
 
-        population = _read_population(cohort_cfg, data_dir)
+        population = self._population_for_cohort(cohort_name, cohort_cfg, data_dir)
         fine_index_by_subject = None
         if self.fine_names:
             if self.fine_column not in population:
@@ -652,6 +680,7 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         if hasattr(self, "train_dataset"):
             return
 
+        setup_started = time.perf_counter()
         print("Loading multi-cohort contrastive datasets...")
         train_datasets, val_datasets = [], []
         train_cohort_names: list[str] = []
@@ -695,9 +724,46 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             )
         )
         self._setup_train_sampling()
+        print(f"Multi-cohort data setup seconds: {time.perf_counter() - setup_started:.1f}")
 
     def _setup_train_sampling(self) -> None:
         sampler_type = str(self.batch_sampling.get("type", "event_aware")).lower()
+        if sampler_type == "ipw_event_horizon_bce":
+            self.train_batch_sampler = None
+            self.train_sampler = ImportanceWeightedHorizonSampler(
+                self.train_dataset,
+                self.outcome_names,
+                batch_size=self.logical_batch_size,
+                horizons_days=self.batch_sampling["horizons_days"],
+                event_fraction=float(self.batch_sampling.get("event_fraction", 0.5)),
+                min_unique_events=int(self.batch_sampling.get("min_unique_events", 10)),
+                min_unique_controls=int(self.batch_sampling.get("min_unique_controls", 20)),
+                seed=int(self.batch_sampling.get("seed", 42)),
+            )
+            offset = 0
+            for child in self.train_dataset.datasets:
+                end = offset + len(child)
+                child.sampling_weights = self.train_sampler.importance_weights[offset:end]
+                offset = end
+            if offset != len(self.train_sampler.importance_weights):
+                raise ValueError("Importance weights do not align with training patients")
+            print(self.train_sampler.summary())
+            return
+        if sampler_type == "minority_event_horizon_bce":
+            self.train_sampler = None
+            self.train_batch_sampler = MinorityEventBatchSampler(
+                self.train_dataset,
+                self.outcome_names,
+                batch_size=self.logical_batch_size,
+                horizon_days=float(self.batch_sampling.get("horizon_days", 365)),
+                min_unique_events=int(self.batch_sampling.get("min_unique_events", 50)),
+                min_unique_controls=int(self.batch_sampling.get("min_unique_controls", 50)),
+                event_slots_per_batch=int(self.batch_sampling.get("event_slots_per_batch", 4)),
+                max_draws_per_patient=int(self.batch_sampling.get("max_draws_per_patient", 2)),
+                seed=int(self.batch_sampling.get("seed", 0)),
+            )
+            print(self.train_batch_sampler.summary())
+            return
         if sampler_type in {"weighted", "stratified", "legacy"}:
             self.train_batch_sampler = None
             self.train_sampler = build_stratified_sampler(
@@ -771,7 +837,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             batch_size=loader_batch_size,
             pin_memory=True,
             persistent_workers=self.num_workers > 0,
-            drop_last=True,
+            # A fine-disease specialist can have fewer eligible training
+            # patients than the pooled model's logical batch size. Dropping
+            # that only batch would silently produce zero training steps.
+            # Preserve the original drop-last policy whenever a full logical
+            # batch is available, so existing pooled/CLL runs are unchanged.
+            drop_last=len(self.train_dataset) >= loader_batch_size,
             sampler=self.train_sampler,
             shuffle=self.train_sampler is None,
             collate_fn=collate,

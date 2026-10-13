@@ -1533,7 +1533,7 @@ def plot_embedding_stage_metadata_grid(
                         markersize=5,
                         markeredgewidth=0,
                         color=resolved_category_colors[variable][group],
-                        label=f"{category_labels.get(variable, {}).get(group, str(group))}  ·  {np.sum(values == group):,}",
+                        label=f"{category_labels.get(variable, {}).get(group, str(group))} (n={np.sum(values == group):,})",
                     )
                     for group in category_orders[variable]
                 ]
@@ -1546,7 +1546,7 @@ def plot_embedding_stage_metadata_grid(
                             marker="o",
                             linestyle="none",
                             color=PALETTE["missing"],
-                            label=f"Missing  ·  {missing.sum():,}",
+                            label=f"Missing (n={missing.sum():,})",
                         )
                     )
                 legend_ax.legend(

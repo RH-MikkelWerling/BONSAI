@@ -275,7 +275,7 @@ def plot_disease_treatment_atlas(
         disease = str(row[disease_col])
         treatment = str(row[treatment_col])
         joint_ax.annotate(
-            f"{disease} · {treatment}",
+            f"{disease}: {treatment}",
             (row["atlas_x"], row["atlas_y"]),
             xytext=(3, 3),
             textcoords="offset points",
@@ -320,7 +320,7 @@ def plot_disease_treatment_atlas(
     joint_ax.text(
         0.01,
         0.01,
-        "Color = disease  ·  marker = regimen  ·  size = n",
+        "Color: disease; marker: regimen; size: n",
         transform=joint_ax.transAxes,
         fontsize=NOTE_SIZE,
         color=PALETTE["ink_muted"],

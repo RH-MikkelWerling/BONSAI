@@ -8,6 +8,7 @@ Handles:
 """
 
 import logging
+import math
 import lightning as L
 import torch
 from torch import nn
@@ -46,6 +47,7 @@ class OperaContrastiveModule(L.LightningModule):
         selection_min_cases: int = 20,
         selection_min_controls: int = 20,
         checkpoint_metadata: dict = None,
+        adapter_optimizer_epsilon: float = None,
     ):
         super().__init__()
         self.model = model
@@ -67,6 +69,11 @@ class OperaContrastiveModule(L.LightningModule):
         self.learning_rate = learning_rate
         self.encoder_lr_multiplier = encoder_lr_multiplier
         self.optimizer_epsilon = optimizer_epsilon
+        if adapter_optimizer_epsilon is not None and (
+            not math.isfinite(float(adapter_optimizer_epsilon)) or float(adapter_optimizer_epsilon) <= 0
+        ):
+            raise ValueError("adapter_optimizer_epsilon must be finite and positive")
+        self.adapter_optimizer_epsilon = adapter_optimizer_epsilon
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
         self.gradient_cache = bool(gradient_cache)
         self.probe_every_n_epochs = max(1, int(probe_every_n_epochs))
@@ -145,7 +152,7 @@ class OperaContrastiveModule(L.LightningModule):
         self.model.eval()  # both encoder passes must describe the same network
         pooled_parts = []
         survival_parts = {
-            name: {"times": [], "events": []} for name in self.outcome_names
+            name: {"times": [], "events": [], "weights": []} for name in self.outcome_names
         }
         subject_parts = []
         fine_parts = []
@@ -158,12 +165,14 @@ class OperaContrastiveModule(L.LightningModule):
                     if name in survival:
                         survival_parts[name]["times"].append(survival[name]["times"])
                         survival_parts[name]["events"].append(survival[name]["events"])
+                        if "weights" in survival[name]:
+                            survival_parts[name]["weights"].append(survival[name]["weights"])
                 subject_parts.append(batch["subject_id"])
                 if self.model.source_adapter_readout is not None:
                     fine_parts.append(batch["cohort_fine_index"])
         pooled = torch.cat(pooled_parts).detach().requires_grad_(True)
         outcome_survival = {
-            name: {key: torch.cat(parts) for key, parts in fields.items()}
+            name: {key: torch.cat(parts) for key, parts in fields.items() if parts}
             for name, fields in survival_parts.items()
             if fields["times"]
         }
@@ -240,6 +249,8 @@ class OperaContrastiveModule(L.LightningModule):
                     "times": batch[time_key],
                     "events": batch[event_key],
                 }
+                if "sampling_weight" in batch:
+                    outcome_survival[name]["weights"] = batch["sampling_weight"]
             elif label_key in batch:
                 # Fallback: binary label only — treat as event, time unknown
                 labels = batch[label_key]
@@ -279,6 +290,15 @@ class OperaContrastiveModule(L.LightningModule):
                 )
             return self._cached_training_step(batch)
         return self._shared_step(batch, "train")
+
+    def on_train_epoch_start(self) -> None:
+        # Keep the replacement proposal's draw stream deterministic after a
+        # checkpoint resume; random baselines retain their existing behavior.
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and str(
+            getattr(datamodule, "batch_sampling", {}).get("type", "")
+        ) == "ipw_event_horizon_bce":
+            datamodule.train_sampler.epoch = int(self.current_epoch)
 
     def validation_step(self, batch, batch_idx):
         if self.model.competing_risk_loss is not None:
@@ -602,15 +622,25 @@ class OperaContrastiveModule(L.LightningModule):
     def configure_optimizers(self):
         encoder_params = []
         head_params = []
+        adapter_params = []
         for name, param in self.model.named_parameters():
             if not param.requires_grad:
                 continue
             if name.startswith("encoder."):
                 encoder_params.append(param)
+            elif self.adapter_optimizer_epsilon is not None and name in {
+                "source_adapter_readout.down", "source_adapter_readout.up",
+            }:
+                adapter_params.append(param)
             else:
                 head_params.append(param)
 
         param_groups = [{"params": head_params, "lr": self.learning_rate}]
+        if self.adapter_optimizer_epsilon is not None:
+            if len(adapter_params) != 2:
+                raise ValueError("Adapter epsilon requires both source down/up matrices")
+            param_groups.append({"params": adapter_params, "lr": self.learning_rate,
+                                 "eps": float(self.adapter_optimizer_epsilon)})
         if encoder_params:
             param_groups.append(
                 {

@@ -1,0 +1,9 @@
+defaults:
+  - pretrain_harmonized_fourier_len8192_20ep
+  - _self_
+
+# Matched time-encoding comparison on the same final joined-bin MEDS release.
+# All architecture, data, optimizer, and checkpoint settings inherit from the
+# Fourier run; only the absolute-time embedding changes.
+model:
+  abspos_encoding: scaled_time2vec

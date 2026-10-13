@@ -12,6 +12,10 @@ Usage:
 """
 
 import csv
+import hashlib
+import inspect
+import json
+from pathlib import Path
 
 import hydra
 import lightning as L
@@ -42,6 +46,7 @@ from bonsai.functional.input_contract import (
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
 from opera.functional.direct_cr_contract import validate_direct_cr_config
 from opera.modules.networks.opera_nets import OperaContrastiveModel
+from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
 from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
 from opera.modules.networks.competing_risk import (
     estimate_piecewise_null_log_hazards,
@@ -79,6 +84,33 @@ _TRANSFER_METADATA_FIELDS = (
     "source_dapt_checkpoint",
     "selection_outcomes",
 )
+
+
+def _record_router_code_provenance(model_save_dir: str, model) -> None:
+    """Pin the executed router source; refuse an unverified router resume."""
+    readout = model.source_adapter_readout
+    if readout is None:
+        return
+    path = Path(inspect.getfile(SourceAnchoredReadout)).resolve()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    run_dir = Path(model_save_dir)
+    sidecar = run_dir / "router_code_provenance_INTERNAL.json"
+    payload = {
+        "loaded_class_file": str(path),
+        "loaded_class_file_sha256": digest,
+        "query_mode": readout.query_mode,
+        "fine_names": list(readout.fine_names),
+        "outcome_names": list(readout.outcome_names),
+    }
+    if sidecar.is_file():
+        previous = json.loads(sidecar.read_text(encoding="utf-8"))
+        if previous != payload:
+            raise ValueError("Router implementation or roster changed since this run began")
+        return
+    if (run_dir / "last.ckpt").is_file():
+        raise ValueError("Cannot verify router code for a checkpoint without provenance sidecar")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _initialize_source_adapters(model, source_path: str, outcome_names: list[str]) -> None:
@@ -255,6 +287,8 @@ def _checkpoint_metadata(
     }
     if cfg.get("source_opera_ckpt") is not None:
         metadata["source_opera_checkpoint"] = str(cfg.source_opera_ckpt)
+    if cfg.get("adapter_initialization") is not None:
+        metadata["adapter_initialization"] = str(cfg.adapter_initialization)
     if transfer_metadata is None:
         return metadata
     # Copy the condition-level metadata and add the actual runtime seed.  This
@@ -417,6 +451,11 @@ def main(cfg: DictConfig) -> None:
         ),
         cohort_names=sorted(str(name) for name in cohort_configs),
     )
+    if str(cfg.training.get("batch_sampling", {}).get("type", "random")) == "ipw_event_horizon_bce":
+        if model.competing_risk_loss is None:
+            raise ValueError("IPW sampling requires a competing-risk BCE head")
+        model.competing_risk_loss.require_sampling_weights = True
+    _record_router_code_provenance(model_save_dir, model)
 
     # ── Data ───────────────────────────────────────────────────────────
     data_module = MultiCohortContrastiveDataModule(
@@ -436,17 +475,24 @@ def main(cfg: DictConfig) -> None:
         numeric_value_control=numeric_value_control,
         fine_names=competing_risk_config.get("fine_names") if model.source_adapter_readout is not None else None,
         fine_column=str(competing_risk_config.get("fine_column", "cohort_fine")),
+        outcome_label_cache_dir=cfg.paths.get("outcome_label_cache_dir"),
     )
     data_module.setup("fit")
 
     if model.source_adapter_readout is not None:
-        _initialize_source_adapters(model, str(cfg.source_opera_ckpt), outcome_names)
+        adapter_initialization = cfg.get("adapter_initialization", "shared_bce")
+        if adapter_initialization == "shared_bce":
+            _initialize_source_adapters(model, str(cfg.source_opera_ckpt), outcome_names)
+            print(f"Initialized source adapters from {cfg.source_opera_ckpt}")
+        elif adapter_initialization == "dapt_fresh":
+            print("Using DAPT encoder with a fresh shared head and router/adapters.")
+        else:
+            raise ValueError(f"Unknown adapter_initialization: {adapter_initialization}")
         _set_source_training_support(
             model, data_module.train_dataset,
             f"{model_save_dir}/source_training_support.csv",
             float(competing_risk_config.get("adapter_event_tau", 20.0)),
         )
-        print(f"Initialized source adapters from {cfg.source_opera_ckpt}")
 
     if float(competing_risk_config.get("loss_weight", 0.0)) > 0:
         support = summarize_competing_risk_support(
@@ -493,8 +539,9 @@ def main(cfg: DictConfig) -> None:
                 == "kendall_null"
             ):
                 model.competing_risk_loss.set_null_log_hazards(null_log_hazards)
-            if model.source_adapter_readout is None and bool(
-                competing_risk_config.get("initialize_from_null_hazards", False)
+            if bool(competing_risk_config.get("initialize_from_null_hazards", False)) and (
+                model.source_adapter_readout is None
+                or cfg.get("adapter_initialization") == "dapt_fresh"
             ):
                 model.initialize_competing_risk_biases(null_log_hazards)
                 print("Initialized direct-risk head biases from training hazards.")
@@ -551,6 +598,7 @@ def main(cfg: DictConfig) -> None:
         learning_rate=cfg.training.learning_rate,
         encoder_lr_multiplier=cfg.training.encoder_lr_multiplier,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
+        adapter_optimizer_epsilon=cfg.training.get("adapter_optimizer_epsilon"),
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         gradient_cache=_uses_gradient_cache(

@@ -86,7 +86,7 @@ def _split_subjects(
     if multi_split:
         issues.append(
             "Split assignment is not patient-level; subjects appear in multiple "
-            f"splits: {dict(list(multi_split.items())[:10])}"
+            f"splits: {len(multi_split)} subjects"
         )
     details["n_subjects_by_split"] = {
         split: len(subjects) for split, subjects in subjects_by_split.items()
@@ -132,14 +132,13 @@ def validate_cross_stage_split_contract(
                 if overlap:
                     issues.append(
                         f"{label} physical partitions overlap ({left_path}, "
-                        f"{right_path}): {sorted(overlap)[:10]}"
+                        f"{right_path}): {len(overlap)} subjects"
                     )
         pooled_ids = set().union(*ids_by_path.values()) if ids_by_path else set()
         missing = all_outcome_ids - pooled_ids
         if missing:
             issues.append(
-                f"{label} pooled files are missing {len(missing)} outcome subjects: "
-                f"{sorted(missing)[:10]}"
+                f"{label} pooled files are missing {len(missing)} outcome subjects"
             )
         details[label]["pooled"] = {
             "n_subjects": len(pooled_ids),

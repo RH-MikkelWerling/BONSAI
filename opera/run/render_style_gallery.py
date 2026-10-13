@@ -144,7 +144,7 @@ def main():
         fig.text(
             0.995,
             0.005,
-            "SYNTHETIC · DESIGN PROOF",
+            "SYNTHETIC DESIGN PROOF",
             ha="right",
             va="bottom",
             fontsize=6.5,

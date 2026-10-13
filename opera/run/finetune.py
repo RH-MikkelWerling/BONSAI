@@ -37,7 +37,6 @@ from bonsai.functional.outcomes import (
     split_and_binarize_outcomes,
 )
 from bonsai.functional.loss import get_loss_weight
-from bonsai.functional.sampling import get_sampler
 from bonsai.functional.checkpointing import (
     extract_encoder_state_dict,
     get_saved_encoder_config,
@@ -152,12 +151,9 @@ def build_finetune_data_module(
         predict_outcomes=test_outcomes,
         predict_token_id=vocab["[CLS]"],
         max_len=resolve_finetune_max_len(cfg, encoder_max_seqlen),
-        train_sampler=get_sampler(
-            # Sampling weights are optional. Keep older experiment configs and
-            # externally generated sweep configs valid when the field is absent.
-            weight_fn=cfg.training.get("sampling_weight_fn", None),
-            labels=train_labels,
-        ),
+        # Build weights after the prospective split has been matched to the
+        # physical subject pool, in exactly the dataset's eventual order.
+        train_sampler_weight_fn=cfg.training.get("sampling_weight_fn", None),
         numeric_value_control=numeric_value_control,
     )
 

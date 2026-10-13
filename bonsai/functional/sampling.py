@@ -36,11 +36,6 @@ def effective_n_samples(labels: List[int], label_counts: dict) -> List[float]:
         label: (1 - (beta**count)) / (1 - beta) for label, count in label_counts.items()
     }
 
-    # Calculate class probabilities
-    total_effective = sum(effective_nums.values())
-    class_probs = {
-        label: eff_num / total_effective for label, eff_num in effective_nums.items()
-    }
-
-    # Calculate weights for each sample
-    return [class_probs[outcome] / label_counts[outcome] for outcome in labels]
+    # Weight inversely by effective class size; the previous expression
+    # simplified to a near-constant weight when effective_n ~= count.
+    return [1.0 / effective_nums[label] for label in labels]

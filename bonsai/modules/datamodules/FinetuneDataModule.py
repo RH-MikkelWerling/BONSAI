@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from bonsai.functional.collate import dynamic_padding
 from bonsai.modules.datasets.FinetuneDataset import FinetuneDataset
 from bonsai.functional.subject_data import filter_subject_data
+from bonsai.functional.sampling import get_sampler
 
 
 class FinetuneDataModule(L.LightningDataModule):
@@ -24,6 +25,7 @@ class FinetuneDataModule(L.LightningDataModule):
         predict_outcomes: Dict[int, dict],
         train_sampler: Optional[WeightedRandomSampler] = None,
         numeric_value_control: str = "observed",
+        train_sampler_weight_fn=None,
     ):
         super().__init__()
         self.path_train_data = path_train_data
@@ -40,6 +42,7 @@ class FinetuneDataModule(L.LightningDataModule):
         self.val_outcomes = val_outcomes
         self.predict_outcomes = predict_outcomes
         self.train_sampler = train_sampler
+        self.train_sampler_weight_fn = train_sampler_weight_fn
         self.numeric_value_control = numeric_value_control
 
     def setup(self, stage: Literal["fit", "test", "predict"]):
@@ -69,6 +72,13 @@ class FinetuneDataModule(L.LightningDataModule):
         if not val_data:
             raise ValueError(
                 "No validation subjects remain after outcome/population filtering."
+            )
+        if self.train_sampler_weight_fn is not None:
+            if self.train_sampler is not None:
+                raise ValueError("Specify a sampler or its weight function, not both.")
+            self.train_sampler = get_sampler(
+                self.train_sampler_weight_fn,
+                [self.train_outcomes[sub["subject_id"]]["label"] for sub in train_data],
             )
 
         self.train_dataset = FinetuneDataset(

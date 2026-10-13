@@ -7,6 +7,13 @@ def endpoint_groups_v1(outcomes):
     groups = {}
     for name in outcomes:
         group = re.sub(r"_g[234]plus$", "", name)
+        # Release-v2 aliases preserve two nested historical ALP thresholds and
+        # two nested numerical sodium thresholds. Keep each pair weighted as
+        # one endpoint when constructing endpoint-group-macro experiments.
+        if name in {"alp_elevation_legacy_tier2plus", "alp_elevation_legacy_tier3plus"}:
+            group = "alp_elevation_legacy"
+        elif name == "sodium_below_125_mmol_l":
+            group = "hyponatremia"
         groups.setdefault(group, []).append(name)
     return groups
 

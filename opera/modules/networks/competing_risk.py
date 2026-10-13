@@ -104,6 +104,12 @@ def validate_competing_risk_sampling(
     if float(settings.get("loss_weight", 0.0)) <= 0:
         return
     sampler_type = str(dict(batch_sampling or {}).get("type", "random")).lower()
+    if sampler_type == "ipw_event_horizon_bce":
+        if str(settings.get("objective", "piecewise_exponential")) != "horizon_bce":
+            raise ValueError("IPW event sampling requires horizon_bce")
+        if float(settings.get("contrastive_loss_weight", 0.0)) != 0.0:
+            raise ValueError("IPW event sampling requires direct BCE only")
+        return
     if sampler_type not in {"none", "random"}:
         raise ValueError(
             "The competing-risk likelihood requires natural-distribution random "
@@ -293,6 +299,7 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         self.time_scale_days = float(time_scale_days)
         self.smoothness_weight = float(smoothness_weight)
         self.objective = str(objective).lower()
+        self.require_sampling_weights = False
         if self.objective not in {"piecewise_exponential", "horizon_bce"}:
             raise ValueError(
                 "competing_risk.objective must be 'piecewise_exponential' or "
@@ -490,10 +497,15 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
         cif: torch.Tensor,
         targets: torch.Tensor,
         known: torch.Tensor,
+        weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if not bool(known.any()):
             raise ValueError("Horizon BCE requires at least one known horizon label.")
-        return cls._horizon_bce_cells(cif, targets)[known].mean()
+        cells = cls._horizon_bce_cells(cif, targets)
+        if weights is None:
+            return cells[known].mean()
+        weighted_known = known.to(cells) * weights[:, None]
+        return (cells * weighted_known).sum() / weighted_known.sum()
 
     def forward(
         self,
@@ -547,12 +559,25 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 continue
             times = times.to(log_hazards).reshape(-1)
             events = events.to(device=log_hazards.device, dtype=torch.long).reshape(-1)
+            weights = survival.get("weights")
+            if self.require_sampling_weights and self._curriculum_training and weights is None:
+                raise ValueError("IPW sampling requires per-patient weights in training")
+            if weights is not None:
+                if self.objective != "horizon_bce":
+                    raise ValueError("Sampling weights are supported only for horizon BCE")
+                weights = weights.to(device=log_hazards.device, dtype=torch.float32).reshape(-1)
+                if weights.numel() != times.numel() or not bool(
+                    (torch.isfinite(weights) & (weights > 0)).all()
+                ):
+                    raise ValueError("Sampling weights must be finite, positive, and batch-aligned")
             valid = torch.isfinite(times) & (times >= 0) & (events >= 0)
             if not valid.any():
                 continue
 
             times = times[valid]
             events = events[valid]
+            if weights is not None:
+                weights = weights[valid]
             if name in self.no_competing_outcomes and bool((events == 2).any()):
                 raise ValueError(
                     f"Outcome {name!r} is configured without a competing cause "
@@ -571,14 +596,22 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 cif = self._horizon_cif(active_log_hazards, name)
                 if self.aggregation == "endpoint_group_macro":
                     cells = self._horizon_bce_cells(cif, horizon_targets)
-                    counts = horizon_known.sum(dim=0)
-                    likelihood_loss = (
-                        (cells * horizon_known).sum(dim=0)[counts > 0]
-                        / counts[counts > 0]
-                    ).mean()
+                    if weights is None:
+                        counts = horizon_known.sum(dim=0)
+                        likelihood_loss = (
+                            (cells * horizon_known).sum(dim=0)[counts > 0]
+                            / counts[counts > 0]
+                        ).mean()
+                    else:
+                        weighted_known = horizon_known.to(cells) * weights[:, None]
+                        counts = weighted_known.sum(dim=0)
+                        likelihood_loss = (
+                            (cells * weighted_known).sum(dim=0)[counts > 0]
+                            / counts[counts > 0]
+                        ).mean()
                 else:
                     likelihood_loss = self._masked_horizon_bce(
-                        cif, horizon_targets, horizon_known
+                        cif, horizon_targets, horizon_known, weights
                     )
                 # Retain the component contract used by gradient diagnostics.
                 # Horizon BCE is one indivisible component rather than an
@@ -597,9 +630,16 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                         known_at_horizon.sum().float().detach()
                     )
                     if bool(known_at_horizon.any()):
-                        diagnostics[f"cr/horizon_bce/loss/{name}/{suffix}"] = (
-                            cell_loss[known_at_horizon, horizon_index].mean().detach()
-                        )
+                        horizon_cells = cell_loss[known_at_horizon, horizon_index]
+                        if weights is None:
+                            horizon_loss = horizon_cells.mean()
+                        else:
+                            horizon_weights = weights[known_at_horizon]
+                            horizon_loss = (
+                                (horizon_cells * horizon_weights).sum()
+                                / horizon_weights.sum()
+                            )
+                        diagnostics[f"cr/horizon_bce/loss/{name}/{suffix}"] = horizon_loss.detach()
             else:
                 outcome_hazards = hazards[valid, outcome_index]
                 if name in self.no_competing_outcomes:
@@ -680,7 +720,15 @@ class PiecewiseExponentialCompetingRiskLoss(nn.Module):
                 active_log_hazards = log_hazards[valid, outcome_index]
                 if name in self.no_competing_outcomes:
                     active_log_hazards = active_log_hazards[:, :1]
-                smoothness = active_log_hazards.diff(dim=-1).square().mean()
+                if weights is None:
+                    smoothness = active_log_hazards.diff(dim=-1).square().mean()
+                else:
+                    smoothness_per_patient = (
+                        active_log_hazards.diff(dim=-1).square().mean(dim=(1, 2))
+                    )
+                    smoothness = (
+                        (smoothness_per_patient * weights).sum() / weights.sum()
+                    )
                 smoothness_loss = self.smoothness_weight * smoothness
                 outcome_loss = outcome_loss + smoothness_loss
                 diagnostics[f"cr/smoothness/{name}"] = smoothness.detach()

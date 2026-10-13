@@ -39,6 +39,11 @@ def contrastive_collate(batch):
         for k in keys:
             base[k] = torch.stack([sample[k] for sample in batch])
 
+    if "sampling_weight" in batch[0]:
+        base["sampling_weight"] = torch.stack(
+            [sample["sampling_weight"] for sample in batch]
+        )
+
     return base
 
 

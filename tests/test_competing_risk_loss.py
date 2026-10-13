@@ -209,6 +209,33 @@ def test_horizon_bce_trains_all_known_horizons_and_masks_early_censoring():
     assert log_hazards.grad[[0, 2, 3]].abs().sum() > 0
 
 
+def test_horizon_bce_inverse_sampling_weights_correct_patient_contributions():
+    loss_fn = PiecewiseExponentialCompetingRiskLoss(
+        ["endpoint"], [30.0, 90.0], no_competing_outcomes=[],
+        time_scale_days=1.0, objective="horizon_bce",
+        cross_outcome_config={
+            "aggregation": "endpoint_group_macro",
+            "endpoint_groups": {"endpoint": ["endpoint"]},
+        },
+    )
+    log_hazards = torch.full((2, 1, 2, 3), math.log(0.01))
+    survival = _survival([10.0, 100.0], [1, 0])
+    survival["endpoint"]["weights"] = torch.tensor([1.0, 3.0])
+    loss, _ = loss_fn(log_hazards, survival)
+    cif = piecewise_exponential_cif(
+        log_hazards, [30.0, 90.0], [30.0, 90.0], time_scale_days=1.0,
+    )[:, 0]
+    cells = torch.nn.functional.binary_cross_entropy(
+        cif, torch.tensor([[1.0, 1.0], [0.0, 0.0]]), reduction="none",
+    )
+    expected = (cells * torch.tensor([[1.0], [3.0]])).sum() / 8.0
+    assert loss.item() == pytest.approx(expected.item())
+    loss_fn.require_sampling_weights = True
+    loss_fn.set_curriculum_state(0, training=True)
+    with pytest.raises(ValueError, match="per-patient weights"):
+        loss_fn(log_hazards, _survival([10.0, 100.0], [1, 0]))
+
+
 def test_horizon_bce_rejects_unknown_objective():
     with pytest.raises(ValueError, match="competing_risk.objective"):
         PiecewiseExponentialCompetingRiskLoss(
@@ -264,6 +291,10 @@ def test_competing_risk_likelihood_requires_natural_sampling():
     validate_competing_risk_sampling(
         {"loss_weight": 0.0},
         {"type": "event_aware"},
+    )
+    validate_competing_risk_sampling(
+        {"loss_weight": 1.0, "objective": "horizon_bce", "contrastive_loss_weight": 0.0},
+        {"type": "ipw_event_horizon_bce"},
     )
 
 

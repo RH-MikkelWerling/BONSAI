@@ -1,45 +1,58 @@
-\begin{tikzpicture}[opera,node distance=6mm and 10mm]
-  \node[stageblue,text width=6.0cm,minimum height=10mm] (registry)
-    {Linked haematology registry and longitudinal EHR\\\placeholder{source population $N$}};
-  \node[stage,text width=6.0cm,minimum height=10mm,below=of registry] (filter)
-    {Haematology-relevant treatment records\\diagnosis linkage, indication text and drug specificity\\\placeholder{$n$ with qualifying records}};
-  \node[stage,text width=6.0cm,minimum height=12mm,below=of filter] (pass1)
-    {Pass 1: reconstruct first-line episode\\{\scriptsize search from 90 days before earliest diagnosis; merge records within 21 days; assign disease within $\pm14$ days}\\\placeholder{$n$ classified}};
-  \node[stageteal,text width=6.0cm,minimum height=11mm,below=of pass1] (pass2)
-    {Pass 2: forward-diagnosis rescue\\{\scriptsize re-anchor at earliest specific diagnosis and repeat treatment search; regimen-based rescue when unambiguous}\\\placeholder{$n$ additionally classified}};
-  \node[stageblue,text width=6.0cm,minimum height=10mm,below=of pass2] (cohort)
-    {First-line treatment cohort\\24 fine cohorts nested in 10 disease groups\\\placeholder{$n$ patients}};
-  \draw[flowblue,shorten >=1pt] (registry) -- (filter);
-  \draw[flowblue,shorten >=1pt] (filter) -- (pass1);
-  \draw[flowteal,shorten >=1pt] (pass1) -- (pass2);
-  \draw[flowblue,shorten >=1pt] (pass2) -- (cohort);
+\begin{tikzpicture}[opera,node distance=10mm and 12mm]
+  \node[stageblue,text width=6.1cm] (pretrainbox)
+    {78,668 diagnosis-linked patients\\{\scriptsize EHR histories before 2022 used for encoder pretraining}};
+  \node[eyebrow,above=3mm of pretrainbox] (pretrainlabel) {PRETRAINING POPULATION};
+  \node[eyebrow,below=7mm of pretrainbox] (branchlabel)
+    {FIRST-LINE COHORT ASCERTAINMENT};
+  \node[stage,text width=6.1cm,below=4mm of branchlabel] (index)
+    {First-line treatment index identified\\38,635 patients};
+  \node[stage,text width=6.1cm,below=of index] (pass1)
+    {Initial disease assignment using diagnoses through day 14\\37,357 assigned; 1,278 unresolved};
+  \node[stageteal,text width=6.1cm,below=of pass1] (pass2)
+    {Coding-lag reassessment through day 90\\209 additional patients assigned};
+  \node[stage,text width=6.1cm,below=of pass2] (classified)
+    {Disease assigned after both passes\\37,566 patients};
+  \node[stageblue,text width=6.1cm,below=of classified] (firstline)
+    {First-line cohort after IgM MGUS exclusion\\37,557 patients};
+  \node[stageblue,text width=6.1cm,below=of firstline] (supervised)
+    {37,531 patients for fine-tuning, validation and evaluation};
 
-  \node[softpanel,text width=4.5cm,align=left,anchor=west,right=12mm of filter] (ex1)
-    {\sffamily\bfseries Excluded before episode reconstruction\par\vspace{1mm}\normalfont
-     no qualifying treatment: \placeholder{$n$}\par
-     no supported treatment episode: \placeholder{$n$}};
-  \node[softpanel,text width=4.5cm,align=left,anchor=west,right=12mm of pass2] (ex2)
-    {\sffamily\bfseries Excluded after reconstruction\par\vspace{1mm}\normalfont
-     disease remained unclassifiable: \placeholder{$n$}\par
-     implausible first-line episode: \placeholder{$n$}};
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (filter.east) -- (ex1.west);
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (pass2.east) -- (ex2.west);
+  \foreach \a/\b in {index/pass1,pass1/pass2,
+                       pass2/classified,classified/firstline,firstline/supervised}
+    \draw[flowblue,shorten >=1pt] (\a.south) -- (\b.north);
+  \draw[flowblue,shorten >=1pt] (pretrainbox.south) -- (index.north);
+  \node[eyebrow,fill=white,inner xsep=2mm] at (branchlabel) {FIRST-LINE COHORT ASCERTAINMENT};
+  \node[eyebrow,fill=white,inner xsep=2mm,above=2mm of supervised]
+    {FINAL SUPERVISED COHORT};
 
-  \node[stage,text width=3.55cm,below left=10mm and 14mm of cohort] (train)
-    {Training\\index through 2021\\\placeholder{$n$}};
-  \node[stage,text width=3.55cm,below=10mm of cohort] (tune)
-    {Tuning\\index in 2022\\\placeholder{$n$}};
-  \node[stage,text width=3.55cm,below right=10mm and 14mm of cohort] (held)
-    {Held-out\\index from 2023\\\placeholder{$n$}};
-  \draw[flowblue,shorten >=1pt] (cohort) -- (train);
-  \draw[flowblue,shorten >=1pt] (cohort) -- (tune);
-  \draw[flowblue,shorten >=1pt] (cohort) -- (held);
+  % Mutually distinct exits from the central first-line flow.
+  \node[softpanel,text width=4.45cm,align=left,right=of pretrainbox] (noindex)
+    {\bfseries Excluded: $n=40{,}033$\\No qualifying first-line treatment index};
+  \node[softpanel,text width=4.45cm,align=left,right=of pass2] (unresolved)
+    {\bfseries Excluded: $n=1{,}069$\\Disease remained unresolved after reassessment};
+  \node[softpanel,text width=4.45cm,align=left,right=of classified] (secondary)
+    {\bfseries Excluded: $n=9$\\IgM monoclonal gammopathy of undetermined significance (MGUS)};
+  \node[softpanel,text width=4.45cm,align=left,right=of firstline] (nosurvival)
+    {\bfseries Excluded: $n=26$\\No released post-treatment survival/follow-up record; recorded death or follow-up timing requires audit};
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (pretrainbox.east) -- (noindex.west);
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (pass2.east) -- (unresolved.west);
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (classified.east) -- (secondary.west);
+  \draw[relation,draw=OperaSienna,shorten >=1pt] (firstline.east) -- (nosurvival.west);
 
-  \node[softpanel,text width=12.0cm,below=8mm of tune] (risksets)
-    {\sffamily\bfseries Outcome-specific eligible risk sets\par
-     \normalfont 87 outcomes × six horizons; eligibility, competing events and
-     available follow-up applied separately within each temporal split};
-  \draw[flowteal,shorten >=1pt] (train) -- (risksets.north west);
-  \draw[flowteal,shorten >=1pt] (tune) -- (risksets.north);
-  \draw[flowteal,shorten >=1pt] (held) -- (risksets.north east);
+  \node[stage,text width=3.55cm,below left=14mm and 14mm of supervised] (train)
+    {Training\\index through 2021\\$n=29{,}105$};
+  \node[stage,text width=3.55cm,below=14mm of supervised] (tune)
+    {Validation/tuning\\index in 2022\\$n=1{,}980$};
+  \node[stage,text width=3.55cm,below right=14mm and 14mm of supervised] (held)
+    {Held-out evaluation\\index from 2023\\$n=6{,}446$};
+  \coordinate (split) at ($(supervised.south)+(0,-7mm)$);
+  \draw[flowblue] (supervised.south) -- (split);
+  \draw[draw=OperaIndigo,line width=0.75pt]
+    (train.north |- split) -- (held.north |- split);
+  \foreach \dest in {train,tune,held}
+    \draw[flowblue,shorten >=1pt] (\dest.north |- split) -- (\dest.north);
+
+  \node[captionnote,text width=12.2cm,below=7mm of tune] (risksets)
+    {Outcome-specific eligibility, competing events and follow-up are applied
+     separately within each split; \placeholder{final risk-set counts}.};
 \end{tikzpicture}

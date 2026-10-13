@@ -82,6 +82,8 @@ experiments:
       - vocabulary_embeddings_<stage>.csv
       - vocabulary_atlas_coordinates.csv
       - vocabulary_atlas.png
+      - vocabulary_family_facets.png
+      - vocabulary_family_cosine_proximity.csv
       - token_movement.csv
       - token_movement.png
       - vocabulary_neighbors.csv

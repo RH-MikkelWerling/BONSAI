@@ -313,7 +313,7 @@ def test_hierarchical_model_samples_nested_hierarchy(tmp_path):
     pytest.importorskip("pymc")
     az = pytest.importorskip("arviz")
 
-    output_root = Path.cwd() / ".pytest_bayes" / tmp_path.name
+    output_root = tmp_path
     prepared = prepare_rarity_data(
         _nested_delta_fixture(),
         metric="auroc",
@@ -361,7 +361,7 @@ def test_hierarchical_model_samples_crossed_outcome_toggle(tmp_path):
     pytest.importorskip("pymc")
     az = pytest.importorskip("arviz")
 
-    output_root = Path.cwd() / ".pytest_bayes" / tmp_path.name
+    output_root = tmp_path
     prepared = prepare_rarity_data(
         _nested_delta_fixture(),
         metric="auroc",

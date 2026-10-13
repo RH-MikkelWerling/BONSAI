@@ -7,6 +7,7 @@ from typing import Literal
 import torch
 
 from bonsai.functional.subject_data import filter_subject_data
+from bonsai.functional.sampling import get_sampler
 from bonsai.modules.datamodules.FinetuneDataModule import FinetuneDataModule
 from bonsai.modules.datasets.FinetuneDataset import FinetuneDataset
 
@@ -94,10 +95,16 @@ class OutcomeFinetuneDataModule(FinetuneDataModule):
                 raise ValueError(
                     "Outcome-defined train and tuning data must be non-empty."
                 )
-            background_length = int((train_data[0]["segment"] == 0).sum())
+            if self.train_sampler_weight_fn is not None:
+                if self.train_sampler is not None:
+                    raise ValueError("Specify a sampler or its weight function, not both.")
+                self.train_sampler = get_sampler(
+                    self.train_sampler_weight_fn,
+                    [self.train_outcomes[sub["subject_id"]]["label"] for sub in train_data],
+                )
             common = {
                 "predict_token_id": self.predict_token_id,
-                "background_length": background_length,
+                "background_length": None,
                 "max_len": self.max_len,
                 "numeric_value_control": self.numeric_value_control,
             }
@@ -112,12 +119,11 @@ class OutcomeFinetuneDataModule(FinetuneDataModule):
             predict_data = self._select(self.predict_outcomes, "held_out")
             if not predict_data:
                 raise ValueError("Outcome-defined held-out data must be non-empty.")
-            background_length = int((predict_data[0]["segment"] == 0).sum())
             self.predict_dataset = FinetuneDataset(
                 predict_data,
                 outcomes=self.predict_outcomes,
                 predict_token_id=self.predict_token_id,
-                background_length=background_length,
+                background_length=None,
                 max_len=self.max_len,
                 numeric_value_control=self.numeric_value_control,
             )

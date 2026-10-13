@@ -100,6 +100,27 @@ def _display_grid(coords: np.ndarray, grid_size: int, min_padding: float = 0.):
     return xx, yy, np.column_stack([xx.ravel(), yy.ravel()])
 
 
+def patient_footprint_margin(coords, points, *, radius=None, neighbors=8):
+    """Signed union-of-discs footprint; geometry only, never outcome dependent.
+
+    A common radius derived from median k-neighbor distance follows the cloud
+    without a convex hull bridging distant islands. Positive means inside.
+    This is a display footprint, not an additional claim of statistical support.
+    """
+    from scipy.spatial import cKDTree
+    coords = np.unique(np.asarray(coords, dtype=float), axis=0)
+    tree = cKDTree(coords)
+    if radius is None:
+        k = min(len(coords), max(2, int(neighbors) + 1))
+        distances = tree.query(coords, k=k)[0]
+        distances = distances[:, -1] if distances.ndim == 2 else distances
+        positive = distances[distances > 0]
+        radius = float(np.median(positive)) if positive.size else 1.
+    if not np.isfinite(radius) or radius <= 0:
+        raise ValueError("Footprint radius must be positive and finite.")
+    return (float(radius) - tree.query(np.asarray(points), k=1)[0]), float(radius)
+
+
 def neighbor_operator(embedding: np.ndarray, n_neighbors: int):
     """Row-stochastic kNN kernel built in the *full* embedding.
 
@@ -390,6 +411,42 @@ def spatial_calibration_residual(
     )
 
 
+def _binned_router_displacement(
+    before: np.ndarray, after: np.ndarray, *, bins: int = 7, min_count: int = 20,
+) -> dict[str, np.ndarray]:
+    """Local mean vector field on the fixed shared-embedding projection."""
+    before = np.asarray(before, dtype=float)
+    after = np.asarray(after, dtype=float)
+    if before.ndim != 2 or before.shape[1] != 2 or after.shape != before.shape:
+        raise ValueError("before and after must be matching (patients, 2) arrays")
+    if bins < 1 or min_count < 1:
+        raise ValueError("bins and min_count must be positive")
+    extent = np.ptp(before, axis=0)
+    safe_extent = np.where(extent > 0, extent, 1.)
+    cell = np.floor((before - before.min(axis=0)) / safe_extent * bins).astype(int)
+    cell = np.clip(cell, 0, bins - 1)
+    centers, vectors, counts, coherence = [], [], [], []
+    for i in range(bins):
+        for j in range(bins):
+            selected = (cell[:, 0] == i) & (cell[:, 1] == j)
+            if int(selected.sum()) < min_count:
+                continue
+            centers.append(before[selected].mean(axis=0))
+            shifts = after[selected] - before[selected]
+            mean_shift = shifts.mean(axis=0)
+            vectors.append(mean_shift)
+            counts.append(int(selected.sum()))
+            mean_length = np.linalg.norm(shifts, axis=1).mean()
+            coherence.append(float(min(1., np.linalg.norm(mean_shift) / mean_length))
+                             if mean_length > 0 else 0.)
+    return {
+        "centers": np.asarray(centers, dtype=float).reshape(-1, 2),
+        "vectors": np.asarray(vectors, dtype=float).reshape(-1, 2),
+        "counts": np.asarray(counts, dtype=int),
+        "coherence": np.asarray(coherence, dtype=float),
+    }
+
+
 def plot_censoring_aware_embedding_panel(
     coords: np.ndarray,
     times: np.ndarray,
@@ -401,6 +458,8 @@ def plot_censoring_aware_embedding_panel(
     held_out: np.ndarray | None = None,
     bandwidth: float | None = None,
     bandwidth_scale: float = 1.,
+    footprint: str = "kernel",
+    footprint_radius: float | None = None,
     grid_size: int = 80,
     min_effective_support: float = 25.0,
     min_density_fraction: float = 0.01,
@@ -412,6 +471,14 @@ def plot_censoring_aware_embedding_panel(
     residual_probability_limit: float | None = None,
     random_state: int = 0,
     title: str = "Outcome",
+    routed_coords: np.ndarray | None = None,
+    routed_norms: np.ndarray | None = None,
+    router_arrow_bins: int = 7,
+    router_arrow_min_count: int = 20,
+    router_arrow_scale: float | None = None,
+    router_arrow_style: str = "standard",
+    router_arrow_min_coherence: float = 0.,
+    plot_data: dict[str, np.ndarray] | None = None,
 ):
     """Plot status, time, IPCW risk, calibration residual, and support panels.
 
@@ -429,11 +496,31 @@ def plot_censoring_aware_embedding_panel(
     coords = np.asarray(coords, dtype=float)
     times = np.asarray(times, dtype=float)
     events = np.asarray(events, dtype=float)
+    if routed_coords is not None:
+        routed_coords = np.asarray(routed_coords, dtype=float)
+        if routed_coords.shape != coords.shape or not np.isfinite(routed_coords).all():
+            raise ValueError("routed_coords must be finite and match coords (patients, 2)")
+    if routed_norms is not None:
+        routed_norms = np.asarray(routed_norms, dtype=float)
+        if routed_norms.shape != (len(coords),) or not np.isfinite(routed_norms).all():
+            raise ValueError("routed_norms must be finite and match patients")
+    if router_arrow_scale is not None and (
+        not np.isfinite(router_arrow_scale) or router_arrow_scale <= 0
+    ):
+        raise ValueError("router_arrow_scale must be positive and finite")
+    if router_arrow_style not in {"standard", "compact"}:
+        raise ValueError("router_arrow_style must be standard or compact")
+    if not 0 <= router_arrow_min_coherence <= 1:
+        raise ValueError("router_arrow_min_coherence must be in [0, 1]")
     if not 0 <= min_density_fraction < 1:
         raise ValueError("min_density_fraction must be in [0, 1).")
     if held_out is not None:
         selected = np.asarray(held_out, dtype=bool)
         coords, times, events = coords[selected], times[selected], events[selected]
+        if routed_coords is not None:
+            routed_coords = routed_coords[selected]
+        if routed_norms is not None:
+            routed_norms = routed_norms[selected]
         if predicted_cif is not None:
             predicted_cif = np.asarray(predicted_cif)[selected]
         if embedding is not None:
@@ -451,6 +538,11 @@ def plot_censoring_aware_embedding_panel(
     if bandwidth <= 0 or bandwidth_scale <= 0:
         raise ValueError("Bandwidth and bandwidth_scale must be positive.")
     bandwidth *= bandwidth_scale
+    if footprint not in {"kernel", "patients"}:
+        raise ValueError("footprint must be kernel or patients.")
+    geometry_radius = None
+    if footprint == "patients":
+        _, geometry_radius = patient_footprint_margin(coords, coords, radius=footprint_radius)
     if residual_probability_limit is not None and residual_probability_limit <= 0:
         raise ValueError("residual_probability_limit must be positive.")
     local_embedding = (
@@ -464,7 +556,7 @@ def plot_censoring_aware_embedding_panel(
         bandwidth=bandwidth,
         grid_size=grid_size,
         bounds_coords=coords,
-        min_padding=4 * bandwidth,
+        min_padding=4 * bandwidth if geometry_radius is None else 2 * geometry_radius,
     )
     mask = (support < min_effective_support) | (
         density < min_density_fraction * np.max(density)
@@ -523,7 +615,7 @@ def plot_censoring_aware_embedding_panel(
         Interpolating the continuous support criterion rather than a boolean
         pixel mask removes coarse stair steps without expanding eligibility.
         """
-        from scipy.ndimage import zoom
+        from scipy.ndimage import zoom, gaussian_filter
         from matplotlib.path import Path
 
         factor = max(1.0, 500 / max(xx.shape))
@@ -531,6 +623,24 @@ def plot_censoring_aware_embedding_panel(
         valid = np.isfinite(raw)
         field = zoom(np.where(valid, raw, 0), factor, order=1)
         display_margin = zoom(margin, factor, order=1)
+        if geometry_radius is not None:
+            fine_x, fine_y = np.meshgrid(
+                np.linspace(xx.min(), xx.max(), field.shape[1]),
+                np.linspace(yy.min(), yy.max(), field.shape[0]),
+            )
+            geometry, _ = patient_footprint_margin(
+                coords, np.column_stack([fine_x.ravel(), fine_y.ravel()]), radius=geometry_radius,
+            )
+            # Smooth only the signed geometric distance, not risk or support.
+            # This removes disc scalloping at sub-footprint scales; larger
+            # empty gaps stay negative, while inferential masking remains intact.
+            spacing_y = (yy.max() - yy.min()) / max(1, field.shape[0] - 1)
+            spacing_x = (xx.max() - xx.min()) / max(1, field.shape[1] - 1)
+            geometry = gaussian_filter(geometry.reshape(field.shape), sigma=(
+                .6 * geometry_radius / max(spacing_y, 1e-12),
+                .6 * geometry_radius / max(spacing_x, 1e-12),
+            ), mode="nearest")
+            display_margin = np.minimum(display_margin, geometry / geometry_radius)
         if not valid.all():
             display_margin = np.where(
                 zoom(valid.astype(float), factor, order=1) >= 1 - 1e-8,
@@ -582,30 +692,56 @@ def plot_censoring_aware_embedding_panel(
             label=f"{status} (n={selected.sum():,})",
         )
     axes[0].set_title("Event/status at horizon")
-    markers = {0: "o", 1: "^", 2: "X"}
-    labels = {0: "administrative censor", 1: "primary event", 2: "competing death"}
-    for event, marker in markers.items():
-        selected = np.isfinite(times) & (events == event)
-        scatter = axes[1].scatter(
-            coords[selected, 0],
-            coords[selected, 1],
-            c=np.minimum(times[selected], horizon),
-            cmap="plasma",
-            norm=Normalize(0, horizon),
-            s=7,
-            alpha=0.8,
-            linewidths=0,
-            rasterized=True,
-            marker=marker,
-            label=labels[event],
+    if routed_coords is None:
+        markers = {0: "o", 1: "^", 2: "X"}
+        labels = {0: "administrative censor", 1: "primary event", 2: "competing death"}
+        for event, marker in markers.items():
+            selected = np.isfinite(times) & (events == event)
+            scatter = axes[1].scatter(
+                coords[selected, 0], coords[selected, 1],
+                c=np.minimum(times[selected], horizon), cmap="plasma",
+                norm=Normalize(0, horizon), s=7, alpha=0.8,
+                linewidths=0, rasterized=True, marker=marker, label=labels[event],
+            )
+        fig.colorbar(scatter, cax=color_axes[1], orientation="horizontal",
+                     label="Time to status (days; clipped)")
+        axes[1].set_title("Time to observed status")
+    else:
+        arrows = _binned_router_displacement(
+            coords, routed_coords, bins=router_arrow_bins,
+            min_count=router_arrow_min_count,
         )
-    fig.colorbar(
-        scatter,
-        cax=color_axes[1],
-        orientation="horizontal",
-        label="Time to status (days; clipped)",
-    )
-    axes[1].set_title("Time to observed status")
+        keep_arrows = arrows["coherence"] >= router_arrow_min_coherence
+        arrows = {name: values[keep_arrows] for name, values in arrows.items()}
+        axes[1].scatter(coords[:, 0], coords[:, 1], s=3, alpha=.09,
+                        color=PALETTE["ink_secondary"], rasterized=True, linewidths=0)
+        if len(arrows["centers"]):
+            raw = np.linalg.norm(arrows["vectors"], axis=1)
+            span = max(float(np.ptp(coords, axis=0).max()), 1e-12)
+            nonzero = raw[raw > 0]
+            median_fraction, max_fraction = ((.035, .10)
+                                             if router_arrow_style == "compact"
+                                             else (.055, .17))
+            scale = (float(router_arrow_scale) if router_arrow_scale is not None else
+                     min(median_fraction * span / np.median(nonzero),
+                         max_fraction * span / np.max(nonzero)) if len(nonzero) else 1.)
+            axes[1].quiver(arrows["centers"][:, 0], arrows["centers"][:, 1],
+                           arrows["vectors"][:, 0] * scale,
+                           arrows["vectors"][:, 1] * scale,
+                           color="#D55E00", angles="xy", scale_units="xy", scale=1,
+                           width=.0038 if router_arrow_style == "compact" else .006,
+                           headwidth=3.2 if router_arrow_style == "compact" else 4,
+                           zorder=3)
+        else:
+            scale = 1.
+            axes[1].text(.5, .5, "No local cells meet support threshold",
+                         transform=axes[1].transAxes, ha="center", va="center")
+        color_axes[1].set_axis_off()
+        axes[1].set_title("Router movement (shared → target-specific)")
+        axes[1].text(.02, -.16,
+                     f"Local means; ≥{router_arrow_min_count} patients/cell · arrows ×{scale:.1f} for display",
+                     transform=axes[1].transAxes, fontsize=7.1,
+                     color=PALETTE["ink_secondary"])
     risk_plot = surface(
         axes[2], risk, risk_margin, cmap="plasma", vmin=0, vmax=1
     )
@@ -661,9 +797,11 @@ def plot_censoring_aware_embedding_panel(
         orientation="horizontal",
         label="Effective local sample size",
     )
-    axes[4].contour(
+    support_contour = axes[4].contour(
         xx, yy, support, levels=[min_effective_support], colors="white", linewidths=1
     )
+    if support_plot.get_clip_path() is not None:
+        support_contour.set_clip_path(support_plot.get_clip_path())
     axes[4].set_title("Effective support")
     for letter, axis in zip("ABCDE", axes):
         axis.set_label(f"calibration-map:{letter}")
@@ -732,19 +870,21 @@ def plot_censoring_aware_embedding_panel(
         color=PALETTE["panel_border"],
         lw=0.6,
     )
-    rail_text(0, 0.43, "B   Observed status", fontsize=9, fontweight="semibold")
-    for index, (event, marker) in enumerate(markers.items()):
-        y = 0.31 - index * 0.105
-        legend_axis.plot(
-            0.025,
-            y,
-            marker=marker,
-            markersize=5,
-            color=PALETTE["ink_secondary"],
-            linestyle="none",
-            transform=legend_axis.transAxes,
-        )
-        rail_text(0.10, y, labels[event].capitalize(), fontsize=8, va="center")
+    if routed_coords is None:
+        rail_text(0, 0.43, "B   Observed status", fontsize=9, fontweight="semibold")
+        for index, (event, marker) in enumerate(markers.items()):
+            y = 0.31 - index * 0.105
+            legend_axis.plot(
+                0.025, y, marker=marker, markersize=5,
+                color=PALETTE["ink_secondary"], linestyle="none",
+                transform=legend_axis.transAxes,
+            )
+            rail_text(0.10, y, labels[event].capitalize(), fontsize=8, va="center")
+    else:
+        rail_text(0, 0.43, "B   Target-specific routing", fontsize=9, fontweight="semibold")
+        rail_text(0, 0.30, "Arrows: local mean shift", fontsize=8)
+        rail_text(0, 0.19, "Same projection as other panels", fontsize=8)
+        rail_text(0, 0.08, "Length magnified; direction retained", fontsize=8)
     import textwrap
 
     fig.text(
@@ -762,7 +902,10 @@ def plot_censoring_aware_embedding_panel(
         "bandwidth": float(bandwidth),
         "bandwidth_scale": float(bandwidth_scale),
         "grid_size": int(grid_size),
-        "grid_min_padding": float(4 * bandwidth),
+        "grid_min_padding": float(4 * bandwidth if geometry_radius is None else 2 * geometry_radius),
+        "footprint": footprint,
+        "footprint_radius": geometry_radius,
+        "footprint_boundary_smoothing_radius": .6 * geometry_radius if geometry_radius is not None else None,
         "residual_probability_limit": residual_probability_limit,
         "min_effective_support": float(min_effective_support),
         "min_density_fraction": float(min_density_fraction),
@@ -772,6 +915,21 @@ def plot_censoring_aware_embedding_panel(
         "n_neighbors": int(n_neighbors),
         "residual_z_limit": float(residual_z_limit),
     }
+    if routed_coords is not None:
+        diagnostics.update({
+            "router_panel": "local mean pre-to-post readout movement in shared projection axes",
+            "router_arrow_scale_for_display": float(scale),
+            "router_arrow_bins": int(router_arrow_bins),
+            "router_arrow_min_count": int(router_arrow_min_count),
+            "router_arrow_style": router_arrow_style,
+            "router_arrow_min_coherence": float(router_arrow_min_coherence),
+            "router_median_cell_coherence": (
+                float(np.median(arrows["coherence"])) if len(arrows["coherence"]) else None
+            ),
+            "router_n_cells": int(len(arrows["centers"])),
+            "router_median_projected_shift": float(np.median(np.linalg.norm(routed_coords - coords, axis=1))),
+            "router_median_hidden_shift": float(np.median(routed_norms)) if routed_norms is not None else None,
+        })
     if residual is not None:
         diagnostics.update(
             {
@@ -808,4 +966,22 @@ def plot_censoring_aware_embedding_panel(
                 ),
             }
         )
+    if plot_data is not None:
+        # Aggregate fields only. Raw patient coordinates and vectors remain in
+        # the secure evaluation artifacts and are deliberately not copied here.
+        plot_data.update({
+            "grid_x": np.asarray(xx), "grid_y": np.asarray(yy),
+            "risk": np.ma.filled(risk, np.nan),
+            "effective_support": np.asarray(support),
+            "density": np.asarray(density),
+            "display_mask": np.asarray(mask),
+        })
+        if residual is not None:
+            plot_data["calibration_residual"] = np.ma.filled(residual.display, np.nan)
+        if routed_coords is not None:
+            plot_data["arrow_centers"] = arrows["centers"]
+            plot_data["arrow_vectors_unscaled"] = arrows["vectors"]
+            plot_data["arrow_cell_counts"] = arrows["counts"]
+            plot_data["arrow_cell_coherence"] = arrows["coherence"]
+            plot_data["arrow_display_scale"] = np.asarray(scale)
     return fig, diagnostics

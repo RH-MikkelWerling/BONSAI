@@ -42,7 +42,7 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         path for path in paths if path.name.startswith(("fine_", "grouped_"))
     ]
 
-    assert len(paths) == 65
+    assert len(paths) == 71
     assert len(sweep_paths) == 38
     shared_bce = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce.yaml").read_text())
     factorized_bce = yaml.safe_load((tmp_path / "direct_cr_objective_horizon_bce_factorized_cohort_outcome_prototypes.yaml").read_text())
@@ -57,6 +57,14 @@ def test_generated_sweeps_pass_contract_and_encode_availability(tmp_path: Path) 
         assert config["model"]["freeze_encoder"] is True
         assert config["source_opera_ckpt"] == "${oc.env:OPERA_SHARED_BCE_CKPT}"
         assert config["paths"]["sequence_data_dir"] == shared_bce["paths"]["sequence_data_dir"]
+    fresh = yaml.safe_load((tmp_path / "direct_cr_bce_router_interacting_dapt_fresh_v1.yaml").read_text())
+    assert fresh["adapter_initialization"] == "dapt_fresh"
+    assert fresh["source_opera_ckpt"] is None
+    assert fresh["model"]["freeze_encoder"] is False
+    assert fresh["competing_risk"]["adapter_query_mode"] == "interacting"
+    balanced = yaml.safe_load((tmp_path / "direct_cr_bce_lowrank_minority_event_v1.yaml").read_text())
+    assert balanced["competing_risk"]["objective"] == "horizon_bce"
+    assert balanced["training"]["batch_sampling"]["min_unique_events"] == 50
     for path in sweep_paths:
         load_sweep_config(path)
 

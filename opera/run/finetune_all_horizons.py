@@ -200,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parent-cohort", default=None)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
+        "--label-cache-dir", type=Path, default=None,
+        help="Secure train/tuning survival-label cache shared across specialist fits.",
+    )
+    parser.add_argument(
         "--objective",
         choices=["inherit", "piecewise_exponential", "horizon_bce"],
         default="inherit",
@@ -348,6 +352,9 @@ def main() -> None:
         max_len=max_len,
         batch_sampling={"type": "random", "seed": args.seed},
         numeric_value_control=numeric_value_control,
+        outcome_label_cache_dir=(
+            str(args.label_cache_dir) if args.label_cache_dir is not None else None
+        ),
     )
     data_module.setup("fit")
     routed_datasets = route_specialist_to_parent(data_module, parent_index)

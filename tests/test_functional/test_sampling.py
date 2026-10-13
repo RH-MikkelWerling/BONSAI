@@ -16,3 +16,4 @@ class TestSampling(unittest.TestCase):
         label_counts = {0: 2, 1: 3}
         weights = effective_n_samples(labels, label_counts)
         self.assertEqual(len(weights), 5)
+        self.assertGreater(weights[0], weights[2])

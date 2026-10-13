@@ -77,7 +77,7 @@ class FinetuneModule(L.LightningModule):
         labels = batch["target"]
         logits = self.model(batch)
         loss = self.train_loss(logits, labels.float())
-        self.train_metrics(logits, labels)
+        self.train_metrics(torch.sigmoid(logits), labels)
         self.log("train/loss", loss, prog_bar=True)
         self.log_dict(self.train_metrics)
         return loss
@@ -87,14 +87,14 @@ class FinetuneModule(L.LightningModule):
         logits = self.model(batch)
         loss = self.val_loss(logits, labels.float())
         self.log("val/loss", loss, prog_bar=True)
-        self.val_metrics(logits, labels)
+        self.val_metrics(torch.sigmoid(logits), labels)
         self.log_dict(self.val_metrics)
         return loss
 
     def test_step(self, batch, batch_idx):
         labels = batch["target"]
         logits = self.model(batch)
-        self.test_metrics(logits, labels)
+        self.test_metrics(torch.sigmoid(logits), labels)
         self.log_dict(self.test_metrics, on_step=True, on_epoch=True)
 
     def on_predict_epoch_start(self) -> None:
@@ -142,7 +142,9 @@ class FinetuneModule(L.LightningModule):
             ).write_csv(join(self.predictions_output_path, "predictions.csv"))
 
             self.predict_metrics.reset()
-            metrics = self.predict_metrics(logits, labels)
+            metrics = self.predict_metrics(
+                torch.cat([x.detach().cpu().float() for x in self.predictions]), labels
+            )
             metrics = {
                 key: float(value.detach().cpu()) for key, value in metrics.items()
             }

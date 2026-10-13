@@ -1,5 +1,5 @@
 \begin{tikzpicture}[opera,x=1cm,y=1cm]
-  \draw[divider] (7.25,.05)--(7.25,-8.88);
+  \draw[divider] (7.25,.05)--(7.25,-9.45);
 
   \node[panelletter,anchor=north west] at (0,0) {A};
   \node[eyebrow,anchor=north west] at (.48,-.03) {SOURCES OF PREDICTIVE INFORMATION};
@@ -65,72 +65,76 @@
   \node[labelsmall,anchor=north west,align=left,text width=7.6cm] at (8.08,-.82)
     {More disease cohorts and more outcome tasks add structured information around a low-support target.};
 
+  % Separate the axis/title and matrix from the two-line panel introduction.
+  \begin{scope}[yshift=-5mm]
+  % Keep the axis title separate from the column labels and first row.
   \draw[-{Latex[length=1.8mm]},draw=OperaIndigo,line width=.75pt]
-    (10.36,-1.70)--(16.72,-1.70);
-  \node[eyebrow,text=OperaIndigo] at (13.54,-1.49) {MORE OUTCOME TASKS};
+    (10.36,-1.55)--(16.72,-1.55);
+  \node[eyebrow,text=OperaIndigo] at (13.54,-1.30) {MORE OUTCOME TASKS};
 
   \foreach \r/\disease in {0/DLBCL,1/Multiple myeloma,2/CLL,3/Hodgkin lymphoma,4/PTCL}
-    \node[labelsmall,anchor=east] at (10.22,-2.55-.84*\r) {\disease};
+    \node[labelsmall,anchor=east] at (10.20,-2.72-.84*\r) {\disease};
   \draw[-{Latex[length=1.8mm]},draw=OperaTeal,line width=.75pt]
-    (7.88,-2.25)--(7.88,-7.48);
-  \node[eyebrow,text=OperaTeal,rotate=90] at (7.61,-4.86) {MORE DISEASE COHORTS};
+    (7.76,-2.40)--(7.76,-7.62);
+  \node[eyebrow,text=OperaTeal,rotate=90] at (7.47,-5.01) {MORE DISEASE COHORTS};
   \foreach \col/\outcome in {0/Anaemia,1/Infection,2/Renal,3/Fracture,4/Survival}
-    \node[labelsmall,anchor=south] at (10.82+1.12*\col,-2.16) {\outcome};
-  \node[labelsmall,anchor=south] at (16.72,-2.16) {Outcome$_n$};
+    \node[font=\sffamily\fontsize{6.2}{7}\selectfont,text=OperaInkSecondary,
+      align=center,text width=1.05cm,anchor=south] at (10.82+1.12*\col,-2.27) {\outcome};
+  \node[font=\sffamily\fontsize{6.2}{7}\selectfont,text=OperaInkSecondary,
+    align=center,text width=1.05cm,anchor=south] at (16.72,-2.27) {Outcome$_n$};
   \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
     \pgfmathtruncatemacro{\tone}{7+3*\r+2*\col}
     \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
       minimum width=8.8mm,minimum height=5.7mm] (m\r\col)
-      at (10.82+1.12*\col,-2.57-.84*\r) {};
+      at (10.82+1.12*\col,-2.72-.84*\r) {};
   }}
   \foreach \r in {0,...,4}{
     \node[font=\sffamily\scriptsize,text=OperaInkMuted]
-      at (16.01,-2.57-.84*\r) {$\cdots$};
+      at (16.01,-2.72-.84*\r) {$\cdots$};
   }
   \foreach \r in {0,...,4}{
     \pgfmathtruncatemacro{\tone}{16+3*\r}
     \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
-      minimum width=8.8mm,minimum height=5.7mm] (mn\r) at (16.72,-2.57-.84*\r) {};
+      minimum width=8.8mm,minimum height=5.7mm] (mn\r) at (16.72,-2.72-.84*\r) {};
   }
   \foreach \x in {10.82,11.94,13.06,14.18,15.30,16.72}{
-    \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (\x,-6.46) {$\vdots$};
+    \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (\x,-6.60) {$\vdots$};
   }
-  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (16.01,-6.46) {$\ddots$};
-  \node[labelsmall,anchor=east] at (10.22,-7.14) {Disease$_m$};
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (16.01,-6.60) {$\ddots$};
+  \node[labelsmall,anchor=east] at (10.20,-7.29) {Disease$_m$};
   \foreach \col in {0,...,4}{
     \pgfmathtruncatemacro{\tone}{22+2*\col}
     \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!\tone,
       minimum width=8.8mm,minimum height=5.7mm] (mm\col)
-      at (10.82+1.12*\col,-7.14) {};
+      at (10.82+1.12*\col,-7.29) {};
   }
   \node[rounded corners=.35mm,draw=OperaBorder,fill=OperaIndigo!34,
-    minimum width=8.8mm,minimum height=5.7mm] (mmn) at (16.72,-7.14) {};
+    minimum width=8.8mm,minimum height=5.7mm] (mmn) at (16.72,-7.29) {};
   \node[rounded corners=.35mm,draw=OperaSienna,line width=1.1pt,fill=OperaSienna!8,
-    minimum width=8.8mm,minimum height=5.7mm] (target) at (11.94,-5.93) {};
-  % All tasks share parameters; proximity is visualized as stronger contribution.
+    minimum width=8.8mm,minimum height=5.7mm] (target) at (11.94,-6.08) {};
+  % Every training cell is connected; most links recede behind the emphasized
+  % same-outcome and same-disease borrowing paths.
   \begin{scope}[on background layer]
-    \foreach \r in {0,...,3}{\foreach \col in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (m\r\col)--(target);
+    \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
+      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (m\r\col)--(target);
     }}
-    \foreach \col in {0,2,3,4}{
-      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (m4\col)--(target);
-    }
-    \foreach \r in {0,1,2,3}{
-      \draw[draw=OperaTeal,opacity=.88,line width=1.02pt] (m\r1)--(target);
-    }
-    \foreach \col in {0,2,3,4}{
-      \draw[draw=OperaTeal,opacity=.88,line width=1.02pt] (m4\col)--(target);
-    }
     \foreach \r in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mn\r)--(target);
+      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mn\r)--(target);
     }
     \foreach \col in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mm\col)--(target);
+      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mm\col)--(target);
     }
-    \draw[draw=OperaTeal,opacity=.45,line width=.58pt] (mmn)--(target);
+    \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mmn)--(target);
+    \foreach \r in {0,...,3}{
+      \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (m\r1)--(target);
+    }
+    \foreach \col in {0,2,3,4}{
+      \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (m4\col)--(target);
+    }
   \end{scope}
-  \node[labelsmall,text=OperaTeal] at (13.20,-7.72)
-    {all cells contribute; line strength indicates illustrative relatedness};
-  \node[captionnote,text width=8.5cm] at (13.20,-8.45)
+  \node[labelsmall,text=OperaTeal] at (13.20,-7.86)
+    {thin: all cells connected; bold: illustrative stronger borrowing};
+  \node[captionnote,text width=8.5cm] at (13.20,-8.59)
     {A task can borrow from the same outcome in other diseases and from related outcomes in the same disease.};
+  \end{scope}
 \end{tikzpicture}

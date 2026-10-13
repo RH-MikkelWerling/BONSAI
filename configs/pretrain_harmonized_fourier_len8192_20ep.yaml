@@ -37,7 +37,7 @@ training:
   auto_resume: true
   max_len: ${model.max_seqlen}
   batch_size: 4
-  accumulate_grad_batches: 32  # effective batch size = 128
+  accumulate_grad_batches: 32  # effective batch size = 128; 8 OOMed on V100
   epochs: 20
   # Preserve the exact state after ten completed passes for comparison with
   # the 10-epoch PHAIR checkpoint while continuing the optimization to 20.

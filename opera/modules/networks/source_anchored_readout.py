@@ -26,6 +26,9 @@ class SourceAnchoredReadout(nn.Module):
         residual_scale: float = 0.1,
         home_floor: float = 0.1,
         anchored: bool = True,
+        query_mode: str = "additive",
+        query_hidden_dim: int = 128,
+        source_mode: str = "both",
     ) -> None:
         super().__init__()
         self.fine_names = tuple(sorted(fine_names))
@@ -43,6 +46,16 @@ class SourceAnchoredReadout(nn.Module):
         self.residual_scale = float(residual_scale)
         self.home_floor = float(home_floor)
         self.anchored = bool(anchored)
+        if query_mode not in {"additive", "interacting"}:
+            raise ValueError("query_mode must be additive or interacting")
+        if query_hidden_dim < 1:
+            raise ValueError("query_hidden_dim must be positive")
+        self.query_mode = query_mode
+        if source_mode not in {"both", "disease_only", "outcome_only", "none"}:
+            raise ValueError("source_mode must be both, disease_only, outcome_only, or none")
+        self.source_mode = source_mode
+        self.use_disease_sources = source_mode in {"both", "disease_only"}
+        self.use_outcome_sources = source_mode in {"both", "outcome_only"}
 
         self.down = nn.Parameter(torch.empty(self.n_sources, bottleneck, hidden_size))
         self.up = nn.Parameter(torch.empty(self.n_sources, hidden_size, bottleneck))
@@ -56,6 +69,22 @@ class SourceAnchoredReadout(nn.Module):
         nn.init.zeros_(self.fine_query.weight)
         nn.init.zeros_(self.target_query.weight)
         nn.init.normal_(self.patient_query.weight, std=0.02)
+        # Keep the old mode parameter-identical for existing checkpoints. The
+        # nonlinear query permits patient x disease x target source preferences;
+        # no dropout, so gradient-cache replay remains deterministic.
+        self.query_interaction = None
+        if query_mode == "interacting":
+            # Preserve the RNG stream for all subsequently constructed shared
+            # tensors (notably the risk head). Start at exactly the additive
+            # function, then let the interaction branch learn away from zero.
+            with torch.random.fork_rng(devices=[]):
+                self.query_interaction = nn.Sequential(
+                    nn.Linear(3 * hidden_size, query_hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(query_hidden_dim, hidden_size),
+                )
+            nn.init.zeros_(self.query_interaction[-1].weight)
+            nn.init.zeros_(self.query_interaction[-1].bias)
         self.shared_logit = nn.Parameter(torch.tensor(3.0))
         self.register_buffer("source_shrinkage", torch.ones(self.n_sources))
         self.register_buffer("source_train_patients", torch.zeros(self.n_sources, dtype=torch.long))
@@ -88,21 +117,33 @@ class SourceAnchoredReadout(nn.Module):
             raise ValueError("fine_index must have one value per patient")
         known = (fine_index >= 0) & (fine_index < self.n_disease)
         safe_index = fine_index.clamp(0, self.n_disease - 1)
-        query = (
-            self.patient_query(patient)[:, None, :]
-            + self.fine_query(safe_index)[:, None, :]
-            + self.target_query.weight[None, :, :]
-        )
+        patient_query = self.patient_query(patient)[:, None, :]
+        disease_query = self.fine_query(safe_index)[:, None, :]
+        outcome_query = self.target_query.weight[None, :, :]
+        query = patient_query + disease_query + outcome_query
+        if self.query_interaction is not None:
+            shape = (len(patient), self.n_outcome, self.hidden_size)
+            joint = torch.cat((patient_query.expand(shape),
+                               disease_query.expand(shape),
+                               outcome_query.expand(shape)), dim=-1)
+            query = query + self.query_interaction(joint)
         scores = torch.einsum("boh,sh->bos", query, self.source_keys) / self.hidden_size**0.5
-        scores = scores.masked_fill(self.source_shrinkage[None, None, :] <= 0, -1e4)
+        enabled = torch.tensor(
+            [self.use_disease_sources] * self.n_disease
+            + [self.use_outcome_sources] * self.n_outcome,
+            device=patient.device, dtype=torch.bool,
+        )
+        scores = scores.masked_fill(
+            (~enabled | (self.source_shrinkage <= 0))[None, None, :], -1e4
+        )
         shared = self.shared_logit.expand(len(patient), self.n_outcome, 1)
         weights = torch.softmax(torch.cat((shared, scores), dim=-1), dim=-1)
         if self.home_floor:
             home = torch.zeros_like(weights)
             row = torch.arange(len(patient), device=patient.device)[:, None]
             outcome = torch.arange(self.n_outcome, device=patient.device)[None, :]
-            disease_available = self.source_shrinkage[safe_index] > 0
-            outcome_available = self.source_shrinkage[self.n_disease + outcome] > 0
+            disease_available = (self.source_shrinkage[safe_index] > 0) & self.use_disease_sources
+            outcome_available = (self.source_shrinkage[self.n_disease + outcome] > 0) & self.use_outcome_sources
             home[row, outcome, 1 + safe_index[:, None]] = (
                 self.home_floor * known[:, None] * disease_available[:, None]
             )
@@ -137,13 +178,16 @@ class SourceAnchoredReadout(nn.Module):
         borrowed = torch.einsum("bh,srh->bsr", patient, down)
         borrowed = torch.einsum("bsr,shr->bsh", F.gelu(borrowed), up)
         borrowed = borrowed * self.source_shrinkage[None, :, None]
-        residual = torch.einsum("bos,bsh->boh", weights[..., 1:], borrowed)
+        # Autocast makes einsum half precision, whereas support/router-weight
+        # products promote home corrections to float32. Accumulate both paths
+        # in float32 so index_add has matching dtypes and stable summation.
+        residual = torch.einsum("bos,bsh->boh", weights[..., 1:], borrowed).float()
 
         if self.anchored:
             fine_index = fine_index.long().reshape(-1).to(patient.device)
             valid = (fine_index >= 0) & (fine_index < self.n_disease)
             # Only the home disease rows use live disease parameters.
-            if bool(valid.any()):
+            if self.use_disease_sources and bool(valid.any()):
                 rows = torch.nonzero(valid, as_tuple=True)[0]
                 source = fine_index[rows]
                 hidden = F.gelu(torch.einsum("bh,brh->br", patient[rows], self.down[source]))
@@ -153,9 +197,10 @@ class SourceAnchoredReadout(nn.Module):
                 home_weight = weights[rows].gather(
                     2, (1 + source)[:, None, None].expand(-1, self.n_outcome, 1)
                 )
-                residual = residual.index_add(0, rows, home_weight * adjustment)
+                correction = (home_weight * adjustment).to(residual.dtype)
+                residual = residual.index_add(0, rows, correction)
             # Outcome o has live parameters only in its own target loss.
-            for outcome in range(self.n_outcome):
+            for outcome in range(self.n_outcome if self.use_outcome_sources else 0):
                 source = self.n_disease + outcome
                 hidden = F.gelu(F.linear(patient, self.down[source]))
                 home = F.linear(hidden, self.up[source]) * self.source_shrinkage[source]

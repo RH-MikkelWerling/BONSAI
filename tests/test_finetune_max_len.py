@@ -177,3 +177,35 @@ def test_outcome_splits_are_selected_after_pooling_physical_ssl_splits(tmp_path)
     assert [item["subject_id"] for item in datamodule.train_dataset.subjects] == [1]
     assert [item["subject_id"] for item in datamodule.val_dataset.subjects] == [2]
     assert [item["subject_id"] for item in datamodule.predict_dataset.subjects] == [3]
+
+
+def test_outcome_sampler_follows_filtered_physical_subject_order(tmp_path):
+    cfg = _base_cfg(tmp_path)
+    (tmp_path / "population_full.csv").write_text(
+        "subject_id\n1\n2\n3\n5\n", encoding="utf-8"
+    )
+
+    def subject(subject_id):
+        return {
+            "subject_id": subject_id,
+            "code": torch.tensor([1, 2]),
+            "age": torch.tensor([1.0, 2.0]),
+            "abspos": torch.tensor([1.0, 2.0]),
+            "segment": torch.tensor([0, 1]),
+        }
+
+    torch.save([subject(sid) for sid in (4, 2, 1, 3, 5)], cfg.paths.train_split)
+    torch.save([], cfg.paths.val_split)
+    datamodule = build_finetune_data_module(
+        cfg,
+        {"[CLS]": 1},
+        {1: {"label": 0}, 2: {"label": 1}, 3: {"label": 0}, 4: {"label": 1}},
+        {5: {"label": 0}},
+        {},
+        [0, 1, 0, 1],
+    )
+    datamodule.setup("fit")
+    assert [s["subject_id"] for s in datamodule.train_dataset.subjects] == [2, 1, 3]
+    weights = datamodule.train_sampler.weights.tolist()
+    assert len(weights) == 3
+    assert weights[0] > weights[1] == weights[2]

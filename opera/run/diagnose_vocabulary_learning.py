@@ -105,7 +105,7 @@ def contextual_sensitivity(
     event_samples = []
     with torch.inference_mode():
         for batch_index, batch in enumerate(loader):
-            if batch_index >= max_batches:
+            if max_batches > 0 and batch_index >= max_batches:
                 break
             original = _to_device(batch, device)
             mask = original["attention_mask"].bool()
@@ -329,7 +329,7 @@ def token_loss_audit(
     }
     with torch.inference_mode():
         for batch_index, batch in enumerate(loader):
-            if batch_index >= max_batches:
+            if max_batches > 0 and batch_index >= max_batches:
                 break
             device_batch = _to_device(batch, device)
             hidden = encoder_hidden_state(encoder(device_batch))
@@ -446,8 +446,14 @@ def main() -> None:
     )
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--max-loss-batches", type=int, default=32)
-    parser.add_argument("--max-context-batches", type=int, default=32)
+    parser.add_argument(
+        "--max-loss-batches", type=int, default=32,
+        help="Maximum next-code evaluation batches; 0 evaluates the full subject pool.",
+    )
+    parser.add_argument(
+        "--max-context-batches", type=int, default=32,
+        help="Maximum contextual-perturbation batches; 0 uses all, but stores per-event representations in memory.",
+    )
     parser.add_argument("--logit-chunk-size", type=int, default=64)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--neighbor-null-permutations", type=int, default=200)
@@ -468,6 +474,9 @@ def main() -> None:
         help="Optional frozen ehr2meds mapping artifact to validate and fingerprint.",
     )
     args = parser.parse_args()
+
+    if args.max_loss_batches < 0 or args.max_context_batches < 0:
+        parser.error("Batch limits must be nonnegative; use 0 for all batches.")
 
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -582,7 +591,8 @@ def main() -> None:
         collate_fn=dynamic_padding,
     )
     print(
-        f"[4/5] Sampling target loss over {args.max_loss_batches} batches...",
+        f"[4/5] Evaluating next-code loss over "
+        f"{'all' if args.max_loss_batches == 0 else args.max_loss_batches} batches...",
         flush=True,
     )
     checkpoint_state = load_checkpoint_state_dict(args.checkpoint)
@@ -625,7 +635,8 @@ def main() -> None:
     ).reset_index().to_csv(output / "target_loss_mass_by_family.csv", index=False)
 
     print(
-        f"[5/5] Running contextual perturbations over {args.max_context_batches} batches...",
+        f"[5/5] Running contextual perturbations over "
+        f"{'all' if args.max_context_batches == 0 else args.max_context_batches} batches...",
         flush=True,
     )
     details, sensitivity, contextual_events = contextual_sensitivity(
@@ -650,6 +661,10 @@ def main() -> None:
                 "n_vocabulary_tokens": len(vocabulary),
                 "n_neighbor_tokens": len(neighbor_frame),
                 "max_len": max_len,
+                "max_loss_batches": args.max_loss_batches,
+                "max_context_batches": args.max_context_batches,
+                "loss_subject_pool_complete": args.max_loss_batches == 0,
+                "context_subject_pool_complete": args.max_context_batches == 0,
                 "background_length": background_length,
                 "background_length_policy": (
                     "fixed_override"

@@ -1,0 +1,55 @@
+# Planning manifest / config overlays, NOT a Hydra launch configuration.
+# Materialize against the approved server release after the 14 October lock.
+status: pending_router_policy_lock
+encoder:
+  hidden_size: 256
+  num_attention_heads: 4
+  num_layers: 4  # Retained local assumption; confirm collaborator config.
+  abspos_encoding: scaled_time2vec
+  checkpoint: null  # Required audited new256 checkpoint, never a64 checkpoint.
+selection:
+  split: tuning
+  seed: 42
+  epochs: 30
+  metric: endpoint_group_macro_auc
+fixed_router_overrides:
+  competing_risk.adapter_query_mode: interacting
+  competing_risk.adapter_residual_scale: 0.7
+  competing_risk.adapter_home_floor: 0.05
+  competing_risk.adapter_event_tau: 10.0
+  competing_risk.adapter_shared_logit_init: 0.0
+pending_shared_policy:
+  readout_mode: null  # anchored vs borrowed-update; decide from existing evidence
+  adapter_optimizer_epsilon: null  # Review1e-6 vs1e-8; fill explicitly
+  curriculum_enabled: null
+capacity_conditions:
+  rank8_query128:
+    competing_risk.adapter_bottleneck: 8
+    competing_risk.adapter_query_hidden_dim: 128
+  rank16_query128:
+    competing_risk.adapter_bottleneck: 16
+    competing_risk.adapter_query_hidden_dim: 128
+  selected_rank_query512:
+    competing_risk.adapter_bottleneck: null  # Fill after first comparison
+    competing_risk.adapter_query_hidden_dim: 512
+source_arm_overrides:
+  both:
+    competing_risk.adapter_source_mode: both
+  disease_only:
+    competing_risk.adapter_source_mode: disease_only
+  outcome_only:
+    competing_risk.adapter_source_mode: outcome_only
+  neither:
+    competing_risk.adapter_source_mode: none
+additional_required:
+  - shared_endpoint_group_macro_baseline
+  - independent_disease_by_outcome_specialists_all_diseases
+  - matched_tabular_baselines
+  - primary_comparison_seed_replication
+  - external_encoder_shared_and_locked_router
+specialists:
+  shard_count: 4
+  exclude_cll: false
+  initialization: same_selected_encoder_checkpoint
+  selection: single_outcome_tuning_loss
+  epochs: 30

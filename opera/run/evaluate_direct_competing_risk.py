@@ -108,6 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cohort-fine-col", default="cohort_fine")
     parser.add_argument("--export-routes", action="store_true", help="Export per-patient source route weights.")
+    parser.add_argument("--export-routed-outcome", default=None,
+                        help="Export shared and post-router patient vectors for this one target outcome.")
     parser.add_argument("--remove-source", action="append", default=[], help="Diagnostic route ablation, e.g. disease:DLBCL.")
     parser.add_argument(
         "--parent-cohort",
@@ -119,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.export_routed_outcome and args.split != "tuning":
+        raise ValueError("Routed visualization export is tuning-only; pass --split tuning")
     horizons = [float(value) for value in args.horizons.split(",") if value.strip()]
     if not horizons or any(value <= 0 for value in horizons):
         raise ValueError("--horizons must contain positive comma-separated days.")
@@ -140,6 +144,8 @@ def main() -> None:
             f"Outcome {args.outcome!r} is absent from the source config; "
             f"available={outcome_names}."
         )
+    if args.export_routed_outcome and args.export_routed_outcome not in source_outcome_configs:
+        raise ValueError("--export-routed-outcome must name a configured outcome")
     if bool(args.cohort_fine) != bool(args.outcome):
         raise ValueError(
             "Specialist evaluation requires --cohort-fine and --outcome together."
@@ -226,6 +232,7 @@ def main() -> None:
 
     prediction_rows: list[dict] = []
     embedding_ids, embedding_values = [], []
+    routed_ids, routed_pre, routed_post = [], [], []
     route_rows: list[dict] = []
     source_names = []
     if model.source_adapter_readout is not None:
@@ -233,7 +240,7 @@ def main() -> None:
             *("disease:" + name for name in model.source_adapter_readout.fine_names),
             *("outcome:" + name for name in model.source_adapter_readout.outcome_names),
         ]
-    if (args.export_routes or args.remove_source) and not source_names:
+    if (args.export_routes or args.remove_source or args.export_routed_outcome) and not source_names:
         raise ValueError("Route export and removal require a source-adapter checkpoint")
     for cohort_name, cohort_cfg in cohort_configs.items():
         dataset = data_module._build_dataset_for_cohort(
@@ -255,6 +262,16 @@ def main() -> None:
             for raw_batch in loader:
                 batch = _move(raw_batch, device)
                 representations = model.get_objective_representations(batch)
+                if args.export_routed_outcome:
+                    if representations.ndim != 2:
+                        raise ValueError("Routed vector export requires a shared pooled representation")
+                    adapted, _ = model.source_adapter_readout(
+                        representations, batch["cohort_fine_index"], return_weights=True
+                    )
+                    target_index = objective.outcome_index[args.export_routed_outcome]
+                    routed_ids.append(batch["subject_id"].detach().cpu().numpy())
+                    routed_pre.append(representations.detach().float().cpu().numpy())
+                    routed_post.append(adapted[:, target_index].detach().float().cpu().numpy())
                 if args.export_embeddings:
                     pooled = representations if representations.ndim == 2 else model.get_embeddings(batch, return_pre_projection=True)
                     if pooled.ndim != 2:
@@ -389,6 +406,19 @@ def main() -> None:
             "config_name": args.config_name, "n_patients": len(ids),
             "representation": "pooled encoder (before risk head)",
         }, indent=2))
+    if args.export_routed_outcome:
+        ids = np.concatenate(routed_ids)
+        if len(np.unique(ids)) != len(ids):
+            raise ValueError("Duplicate patients in routed vector export")
+        np.savez_compressed(output_dir / "routed_patient_vectors_INTERNAL.npz",
+                            subject_ids=ids, shared=np.concatenate(routed_pre),
+                            adapted=np.concatenate(routed_post))
+        (output_dir / "routed_patient_vectors_INTERNAL.json").write_text(
+            json.dumps({"checkpoint": str(args.checkpoint.resolve()),
+                        "split": args.split, "target_outcome": args.export_routed_outcome,
+                        "representation": "shared pooled encoder and target-specific post-router readout",
+                        "n_patients": len(ids)}, indent=2) + "\n", encoding="utf-8"
+        )
     if route_rows:
         pd.DataFrame(route_rows).to_parquet(output_dir / "source_route_weights.parquet", index=False)
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)

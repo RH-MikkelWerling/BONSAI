@@ -80,10 +80,27 @@ def _left_join_on_subject(
     addition["_join_id"] = addition[subject_col].astype(str)
     addition = addition.drop(columns=[subject_col], errors="ignore")
     overlap = (set(frame) & set(addition)) - {"_join_id"}
-    if overlap:
+    if overlap - {"split"}:
         raise ValueError(
-            f"{source_label} repeats columns already loaded: {sorted(overlap)}."
+            f"{source_label} repeats columns already loaded: {sorted(overlap - {'split'})}."
         )
+    if "split" in overlap:
+        # The embedding artifact and sealed cohort metadata both carry split.
+        # Verify their nonmissing labels agree for matched patients, then keep
+        # the artifact's split instead of creating split_x/split_y columns.
+        compared = frame[["_join_id", "split"]].merge(
+            addition[["_join_id", "split"]], on="_join_id", how="left",
+            suffixes=("_embedding", "_metadata"), validate="one_to_one",
+        )
+        left = compared["split_embedding"].astype("string")
+        right = compared["split_metadata"].astype("string")
+        mismatch = left.notna() & right.notna() & left.ne(right).fillna(False)
+        if mismatch.any():
+            raise ValueError(
+                f"{source_label} has split labels conflicting with embedding artifact "
+                f"for {int(mismatch.sum())} patients."
+            )
+        addition = addition.drop(columns="split")
     return frame.merge(addition, on="_join_id", how="left", validate="one_to_one")
 
 
@@ -589,7 +606,7 @@ def _plot_categorical_facet_page(
     figure_title(
         fig,
         f"Patient embeddings by {_display_label(color_by, width=52)}",
-        f"{method.upper()} projection · coloured points show each group; grey points show the full cohort",
+        f"{method.upper()} projection: coloured points show each group; grey points show the full cohort",
         y=0.995,
     )
     fig.subplots_adjust(
@@ -720,7 +737,7 @@ def plot_categorical_centroids(
     )
     style_legend(legend)
     ax.set_title(
-        f"Group location and spread · {_display_label(color_by, width=52)}\n"
+        f"Group location and spread by {_display_label(color_by, width=52)}\n"
         f"Centroids for all groups; one-SD ellipses for the {len(ellipse_levels)} largest",
         loc="left",
         pad=12,

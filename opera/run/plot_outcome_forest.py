@@ -15,10 +15,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from omegaconf import OmegaConf
+import yaml
 
 from opera.visualization.outcome_forest import (
     apply_outcome_family_map,
+    family_macro_summary,
     normalize_contrast_table,
     normalize_estimate_table,
     paginate_outcomes,
@@ -44,7 +45,10 @@ def _family_map(path: Path | None) -> dict[str, str]:
     if path is None:
         return {}
     if path.suffix.lower() in {".yaml", ".yml"}:
-        payload = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+        # Only the static family mapping is needed here. A full resolved Hydra
+        # config may contain application-specific interpolation resolvers that
+        # are unavailable in this plotting process.
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("Family YAML must contain a mapping.")
         cross_outcome = payload.get("cross_outcome", payload)
@@ -79,14 +83,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--metric", default="cif_auc")
     parser.add_argument("--metric-label", default="Cumulative/dynamic AUC")
     parser.add_argument("--interval-label", default="95% interval")
+    parser.add_argument("--evaluation-label", default="held-out",
+                        help="Caption label for the evaluation split; use 'tuning' for provisional validation.")
     parser.add_argument("--comparator", default="opera")
     parser.add_argument("--baseline", default="tabular_ehr")
     parser.add_argument("--horizon", type=float, default=None)
     parser.add_argument("--cohort", action="append", default=[])
     parser.add_argument("--model", action="append", default=[])
+    parser.add_argument("--reference-model",
+                        help="Require this actual model as the paired-contrast baseline; never relabel old contrasts.")
     parser.add_argument("--contrast", action="append", default=[])
     parser.add_argument("--family-order", default=None)
     parser.add_argument("--max-outcomes-per-page", type=int, default=18)
+    parser.add_argument("--all-outcomes-one-page", action="store_true",
+                        help="Render every selected outcome in one tall PNG/PDF")
     parser.add_argument("--lower-is-better", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--output-prefix", default="outcome_forest")
@@ -139,10 +149,23 @@ def main() -> None:
             contrasts = apply_outcome_family_map(contrasts, family_map)
     if args.model:
         estimates = estimates[estimates["model"].isin(args.model)].copy()
+        if not contrasts.empty:
+            contrasts = contrasts[
+                contrasts["comparator"].isin(args.model)
+                & contrasts["baseline"].isin(args.model)
+            ].copy()
     if args.contrast and not contrasts.empty:
         contrasts = contrasts[contrasts["contrast"].isin(args.contrast)].copy()
     if estimates.empty:
         raise ValueError("No absolute estimates remain after filtering.")
+    if args.reference_model:
+        missing = set(estimates["outcome"]) - set(
+            estimates.loc[estimates["model"].eq(args.reference_model), "outcome"]
+        )
+        if missing:
+            raise ValueError(f"Reference model lacks {len(missing)} plotted outcomes")
+        if contrasts.empty or not contrasts["baseline"].eq(args.reference_model).all():
+            raise ValueError("Contrasts are absent or do not use the requested reference model")
 
     available_horizons = sorted(estimates["horizon_days"].dropna().unique())
     if args.horizon is None and len(available_horizons) > 1:
@@ -170,7 +193,10 @@ def main() -> None:
             continue
         pages = paginate_outcomes(
             cohort_estimates,
-            max_outcomes_per_page=args.max_outcomes_per_page,
+            max_outcomes_per_page=(
+                cohort_estimates["outcome"].nunique()
+                if args.all_outcomes_one_page else args.max_outcomes_per_page
+            ),
             family_order=family_order,
         )
         for page_index, outcomes in enumerate(pages, start=1):
@@ -196,6 +222,7 @@ def main() -> None:
                 family_order=family_order,
                 higher_is_better=not args.lower_is_better,
                 title=args.title,
+                evaluation_label=args.evaluation_label,
                 save_path=output,
             )
             plt.close(fig)
@@ -215,6 +242,9 @@ def main() -> None:
     pd.DataFrame(plotted_rows).to_csv(
         args.output_dir / "forest_plot_data.csv", index=False
     )
+    family_macro_summary(estimates, contrasts).to_csv(
+        args.output_dir / "forest_family_macro_summary.csv", index=False
+    )
     (args.output_dir / "forest_plot_manifest.json").write_text(
         json.dumps(
             {
@@ -224,6 +254,8 @@ def main() -> None:
                 "comparator": args.comparator,
                 "baseline": args.baseline,
                 "interval_label": args.interval_label,
+                "family_summary": "equal-outcome mean of endpoint point estimates; no family-level interval",
+                "all_outcomes_one_page": args.all_outcomes_one_page,
                 "files": output_files,
             },
             indent=2,

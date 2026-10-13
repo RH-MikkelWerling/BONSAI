@@ -234,10 +234,10 @@ def test_last_clinical_embedding_equals_hidden_state_one_before_cls(tmp_path):
 
     with torch.no_grad():
         hidden = encoder_hidden_state(encoder(batch))
-    # code is [7, 5, 6, 5, 1] -- [CLS] appended at the end; "one before CLS"
-    # is index 3 (code value 5, the last real clinical event).
-    assert batch["code"].tolist() == [[7, 5, 6, 5, 1]]
-    expected = hidden[0, 3]
+    # The event at the prediction index is excluded to avoid same-time leakage.
+    # The last clinical event is therefore code 6 at index 2.
+    assert batch["code"].tolist() == [[7, 5, 6, 1]]
+    expected = hidden[0, 2]
 
     # extract_last_clinical_embeddings requires all three prospective splits
     # to be non-empty (matching production's extract_shared_split_embeddings),

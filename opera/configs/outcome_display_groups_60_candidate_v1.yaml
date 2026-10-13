@@ -1,0 +1,74 @@
+# Figure-only taxonomy for the provisional 60-candidate panel.
+# Not the loss aggregation or a claim that all definitions are validated.
+Disease course and later malignancy:
+  - overall_survival
+  - treatment_failure
+  - treatment_failure_transformation
+  - second_line_treatment
+  - next_hematological_malignancy
+  - next_malignancy
+Infection and antimicrobial use:
+  - antibiotics
+  - sepsis
+  - serious_infection_composite
+Erythroid findings and transfusion:
+  - anemia_g2plus
+  - anemia_g3plus
+  - RBC_transfusion
+  - any_transfusion
+  - haptoglobin_decreased
+Neutrophil, white-cell and platelet findings:
+  - neutropenia_g2plus
+  - neutropenia_g3plus
+  - WBC_decreased_g2plus
+  - WBC_decreased_g3plus
+  - thrombocytopenia_g2plus
+  - thrombocytopenia_g3plus
+  - platelet_transfusion
+  - severe_cytopenia
+Lymphocyte and eosinophil counts:
+  - lymphocytosis_g2plus
+  - lymphocytosis_g3plus
+  - eosinophilia
+Renal injury and support:
+  - aki_first_documented
+  - creatinine_increased_g2plus
+  - creatinine_increased_g3plus
+  - dialysis
+Liver injury and coagulation:
+  - ALT_increased_g2plus
+  - ALT_increased_g3plus
+  - bilirubin_increased_g2plus
+  - bilirubin_increased_g3plus
+  - hepatotoxicity
+  - INR_increased_g2plus
+  - INR_increased_g3plus
+Sodium and potassium:
+  - hypernatremia_g2plus
+  - hypernatremia_g3plus
+  - hyperkalemia_g2plus
+  - hyperkalemia_g3plus
+Calcium and magnesium:
+  - hypercalcemia_g2plus
+  - hypercalcemia_g3plus
+  - hypocalcemia_g2plus
+  - hypocalcemia_g3plus
+  - hypomagnesemia_g2plus
+Metabolic and cell-turnover markers:
+  - hypertriglyceridemia_g2plus
+  - hypertriglyceridemia_g3plus
+  - hypoalbuminemia_g2plus
+  - hypoalbuminemia_g3plus
+  - hyperphosphatemia
+  - hyperuricemia
+  - LDH_increased
+Cardiovascular and thrombotic events:
+  - atrial_fibrillation
+  - heart_failure
+  - stroke_TIA
+  - VTE
+Acute care and other events:
+  - emergency_stay
+  - hospitalisation
+  - respiratory_support
+  - bone_fracture

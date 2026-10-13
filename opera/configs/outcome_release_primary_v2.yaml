@@ -1,0 +1,59 @@
+# Versioned primary-panel decisions. Historical files/registry remain untouched.
+# The release builder requires every definition hold to be resolved here.
+version: 2
+minimum_events_by_day_365: {train: 100, tuning: 20}
+
+# These source names are retained if they also pass the event floor. Their
+# release labels/notes below prevent a false CTCAE-v6 claim.
+include_held:
+  - ALP_increased_g2plus
+  - ALP_increased_g3plus
+  - hyponatremia_g2plus
+  - hyponatremia_g3plus
+  - infections_IV_based
+  - infections_prescription_based
+  - infections_all_definitions
+
+# Historical files remain in the old panel; these are not primary targets.
+exclude_held:
+  - lymphopenia_g2plus
+  - lymphopenia_g3plus
+  - hypokalemia_g2plus
+  - hypokalemia_g3plus
+  - MACE_composite
+
+# Existing source parquets are copied under these honest release identifiers.
+rename:
+  ALP_increased_g2plus: alp_elevation_legacy_tier2plus
+  ALP_increased_g3plus: alp_elevation_legacy_tier3plus
+  hyponatremia_g3plus: sodium_below_125_mmol_l
+  infections_IV_based: iv_antimicrobial_use_proxy
+  infections_prescription_based: prescription_antimicrobial_use_proxy
+  infections_all_definitions: infection_diagnosis_or_antimicrobial_use_composite
+
+# ALT is a replacement, not an additional head. The derived hepatotoxicity
+# composite must be rebuilt with candidate ALT G3+ event dates.
+replace_from_lab_candidates:
+  - ALT_increased_g2plus
+  - ALT_increased_g3plus
+rebuild_composites:
+  hepatotoxicity:
+    - ALT_increased_g3plus
+    - AST_increased_g3plus
+    - bilirubin_increased_g3plus
+
+add_from_lab_candidates:
+  - creatinine_rise_gt1p5x_preindex_baseline
+add_from_potassium_candidates:
+  - potassium_below_3p0_mmol_l
+
+release_notes:
+  alp_elevation_legacy_tier2plus: "Legacy R grader: ALP >2.5x sample ULN when the prior cumulative mean is normal, otherwise >2.5x the prior cumulative mean. Missing ULN defaults to 105. Time-varying baseline, not CTCAE-v6 grade 2."
+  alp_elevation_legacy_tier3plus: "Legacy R grader: ALP >5x sample ULN when the prior cumulative mean is normal, otherwise >5x the prior cumulative mean. Missing ULN defaults to 105. Time-varying baseline, not CTCAE-v6 grade 3."
+  hyponatremia_g2plus: Sodium <130 mmol/L; numerical CTCAE-v6 G2+ threshold, symptoms unobserved.
+  sodium_below_125_mmol_l: Sodium <125 mmol/L; misses symptomatic 125-<130 mmol/L CTCAE-v6 G3.
+  iv_antimicrobial_use_proxy: Hospital-administered antimicrobial-use proxy, not confirmed infection; SMR source start gate applies.
+  prescription_antimicrobial_use_proxy: Antimicrobial-prescription proxy, not confirmed infection.
+  infection_diagnosis_or_antimicrobial_use_composite: Diagnosis or antimicrobial-use union; eligibility inherits the SMR source start gate.
+  creatinine_rise_gt1p5x_preindex_baseline: ">1.5 times pre-index creatinine; not CTCAE grade, AKI diagnosis, or proof of treatment causation."
+  potassium_below_3p0_mmol_l: Numerical severe hypokalemia threshold; symptoms and intervention unavailable, not full CTCAE grade.

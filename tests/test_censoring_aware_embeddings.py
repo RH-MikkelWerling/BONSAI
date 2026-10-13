@@ -11,6 +11,8 @@ from opera.visualization.censoring_aware_embeddings import (
     plot_censoring_aware_embedding_panel,
     spatial_calibration_residual,
     _kernel_surfaces,
+    _binned_router_displacement,
+    patient_footprint_margin,
 )
 
 HORIZON = 365.0
@@ -18,6 +20,15 @@ BANDWIDTH = 0.45
 GRID_SIZE = 35
 N_NEIGHBORS = 40
 MIN_SUPPORT = 10.0
+
+
+def test_patient_footprint_preserves_disconnected_islands_and_empty_gap():
+    coords = np.array([[-2., 0.], [-2., .2], [2., 0.], [2., .2]])
+    margin, radius = patient_footprint_margin(coords, np.array([[-2., .1], [0., .1], [2., .1]]), radius=.4)
+    assert radius == .4
+    assert (margin > 0).tolist() == [True, False, True]
+    with pytest.raises(ValueError, match="positive"):
+        patient_footprint_margin(coords, coords, radius=-1)
 
 
 def _residual(seed, **knobs):
@@ -85,10 +96,13 @@ def test_censoring_aware_panel_smoke():
         min_effective_support=2,
         n_neighbors=10,
         residual_bootstrap=25,
+        footprint="patients",
     )
     assert len(fig.axes) >= 5
     assert diagnostics["n_total"] == n
     assert diagnostics["residual_units"] == "CIF"
+    assert diagnostics["footprint"] == "patients"
+    assert diagnostics["footprint_radius"] > 0
     maps = {ax.get_label(): ax for ax in fig.axes}
     assert maps["calibration-map:C"].images[0].get_array().shape[0] >= 499
     assert maps["calibration-map:C"].images[0].get_cmap().name == "plasma"
@@ -100,6 +114,42 @@ def test_censoring_aware_panel_smoke():
     assert bottom[1].y0 == pytest.approx(bottom[2].y0)
     assert bottom[0].x0 < bottom[1].x0 < bottom[2].x0
     assert maps["calibration-map:legend"].get_position().y0 > bottom[0].y1
+
+
+def test_router_movement_panel_replaces_time_without_changing_other_maps():
+    rng = np.random.default_rng(91)
+    coords = rng.normal(size=(800, 2))
+    after = coords + np.array([.01, -.02])
+    field = _binned_router_displacement(coords, after, bins=2, min_count=5)
+    assert len(field["centers"]) > 0
+    assert field["vectors"] == pytest.approx(np.tile([.01, -.02], (len(field["centers"]), 1)))
+    assert field["coherence"] == pytest.approx(np.ones(len(field["centers"])))
+    plot_data = {}
+    fig, diagnostics = plot_censoring_aware_embedding_panel(
+        coords, np.full(800, 100.), np.zeros(800), horizon=60.,
+        predicted_cif=np.full(800, .2), routed_coords=after,
+        routed_norms=np.full(800, .5), grid_size=8,
+        min_effective_support=1, residual_bootstrap=0,
+        router_arrow_bins=9, router_arrow_min_count=10,
+        router_arrow_scale=2., router_arrow_style="compact",
+        router_arrow_min_coherence=.5, plot_data=plot_data,
+    )
+    maps = {ax.get_label(): ax for ax in fig.axes}
+    assert "Router movement" in maps["calibration-map:B"].get_title(loc="left")
+    assert maps["calibration-map:C"].images
+    assert maps["calibration-map:E"].images
+    assert diagnostics["router_n_cells"] > 0
+    assert diagnostics["router_median_hidden_shift"] == pytest.approx(.5)
+    assert diagnostics["router_arrow_bins"] == 9
+    assert diagnostics["router_arrow_scale_for_display"] == pytest.approx(2.)
+    assert diagnostics["router_arrow_style"] == "compact"
+    assert set(plot_data).issuperset({"grid_x", "risk", "effective_support",
+                                    "arrow_centers", "arrow_vectors_unscaled",
+                                    "arrow_cell_counts"})
+    assert plot_data["arrow_cell_coherence"].min() >= .5
+    assert plot_data["arrow_centers"].shape[0] == diagnostics["router_n_cells"]
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 def test_ipcw_includes_censoring_before_a_between_knot_horizon():

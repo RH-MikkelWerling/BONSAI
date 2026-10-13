@@ -177,7 +177,7 @@ def test_primary_severity_figure_uses_paired_deltas_and_excludes_unmatched_targe
 
     figure = plot_outcome_transfer_figure(empty_results, deltas, plan=plan)
     severity_axis = figure.axes[0]
-    assert severity_axis.get_title() == "Severity transfer (matched Grade 2/3 targets)"
+    assert severity_axis.get_title(loc="left") == "Severity transfer (matched Grade 2/3 targets)"
     assert severity_axis.get_xlabel() == "Paired Delta ROC-AUC"
     y_labels = [label.get_text() for label in severity_axis.get_yticklabels()]
     assert "matched_alpha_g3plus" in y_labels

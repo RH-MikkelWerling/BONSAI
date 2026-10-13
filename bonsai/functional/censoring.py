@@ -9,7 +9,7 @@ def censor_subject(
     subject: Dict[str, torch.Tensor],
     censor_date_abspos: float,
     predict_token_id: Optional[int] = None,
-    inclusive: bool = True,
+    inclusive: bool = False,
 ) -> Dict:
     """
     Censors a subject's data by truncating all attributes at the censor date,

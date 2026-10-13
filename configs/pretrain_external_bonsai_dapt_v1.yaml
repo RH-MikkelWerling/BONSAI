@@ -1,0 +1,18 @@
+defaults:
+  - pretrain_harmonized_fourier_len8192_20ep
+  - _self_
+
+# Encoder-only initialization from a native BONSAI Lightning pretraining
+# checkpoint. This is not a trainer/optimizer resume. The checkpoint and its
+# original vocabulary must travel together; exact token strings remap the
+# code embeddings into the local MEDS vocabulary.
+paths:
+  initialization_ckpt: null
+  initialization_vocab: null
+  initialization_min_token_coverage: 0.9
+  initialization_use_source_architecture: true
+  ckpt_path: null
+
+# The source architecture is imported explicitly, except that the local SDPA
+# backend is retained for V100 compatibility. A mismatched causal/data objective
+# or inadequate local vocabulary overlap fails before training.

@@ -1,0 +1,10 @@
+# Expected cleaned units in the DALY-CARE candidate lab snapshot.
+# Validate against unit_inventory_v1_INTERNAL.csv on the server before use.
+version: 1
+units:
+  neutrophils: 10^9/l
+  ALT: u/l
+  AST: u/l
+  bilirubin: µmol/l
+  creatinine: µmol/l
+  eosinophils: 10^9/l

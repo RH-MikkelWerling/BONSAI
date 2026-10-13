@@ -15,12 +15,22 @@ OVERRIDES=()
 case "$TASK" in
   weightinggroups)
     CONFIG=direct_cr_bce_lowrank_endpoint_groups_v1 ;;
+  minorityevent)
+    echo "minorityevent is blocked: outcome-enriched sampling biases uncorrected absolute-risk BCE." >&2
+    echo "Implement and validate inverse-sampling correction or a natural-sampling loss ablation first." >&2
+    exit 2 ;;
   weightingreference)
     CONFIG=direct_cr_bce_lowrank_weighting_reference_v1 ;;
   lowrank)
     CONFIG=direct_cr_objective_horizon_bce_factorized_cohort_outcome_prototypes ;;
   anchored)
     CONFIG=direct_cr_objective_horizon_bce_source_anchored_adapters ;;
+  routergroups)
+    CONFIG=direct_cr_bce_router_endpoint_groups_v1 ;;
+  routerinteraction)
+    CONFIG=direct_cr_bce_router_interacting_endpoint_groups_v1 ;;
+  routerfresh)
+    CONFIG=direct_cr_bce_router_interacting_dapt_fresh_v1 ;;
   unanchored)
     CONFIG=direct_cr_objective_horizon_bce_unanchored_adapters ;;
   encoder005|encoder020|encoder100)
@@ -31,11 +41,11 @@ case "$TASK" in
       encoder100) MULTIPLIER=1.00 ;;
     esac
     OVERRIDES+=("model.freeze_encoder=false" "training.encoder_lr_multiplier=$MULTIPLIER") ;;
-  *) echo "Unknown task: $TASK (weightinggroups, weightingreference, lowrank, anchored, unanchored, encoder005, encoder020, encoder100)" >&2; exit 2 ;;
+  *) echo "Unknown task: $TASK (weightinggroups, minorityevent, weightingreference, lowrank, anchored, unanchored, routergroups, routerinteraction, routerfresh, encoder005, encoder020, encoder100)" >&2; exit 2 ;;
 esac
 [[ "$CONFIG" =~ ^[a-zA-Z0-9_]+$ && "$SEED" =~ ^[0-9]+$ ]] || { echo "Invalid config name or seed" >&2; exit 2; }
 [[ -s "opera/configs/generated/$CONFIG.yaml" ]] || { echo "Sync generated config: $CONFIG" >&2; exit 1; }
-if [[ "$TASK" == anchored || "$TASK" == unanchored ]]; then
+if [[ "$TASK" == anchored || "$TASK" == unanchored || "$TASK" == routergroups || "$TASK" == routerinteraction ]]; then
   : "${OPERA_SHARED_BCE_CKPT:?Set an existing completed shared-BCE checkpoint}"
   [[ -s "$OPERA_SHARED_BCE_CKPT" ]] || { echo "Missing shared-BCE checkpoint" >&2; exit 1; }
   OVERRIDES+=("source_opera_ckpt=$OPERA_SHARED_BCE_CKPT")

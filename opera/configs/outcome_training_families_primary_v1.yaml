@@ -1,0 +1,32 @@
+# Training-family proposal for the approved 69-outcome release.
+# Members are exact labels in outcome_display_groups_primary_v2.yaml.
+# This maps display groups, not individual grade-labelled outcomes.
+Disease course and later malignancy:
+  - Disease course and later malignancy
+Infection and antimicrobial use:
+  - Antimicrobial and infection proxies
+  - Serious and opportunistic infection
+Erythroid abnormalities and transfusion:
+  - Erythroid abnormalities and transfusion
+White-cell abnormalities:
+  - Neutrophil and white-cell suppression
+  - Lymphocyte and leukocyte counts
+Platelet and severe cytopenia:
+  - Platelets and severe cytopenia
+Kidney injury and renal support:
+  - Kidney injury and renal support
+Hepatic and coagulation toxicity:
+  - Hepatic enzymes
+  - Bilirubin and liver injury
+  - Coagulation
+Sodium and potassium:
+  - Sodium and potassium
+Calcium and magnesium:
+  - Calcium and magnesium
+Metabolic and cell-turnover markers:
+  - Glucose, lipids and albumin
+  - Phosphate, urate and cell turnover
+Cardiovascular and thrombotic events:
+  - Cardiovascular and thrombotic events
+Acute events and care use:
+  - Other acute events and care use

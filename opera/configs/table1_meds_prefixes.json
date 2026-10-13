@@ -1,0 +1,7 @@
+{
+  "distinct_medications": ["MEDICATION//"],
+  "distinct_diagnoses": ["DIAGNOSIS//"],
+  "laboratory_measurements": ["LABTEST//"],
+  "n_unique_specialties": ["CONTACT_SPECIALTY//"],
+  "predominant_region": ["REGION//"]
+}

@@ -1,0 +1,67 @@
+# INTERNAL decision rubric for the next, versioned OPERA outcome release.
+# Existing v4 parquets/configurations are never changed by the audit script.
+version: 1
+primary_horizon_days: 365
+report_horizons_days: [30, 60, 90, 180, 365, 730]
+min_train_events: 100
+min_tuning_events: 20
+default_action: candidate
+
+# Clinical actions override support. A hold requires a revised/verified
+# definition before the endpoint can enter the primary panel. A retired
+# endpoint remains in historical exports but is not a primary target.
+clinical_actions:
+  ALP_increased_g2plus:
+    action: definition_hold
+    reason: CTCAE v6 ALP has only G1; preserve this potentially useful legacy threshold after installed-grader verification and a non-v6 name.
+  ALP_increased_g3plus:
+    action: definition_hold
+    reason: CTCAE v6 ALP has only G1; preserve this potentially useful legacy threshold after installed-grader verification and a non-v6 name.
+  hypofibrinogenemia_g2plus:
+    action: retire
+    reason: Sparse support and unverified assay/unit and baseline grading.
+  hypofibrinogenemia_g3plus:
+    action: retire
+    reason: Sparse support and unverified assay/unit and baseline grading.
+  leukocytosis_g2plus:
+    action: retire
+    reason: The exported filename still says G2 although the R call requests G3; v6 discourages this term for leukemia-related increases.
+  dic_like_coagulopathy:
+    action: retire
+    reason: Lab co-occurrence proxy is not adjudicated DIC and lacks ordinary observation eligibility.
+  hys_law_dili:
+    action: retire
+    reason: Lab proxy omits cholestasis and alternative-cause exclusions for Hy's law.
+  tumor_lysis_syndrome:
+    action: retire
+    reason: Peri-index lab co-occurrence proxy does not implement strict TLS definition or monitoring eligibility.
+  lymphopenia_g2plus:
+    action: definition_hold
+    reason: V6 lymphopenia has no G2 tier; use a transparent numeric-threshold label if retained.
+  lymphopenia_g3plus:
+    action: definition_hold
+    reason: V6 lymphopenia has no G3 tier; use a transparent numeric-threshold label if retained.
+  hypokalemia_g2plus:
+    action: definition_hold
+    reason: The local numeric G2 bin still lacks the v6 symptom/intervention criterion; use a named lab threshold or regrade.
+  hypokalemia_g3plus:
+    action: definition_hold
+    reason: The local G3+ threshold is <=2.5 mmol/L, whereas v6 G3+ begins below 3.0 mmol/L; regrade or rename.
+  hyponatremia_g2plus:
+    action: definition_hold
+    reason: Exact sodium boundaries were corrected; the lab-only label still cannot distinguish symptomatic from asymptomatic 125-<130 mmol/L.
+  hyponatremia_g3plus:
+    action: definition_hold
+    reason: Exact sodium boundaries were corrected; G3+ captures <125 mmol/L but misses symptomatic 125-<130 mmol/L.
+  MACE_composite:
+    action: definition_hold
+    reason: Current union includes AF, VTE and HF; rename or redefine before primary reporting.
+  infections_all_definitions:
+    action: definition_hold
+    reason: Union mixes diagnosis-defined infection with antimicrobial-use proxies.
+  infections_IV_based:
+    action: definition_hold
+    reason: Repeated IV antimicrobial records are a treatment proxy; source capture and prophylaxis need audit.
+  infections_prescription_based:
+    action: definition_hold
+    reason: Repeated dispensings are an antimicrobial-use proxy, not confirmed infection; the prophylaxis-code typo was corrected, but indication and capture still need qualification.

@@ -70,6 +70,7 @@ class ContrastiveDataset(Dataset):
             raise ValueError("cohort_index must be non-negative when provided.")
         self.cohort_index = None if cohort_index is None else int(cohort_index)
         self.fine_index_by_subject = fine_index_by_subject
+        self.sampling_weights = None
         self._validate_shared_prediction_origins()
 
     def _validate_shared_prediction_origins(self) -> None:
@@ -151,6 +152,10 @@ class ContrastiveDataset(Dataset):
 
         # Dummy target for collate compatibility
         subject["target"] = torch.tensor([0], dtype=torch.long)
+        if self.sampling_weights is not None:
+            subject["sampling_weight"] = torch.as_tensor(
+                self.sampling_weights[index], dtype=torch.float32
+            )
 
         return subject
 

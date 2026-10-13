@@ -1,65 +1,83 @@
+% Only the patient-count row below has been updated for the released supervised population.
+% All other numeric rows remain historical layout values and MUST be re-exported before use.
 \begin{table*}[t]
 \centering
-\caption{Characteristics of the linked first-line haematology cohort.}
+\caption{Baseline characteristics of the supervised first-line haematology analysis cohort. \placeholder{All characteristics except patient counts require re-export from the current release.}}
 \label{tab:characteristics}
 \footnotesize
-\setlength{\tabcolsep}{5.2pt}
+\setlength{\tabcolsep}{4pt}
 \begin{tabularx}{\textwidth}{@{}Xrrrr@{}}
 \toprule
-Characteristic & Overall & Training (through 2021) & Tuning (2022) & Held-out (2023+) \\
+Characteristic & Overall & Training & Tuning & Held-out \\
 \midrule
-Patients, $n$ & \placeholder{$N$} & \placeholder{$n$} & \placeholder{$n$} & \placeholder{$n$} \\
-Age at first-line treatment, years, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Age $\geq$70 years, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Female sex, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Calendar year of first-line treatment, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Follow-up after index, years, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Death during available follow-up, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
+Patients, $n$ & 37,531 & 29,105 & 1,980 & 6,446 \\
+Age, years, median (IQR) & 69.3 (59.7--77.1) & 68.7 (59.2--76.5) & 71.1 (61.1--78.4) & 71.7 (61.7--78.8) \\
+Age $\geq$70 years, $n$ (\%) & 18,011 (48.1\%) & 13,431 (46.1\%) & 1,050 (53.4\%) & 3,530 (55.2\%) \\
+Female, $n$ (\%) & 15,647 (41.8\%) & 12,199 (41.9\%) & 802 (40.8\%) & 2,646 (41.4\%) \\
+Male, $n$ (\%) & 21,820 (58.2\%) & 16,909 (58.1\%) & 1,165 (59.2\%) & 3,746 (58.6\%) \\
+Year of first-line treatment, median (IQR) & 2016 (2010--2021) & 2014 (2009--2018) & 2022 (2022--2022) & 2024 (2023--2025) \\
+Observed follow-up, years, median (IQR) & 4.1 (1.4--8.6) & 5.8 (2.1--10.1) & 3.5 (3.2--3.8) & 1.3 (0.6--2.2) \\
 \addlinespace
-\multicolumn{5}{@{}l}{\sffamily\bfseries Longitudinal record before first-line treatment}\\
-Observable history, years, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Recorded events, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Hospital encounters, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Distinct diagnoses, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Distinct medications, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Laboratory measurements, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Prior non-haematological malignancy, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Comorbidity burden, median (IQR) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
+\multicolumn{5}{@{}l}{\sffamily\bfseries Disease groups, $n$ (\%)}\\
+Amyloidosis & 47 (0.1\%) & 22 (0.1\%) & 7 (0.4\%) & 18 (0.3\%) \\
+\textbf{Burkitt/lymphoblastic lymphoma} & 1,364 (3.6\%) & 1,075 (3.7\%) & 87 (4.4\%) & 202 (3.2\%) \\
+\hspace*{1em}Burkitt lymphoma (BL) & 295 (0.8\%) & 238 (0.8\%) & 15 (0.8\%) & 42 (0.7\%) \\
+\hspace*{1em}Lymphoblastic lymphoma (LBL) & 1,069 (2.9\%) & 837 (2.9\%) & 72 (3.7\%) & 160 (2.5\%) \\
+\textbf{CLL/SLL} & 5,152 (13.8\%) & 4,092 (14.1\%) & 244 (12.4\%) & 816 (12.8\%) \\
+\hspace*{1em}Chronic lymphocytic leukaemia (CLL) & 4,062 (10.8\%) & 3,220 (11.1\%) & 187 (9.5\%) & 655 (10.2\%) \\
+\hspace*{1em}Small lymphocytic lymphoma (SLL) & 1,090 (2.9\%) & 872 (3.0\%) & 57 (2.9\%) & 161 (2.5\%) \\
+\textbf{DLBCL and related aggressive B-cell lymphomas} & 10,408 (27.8\%) & 8,369 (28.8\%) & 505 (25.7\%) & 1,534 (24.0\%) \\
+\hspace*{1em}Diffuse large B-cell lymphoma (DLBCL) & 9,951 (26.6\%) & 8,008 (27.5\%) & 481 (24.5\%) & 1,462 (22.9\%) \\
+\hspace*{1em}Richter transformation (RT) & 192 (0.5\%) & 151 (0.5\%) & 14 (0.7\%) & 27 (0.4\%) \\
+\hspace*{1em}Transformed follicular lymphoma & 265 (0.7\%) & 210 (0.7\%) & 10 (0.5\%) & 45 (0.7\%) \\
+Hairy-cell leukaemia & 418 (1.1\%) & 293 (1.0\%) & 29 (1.5\%) & 96 (1.5\%) \\
+Hodgkin lymphoma & 2,644 (7.1\%) & 2,080 (7.1\%) & 141 (7.2\%) & 423 (6.6\%) \\
+\textbf{Indolent B-cell non-Hodgkin lymphoma} & 5,399 (14.4\%) & 3,895 (13.4\%) & 302 (15.4\%) & 1,202 (18.8\%) \\
+\hspace*{1em}Follicular lymphoma (FL) & 2,932 (7.8\%) & 2,248 (7.7\%) & 150 (7.6\%) & 534 (8.4\%) \\
+\hspace*{1em}B-cell lymphoma, unspecified (BCL) & 227 (0.6\%) & 87 (0.3\%) & 17 (0.9\%) & 123 (1.9\%) \\
+\hspace*{1em}Lymphoplasmacytic lymphoma (LPL) & 1,570 (4.2\%) & 1,165 (4.0\%) & 100 (5.1\%) & 305 (4.8\%) \\
+\hspace*{1em}Extranodal marginal-zone lymphoma (EMZL) & 500 (1.3\%) & 318 (1.1\%) & 33 (1.7\%) & 149 (2.3\%) \\
+\hspace*{1em}Nodal marginal-zone lymphoma (NMZL) & 27 (0.1\%) & 5 (0.0\%) & $<$5 & 22 (0.3\%) \\
+\hspace*{1em}Splenic marginal-zone lymphoma (SMZL) & 143 (0.4\%) & 72 (0.2\%) & $<$5 & 69 (1.1\%) \\
+Mantle-cell lymphoma & 1,466 (3.9\%) & 1,116 (3.8\%) & 87 (4.4\%) & 263 (4.1\%) \\
+\textbf{Myeloma and related plasma-cell disorders} & 8,953 (23.9\%) & 6,904 (23.7\%) & 491 (25.0\%) & 1,558 (24.4\%) \\
+\hspace*{1em}Multiple myeloma (MM) & 8,629 (23.0\%) & 6,673 (22.9\%) & 464 (23.6\%) & 1,492 (23.3\%) \\
+\hspace*{1em}Plasma-cell leukaemia (PCL) & 201 (0.5\%) & 146 (0.5\%) & 18 (0.9\%) & 37 (0.6\%) \\
+\hspace*{1em}Solitary myeloma/plasmacytoma & 123 (0.3\%) & 85 (0.3\%) & 9 (0.5\%) & 29 (0.5\%) \\
+\textbf{T-cell non-Hodgkin lymphoma} & 1,616 (4.3\%) & 1,262 (4.3\%) & 74 (3.8\%) & 280 (4.4\%) \\
+\hspace*{1em}Angioimmunoblastic T-cell lymphoma (AITL) & 483 (1.3\%) & 351 (1.2\%) & 26 (1.3\%) & 106 (1.7\%) \\
+\hspace*{1em}Anaplastic large-cell lymphoma (ALCL) & 410 (1.1\%) & 339 (1.2\%) & 12 (0.6\%) & 59 (0.9\%) \\
+\hspace*{1em}Peripheral T-cell lymphoma (PTCL) & 522 (1.4\%) & 444 (1.5\%) & 17 (0.9\%) & 61 (1.0\%) \\
+\hspace*{1em}T-cell lymphoma, unspecified (TCL) & 201 (0.5\%) & 128 (0.4\%) & 19 (1.0\%) & 54 (0.8\%) \\
 \addlinespace
-\multicolumn{5}{@{}l}{\sffamily\bfseries First-line episode ascertainment}\\
-Classified contemporaneously in Pass 1, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Classified by forward-diagnosis rescue, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Classified by unambiguous regimen rescue, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-Registry-recorded treatment available, $n$ (\%) & \placeholder{} & \placeholder{} & \placeholder{} & \placeholder{} \\
-\bottomrule
-\end{tabularx}
-
-\vspace{3mm}
-\begin{tabularx}{\textwidth}{@{}Xr@{\hspace{10mm}}Xr@{}}
-\toprule
-Fine disease cohort & $n$ (\%) & Fine disease cohort & $n$ (\%) \\
-\midrule
-Diffuse large B-cell lymphoma (DLBCL) & \placeholder{} & Multiple myeloma (MM) & \placeholder{} \\
-Chronic lymphocytic leukaemia (CLL) & \placeholder{} & Small lymphocytic lymphoma (SLL) & \placeholder{} \\
-Follicular lymphoma (FL) & \placeholder{} & Hodgkin lymphoma (HL) & \placeholder{} \\
-Lymphoplasmacytic lymphoma (LPL) & \placeholder{} & Mantle-cell lymphoma (MCL) & \placeholder{} \\
-Burkitt lymphoma (BL) & \placeholder{} & Lymphoblastic lymphoma (LBL) & \placeholder{} \\
-Hairy-cell leukaemia (HCL) & \placeholder{} & Amyloidosis & \placeholder{} \\
-Peripheral T-cell lymphoma (PTCL) & \placeholder{} & Angioimmunoblastic T-cell lymphoma (AITL) & \placeholder{} \\
-Anaplastic large-cell lymphoma (ALCL) & \placeholder{} & T-cell lymphoma, unspecified (TCL) & \placeholder{} \\
-Extranodal marginal-zone lymphoma (EMZL) & \placeholder{} & Nodal marginal-zone lymphoma (NMZL) & \placeholder{} \\
-Splenic marginal-zone lymphoma (SMZL) & \placeholder{} & B-cell lymphoma, unspecified (BCL) & \placeholder{} \\
-Richter transformation (RT) & \placeholder{} & Transformed follicular lymphoma & \placeholder{} \\
-Plasma-cell leukaemia (PCL) & \placeholder{} & Solitary myeloma/plasmacytoma & \placeholder{} \\
+\multicolumn{5}{@{}l}{\sffamily\bfseries Recorded performance status, $n$ (\%)}\\
+Performance status 0 & 14,662 (53.8\%) & 11,842 (53.2\%) & 858 (54.3\%) & 1,962 (57.9\%) \\
+Performance status 1 & 8,262 (30.3\%) & 6,838 (30.7\%) & 434 (27.5\%) & 990 (29.2\%) \\
+Performance status 2 & 2,557 (9.4\%) & 2,077 (9.3\%) & 187 (11.8\%) & 293 (8.6\%) \\
+Performance status 3 & 1,273 (4.7\%) & 1,063 (4.8\%) & 88 (5.6\%) & 122 (3.6\%) \\
+Performance status 4 & 481 (1.8\%) & 444 (2.0\%) & 13 (0.8\%) & 24 (0.7\%) \\
+Missing performance status$^{a}$ & 10,232 (27.3\%) & 6,844 (23.5\%) & 387 (19.7\%) & 3,001 (46.9\%) \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Disease-specific prognostic risk category, $n$ (\%)}\\
+Low & 3,989 (17.6\%) & 3,231 (17.4\%) & 243 (17.6\%) & 515 (18.9\%) \\
+Intermediate & 10,513 (46.4\%) & 8,608 (46.4\%) & 639 (46.3\%) & 1,266 (46.5\%) \\
+High / very high$^{b}$ & 8,161 (36.0\%) & 6,721 (36.2\%) & 497 (36.0\%) & 943 (34.6\%) \\
+Missing risk category$^{a}$ & 14,804 (39.5\%) & 10,548 (36.2\%) & 588 (29.9\%) & 3,668 (57.4\%) \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Pre-treatment record summaries, median (IQR)$^{c}$}\\
+Recorded clinical-history span, years & \placeholder{Re-export} & \placeholder{Re-export} & \placeholder{Re-export} & \placeholder{Re-export} \\
+Clinical-coded records & \placeholder{Re-export} & \placeholder{Re-export} & \placeholder{Re-export} & \placeholder{Re-export} \\
+Distinct diagnosis codes & 21.0 (13.0--32.0) & 20.0 (12.0--30.0) & 24.0 (15.0--37.0) & 25.0 (15.0--38.0) \\
+Distinct medication codes & 21.0 (12.0--34.0) & 18.0 (10.0--30.0) & 32.0 (21.0--46.0) & 34.0 (22.0--49.0) \\
+Laboratory-coded records & 197.0 (0.0--482.0) & 118.0 (0.0--346.0) & 483.0 (279.5--803.5) & 531.0 (302.0--887.0) \\
 \bottomrule
 \end{tabularx}
 \vspace{1.5mm}
 \begin{minipage}{\textwidth}\scriptsize
-Values are calculated once per patient at reconstructed first-line treatment.
-Counts must be generated directly from the frozen cohort and temporal-split
-manifests. Disease-specific prognostic variables (for example stage,
-performance status, LDH, cytogenetics and individual regimens) should be
-reported in cohort-specific supplementary tables because their definitions and
-availability are not comparable across all 24 diseases. IQR, interquartile range.
+One record per patient in the historical 37,467-person review export; these values are not the current 37,557-person first-line source or its supervised analysis subset. Disease groups are from \texttt{cohort\_grouped}, not the separate, incomplete \texttt{Disease} field. Indented rows show fine cohorts within their grouped parent; one-to-one groups are shown once. Disease percentages use the full cohort/split, not the parent group. A dash denotes an absent row in the source export, not a confirmed zero. Detailed treatment categories and scoring systems are reported in the supplementary tables.
+$^{a}$Performance status and disease-specific prognostic risk categories are sourced from quality registries, whose disease and calendar-period coverage is incomplete. Category percentages use patients with nonmissing values; missingness percentages use the full cohort/split. The later-period decline in availability must be re-estimated from the current release before interpretation.
+$^{b}$High and very high are combined only for this descriptive overview. The very-high category occurs in CLL-IPI (114 patients overall); risk categories from different scoring systems are not equivalent clinical scales. Original categories and scoring-system identities are retained in the supplement.
+$^{c}$MEDS-derived values are provisional pending re-export after excluding demographic tokens from clinical-history summaries. Laboratory entries count coded records, not unique tests or verified source measurements. Follow-up is observed duration, not a reverse-Kaplan--Meier estimate.
+IQR, interquartile range. Primary-only small-cell masking in the source exports is not disclosure clearance; the complete publication bundle requires institutional review.
 \end{minipage}
 \end{table*}

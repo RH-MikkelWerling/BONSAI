@@ -97,3 +97,51 @@ def test_cross_stage_split_contract_flags_missing_pooled_subjects(tmp_path):
 
     assert report["ok"] is False
     assert any("missing 1 outcome subjects" in issue for issue in report["issues"])
+    assert all("[3]" not in issue for issue in report["issues"])
+
+
+def test_cross_stage_split_contract_reports_overlap_counts_without_ids(tmp_path):
+    outcome_path = tmp_path / "mortality.parquet"
+    pd.DataFrame(
+        {
+            "subject_id": [1001, 1001],
+            "index_date": pd.to_datetime(["2021-01-01", "2023-01-01"]),
+            "split": ["train", "held_out"],
+        }
+    ).to_parquet(outcome_path, index=False)
+    train_path = tmp_path / "train.pt"
+    held_path = tmp_path / "held.pt"
+    torch.save([_subject(1001)], train_path)
+    torch.save([_subject(1001)], held_path)
+
+    report = validate_cross_stage_split_contract(
+        outcome_paths=[outcome_path],
+        subject_data_paths={"train": train_path, "held_out": held_path},
+    )
+
+    assert not report["ok"]
+    assert any("1 subjects" in issue for issue in report["issues"])
+    assert "1001" not in str(report)
+
+
+def test_cross_stage_split_contract_aggregate_errors_in_memory(monkeypatch):
+    from opera.evaluation import split_contract
+
+    frame = pd.DataFrame(
+        {
+            "subject_id": [1001, 1001],
+            "index_date": pd.to_datetime(["2021-01-01", "2023-01-01"]),
+            "split": ["train", "held_out"],
+        }
+    )
+    monkeypatch.setattr(split_contract, "_read_outcome", lambda path: frame)
+    monkeypatch.setattr(
+        split_contract, "_load_subject_ids", lambda path: {1001}
+    )
+    report = validate_cross_stage_split_contract(
+        outcome_paths=["synthetic.parquet"],
+        subject_data_paths={"train": "train.pt", "held_out": "held.pt"},
+    )
+    assert not report["ok"]
+    assert any("1 subjects" in issue for issue in report["issues"])
+    assert "1001" not in str(report)

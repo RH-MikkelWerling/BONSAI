@@ -19,8 +19,12 @@ import json
 import re
 from pathlib import Path
 
+import matplotlib as mpl
+from matplotlib import font_manager
+import numpy as np
 import pandas as pd
 
+from opera.evaluation.treatment_embeddings import embedding_columns
 from opera.evaluation.vocabulary_embeddings import (
     compute_token_movement,
     extract_vocabulary_embedding_frame,
@@ -29,6 +33,7 @@ from opera.evaluation.vocabulary_embeddings import (
 from opera.visualization.vocabulary_atlas import (
     plot_token_movement,
     plot_vocabulary_embedding_atlas,
+    plot_vocabulary_family_facets,
     project_vocabulary_embeddings,
 )
 
@@ -59,6 +64,38 @@ def _comma_list(value: str | None) -> list[str]:
 
 def _safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "stage"
+
+
+def family_cosine_proximity(
+    embeddings: pd.DataFrame, *, color_col: str = "token_family", min_group_n: int = 5,
+) -> pd.DataFrame:
+    """Mean token-pair cosine by family pair in the original embedding space."""
+    cols = embedding_columns(embeddings)
+    values = embeddings[cols].to_numpy(dtype=float)
+    norms = np.linalg.norm(values, axis=1)
+    if not np.isfinite(values).all() or (norms <= 0).any():
+        raise ValueError("Proximity requires finite, nonzero token embeddings")
+    unit = values / norms[:, None]
+    labels = embeddings[color_col].fillna("unknown").astype(str).to_numpy()
+    counts = pd.Series(labels).value_counts()
+    families = counts[counts >= min_group_n].index.tolist()
+    means = {family: unit[labels == family].mean(axis=0) for family in families}
+    rows = []
+    for left in families:
+        for right in families:
+            n_left, n_right = int(counts[left]), int(counts[right])
+            if left == right:
+                # Remove self-pairs (cosine=1) from the within-family mean.
+                mean_cosine = (
+                    (n_left * float(means[left] @ means[left]) - 1) / (n_left - 1)
+                    if n_left > 1 else np.nan
+                )
+            else:
+                mean_cosine = float(means[left] @ means[right])
+            rows.append({"family_a": left, "family_b": right,
+                         "n_a": n_left, "n_b": n_right,
+                         "mean_pair_cosine": mean_cosine})
+    return pd.DataFrame(rows)
 
 
 def main() -> None:
@@ -112,6 +149,16 @@ def main() -> None:
     parser.add_argument("--top_neighbors", type=int, default=10)
     args = parser.parse_args()
 
+    try:
+        font_manager.findfont(
+            font_manager.FontProperties(family="TeX Gyre Pagella"),
+            fallback_to_default=False,
+        )
+        figure_font = "TeX Gyre Pagella"
+    except ValueError:
+        figure_font = "DejaVu Serif"
+        print("TeX Gyre Pagella is unavailable; atlas figures use DejaVu Serif.")
+
     checkpoint_specs = dict(args.checkpoint)
     if len(checkpoint_specs) != len(args.checkpoint):
         raise ValueError("Checkpoint stage names must be unique.")
@@ -148,15 +195,27 @@ def main() -> None:
         seed=args.seed,
     )
     coordinates.to_csv(output_dir / "vocabulary_atlas_coordinates.csv", index=False)
-    plot_vocabulary_embedding_atlas(
-        coordinates,
-        color_col=args.color_col,
-        highlight_tokens=_comma_list(args.highlight_tokens),
+    family_cosine_proximity(
+        stage_frames[atlas_stage], color_col=args.color_col,
         min_group_n=args.min_group_n,
-        max_group_labels=args.max_group_labels,
-        title=f"Vocabulary embedding atlas ({atlas_stage})",
-        save_path=str(output_dir / "vocabulary_atlas.png"),
-    )
+    ).to_csv(output_dir / "vocabulary_family_cosine_proximity.csv", index=False)
+    with mpl.rc_context({"font.family": figure_font, "mathtext.fontset": "dejavuserif"}):
+        plot_vocabulary_embedding_atlas(
+            coordinates,
+            color_col=args.color_col,
+            highlight_tokens=_comma_list(args.highlight_tokens),
+            min_group_n=args.min_group_n,
+            max_group_labels=args.max_group_labels,
+            title=f"Vocabulary embedding atlas ({atlas_stage})",
+            save_path=str(output_dir / "vocabulary_atlas.png"),
+        )
+        plot_vocabulary_family_facets(
+            coordinates,
+            color_col=args.color_col,
+            min_group_n=args.min_group_n,
+            title=f"Vocabulary families ({atlas_stage})",
+            save_path=str(output_dir / "vocabulary_family_facets.png"),
+        )
 
     neighbor_tokens = _comma_list(args.neighbor_tokens)
     if neighbor_tokens:
@@ -174,11 +233,12 @@ def main() -> None:
         )
         movement.to_csv(output_dir / "token_movement.csv", index=False)
         if not movement.empty:
-            plot_token_movement(
-                movement,
-                top_n=args.top_moved_tokens,
-                save_path=str(output_dir / "token_movement.png"),
-            )
+            with mpl.rc_context({"font.family": figure_font, "mathtext.fontset": "dejavuserif"}):
+                plot_token_movement(
+                    movement,
+                    top_n=args.top_moved_tokens,
+                    save_path=str(output_dir / "token_movement.png"),
+                )
 
     with open(output_dir / "analysis_metadata.json", "w", encoding="utf-8") as handle:
         json.dump(
@@ -190,10 +250,12 @@ def main() -> None:
                 "reference_stage": reference_stage,
                 "projection": args.projection,
                 "color_col": args.color_col,
+                "figure_font": figure_font,
                 "interpretation": (
                     "Token/code embedding geometry. These are vocabulary "
                     "lookup vectors, not patient embeddings and not outcome "
-                    "predictions."
+                    "predictions. Family proximity uses original embedding "
+                    "cosines; the 2D projection is descriptive only."
                 ),
             },
             handle,

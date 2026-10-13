@@ -38,6 +38,10 @@ class TestCensoring(unittest.TestCase):
         censored = censor_subject(self.subject, censor_date_abspos=40, inclusive=False)
         self.assertTrue(torch.equal(censored["code"], torch.tensor([1, 2, 3])))
 
+    def test_prediction_boundary_excludes_same_time_events_by_default(self):
+        censored = censor_subject(self.subject, censor_date_abspos=40)
+        self.assertTrue(torch.equal(censored["code"], torch.tensor([1, 2, 3])))
+
     def test_censor_subject_with_predict_token(self):
         subj = {k: v.clone() for k, v in self.subject.items()}
         predict_token_id = 99

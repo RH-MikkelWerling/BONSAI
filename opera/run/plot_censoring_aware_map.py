@@ -91,6 +91,10 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--grid-size", type=int, default=100)
     parser.add_argument("--bandwidth", type=float)
+    parser.add_argument("--footprint", choices=["patients", "kernel"], default="patients",
+                        help="Display inside a patient-derived footprint (default), or use the old kernel-support outline.")
+    parser.add_argument("--footprint-radius", type=float,
+                        help="Optional footprint disc radius in projection units; default median eighth-neighbor distance.")
     parser.add_argument("--bandwidth-scale", type=float, default=1.,
                         help="Multiply the kernel bandwidth for a controlled sensitivity comparison.")
     parser.add_argument("--residual-probability-limit", type=float, default=.2,
@@ -115,8 +119,9 @@ def main():
         horizon=args.horizon, predicted_cif=frame[f"cif_{args.horizon}d"].to_numpy(),
         bandwidth=args.bandwidth, grid_size=args.grid_size, min_effective_support=args.min_effective_support,
         bandwidth_scale=args.bandwidth_scale, residual_probability_limit=args.residual_probability_limit,
+        footprint=args.footprint, footprint_radius=args.footprint_radius,
         min_density_fraction=args.min_density_fraction, residual_bootstrap=0,
-        title=f"{args.outcome.replace('_', ' ')} · {args.cohort or 'All cohorts'} · {args.split}",
+        title=f"{args.outcome.replace('_', ' ')} | {args.cohort or 'All cohorts'} | {args.split}",
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for extension in ("png", "pdf"):

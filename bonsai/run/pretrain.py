@@ -15,6 +15,10 @@ from bonsai.functional.checkpointing import (
 )
 from bonsai.functional.model_config import validate_pretraining_attention
 from bonsai.functional.input_contract import input_contract_metadata
+from bonsai.functional.pretrain_transfer import (
+    prepare_pretrain_transfer,
+    source_pretrain_model_config,
+)
 from bonsai.functional.versioning import generate_unused_run_id
 from bonsai.modules.datamodules.PretrainDataModule import PretrainDataModule
 from bonsai.modules.lightningmodules.PretrainModule import PretrainModule
@@ -34,9 +38,23 @@ load_dotenv()
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
+    initialization_ckpt = cfg.paths.get("initialization_ckpt")
+    if cfg.paths.get("initialization_use_source_architecture", False):
+        if initialization_ckpt in (None, ""):
+            raise ValueError("Source architecture requested without initialization_ckpt")
+        source_model_config = source_pretrain_model_config(initialization_ckpt)
+        for key in (
+            "max_seqlen", "hidden_size", "num_layers", "num_attention_heads",
+            "bias", "dropout", "attention_dropout", "causal",
+            "value_bin_vocab_size", "value_embedding_mode", "abspos_encoding",
+        ):
+            cfg.model[key] = source_model_config[key]
+        # Keep the local execution backend (e.g. SDPA on V100) rather than
+        # importing a source machine's FlashAttention requirement.
     print(
         f"{OmegaConf.to_yaml(cfg)}\n Version: {cfg.run_id}\n Run dir: {HydraConfig.get().run.dir}\n"
     )
+    L.seed_everything(int(cfg.seed), workers=True)
 
     logger = CSVLogger(get_experiment_output_path(), name=None, version=0)
     model_save_dir = logger.log_dir
@@ -88,6 +106,31 @@ def main(cfg: DictConfig) -> None:
         abspos_encoding=cfg.model.get("abspos_encoding", "legacy"),
     )
 
+    transfer_report = None
+    if initialization_ckpt not in (None, ""):
+        source_vocab = cfg.paths.get("initialization_vocab")
+        if source_vocab in (None, ""):
+            raise ValueError("paths.initialization_vocab is required with initialization_ckpt")
+        if cfg.paths.get("ckpt_path") not in (None, ""):
+            raise ValueError("Source initialization and explicit checkpoint resume are distinct")
+        transfer_report = prepare_pretrain_transfer(
+            model,
+            initialization_ckpt,
+            source_vocab,
+            cfg.paths.vocab,
+            min_token_coverage=float(
+                cfg.paths.get("initialization_min_token_coverage", 0.0)
+            ),
+            load_weights=True,
+        )
+        print(
+            "Initialized local pretraining encoder from external BONSAI checkpoint: "
+            f"{transfer_report['matched_tokens']}/{transfer_report['target_vocabulary_size']} "
+            "local tokens matched"
+        )
+    elif cfg.paths.get("initialization_vocab") not in (None, ""):
+        raise ValueError("initialization_vocab was set without initialization_ckpt")
+
     ckpt_callback = ModelCheckpoint(
         dirpath=model_save_dir,
         monitor="val/loss",
@@ -108,7 +151,11 @@ def main(cfg: DictConfig) -> None:
             "value_regression_loss_weight", 1.0
         ),
         checkpoint_metadata={
-            "training_stage": "general_pretraining",
+            "training_stage": (
+                "domain_adaptive_pretraining" if transfer_report is not None
+                else "general_pretraining"
+            ),
+            "source_pretraining_transfer": transfer_report,
             "dataset": cfg.dataset,
             **input_contract_metadata(
                 cfg.training.get("numeric_value_control", "observed")

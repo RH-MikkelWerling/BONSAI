@@ -539,6 +539,243 @@ def build_coverage_balanced_survival_batch_sampler(
     )
 
 
+class MinorityEventBatchSampler(Sampler[list[int]]):
+    """Bounded, inverse-square-root event emphasis for direct horizon BCE.
+
+    Only the training split is inspected. Each epoch has the same number of
+    logical batches as random sampling, and no index is drawn more than twice.
+    """
+
+    def __init__(
+        self, dataset, outcome_names: Sequence[str], batch_size: int, *,
+        horizon_days: float = 365.0, min_unique_events: int = 50,
+        min_unique_controls: int = 50, event_slots_per_batch: int = 4,
+        max_draws_per_patient: int = 2, seed: int = 0,
+    ) -> None:
+        if batch_size < 1 or horizon_days <= 0 or min_unique_events < 1:
+            raise ValueError("Invalid minority-event sampler size or support threshold")
+        if min_unique_controls < 1 or not 0 <= event_slots_per_batch <= batch_size:
+            raise ValueError("Invalid control threshold or event quota")
+        if max_draws_per_patient < 1:
+            raise ValueError("max_draws_per_patient must be positive")
+        self.n = len(dataset)
+        if self.n < batch_size:
+            raise ValueError("Dataset must contain at least one full logical batch")
+        self.batch_size = int(batch_size)
+        self.num_batches = self.n // self.batch_size
+        self.max_draws_per_patient = int(max_draws_per_patient)
+        self.event_slots_per_batch = int(event_slots_per_batch)
+        self.seed = int(seed)
+        self.epoch = 0
+        records = _extract_patient_records(dataset, outcome_names)
+        if len(records) != self.n:
+            raise ValueError("Sampler records and dataset indices disagree")
+        self.event_indices = {}
+        self.support = {}
+        for name in outcome_names:
+            events, controls = [], []
+            for index, patient in enumerate(records):
+                record = patient.get(name)
+                if record is None:
+                    continue
+                time = _as_float(record.get("time_days"))
+                event = _as_event(record.get("event", record.get("label", -1)))
+                if not np.isfinite(time) or time < 0:
+                    continue
+                if event == 1 and time <= horizon_days:
+                    events.append(index)
+                elif event == 0 and time >= horizon_days:
+                    controls.append(index)
+            self.support[name] = (len(events), len(controls))
+            if len(events) >= min_unique_events and len(controls) >= min_unique_controls:
+                self.event_indices[name] = np.asarray(events, dtype=np.int64)
+        self.focus_names = sorted(self.event_indices)
+        if not self.focus_names:
+            raise ValueError("No outcomes meet the minority-event support thresholds")
+        weights = np.asarray(
+            [1.0 / np.sqrt(len(self.event_indices[name])) for name in self.focus_names],
+            dtype=np.float64,
+        )
+        self.focus_probabilities = weights / weights.sum()
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+    def __iter__(self) -> Iterator[list[int]]:
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+        usage = np.zeros(self.n, dtype=np.int16)
+        order = rng.permutation(self.n)
+        cursor = 0
+        all_indices = np.arange(self.n, dtype=np.int64)
+        for _ in range(self.num_batches):
+            batch = []
+            if self.focus_names and self.event_slots_per_batch:
+                focus = rng.choice(self.focus_names, p=self.focus_probabilities)
+                pool = self.event_indices[focus]
+                eligible = pool[usage[pool] < self.max_draws_per_patient]
+                if eligible.size:
+                    chosen = rng.choice(
+                        eligible,
+                        size=min(self.event_slots_per_batch, eligible.size),
+                        replace=False,
+                    )
+                    batch.extend(int(index) for index in chosen)
+                    usage[chosen] += 1
+            selected = set(batch)
+            while len(batch) < self.batch_size:
+                if cursor < self.n:
+                    index = int(order[cursor])
+                    cursor += 1
+                else:
+                    available = all_indices[usage < self.max_draws_per_patient]
+                    available = np.asarray(
+                        [index for index in available if int(index) not in selected],
+                        dtype=np.int64,
+                    )
+                    if not available.size:
+                        raise RuntimeError("Cannot fill a batch within the exposure cap")
+                    index = int(rng.choice(available))
+                if index in selected or usage[index] >= self.max_draws_per_patient:
+                    continue
+                batch.append(index)
+                selected.add(index)
+                usage[index] += 1
+            yield batch
+
+    def summary(self) -> str:
+        return (
+            "Minority-event horizon-BCE sampler: "
+            f"patients={self.n}, batches={self.num_batches}, "
+            f"focus_outcomes={len(self.focus_names)}/{len(self.support)}, "
+            f"event_slots={self.event_slots_per_batch}, "
+            f"max_draws_per_patient={self.max_draws_per_patient}"
+        )
+
+
+class ImportanceWeightedHorizonSampler(Sampler[int]):
+    """Replacement sampling across outcome-horizon events with exact draw weights.
+
+    The proposal is a mixture of uniform patient draws and draws from a
+    supported outcome-horizon event pool. ``importance_weights[i]`` equals
+    ``1 / (N * proposal[i])`` and must accompany every sampled patient into
+    the horizon-BCE loss. The uniform component bounds these weights.
+    """
+
+    def __init__(
+        self, dataset, outcome_names: Sequence[str], batch_size: int, *,
+        horizons_days: Sequence[float], event_fraction: float = 0.5,
+        min_unique_events: int = 10, min_unique_controls: int = 20,
+        seed: int = 42,
+    ) -> None:
+        self.n = len(dataset)
+        if batch_size < 1 or self.n < batch_size:
+            raise ValueError("Importance sampling needs at least one full batch")
+        self.batch_size = int(batch_size)
+        self.num_samples = (self.n // self.batch_size) * self.batch_size
+        horizons = tuple(float(value) for value in horizons_days)
+        if (not horizons or any(value <= 0 for value in horizons)
+                or len(set(horizons)) != len(horizons)):
+            raise ValueError("Sampling horizons must be positive and unique")
+        if not 0 < event_fraction < 1:
+            raise ValueError("event_fraction must lie strictly between zero and one")
+        if min_unique_events < 1 or min_unique_controls < 1:
+            raise ValueError("Support thresholds must be positive")
+        self.horizons_days = horizons
+        self.event_fraction = float(event_fraction)
+        self.seed = int(seed)
+        self.epoch = 0
+
+        records = _extract_patient_records(dataset, outcome_names)
+        if len(records) != self.n:
+            raise ValueError("Sampler records and dataset indices disagree")
+        self.support = {}
+        self.event_indices = {}
+        for name in outcome_names:
+            for horizon in horizons:
+                events, controls = [], []
+                for index, patient in enumerate(records):
+                    record = patient.get(name)
+                    if record is None:
+                        continue
+                    time = _as_float(record.get("time_days"))
+                    event = _as_event(record.get("event", record.get("label", -1)))
+                    if not np.isfinite(time) or time < 0 or event not in {0, 1, 2}:
+                        continue
+                    if event == 1 and time <= horizon:
+                        events.append(index)
+                    elif time >= horizon or (event == 2 and time <= horizon):
+                        controls.append(index)
+                task = (name, horizon)
+                self.support[task] = (len(events), len(controls))
+                if (len(events) >= min_unique_events
+                        and len(controls) >= min_unique_controls):
+                    self.event_indices[task] = np.asarray(events, dtype=np.int64)
+        if not self.event_indices:
+            raise ValueError("No outcome-horizon tasks meet sampling support thresholds")
+
+        # Every supported horizon receives equal total focus mass. Within a
+        # horizon, rarer eligible outcomes receive inverse-square-root mass.
+        active_horizons = tuple(
+            horizon for horizon in horizons
+            if any(task[1] == horizon for task in self.event_indices)
+        )
+        if len(active_horizons) != len(horizons):
+            missing = sorted(set(horizons) - set(active_horizons))
+            raise ValueError(f"No supported event focus at horizons: {missing}")
+        proposal = np.full(self.n, (1.0 - event_fraction) / self.n, dtype=np.float64)
+        for horizon in active_horizons:
+            tasks = [task for task in self.event_indices if task[1] == horizon]
+            weights = np.asarray(
+                [1.0 / np.sqrt(len(self.event_indices[task])) for task in tasks],
+                dtype=np.float64,
+            )
+            weights /= weights.sum()
+            for task, task_weight in zip(tasks, weights):
+                pool = self.event_indices[task]
+                proposal[pool] += (
+                    event_fraction * task_weight
+                    / (len(active_horizons) * len(pool))
+                )
+        proposal /= proposal.sum()
+        self.proposal = proposal
+        self.importance_weights = 1.0 / (self.n * proposal)
+        self.effective_sample_fraction = float(
+            1.0 / np.sum(proposal * self.importance_weights**2)
+        )
+        self.expected_unique_fraction = float(
+            np.sum(1.0 - np.power(1.0 - proposal, self.batch_size))
+            / self.batch_size
+        )
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def __iter__(self) -> Iterator[int]:
+        generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        self.epoch += 1
+        draws = torch.multinomial(
+            torch.as_tensor(self.proposal, dtype=torch.double),
+            self.num_samples, replacement=True, generator=generator,
+        )
+        return iter(draws.tolist())
+
+    def summary(self) -> str:
+        per_horizon = ",".join(
+            f"{horizon:g}d:{sum(task[1] == horizon for task in self.event_indices)}"
+            for horizon in self.horizons_days
+        )
+        return (
+            "IPW outcome-horizon sampler: "
+            f"patients={self.n}, draws_per_epoch={self.num_samples}, "
+            f"focus_tasks={len(self.event_indices)}/{len(self.support)}, "
+            f"tasks_by_horizon={per_horizon}, "
+            f"event_fraction={self.event_fraction:.2f}, "
+            f"expected_ESS_fraction={self.effective_sample_fraction:.3f}, "
+            f"expected_unique_fraction={self.expected_unique_fraction:.3f}"
+        )
+
+
 class EventAwareSurvivalBatchSampler(Sampler[list[int]]):
     """
     Compose batches with outcome-specific survival signal.

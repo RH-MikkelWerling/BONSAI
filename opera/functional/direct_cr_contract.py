@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 
@@ -38,6 +39,28 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             "horizon_bce requires training.evaluation_horizons_days to exactly "
             "match competing_risk.interval_boundaries_days."
         )
+    sampling = dict(training.get("batch_sampling", {}))
+    if sampling.get("type") == "ipw_event_horizon_bce":
+        if objective != "horizon_bce":
+            raise ValueError("IPW event sampling requires horizon_bce")
+        sampling_horizons = [float(value) for value in sampling.get("horizons_days", [])]
+        if sampling_horizons != horizons:
+            raise ValueError("IPW sampling must cover the complete BCE horizon grid")
+        if not 0 < float(sampling.get("event_fraction", 0.5)) < 1:
+            raise ValueError("IPW event_fraction must be between zero and one")
+        if float(config.get("model", {}).get("dapt_anchor_weight", 0.0)) != 0:
+            raise ValueError("IPW sampling requires zero DAPT anchor weight")
+        if int(sampling.get("min_unique_events", 10)) < 1 or int(
+            sampling.get("min_unique_controls", 20)
+        ) < 1:
+            raise ValueError("IPW sampling support thresholds must be positive")
+    if sampling.get("type") == "minority_event_horizon_bce":
+        if objective != "horizon_bce":
+            raise ValueError("minority_event_horizon_bce requires horizon_bce objective")
+        if float(sampling.get("horizon_days", 365)) not in horizons:
+            raise ValueError("Sampling horizon must be on the BCE horizon grid")
+        if int(sampling.get("max_draws_per_patient", 2)) < 1:
+            raise ValueError("Sampling exposure cap must be positive")
 
     families = dict(cross.get("outcome_families", {}))
     if cross.get("aggregation") == "endpoint_group_macro" or cross.get("endpoint_groups"):
@@ -129,8 +152,30 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             raise ValueError("Adapter readout requires cls_last pooling")
         if float(competing.get("contrastive_loss_weight", 0)) != 0:
             raise ValueError("Adapter readout requires direct risk training")
-        if not config.get("source_opera_ckpt"):
+        initialization = config.get("adapter_initialization", "shared_bce")
+        if initialization not in {"shared_bce", "dapt_fresh"}:
+            raise ValueError("adapter_initialization must be shared_bce or dapt_fresh")
+        if initialization == "shared_bce" and not config.get("source_opera_ckpt"):
             raise ValueError("Adapter readout requires source_opera_ckpt")
+        if initialization == "dapt_fresh" and config.get("source_opera_ckpt"):
+            raise ValueError("dapt_fresh adapters must not load source_opera_ckpt")
+        if competing.get("adapter_query_mode", "additive") not in {"additive", "interacting"}:
+            raise ValueError("adapter_query_mode must be additive or interacting")
+        if int(competing.get("adapter_query_hidden_dim", 128)) < 1:
+            raise ValueError("adapter_query_hidden_dim must be positive")
+        if competing.get("adapter_source_mode", "both") not in {
+            "both", "disease_only", "outcome_only", "none"
+        }:
+            raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
+        shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
+        if not math.isfinite(shared_init):
+            raise ValueError("adapter_shared_logit_init must be finite")
+    adapter_epsilon = training.get("adapter_optimizer_epsilon")
+    if adapter_epsilon is not None:
+        if readout_mode not in {"source_anchored_adapters", "unanchored_adapters"}:
+            raise ValueError("adapter_optimizer_epsilon requires source adapters")
+        if not math.isfinite(float(adapter_epsilon)) or float(adapter_epsilon) <= 0:
+            raise ValueError("adapter_optimizer_epsilon must be finite and positive")
 
     weighter = str(competing.get("weighter", "uniform")).lower()
     if weighter == "kendall_null":

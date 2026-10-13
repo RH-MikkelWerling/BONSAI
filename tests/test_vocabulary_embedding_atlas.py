@@ -17,10 +17,15 @@ from opera.evaluation.vocabulary_embeddings import (
     extract_vocabulary_embedding_frame,
     nearest_token_neighbors,
 )
-from opera.run.vocabulary_embedding_atlas import main as vocabulary_atlas_main
+from opera.run.vocabulary_embedding_atlas import (
+    family_cosine_proximity,
+    main as vocabulary_atlas_main,
+)
 from opera.visualization.vocabulary_atlas import (
     plot_token_movement,
     plot_vocabulary_embedding_atlas,
+    plot_vocabulary_family_facets,
+    plot_vocabulary_focus,
     project_vocabulary_embeddings,
 )
 
@@ -96,6 +101,31 @@ def test_vocabulary_projection_and_plot(tmp_path):
     assert {"atlas_x", "atlas_y", "token", "token_family"}.issubset(coordinates.columns)
     assert (tmp_path / "vocab_atlas.png").exists()
     assert (tmp_path / "vocab_atlas.pdf").exists()
+
+    facet_fig = plot_vocabulary_family_facets(
+        coordinates,
+        min_group_n=1,
+        save_path=str(tmp_path / "family_facets.png"),
+    )
+    assert isinstance(facet_fig, Figure)
+    assert (tmp_path / "family_facets.png").exists()
+    assert (tmp_path / "family_facets.pdf").exists()
+    visible_axes = [ax for ax in facet_fig.axes if ax.get_visible()]
+    assert len(visible_axes) == coordinates["token_family"].nunique()
+    assert all(len(ax.collections) == 2 for ax in visible_axes)
+    assert len({tuple(ax.get_xlim()) for ax in visible_axes}) == 1
+    assert len({tuple(ax.get_ylim()) for ax in visible_axes}) == 1
+    proximity = family_cosine_proximity(frame, min_group_n=1)
+    assert len(proximity) == frame["token_family"].nunique() ** 2
+    assert proximity["mean_pair_cosine"].dropna().between(-1, 1).all()
+    focus_neighbors = nearest_token_neighbors(frame, ["LPR3//DC833"], top_k=2)
+    focus_fig = plot_vocabulary_focus(
+        coordinates, focus_neighbors, query_token="LPR3//DC833",
+        save_path=str(tmp_path / "focus.png"),
+    )
+    assert isinstance(focus_fig, Figure)
+    assert (tmp_path / "focus.png").exists()
+    assert (tmp_path / "focus.pdf").exists()
 
 
 def test_token_movement_and_neighbors(tmp_path):
@@ -179,6 +209,9 @@ def test_vocabulary_embedding_atlas_cli_writes_ready_outputs(tmp_path, monkeypat
         "vocabulary_atlas_coordinates.csv",
         "vocabulary_atlas.png",
         "vocabulary_atlas.pdf",
+        "vocabulary_family_facets.png",
+        "vocabulary_family_facets.pdf",
+        "vocabulary_family_cosine_proximity.csv",
         "vocabulary_neighbors.csv",
         "token_movement.csv",
         "token_movement.png",
@@ -187,6 +220,7 @@ def test_vocabulary_embedding_atlas_cli_writes_ready_outputs(tmp_path, monkeypat
     with open(output_dir / "analysis_metadata.json", encoding="utf-8") as handle:
         manifest = json.load(handle)
     assert manifest["atlas_stage"] == "opera"
+    assert manifest["figure_font"] in {"TeX Gyre Pagella", "DejaVu Serif"}
     coordinates = pd.read_csv(output_dir / "vocabulary_atlas_coordinates.csv")
     assert "curated_family" in coordinates.columns
 

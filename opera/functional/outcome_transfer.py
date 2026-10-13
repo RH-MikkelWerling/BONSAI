@@ -202,7 +202,10 @@ def _verify_hospitalisation_evidence(
     path = _repository_path(evidence_file)
     if not path.is_file():
         return False, f"evidence_file does not exist: {path}"
-    if file_hash(path).lower() != str(evidence_hash).lower():
+    # Git may check out this YAML with CRLF on Windows. The archived digest
+    # covers its canonical LF form; newline conversion must not block review.
+    canonical_hash = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    if canonical_hash.lower() != str(evidence_hash).lower():
         return False, "evidence_sha256 does not match the checked-in evidence file"
     try:
         evidence = _read_mapping(path, label="Hospitalisation dependency evidence")

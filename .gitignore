@@ -41,3 +41,8 @@ paper/*.pdf
 paper/*.synctex.gz
 paper/render/
 .pytest_*/
+.pytest*/
+docs/
+scripts/
+audit*
+paper/
