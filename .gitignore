@@ -42,7 +42,7 @@ paper/*.synctex.gz
 paper/render/
 .pytest_*/
 .pytest*/
-docs/
-scripts/
-audit*
+# docs/
+# scripts/
+# audit*
 paper/
