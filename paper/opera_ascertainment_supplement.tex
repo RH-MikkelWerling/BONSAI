@@ -1,0 +1,228 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,mathpazo,booktabs,longtable,array}
+\renewcommand{\sfdefault}{qpl}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\pending}[1]{\textbf{[Confirm: #1]}}
+\begin{document}
+\section*{Supplementary methods: treatment and outcome ascertainment}
+\noindent\textit{Implementation-grounded draft.} This description follows the
+R scripts supplied in \texttt{opera/R}. It describes observed post-index
+events, not causal attribution of events to treatment. External DALY-CARE
+codebooks and grading functions must be archived with the final protocol.
+Production and sensitivity branches are distinguished below; unresolved
+choices are not presented as finalized study methods.
+
+\subsection*{Population, index date and temporal splits}
+The supervised prediction population comprises patients with a reconstructed
+first-line treatment index and endpoint-specific observation eligibility.
+It is distinct from the broader population used for encoder pretraining.
+Encoder pretraining used records before 1 January 2022 from the broader patient
+population, including patients subsequently assigned to downstream tuning and
+held-out sets, according to the study team's account. The supplied pretraining
+configuration also specifies this exclusive calendar boundary. This is a
+temporal evaluation of subsequent treatment episodes, not a patient-disjoint
+evaluation of an encoder that has never encountered these patients.
+Outcome files contain one row per eligible patient with patient identifier,
+split, index date, first qualifying event date and censoring date. Absence from
+an endpoint file denotes masked supervision, not an event-free observation.
+The outcome script assigns training before 1 January 2022, tuning during
+2022, and held-out from 1 January 2023 using the treatment index date.
+
+\subsection*{First-line episode reconstruction}
+Treatment records combine medication/procedure codes, descriptive regimen
+text, indication and source information. Records labelled \texttt{SP beh}
+are excluded by the supplied code. Hematological indication codes take
+priority in the indication filter; non-hematological code/text and drug-text
+exclusions screen potentially unrelated treatment. Uncertain records can
+remain candidates under the fallback rules.
+
+In the primary mapped-table branch, candidates are searched from 30 days
+before the earliest recorded diagnosis to ten years after it. Consecutive
+treatment records separated by no more than 21 days form an episode. This is
+a consecutive-gap rule, not a maximum total episode duration. Episode evidence
+includes anchor drugs, registry source, distinct dates and distinct codes.
+Anchor-containing episodes qualify directly. Trusted registry episodes qualify
+unless they contain prophylaxis-suspect evidence with fewer than two codes;
+repeated anti-CD20 monotherapy can qualify in this branch. Other
+prophylaxis-suspect episodes require at least three dates and two codes;
+remaining episodes require at least two dates or two codes.
+
+Curated CLL and MM line-one records provide seed dates. Episodes within 30
+days of a seed interval are preferentially selected and retained even when
+they do not pass the ordinary therapy-like gate. The index remains the
+selected episode's start, not the clinical seed date itself. Unseeded patients
+receive the earliest qualifying episode. The seed-free comparison is an
+ascertainment audit rather than independent validation of the seeded output.
+
+\subsection*{Disease assignment and rescue}
+Diagnoses are mapped through the DALY-CARE ICD-10 dictionaries and explicit
+supplementary patterns. Registry diagnoses are assigned the highest priority.
+Primary assignment uses diagnoses up to 20 years before treatment and a
+14-day forward grace. Confirmation accepts qualifying high-priority evidence
+(threshold 3 in the call) or repeated evidence separated by at least 14 days.
+Fine labels are preferred to broad labels, with specified aggressive-disease
+precedence and priority/date/specificity tie-breaking. Derived Richter and
+follicular transformations require antecedent CLL/SLL or FL at least 90 days
+before the aggressive diagnosis; these are algorithmic labels, not uniformly
+pathology-confirmed transformations.
+
+For patients with an index but no assigned cohort, a second pass searches
+their diagnosis history for the earliest confirmable specific disease,
+re-identifies treatment with a 90-day pre-diagnosis grace and 20-year search,
+and assigns disease using a 90-day forward grace and ten-year lookback.
+This explicitly permits retrospective coding-lag rescue.
+The study team specifies these retrospective identities for cohort analysis,
+not prediction-time inputs. Disease-conditioned router models nevertheless
+consume disease indices; their label provenance requires separate verification
+before extending this statement to those experiments.
+Remaining patients may be assigned a cohort from recognizable treatment-arm
+prefixes, with provenance \texttt{arm\_rescue}. These labels can have grouped
+rather than genuinely fine resolution. \pending{include arm rescue in the
+main cohort or sensitivity analysis only.}
+
+\subsection*{Treatment profiles and production branches}
+Regimen text and coded treatment evidence are normalized and matched to
+disease-specific rules to generate primary/secondary arm labels and exclusion
+flags. Episode-wide \texttt{arm\_primary} is the descriptive treatment profile;
+day-one arms are separately generated and should not silently replace it.
+Unresolved and unmapped labels are retained as ascertainment uncertainty,
+not interpreted as confirmed regimens. Cohorts labelled
+\texttt{EXCLUDE\_SECONDARY} are removed from the mapped/expanded output.
+
+The supplied script subsequently recomputes \texttt{FROZEN} first-line objects
+with anti-CD20 monotherapy disabled, whereas the earlier mapped CSV branch
+enables it. Both downstream outcome scripts explicitly reload the mapped CSV.
+A later audit constructs a registry-date fallback but does not export it.
+\pending{server export provenance agrees with this supplied script revision.}
+These branches must not be conflated into one ascertainment algorithm or flow.
+
+\subsection*{Laboratory grading and observation eligibility}
+Laboratory values are cleaned with source unit information and analyte
+dictionaries. Graded endpoints use the first qualifying measurement strictly
+after the index and no later than administrative observation end, usually at
+grade $\geq2$ and $\geq3$. Baseline abnormalities are not universally excluded;
+this construction is first post-index documentation, not necessarily new onset
+or worsening from a normal baseline.
+
+The script contains v6-labelled local graders, v5-labelled fibrinogen logic
+whose LLN-fraction structure is also present in v6, and externally supplied
+graders obtained from the DALY-CARE package. The inspected upstream revision
+\texttt{a0742b0} explicitly references CTCAE v5 for the existing laboratory
+graders. For example, its platelet grade-3/4 boundary is
+$25\times10^9$/L, whereas CTCAE v6 uses $10\times10^9$/L. The exact
+revision loaded on the server remains to be verified.
+CTCAE v6.0 was published on 22 July 2025
+\footnote{National Cancer Institute, CTCAE v6.0:
+\url{https://dctd.cancer.gov/research/ctep-trials/for-sites/adverse-events/ctcae-v6.pdf}.}.
+These endpoints represent first post-index documentation of CTCAE-based
+laboratory abnormalities, not adjudicated treatment-attributable toxicity.
+The final endpoint dictionary must identify the reference version, numerical
+thresholds, units, reference limits, baseline handling and approximations for
+each endpoint rather than claiming universal v6 compliance.
+For example, local hyponatremia grading omits symptom-based escalation;
+hyperuricemia uses a laboratory-only elevation rather than adjudicated
+physiological consequences; LDH is a binary elevation endpoint.
+Fibrinogen grading omits the baseline-relative axis and uses unit-sensitive
+fallback and absolute-floor constants requiring source-unit verification.
+Local interval boundaries also require validation against reference inequalities.
+The file named \texttt{leukocytosis\_g2plus} requests grade 3; CTCAE v6 has no
+grade-2 leukocytosis category and advises against using the term for increases
+due to leukemia, steroids or growth factors. This endpoint is therefore
+exploratory disease-state prediction, not a primary toxicity claim.
+The local hypokalemia bins are not CTCAE v6: v6 grade 2 depends on symptoms,
+and its laboratory grade-3 threshold differs from the local historical bins.
+The externally derived graded lymphocyte-decrease endpoints reflect a v5 term;
+v6 lists lymphopenia only as present/grade 1. These labels require a versioned
+crosswalk before a uniform-v6 analysis is claimed.
+
+The active coverage engine uses any recorded laboratory activity, not a
+separate coverage window for each analyte. Default requirements are a draw in
+the 365 days up to and including index and a draw from index through day 30.
+Source coverage is index on/after 1 January 2017 or recorded laboratory
+activity in the observation window. Early observed death can exempt the entry
+draw requirement after go-live; the optional pre-go-live exemption is disabled
+by default. Observing an event does \emph{not} override these eligibility rules,
+despite an older comment saying otherwise.
+
+For eligible patients without an event, censoring is the earlier of the last
+post-index draw plus 180 days and administrative observation end. For eligible
+patients with an event, censoring is administrative observation end. Because
+coverage is shared across analytes, this documents monitoring rather than
+proving that each endpoint-specific test was performed throughout follow-up.
+
+\subsection*{Other endpoints and source-specific coverage}
+Procedure endpoints use the first qualifying post-index coded event.
+Diagnosis-based incident endpoints exclude qualifying ICD prefixes observed
+on/before index (or the endpoint's configured grace), whereas acute infection
+diagnoses use their dedicated first-post-index construction. Medication-defined
+infection is an antimicrobial-use proxy, not microbiologically confirmed
+infection: the implemented IV branch uses SMR administrations, with a minimum
+one-day episode span and seven-day separation. Prescription-based events
+are built separately and require dispensing dates spanning at least one day;
+this is not measured days of supply, and a single dispensing date cannot qualify.
+Their calls currently use the shared coverage-gated
+wrapper, so laboratory eligibility also applies. Prophylaxis filtering is not
+identical between these branches and requires explicit review.
+
+The source gate excludes designated LPR3-dependent endpoints indexed before
+3 February 2019 plus a 30-day buffer (5 March 2019), and IV-infection endpoints
+before the configured SMR date of 15 May 2018. These are implemented analysis
+eligibility dates, not a claim that national capture became complete on those
+dates. Ungated backups and audit files are not primary endpoints.
+\pending{confirm these coverage dates against source diagnostics.}
+
+\subsection*{Second-line treatment and composites}
+Episode-derived second-line ascertainment is disease-group-specific. It uses
+first-line end, minimum post-end gaps, consolidation overlap, maintenance-only
+codes and transplantation guards; single-day first-line episodes can have
+their end imputed. Qualifying second-line events require at least moderate
+evidence, with registry support, anchor/indication and corroborating treatment
+evidence contributing to confidence. Weak-evidence-only patients are masked,
+not made negative. Low-reliability BL/LBL and HCL episode-derived observations
+are masked, with registry-confirmed rescue handled separately. CLL/MM use
+curated line-two records rather than the same episode algorithm.
+This is time to next qualifying treatment, not directly observed progression.
+
+Composite eligibility is the intersection of component populations. Its event
+is the earliest component event within the earliest component censoring date.
+Treatment failure combines second-line treatment and death; the expanded
+failure endpoint adds the next hematological malignancy definition.
+Severe cytopenia combines grade-3 neutropenia, thrombocytopenia and anemia;
+hepatotoxicity combines grade-3 ALT, AST and bilirubin; the all-definitions
+infection composite combines serious infection, prescription and IV proxies.
+Separate co-occurrence endpoints require abnormalities on multiple axes
+within specified windows and must not be described as these simple unions.
+The TLS proxy requires two of four axes within seven days, confined to the first
+seven post-index days. Hy's-law-style liver injury requires transaminase and
+bilirubin axes within 14 days, without full cholestasis or alternative-cause
+exclusion. DIC-like coagulopathy requires two of three axes within seven days;
+it is not ISTH-scored DIC. The supplied co-occurrence constructor does not apply
+the ordinary laboratory monitoring mask or last-draw censoring rule, and these
+three endpoints are absent from the source-gate list.
+\pending{adequate observation requirements for co-occurrence negatives.}
+Death is a primary event when overall survival is a component; otherwise
+competing death is recovered downstream using patient death information.
+
+\subsection*{Follow-up, versioning and flow counts}
+The main outcome script specifies an administrative cutoff of 19 March 2026;
+the second-line script specifies 4 March 2026. \pending{reconcile or explicitly
+document endpoint-specific follow-up dates.} Status distinguishes actual death
+from the combined death/follow-up date. Patients lacking valid follow-up after
+their treatment index must be accounted for separately from treatment
+ascertainment failure.
+
+First-line instrumentation writes exact internal aggregate counts for records,
+episodes and unique patients at treatment filtering, episode qualification,
+first-pass selection, diagnosis rescue, arm rescue and CSV export. Branches and
+counting units are explicit; marginal breakdowns are not mutually exclusive
+exclusions. Downstream no-follow-up exclusions, endpoint eligibility and temporal
+split counts must be joined from their own pipeline stages before populating
+the final flow diagram. Small-cell and complementary-disclosure review applies
+to the full publication bundle.
+The coverage gate now leaves existing exclusion-audit files intact when a
+repeated run finds no pre-coverage patients. Original audit artifacts should
+still be archived with the export provenance for flow-count verification.
+\end{document}

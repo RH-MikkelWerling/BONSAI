@@ -1,0 +1,44 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  \node[eyebrow,anchor=west] at (0,0) {WHAT DOES EACH KIND OF BORROWING ADD?};
+  \node[labelsmall,anchor=west] at (0,-.43)
+    {Every arm trains on the same patients and outcomes with the same Time2Vec encoder, router query, loss and selection rule.};
+
+  \node[eyebrow] at (3.17,-1.15) {DISEASE ADAPTERS OFF};
+  \node[eyebrow] at (10.06,-1.15) {DISEASE ADAPTERS ON};
+  \node[eyebrow,rotate=90] at (-.40,-2.66) {OUTCOME OFF};
+  \node[eyebrow,rotate=90] at (-.40,-5.12) {OUTCOME ON};
+
+  \node[stage,minimum width=5.72cm,minimum height=1.86cm] (none) at (3.17,-2.68) {};
+  \node[stageteal,minimum width=5.72cm,minimum height=1.86cm] (disease) at (10.06,-2.68) {};
+  \node[stagewarm,minimum width=5.72cm,minimum height=1.86cm] (outcome) at (3.17,-5.14) {};
+  \node[stageblue,minimum width=5.72cm,minimum height=1.86cm] (both) at (10.06,-5.14) {};
+
+  \node[eyebrow] at (3.17,-2.08) {A \quad SHARED PATH ONLY};
+  \node[labelsmall] at (3.17,-2.72) {$z_i$};
+  \node[captionnote] at (3.17,-3.25) {No adapter source can contribute};
+
+  \node[eyebrow] at (10.06,-2.08) {B \quad DISEASE BORROWING};
+  \node[labelsmall] at (10.06,-2.72)
+    {$z_i\; +\; \sum_d \pi_{ikd}\,a_d(z_i)$};
+  \node[captionnote] at (10.06,-3.25)
+    {The router can mix disease-indexed adapters};
+
+  \node[eyebrow] at (3.17,-4.54) {C \quad OUTCOME BORROWING};
+  \node[labelsmall] at (3.17,-5.18)
+    {$z_i\; +\; \sum_o \pi_{iko}\,a_o(z_i)$};
+  \node[captionnote] at (3.17,-5.71)
+    {The router can mix outcome-indexed adapters};
+
+  \node[eyebrow] at (10.06,-4.54) {D \quad BOTH KINDS};
+  \node[labelsmall] at (10.06,-5.18)
+    {$z_i\; +\; \sum_d \pi_{ikd}\,a_d(z_i)\; +\; \sum_o \pi_{iko}\,a_o(z_i)$};
+  \node[captionnote] at (10.06,-5.71)
+    {The router can choose both kinds of source};
+
+  % Column and row headings encode the two contrasts. Connectors through
+  % the cards obscured the readout equations at manuscript print size.
+
+  \draw[divider] (0,-6.43)--(13.3,-6.43);
+  \node[captionnote,anchor=west,text width=13.0cm,align=left] at (.15,-6.78)
+    {All four routers still know the patient's disease and the target outcome. ``Off'' means the corresponding adapter bank cannot contribute; it does not hide that context or remove its training labels.};
+\end{tikzpicture}

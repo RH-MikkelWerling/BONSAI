@@ -1,0 +1,104 @@
+\begin{thebibliography}{16}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Zhou et~al.(2014)Zhou, Sehn, Rademaker, Gordon, LaCasce, Crosby-Thompson, Vanderplas, Zelenetz, Abel, Rodriguez, Nademanee, Kaminski, Czuczman, Millenson, Niland, Gascoyne, Connors, Friedberg, and Winter]{zhou2014nccnipi}
+Zheng Zhou, Laurie~H Sehn, Alfred~W Rademaker, Leo~I Gordon, Ann~S LaCasce, Allison Crosby-Thompson, Ann Vanderplas, Andrew~D Zelenetz, Gregory~A Abel, Maria~A Rodriguez, Auayporn Nademanee, Mark~S Kaminski, Myron~S Czuczman, Michael Millenson, Joyce Niland, Randy~D Gascoyne, Joseph~M Connors, Jonathan~W Friedberg, and Jane~N Winter.
+\newblock An enhanced {I}nternational {P}rognostic {I}ndex ({NCCN}-{IPI}) for patients with diffuse large {B}-cell lymphoma treated in the rituximab era.
+\newblock \emph{Blood}, 123\penalty0 (6):\penalty0 837--842, 2014.
+\newblock \doi{10.1182/blood-2013-09-524108}.
+
+\bibitem[{International CLL-IPI working group}(2016)]{cllipi2016}
+{International CLL-IPI working group}.
+\newblock An international prognostic index for patients with chronic lymphocytic leukaemia ({CLL}-{IPI}): a meta-analysis of individual patient data.
+\newblock \emph{The Lancet Oncology}, 17\penalty0 (6):\penalty0 779--790, 2016.
+\newblock \doi{10.1016/S1470-2045(16)30029-8}.
+
+\bibitem[Agius et~al.(2020)Agius, Brieghel, Andersen, Pearson, Ledergerber, Cozzi-Lepri, Louzoun, Andersen, Bergstedt, von Stemann, J{\o}rgensen, Tang, Fontes, Bahlo, Herling, Hallek, Lundgren, MacPherson, Larsen, and Niemann]{agius2020clltim}
+Rudi Agius, Christian Brieghel, Michael~A Andersen, Alexander~T Pearson, Bruno Ledergerber, Alessandro Cozzi-Lepri, Yoram Louzoun, Christen~L Andersen, Jacob Bergstedt, Jakob~H von Stemann, Mette J{\o}rgensen, Man-Hung~Eric Tang, Magnus Fontes, Jasmin Bahlo, Carmen~D Herling, Michael Hallek, Jens Lundgren, Cameron~Ross MacPherson, Jan Larsen, and Carsten~U Niemann.
+\newblock Machine learning can identify newly diagnosed patients with {CLL} at high risk of infection.
+\newblock \emph{Nature Communications}, 11:\penalty0 363, 2020.
+\newblock \doi{10.1038/s41467-019-14225-8}.
+
+\bibitem[Werling et~al.(2026)Werling, Fuglkj{\ae}r, Brown, Niemann, and Agius]{werling2026dlbcl}
+Mikkel Werling, Alexander~D Fuglkj{\ae}r, Peter Brown, Carsten~U Niemann, and Rudi Agius.
+\newblock Machine learning enhances risk stratification and treatment failure prediction in diffuse large {B}-cell lymphoma.
+\newblock \emph{HemaSphere}, 10\penalty0 (4):\penalty0 e70336, 2026.
+\newblock \doi{10.1002/hem3.70336}.
+
+\bibitem[Li et~al.(2020)Li, Rao, Solares, Hassaine, Ramakrishnan, Canoy, Zhu, Rahimi, and Salimi-Khorshidi]{li2020behrt}
+Yikuan Li, Shishir Rao, Jos{\'e} Roberto~Ayala Solares, Abdelaali Hassaine, Rema Ramakrishnan, Dexter Canoy, Yajie Zhu, Kazem Rahimi, and Gholamreza Salimi-Khorshidi.
+\newblock Behrt: transformer for electronic health records.
+\newblock \emph{Scientific reports}, 10\penalty0 (1):\penalty0 7155, 2020.
+\newblock \doi{10.1038/s41598-020-62922-y}.
+
+\bibitem[Rasmy et~al.(2021)Rasmy, Xiang, Xie, Tao, and Zhi]{rasmy2021med}
+Laila Rasmy, Yang Xiang, Ziqian Xie, Cui Tao, and Degui Zhi.
+\newblock Med-bert: pretrained contextualized embeddings on large-scale structured electronic health records for disease prediction.
+\newblock \emph{NPJ digital medicine}, 4\penalty0 (1):\penalty0 86, 2021.
+\newblock \doi{10.1038/s41746-021-00455-y}.
+
+\bibitem[Odgaard et~al.(2024)Odgaard, Klein, Thysen, Jimenez-Solem, Sillesen, and Nielsen]{odgaard2024core}
+Mikkel Odgaard, Kiril~Vadimovic Klein, Sanne~M{\o}ller Thysen, Espen Jimenez-Solem, Martin Sillesen, and Mads Nielsen.
+\newblock Core-behrt: A carefully optimized and rigorously evaluated behrt.
+\newblock \emph{arXiv preprint arXiv:2404.15201}, 2024.
+\newblock \doi{10.48550/arXiv.2404.15201}.
+
+\bibitem[Steinberg et~al.(2023)Steinberg, Fries, Xu, and Shah]{steinberg2023motor}
+Ethan Steinberg, Jason Fries, Yizhe Xu, and Nigam Shah.
+\newblock {MOTOR}: a time-to-event foundation model for structured medical records.
+\newblock \emph{arXiv preprint arXiv:2301.03150}, 2023.
+\newblock \doi{10.48550/arXiv.2301.03150}.
+
+\bibitem[Wornow et~al.(2023{\natexlab{a}})Wornow, Thapa, Steinberg, Fries, and Shah]{wornow2023ehrshot}
+Michael Wornow, Rahul Thapa, Ethan Steinberg, Jason~A Fries, and Nigam~H Shah.
+\newblock {EHRSHOT}: an {EHR} benchmark for few-shot evaluation of foundation models.
+\newblock \emph{arXiv preprint arXiv:2307.02028}, 2023{\natexlab{a}}.
+\newblock \doi{10.48550/arXiv.2307.02028}.
+
+\bibitem[Wornow et~al.(2023{\natexlab{b}})Wornow, Xu, Thapa, Patel, Steinberg, Fleming, Pfeffer, Fries, and Shah]{wornow2023shaky}
+Michael Wornow, Yizhe Xu, Rahul Thapa, Birju Patel, Ethan Steinberg, Scott Fleming, Michael~A Pfeffer, Jason Fries, and Nigam~H Shah.
+\newblock The shaky foundations of large language models and foundation models for electronic health records.
+\newblock \emph{npj Digital Medicine}, 6:\penalty0 135, 2023{\natexlab{b}}.
+\newblock \doi{10.1038/s41746-023-00879-8}.
+
+\bibitem[Harutyunyan et~al.(2019)Harutyunyan, Khachatrian, Kale, Ver~Steeg, and Galstyan]{harutyunyan2019multitask}
+Hrayr Harutyunyan, Hrant Khachatrian, David~C Kale, Greg Ver~Steeg, and Aram Galstyan.
+\newblock Multitask learning and benchmarking with clinical time series data.
+\newblock \emph{Scientific Data}, 6:\penalty0 96, 2019.
+\newblock \doi{10.1038/s41597-019-0103-9}.
+
+\bibitem[Zhang et~al.(2019)Zhang, Tang, Dodge, Zhou, and Wang]{zhang2019metapred}
+Xi~Sheryl Zhang, Fengyi Tang, Hiroko~H Dodge, Jiayu Zhou, and Fei Wang.
+\newblock {MetaPred}: meta-learning for clinical risk prediction with limited patient electronic health records.
+\newblock In \emph{Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery \& Data Mining}, pages 2487--2495, 2019.
+\newblock \doi{10.1145/3292500.3330779}.
+
+\bibitem[Brieghel et~al.(2025)Brieghel, Werling, Frederiksen, Parviz, Lacoppidan, Faitova, Teglgaard, Vainer, da~Cunha-Bang, Rotbain, Agius, and Niemann]{brieghel2025dalycare}
+Christian Brieghel, Mikkel Werling, Casper~M{\o}ller Frederiksen, Mehdi Parviz, Thomas Lacoppidan, Tereza Faitova, Rebecca~Svanberg Teglgaard, Noomi Vainer, Caspar da~Cunha-Bang, Emelie~Curovic Rotbain, Rudi Agius, and Carsten~Utoft Niemann.
+\newblock The {D}anish {L}ymphoid {C}ancer {R}esearch ({DALY}-{CARE}) data resource: the basis for developing data-driven hematology.
+\newblock \emph{Clinical Epidemiology}, 17:\penalty0 131--145, 2025.
+\newblock \doi{10.2147/CLEP.S479672}.
+
+\bibitem[Gensheimer and Narasimhan(2019)]{gensheimer2019nnetsurvival}
+Michael~F Gensheimer and Balasubramanian Narasimhan.
+\newblock A scalable discrete-time survival model for neural networks.
+\newblock \emph{PeerJ}, 7:\penalty0 e6257, 2019.
+\newblock \doi{10.7717/peerj.6257}.
+
+\bibitem[Lee et~al.(2018)Lee, Zame, Yoon, and van~der Schaar]{lee2018deephit}
+Changhee Lee, William Zame, Jinsung Yoon, and Mihaela van~der Schaar.
+\newblock {DeepHit}: a deep learning approach to survival analysis with competing risks.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, volume~32, 2018.
+\newblock \doi{10.1609/aaai.v32i1.11842}.
+
+\bibitem[Kendall et~al.(2018)Kendall, Gal, and Cipolla]{kendall2018multitask}
+Alex Kendall, Yarin Gal, and Roberto Cipolla.
+\newblock Multi-task learning using uncertainty to weigh losses for scene geometry and semantics.
+\newblock In \emph{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition}, pages 7482--7491, 2018.
+\newblock \doi{10.48550/arXiv.1705.07115}.
+
+\end{thebibliography}

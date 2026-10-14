@@ -1,0 +1,67 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  \node[eyebrow,anchor=west] at (0,0) {ONE SHARED BANK, PATIENT-SPECIFIC BORROWING};
+  \node[labelsmall,anchor=west] at (0,-.40)
+    {The two examples have the same fine disease and target outcome, but different clinical histories.};
+
+  \node[eyebrow] at (1.15,-1.08) {PATIENT};
+  \node[eyebrow] at (4.13,-1.08) {CONTEXT};
+  \node[eyebrow] at (7.30,-1.08) {ROUTING};
+  \node[eyebrow] at (10.73,-1.08) {ELIGIBLE SOURCES};
+  \node[eyebrow] at (14.46,-1.08) {PREDICTION};
+
+  % Small patient pictograms intentionally use the same outline: history differs.
+  \foreach \yy in {-2.30,-4.72} {
+    \draw[draw=OperaIndigo,line width=.8pt,fill=OperaIndigo!10] (1.03,\yy+.29) circle (.18);
+    \draw[draw=OperaIndigo,line width=.8pt,fill=OperaIndigo!10,rounded corners=.12cm]
+      (.64,\yy-.35) rectangle (1.42,\yy+.05);
+  }
+  \node[labelsmall] at (1.03,-2.87) {patient A};
+  \node[labelsmall] at (1.03,-5.29) {patient B};
+
+  \node[stageblue,text width=2.45cm] (ctxa) at (4.08,-2.34)
+    {history $z_A$\\disease $d$ \quad outcome $k$};
+  \node[stageblue,text width=2.45cm] (ctxb) at (4.08,-4.76)
+    {history $z_B$\\disease $d$ \quad outcome $k$};
+  \node[stage,text width=2.24cm,fill=OperaLavender!8] (routea) at (7.35,-2.34)
+    {weights $\pi_{A,k,s}$\\for each source $s$};
+  \node[stage,text width=2.24cm,fill=OperaLavender!8] (routeb) at (7.35,-4.76)
+    {weights $\pi_{B,k,s}$\\for each source $s$};
+
+  \node[softpanel,text width=3.04cm,align=center,draw=OperaTeal!55,
+        fill=OperaTeal!5] (banka) at (10.87,-2.34)
+    {shared path\\\textcolor{OperaTeal}{disease $1,2,\ldots,D$}\\
+     \textcolor{OperaSienna}{outcome $1,2,\ldots,K$}};
+  \node[softpanel,text width=3.04cm,align=center,draw=OperaTeal!55,
+        fill=OperaTeal!5] (bankb) at (10.87,-4.76)
+    {shared path\\\textcolor{OperaTeal}{disease $1,2,\ldots,D$}\\
+     \textcolor{OperaSienna}{outcome $1,2,\ldots,K$}};
+  \node[outcome,text width=1.52cm] (outa) at (14.50,-2.34)
+    {risk for $k$\\patient A};
+  \node[outcome,text width=1.52cm] (outb) at (14.50,-4.76)
+    {risk for $k$\\patient B};
+
+  \foreach \suffix in {a,b} {
+    \draw[flowblue] (ctx\suffix.east)--(route\suffix.west);
+    \draw[flowteal] (route\suffix.east)--(bank\suffix.west);
+    \draw[flowwarm] (bank\suffix.east)--(out\suffix.west);
+  }
+  \draw[flowblue] (1.46,-2.30)--(ctxa.west);
+  \draw[flowblue] (1.46,-4.72)--(ctxb.west);
+  \node[captionnote,text width=11.7cm] at (8.65,-6.00)
+    {Every supported source can contribute to either prediction. The two
+     source banks are the same; the weights can differ because $z_A\ne z_B$.};
+
+  \draw[divider] (0,-6.52)--(16.0,-6.52);
+  \node[eyebrow,anchor=west] at (0,-6.90) {WHAT CHANGES WITH INTERACTION?};
+  \node[softpanel,text width=6.75cm,align=left,anchor=north west] at (0,-7.23)
+    {\textcolor{OperaIndigo}{\bfseries Additive query}\par\vspace{.7mm}
+     $q=q_{\rm patient}+q_{\rm disease}+q_{\rm target}$\par
+     Each context contributes separately before source scoring.};
+  \node[softpanel,text width=6.75cm,align=left,anchor=north west] at (8.05,-7.23)
+    {\textcolor{OperaIndigo}{\bfseries Interacting query}\par\vspace{.7mm}
+     $q=q_{\rm additive}+g(q_{\rm patient},q_{\rm disease},q_{\rm target})$\par
+     Their combination can change which sources are preferred.};
+  \node[captionnote,text width=15.5cm] at (8.0,-9.35)
+    {Interaction changes the \emph{routing decision}; it does not create a
+     separate adapter for every disease--outcome pair. Diagram is illustrative, not measured route weights.};
+\end{tikzpicture}

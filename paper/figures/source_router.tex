@@ -1,0 +1,55 @@
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+  % One target prediction, represented as four clearly separated stages.
+  \node[eyebrow,anchor=west] at (0,0) {SOURCE-ANCHORED ROUTER};
+  \node[labelsmall,anchor=west] at (0,-.36)
+    {One patient $i$ and one target outcome $k$};
+
+  \node[eyebrow] at (1.35,-1.02) {INPUTS};
+  \node[eyebrow] at (5.02,-1.02) {ROUTE};
+  \node[eyebrow] at (9.28,-1.02) {SOURCE BANK};
+  \node[eyebrow] at (14.10,-1.02) {PREDICTION};
+  \draw[divider] (3.03,-.88)--(3.03,-5.08);
+  \draw[divider] (7.02,-.88)--(7.02,-5.08);
+  \draw[divider] (11.94,-.88)--(11.94,-5.08);
+
+  % Input identities are not source representations: the encoder supplies z.
+  \node[stageblue,minimum width=2.18cm] (patient) at (1.38,-2.08)
+    {patient state $z_i$};
+  \node[stageteal,minimum width=2.18cm] (disease) at (1.38,-3.08)
+    {fine disease $d_i$};
+  \node[stagewarm,minimum width=2.18cm] (target) at (1.38,-4.08)
+    {target outcome $k$};
+
+  \node[stageblue,minimum width=2.48cm,minimum height=1.04cm]
+    (router) at (5.03,-3.08) {learned weights\\$\pi_{i,k,s}$};
+  \draw[flowblue] (patient.east) to[out=0,in=160] (router.north west);
+  \draw[flowteal] (disease.east)--(router.west);
+  \draw[flowwarm] (target.east) to[out=0,in=200] (router.south west);
+  \node[captionnote,text width=3.40cm] at (5.03,-4.36)
+    {Patient, disease and target context};
+
+  % The three rows are categories, not a claim that only three sources exist.
+  \node[stageblue,minimum width=3.58cm] (shared) at (9.45,-1.97)
+    {$z_i$ \quad shared path};
+  \node[stageteal,minimum width=3.58cm] (dsrc) at (9.45,-3.08)
+    {$\sum_d\pi_{i,k,d}\,a_d(z_i)$ \quad disease};
+  \node[stagewarm,minimum width=3.58cm] (osrc) at (9.45,-4.19)
+    {$\sum_o\pi_{i,k,o}\,a_o(z_i)$ \quad outcome};
+  \draw[flowblue] (router.east) to[out=25,in=180] (shared.west);
+  \draw[flowteal] (router.east)--(dsrc.west);
+  \draw[flowwarm] (router.east) to[out=-25,in=180] (osrc.west);
+
+  \node[stage,minimum width=2.33cm] (mix) at (14.07,-2.56)
+    {weighted residual\\$z_{i,k}$};
+  \node[outcome,minimum width=2.33cm] (hazards) at (14.07,-4.02)
+    {interval hazards\\$\lambda_{i,k,t}$};
+  \draw[flowblue] (shared.east) to[out=0,in=155] (mix.north west);
+  \draw[flowteal] (dsrc.east)--(mix.west);
+  \draw[flowwarm] (osrc.east) to[out=0,in=205] (mix.south west);
+  \draw[flowwarm] (mix.south)--(hazards.north);
+
+  \draw[divider] (0,-5.34)--(15.84,-5.34);
+  \node[captionnote,anchor=west,text width=15.40cm,align=left]
+    at (.20,-5.68)
+    {The shared path remains unscaled; route weights govern adapter residuals. The bank includes eligible borrowed sources, whose adapter parameters are detached.};
+\end{tikzpicture}

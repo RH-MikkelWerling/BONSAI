@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99e (TeX Live 2026)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: opera_manuscript.aux
+The style file: unsrtnat.bst
+Database file #1: paper.bib
+Warning--can't use both volume and number fields in lee2018deephit
+You've used 16 entries,
+            2481 wiz_defined-function locations,
+            660 strings with 9538 characters,
+and the built_in function-call counts, 8217 in all, are:
+= -- 558
+> -- 730
+< -- 5
++ -- 261
+- -- 228
+* -- 793
+:= -- 1443
+add.period$ -- 64
+call.type$ -- 16
+change.case$ -- 32
+chr.to.int$ -- 15
+cite$ -- 17
+duplicate$ -- 332
+empty$ -- 582
+format.name$ -- 246
+if$ -- 1647
+int.to.chr$ -- 2
+int.to.str$ -- 17
+missing$ -- 16
+newline$ -- 104
+num.names$ -- 48
+pop$ -- 116
+preamble$ -- 1
+purify$ -- 16
+quote$ -- 0
+skip$ -- 194
+stack$ -- 0
+substring$ -- 262
+swap$ -- 61
+text.length$ -- 3
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 112
+warning$ -- 1
+while$ -- 51
+width$ -- 0
+write$ -- 244
+(There was 1 warning)

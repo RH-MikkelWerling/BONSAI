@@ -1,0 +1,851 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[a4paper,margin=1.65cm,columnsep=0.7cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,mathpazo}
+% Body copy stays Pagella; diagrams use the atlas's Arial-like sans serif.
+\usepackage[scaled=0.95]{helvet}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,calc,fit,matrix,positioning,shapes.geometric}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+\usepackage{balance}
+\usepackage{titlesec}
+
+\input{opera_style}
+
+\captionsetup{font=small,labelfont={bf,sf},labelsep=period,justification=raggedright,singlelinecheck=false}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt plus 1pt minus 1pt}
+\setlist{nosep,leftmargin=*}
+\titleformat{\section}{\sffamily\bfseries\Large\color{OperaInk}}{}{0pt}{}
+\titleformat{\subsection}{\sffamily\bfseries\normalsize\color{OperaInk}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{16pt}{5pt}
+\titlespacing*{\subsection}{0pt}{10pt}{2pt}
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \newpage\null\vspace{-8mm}
+  {\sffamily\fontsize{8}{10}\selectfont\bfseries\color{OperaIndigo} ARTICLE}\par\vspace{5mm}
+  {\sffamily\fontsize{23}{26}\selectfont\bfseries\color{OperaInk}\@title\par}
+  \vspace{3mm}{\normalsize\@author\par}\vspace{2mm}
+  {\small\color{OperaInkMuted}\@date\par}\vspace{5mm}
+  \color{OperaIndigo}\rule{\textwidth}{1.1pt}\color{black}\vspace{5mm}}
+\makeatother
+\newcommand{\opera}{\textsc{opera}}
+\newcommand{\placeholder}[1]{\textcolor{OperaSienna}{\textbf{[#1]}}}
+\newcommand{\todo}[1]{\textcolor{OperaSienna}{\textbf{TODO: #1}}}
+\newcommand{\modelname}{Outcome-guided Patient Embedding for Registry Adaptation}
+\newcommand{\plotplaceholder}[2]{%
+  \begin{center}\fcolorbox{OperaBorder}{OperaPaper}{%
+  \begin{minipage}[c][4.0cm][c]{0.92\linewidth}\centering
+  {\sffamily\bfseries\color{OperaInk}#1\par}\vspace{2mm}
+  {\sffamily\footnotesize\color{OperaInkMuted}#2\par}
+  \end{minipage}}\end{center}}
+
+\title{Overcoming outcome-label scarcity through population pretraining and adaptive sharing across haematological diseases}
+\author{\placeholder{Authors and affiliations}}
+\date{Working manuscript --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Clinical decisions in haematology depend on predicting treatment benefit,
+relapse, toxicity and survival, yet the relevant events can be scarce within an
+individual disease--outcome pair. Population-scale pretraining offers reusable
+representations from broad patient histories; it does not by itself establish
+which labelled diseases and outcomes should inform a scarce target. We test
+these complementary forms of transfer in a nationwide linked haematology resource,
+we defined 24 fine disease cohorts, 69 approved outcomes and six prediction
+horizons. We designed a matched readout ladder: pooled multi-horizon binary
+cross-entropy with a shared representation; disease-source or outcome-source
+adapters alone; and both source banks with additive or interactive routing.
+All arms use the same supervised panel, allowing source-bank effects to be
+distinguished from the effect of pooling training data. A separate encoder
+ladder tests local pretraining, general-population PHAIR pretraining and
+haematology domain adaptation under matched downstream readouts.
+\placeholder{Insert locked held-out headline effects, uncertainty, rare-task
+interaction and XGBoost comparison after the analysis is frozen.}
+Together these experiments ask which sources of transferable information
+actually reduce label scarcity without harmful transfer.
+\end{abstract}
+
+\vspace{2mm}
+\noindent\textbf{Editorial summary}\quad
+\textit{Population pretraining and cross-task supervised learning offer distinct
+ways to address sparse disease--outcome labels. OPERA tests whether either
+improves prediction where events are rare, and whether adaptive routing can
+retain useful sharing without harmful transfer.}
+
+\section*{Introduction}
+Prediction informs treatment intensity, supportive care, surveillance and
+trial design in haematology. The difficulty is not merely that some diseases
+are rare. Once patients are divided by diagnosis, target outcome and prediction
+horizon, even a large linked cohort can contain few relevant events for an
+individual clinical question. Censoring and variable follow-up further limit
+what can be learned and evaluated. This fragmentation of labels is a general
+problem for specialized clinical prediction, not a peculiarity of haematology.
+Traditional disease-specific scores, such as the NCCN International Prognostic
+Index and CLL-IPI, compress a diagnostic snapshot into a transparent rule
+\citep{zhou2014nccnipi,cllipi2016}. Task-specific machine learning can use
+richer longitudinal histories, but usually aggregates them into fixed windows
+and fits a separate predictor for each clinical target
+\citep{agius2020clltim,werling2026dlbcl} (\cref{fig:paradigms}). Neither
+approach automatically solves the small-label problem in a rare cell.
+
+Population-scale pretraining is one proposed response. Sequence models learn
+from ordered patient histories before specialist outcome labels are supplied
+\citep{li2020behrt,rasmy2021med,odgaard2024core}; broad pretraining has shown
+promise for label efficiency, including in time-to-event modelling
+\citep{steinberg2023motor}. Its attraction is clear: a model trained on many
+patients may carry useful structure into a disease with few labelled events.
+But pretraining does not create target-event labels, and a general patient
+representation need not be the best representation for every disease and
+endpoint. Few-shot benchmarks and critical reviews underscore the need to
+measure transfer on the particular tasks and populations where it is claimed
+\citep{wornow2023ehrshot,wornow2023shaky}. The relevant question is therefore
+not simply whether a large pretrained model predicts well, but when its broad
+experience adds value beyond local pretraining and strong task-specific models.
+
+A second source of information is already labelled: neighbouring diseases and
+outcomes in the same care system. Multi-task and meta-learning studies show
+that related prediction tasks can improve low-resource targets
+\citep{harutyunyan2019multitask,zhang2019metapred}. Yet pooling labels need
+not help every target. Shared supervision may transfer useful risk structure,
+irrelevant structure, or both; disease and outcome relatedness cannot be
+assumed from clinical labels alone. This motivates two separable tests: whether
+joint training beats a specialist fitted to each supported disease--outcome
+pair, and whether patient-dependent routing improves on a conventional pooled
+model by selecting which disease and outcome sources to borrow from.
+
+Our earlier gradient-boosted study in diffuse large B-cell lymphoma found that
+including related aggressive lymphoma subtypes did not degrade prediction of
+treatment failure, while using fixed lookback windows discarded the order of
+clinical events \citep{werling2026dlbcl}. That result concerned one endpoint
+in closely related diseases; it neither established a general pooling benefit
+nor tested whether other outcomes can supply useful supervision. We therefore
+consider not only patients, variables and longitudinal observations, but also
+the breadth of disease cohorts and outcome tasks available for learning
+(\cref{fig:information}). Greater breadth creates opportunities for transfer,
+not a guarantee of improvement.
+
+The central question is whether borrowing either unlabelled patient-history
+structure or labelled disease--outcome experience improves prediction as target
+events become scarce. We first compare pooled training against same-encoder
+specialists across supported disease--outcome pairs; we then test whether
+disease- and outcome-source routing improves on ordinary pooled learning. A
+separate, matched encoder comparison asks whether general-population PHAIR
+pretraining and local domain adaptation add to, or substitute for, supervised
+sharing. Performance and failures of transfer are examined across the full
+approved panel rather than inferred from a few favourable endpoints.
+
+To answer these questions we used DALY-CARE, a nationwide linked resource that
+integrates ten Danish national registers with hospital electronic health
+records, laboratory results, and disease-specific quality registries for adults
+diagnosed with lymphoid cancers since 2002 \citep{brieghel2025dalycare}. The
+resource description reported the cohort available at the time of that report;
+the present study draws a later extract, so the denominators here are not
+expected to match those figures. Our study population is also defined
+differently from our earlier lymphoma analysis. That study indexed at the start
+of first-line therapy in aggressive lymphoma and asked one question at one
+horizon, whereas the present study indexes first-line treatment episodes across
+the full haematological spectrum and evaluates many endpoints at several
+horizons. The two populations overlap substantially and share a common data
+substrate, but they are not identical and the results are not directly
+comparable patient for patient.
+
+On this basis we defined a temporal evaluation with patients indexed from
+2023 onward held out, 69 approved outcomes across 24 fine disease cohorts,
+and six horizons. The primary neural comparison is a prespecified five-arm
+sharing ladder: pooled shared multi-horizon BCE, disease-source routing only,
+outcome-source routing only, additive routing over both banks, and interactive
+routing over both banks. The source-bank contrasts isolate adaptive borrowing
+\emph{conditional on pooled training}; disease-specific versus joint training
+is a separate contrast. Clinical scores and task-specific XGBoost remain
+external comparators once matched feature matrices are locked. The study is
+also an empirical atlas of what can be predicted from longitudinal records.
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/modeling_paradigms}}
+  \caption{\textbf{Three paradigms for haematological risk prediction.}
+  \textbf{A}, Representative clinical risk scores combine a small diagnostic
+  snapshot using a fixed rule and assign broad risk strata. \textbf{B},
+  classical machine learning uses a wider history but ordinarily requires
+  temporal aggregation into a task-specific feature table. \textbf{C}, a
+  longitudinal sequence model consumes ordered clinical events and can share
+  a contextual patient representation across outcomes. Its encoder may be
+  pretrained locally or at foundation-model scale. The comparison concerns
+  information available to each predictor; it does not imply that every score
+  or tabular implementation has exactly the illustrated structure.}
+  \label{fig:paradigms}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/information_axes}}
+  \caption{\textbf{Cohort breadth and task breadth as additional axes of
+  predictive information.} \textbf{A}, conventional scaling increases the
+  number of patients, variables, or observations available to an isolated
+  prediction problem. \textbf{B}, joint modelling can additionally draw on
+  related disease cohorts (rows) and outcomes (columns), although greater
+  breadth need not improve every target.
+  Sharing is restricted to training data and acts through a common encoder and
+  structured readout; it does not transfer future information or assume that
+  diseases and endpoints are exchangeable.}
+  \label{fig:information}
+\end{figure*}
+
+\section*{Results}
+
+\subsection*{A longitudinal prediction atlas across haematological disease}
+The sealed first-line source contained 37,557 patients, of whom 37,531 had
+released overall-survival membership and a supervised split before
+outcome-specific eligibility. Patients were assigned to 24 fine disease
+cohorts nested within 10 broader disease groups. Cohort size ranged from \placeholder{minimum} to
+\placeholder{maximum}, creating a natural test of performance under data
+scarcity. The approved primary panel contains 69 outcomes covering disease control, treatment
+trajectory, infection, organ toxicity, haematological toxicity, acute care,
+subsequent malignancy, and survival. Each outcome was evaluated at 30, 60, 90,
+180, 365, and 730 days when adequate events and follow-up were available.
+
+\placeholder{Insert cohort flow and outcome-support results.} The final
+predictability atlas will report held-out cumulative/dynamic area under the ROC
+curve (AUC) at 365 days, with all horizons reported in supplementary figures.
+Calibration and Brier scores will accompany discrimination throughout. Outcomes
+with inadequate event support are shown as not estimable rather than silently
+removed.
+
+\input{tables/table1}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{0.94\textwidth}{!}{\input{figures/cohort_flow}}
+  \caption{\textbf{Construction of the longitudinal study population.}
+  The 78,668-patient diagnosis-linked population supplies pre-2022 histories
+  for encoder pretraining; it is not patient-disjoint from later supervised
+  splits. First-line ascertainment yields 37,557 patients, of whom 37,531
+  have released survival membership and a temporal supervision split.
+  Initial disease assignment allows diagnoses through day 14 and coding-lag
+  reassessment through day 90. The 26 patients without released supervised
+  membership require source-level reconciliation. A sensitivity analysis will
+  restrict routed disease labels to those available at treatment. Main-node
+  counts are unique patients; outcome-specific risk sets are constructed after
+  the temporal split and detailed attrition is in the supplement.}
+  \label{fig:cohort-flow}
+\end{figure*}
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 4 · Predictability atlas}
+    {Primary panel: held-out 365-day AUC for every outcome, ordered within
+    clinical domains, with uncertainty and event support. Insets: outcome ×
+    cohort coverage and calibration. Supplement: the same atlas at all six
+    horizons and within each fine cohort.}
+  \caption{\textbf{The landscape of predictable outcomes across
+  haematology.} Final artwork will be generated from the locked long-format
+  results table; missing or unsupported cells remain visible as not estimable.}
+  \label{fig:atlas}
+\end{figure*}
+
+\subsection*{What is gained by foundation-model pretraining?}
+The encoder-transfer analysis will compare locally pretrained Time2Vec,
+general-population PHAIR initialization without local continued pretraining,
+and PHAIR followed by haematology domain-adaptive pretraining, with the same
+approved outcome panel and downstream readout. A randomly initialized or
+local-only encoder serves as a capacity-matched reference where feasible.
+This ladder separates pretraining scope from local domain adaptation; it is
+not yet a completed PHAIR result. \placeholder{Insert verified PHAIR checkpoint
+compatibility, matched runs, paired held-out effects and uncertainty.}
+
+The primary contrast is general-population versus local haematology
+pretraining under an otherwise matched downstream protocol. The same encoder
+contrast should be examined under both the shared BCE readout and the selected
+router: this tests whether better pretraining replaces, complements, or changes
+the benefit of supervised adaptive sharing. We additionally test whether any
+advantage is concentrated among patients who are atypical in the local
+embedding distribution.
+To assess whether broad pretraining changes the value of labelled-data pooling
+itself, pooled shared BCE and disease--outcome specialists must also be
+compared with the same PHAIR-derived encoder on both sides. This is a separate
+pretraining-by-pooling interaction from the pretraining-by-router interaction;
+the PHAIR specialist grid follows the same support and evaluation rules as
+the local-encoder grid.
+
+Because the case for foundation models rests largely on their behaviour when
+labels are scarce, we do not report this contrast only as a single average.
+Each pretraining comparison is additionally summarized as a function of cohort
+size and event support, so that a benefit concentrated in well-populated
+cohorts is distinguishable from one that materializes where task-specific
+training is least viable.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 5 · Scale, transfer and data scarcity}
+    {Paired effects of general-population versus local pretraining; joint
+    versus cohort-specific learning; and the interaction between benefit,
+    cohort size and event support. Show posterior intervals, raw task points
+    and the prespecified region of practical equivalence.}
+  \caption{\textbf{When broader pretraining and joint learning add value.}
+  The primary estimand is the paired held-out performance difference on
+  identical patients, summarized hierarchically across tasks.}
+  \label{fig:scale-transfer}
+\end{figure*}
+
+\subsection*{Can related cohorts compensate for scarce disease-specific data?}
+For a full-panel claim about the benefit of joint training, the counterfactual
+is a specialist trained on each estimable fine-disease--outcome cell, initialized
+from the same encoder and evaluated against the joint model on exactly the same
+patients. One specialist can predict all six horizons, so separate models for
+each horizon are unnecessary. Prespecified event-support thresholds determine
+which cells can sustain a specialist; unsupported cells remain visible as not
+estimable. A sampled subset would answer a narrower question and cannot justify
+a full-panel claim. We model paired performance differences against training
+event support with partial pooling over diseases, outcomes and horizons.
+\placeholder{Run and report the specialist grid, initialization and budget,
+posterior joint-training effect, rare-cell interaction and failures of transfer.}
+
+The main scarcity forest will show paired held-out differences, not absolute
+AUCs alone. Its principal rows are pooled shared BCE minus the matched
+disease--outcome specialist (benefit of pooling), interactive routing minus
+pooled shared BCE (benefit of adaptive borrowing), and interactive routing
+minus the specialist (total practical gain). Cells without an estimable
+specialist are displayed separately as a coverage result, never assigned an
+invented specialist contrast. A companion encoder-transfer panel compares
+general-population pretraining and local domain adaptation under a fixed
+readout; it is not mixed into the router contrast. The full outcome-by-outcome
+forest belongs in the supplement, with the main figure emphasizing the
+support gradient, clinical-family heterogeneity and lower tail of harm.
+Within the routed-model panel, an equal-scale additive router is the explicit
+mechanistic comparator for the interactive router. Their difference is shown
+separately from the three scarcity contrasts, so interaction is not conflated
+with either pooling or residual-scale capacity.
+
+This analysis distinguishes population-level performance from task-balanced
+performance. The former weights patients according to their frequency in the
+registry; the latter gives each estimable cohort--outcome target equal standing
+and is central to the rare-disease claim.
+
+\subsection*{Which labelled sources should a patient borrow from?}
+Consider an estate agent asked to value a converted lighthouse. Few
+lighthouses have ever been sold, so the agent borrows. Coastal cottages show
+what a sea view is worth, and houses of every kind show what a new roof or a
+damp basement does to a price. Which comparisons matter depends on the
+question: for the asking price, nearby coastal sales count most, whereas for
+how long the sale will take, other unusual properties may be more telling. It
+also depends on the property, because a lighthouse in good repair resembles
+different sales than one in need of rebuilding. A careful agent trusts a
+market in proportion to how many sales it offers, never ignores the few
+lighthouse sales there are, and does not let the quirks of one lighthouse
+change how ordinary flats are valued.
+
+Prediction for a rare haematological disease has the same structure. A
+haematologist estimating the risk of serious infection in a patient starting
+treatment for peripheral T-cell lymphoma will have seen few such patients, and
+reasons from related experience: how patients with other aggressive lymphomas
+fared on similar chemotherapy, and what a recent episode of neutropenia or an
+unplanned admission tends to foreshadow. For death within a year, other
+diseases and outcomes may be the relevant guides, and an older patient with
+impaired kidney function resembles different earlier patients than a young
+patient with an unremarkable history. In the analogy, diseases are the types
+of property, outcomes are the questions asked about a property, and each
+patient is a particular house.
+
+The source-anchored router builds this reasoning into the model
+(\cref{fig:source-router,fig:router-intuition}). Alongside the patient
+representation learned by the shared encoder, it keeps a small adapter for
+each of the 24 fine diseases and each of the 69 outcomes. Each adapter is
+trained only on its own data, the patients with that disease or the labels of
+that outcome, and learns how that source would adjust a patient's
+representation. For each patient and target outcome, a router assigns weights
+to the unadjusted representation and to every adapter, and the weighted
+adjustments are added before the risk of that outcome is computed. Four rules
+mirror the agent's caution. Sources supported by few events are trusted less.
+The patient's own disease and the target's own outcome always keep a minimum
+weight. The model begins as an ordinary shared model and departs from it only
+as far as the data support. And borrowing is read-only: a prediction that
+draws on another source's adapter uses it without changing it, so a common
+disease cannot overwrite what a rare one has learned.
+
+In symbols (Methods), let $z_i$ be the encoder representation of patient $i$
+at the start of first-line treatment. For target outcome $k$, the router
+replaces $z_i$ with
+\begin{equation}
+  z_{ik} \;=\; z_i \;+\; \lambda \sum_{s} \pi_{iks}\, c_s\, A_s(z_i),
+  \label{eq:router}
+\end{equation}
+where $s$ runs over the disease and outcome sources, $A_s$ is the low-rank
+adapter of source $s$, and $\pi_{iks}$ is the weight that a softmax gate gives
+source $s$ in competition with the unadjusted path. The support factor
+$c_s=e_s/(e_s+\tau)$ discounts a source with $e_s$ training events, and the
+residual scale $\lambda$ bounds how far the adapters can move the
+representation. The gate depends on the patient, the patient's disease and the
+target outcome, and in the interactive variant on their combination; it does
+not depend on the prediction horizon. Because the risk head is linear in
+$z_{ik}$, each source contributes an additive term
+$\lambda\,\pi_{iks}\,c_s\,\beta_{kj}^{\top}A_s(z_i)$ to the log-hazard of
+interval $j$, so where the model places weight and how far that weight moves a
+prediction can be examined separately.
+
+The construction combines established ideas. It is a gated mixture of
+experts \citep{jacobs1991adaptive} in its multi-task form, with a gate for each
+task \citep{ma2018mmoe}, whose experts are parameter-efficient
+adapters \citep{houlsby2019adapters}. Learned routing over a library of such
+modules has been used for task-level generalization in language
+models \citep{ponti2023poly}, and reading adapters without altering them
+resembles non-destructive adapter composition
+\citep{pfeiffer2021adapterfusion}, here enforced within a single joint
+training run rather than in a separate stage. The support factor is the
+credibility weight of actuarial experience
+rating \citep{buhlmann1967credibility} and has the form of the precision weight
+in partial pooling \citep{gelman2007data}. What is specific to this setting is
+that each expert is anchored to a named clinical source on one of two axes,
+disease or outcome. The value of each kind of borrowing can then be tested
+directly, by switching off one bank of sources at a time.
+
+Two cautions govern how the router is read. First, a gate weight records where
+the model places weight, not how much a source improves prediction: a source
+can receive weight and change little, and removing a source from a trained
+model redistributes its weight to the others, so removal measures removal and
+redistribution together. The gain from \emph{training} with a bank of sources
+is therefore estimated from retrained arms in which that bank is masked.
+Second, a gain from routing must be distinguished from the added capacity of
+the adapters. A router whose gates barely vary across patients and tasks would
+point to capacity rather than to selective borrowing.
+
+The main supervised comparison contains five matched readouts: pooled shared
+multi-horizon BCE; a router with disease-indexed adapter sources only; a router
+with outcome-indexed sources only; an additive router with both source banks;
+and an interactive router with both banks
+(\cref{fig:router-source-factorial,fig:source-router}). Every arm trains on the
+same pooled patient and outcome panel. Here ``disease-only'' and
+``outcome-only'' refer to eligible \emph{adapter banks}, not to isolated
+training cohorts or outcomes. The no-source router is a matched architectural
+control, distinct from plain shared BCE. Family trunks, outcome attention,
+factorized readouts and other exploratory architectures are retained as
+supporting screens rather than additional co-primary hypotheses
+(\cref{fig:architectures}).
+
+An earlier architecture screen used a common curriculum and hierarchical
+support-weighted loss. The approved-panel router comparison uses endpoint-group
+macro multi-horizon BCE and endpoint-group macro tuning AUC for checkpoint
+selection. \placeholder{Insert verified completed-run roster, common-epoch and
+best-checkpoint tuning summaries, paired fixed-checkpoint AUC/Brier/calibration
+contrasts, source-removal effects and uncertainty.}
+Because architecture changes may redistribute rather than uniformly improve
+performance, the confirmatory comparison uses paired predictions and reports
+the mean effect, the proportion of tasks improved, lower-tail degradation,
+calibration, and heterogeneity across clinical domains. Outcome reliability
+weighting and empirically derived task groupings are treated as explicit
+ablations rather than embedded in the definition of the primary metric.
+
+To separate the two proposed channels of adaptive transfer, the nested
+$2\times2$ source-bank ablation (\cref{fig:router-source-factorial}) compares
+neither bank, disease sources only, outcome sources only, and both banks under
+the same interactive query. It is complemented by an additive-versus-interactive
+contrast with both banks. The encoder, pooled data, BCE objective, selection
+rule and residual scale must be matched within each contrast; otherwise a
+scale effect could be mistaken for a query-interaction effect. These contrasts
+estimate the added value of \emph{source banks} conditional on joint training,
+not the total effect of pooling diseases or outcomes. The observed 0.1--0.3
+residual-scale sweep is reported separately as a capacity sensitivity analysis,
+with a fresh, code-verified 0.1 reference rather than the historical checkpoint
+whose interaction branch was absent.
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/readout_architectures}}
+  \caption{\textbf{Multi-outcome readout architectures.} Every model uses the
+  same longitudinal encoder. \textbf{A}, a shared linear head predicts all
+  outcome-specific interval hazards from one patient summary. \textbf{B}, an
+  outcome MLP adds nonlinear task-specific capacity. \textbf{C}, learned
+  outcome queries attend to different portions of the sequence. \textbf{D},
+  related outcomes share a nonlinear family trunk. \textbf{E}, outcomes mix a
+  small set of shared sequence-attention prototypes. \textbf{F}, the
+  factorized model combines global, cohort, outcome, and low-rank interaction
+  effects to mix the same prototypes. Heads produce cause-specific interval
+  hazards and cumulative incidence at all prespecified horizons; a multi-horizon
+  binary cross-entropy objective is evaluated as an alternative to the
+  exact-time likelihood.}
+  \label{fig:architectures}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{0.96\textwidth}{!}{\input{figures/source_router}}
+  \caption{\textbf{Source-anchored disease--outcome routing.} For each patient
+  and target outcome, the router mixes a shared representation with residual
+  adapters indexed by fine disease and outcome. Its weights depend on the
+  patient, disease and target; sources with no training support are masked and
+  low-event sources are shrunk. An adapter is updated by its own eligible
+  supervision, while borrowed adapter parameters are detached. The mixed
+  representation enters a shared linear head for interval hazards and
+  cumulative incidence. This is a model schematic, not an empirical route-weight
+  or performance plot.}
+  \label{fig:source-router}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{0.93\textwidth}{!}{\input{figures/source_router_intuition}}
+  \caption{\textbf{Patient-specific borrowing from one shared source bank.}
+  Two patients with the same fine disease and target outcome but different
+  histories receive different gates over the same disease and outcome
+  adapters, and therefore different adjustments to their representations.
+  Schematic; no empirical route weights are shown.}
+  \label{fig:router-intuition}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{0.93\textwidth}{!}{\input{figures/router_source_factorial}}
+  \caption{\textbf{Two-by-two router source-type ablation.} All arms retain
+  the same Time2Vec initialization, pooled training patients and outcomes,
+  interacting patient--disease--target query, shared path, hazard head,
+  loss, and checkpoint rule. Only eligibility of disease-indexed and
+  outcome-indexed adapter source banks changes. A-to-B and C-to-D estimate
+  the conditional disease-source effect; A-to-C and B-to-D estimate the
+  conditional outcome-source effect. The difference of these differences
+  describes source-type interaction. No performance result is implied by
+  panel placement or color.}
+  \label{fig:router-source-factorial}
+\end{figure*}
+
+\subsection*{Sequence models versus task-specific tabular learning}
+For each estimable fine cohort, outcome and horizon, the planned tabular
+comparison fits XGBoost to locked pre-index EHR feature matrices and evaluates
+it on the same held-out patients as OPERA. Registry-augmented models and
+established clinical scores require separate, explicitly reported complete-case
+populations. The feature-matrix and risk-set alignment are still being audited;
+no OPERA--XGBoost superiority claim follows from the neural tuning screen.
+\placeholder{Insert verified matched tabular predictions, hierarchical
+OPERA--XGBoost contrast and forest plot.}
+
+The purpose of this comparison is not to require one model class to dominate
+every task. Instead, we estimate where temporal representation, cross-cohort
+sharing, or cross-outcome sharing changes the performance frontier, and where
+a task-specific tabular model remains the appropriate benchmark.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 6 · Comparative model performance}
+    {Forest plot of OPERA versus task-specific XGBoost at 365 days, grouped by
+    clinical domain. Accompanying panels: posterior distribution of the global
+    contrast, proportion of tasks improved, and calibration/Brier contrasts.}
+  \caption{\textbf{Sequence learning compared with task-specific tabular
+  models.} All contrasts use paired held-out predictions and identical
+  endpoint eligibility.}
+  \label{fig:model-comparison}
+\end{figure*}
+
+\subsection*{The geometry and limits of learned patient representations}
+We characterize the embedding space through vocabulary neighborhoods,
+contextual perturbations, patient-level projections, and outcome-density maps.
+\placeholder{Insert representation findings.} To avoid interpreting a
+two-dimensional projection as a predictive model, density maps are accompanied
+by held-out predictive metrics and uncertainty, and colours are defined once
+across all outcome panels.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 7 · Structure of the learned representation}
+    {Faceted patient-embedding maps with held-out outcome-probability surfaces;
+    representative vocabulary neighbourhoods; and perturbation/probe evidence
+    that contextual states encode time and clinical trajectory.}
+  \caption{\textbf{Clinical structure in the learned embedding space.}
+  Probability surfaces are descriptive held-out smooths, not independent
+  estimates of model discrimination or causal effects.}
+  \label{fig:representation}
+\end{figure*}
+
+\section*{Discussion}
+This study evaluates a proposition that extends beyond a single architecture:
+clinical information can be increased not only by observing more patients,
+variables, or time points, but also by structuring how related diseases and
+outcomes contribute to learning. The linked haematology setting is unusually
+suited to this question because it combines shared care pathways with marked
+variation in disease frequency, treatment, follow-up, and endpoint support.
+
+The underlying transfer principle is not new. Multi-task and meta-learning
+approaches established that related, better-resourced labelled tasks can help
+a low-resource target \citep{harutyunyan2019multitask,zhang2019metapred}.
+Population-scale self-supervised pretraining draws on a different resource:
+many patient histories without the target labels. Neither form of transfer is
+guaranteed to resolve a rare target's label scarcity, and their contributions
+must be measured separately. Our design does so where scarcity is structural
+rather than simulated: cohort sizes
+and event counts vary by orders of magnitude within a single linked resource
+and a single care system, so the low-resource cells are real clinical
+populations rather than subsampled ones.
+
+\placeholder{Insert concise interpretation of the four principal results.}
+Several outcomes may remain better served by task-specific gradient boosting,
+particularly when a compact set of recent measurements dominates risk. Such a
+finding would not invalidate the foundation-model approach; it identifies the
+conditions under which representation learning adds value and prevents model
+complexity from being treated as an end in itself.
+
+The planned tabular comparison is not intended to use a convenient baseline.
+Its feature construction follows our earlier lymphoma models, which improved
+on established prognostic indices in that setting \citep{werling2026dlbcl}.
+Only after the current pre-index matrix, eligibility and patient matching are
+audited can we ask whether temporal resolution and structured sharing add
+information beyond strong task-specific tabular learning. Our earlier
+observation that training across aggressive lymphoma subtypes did not degrade
+diffuse large B-cell lymphoma performance motivates a separate, prespecified
+joint-versus-disease-specific training contrast across the approved panel;
+the source-bank ablation does not answer that question by itself.
+
+The study also differs from existing clinical foundation-model work in what it
+varies. Prior time-to-event pretraining has demonstrated that many-outcome
+objectives improve label efficiency \citep{steinberg2023motor}, and few-shot
+benchmarks have been built to measure adaptation under label scarcity
+\citep{wornow2023ehrshot}. We first hold the encoder fixed while varying the
+structure of supervised borrowing, then hold the selected readout fixed while
+varying pretraining scope. This separates two sides of the same transfer
+problem: learning a broadly useful prior without specialist labels and using
+related labelled tasks without forcing them to be exchangeable. Reporting the
+full outcome panel, including cells that are not estimable, is intended to
+make both benefits and negative transfer visible.
+
+The study also separates three often conflated decisions: how outcomes share
+model capacity, how noisy tasks are weighted during optimization, and how model
+performance is averaged for selection. Family definitions used for clinical
+reporting need not determine loss weights or neural trunks. Our confirmatory
+analysis therefore treats task reliability and task grouping as explicit,
+auditable components.
+
+Limitations include the single national healthcare context, residual changes
+in coding and measurement practices, variation in registry coverage, and the
+possibility that temporal transport from 2021 to 2023+ reflects both disease
+and healthcare-system drift. Because the cohort definition, index date, and
+data extract differ from our earlier lymphoma analysis, the two studies cannot
+be compared directly, and any apparent change in performance for overlapping
+endpoints reflects these design differences as well as the change in model
+class. The large endpoint panel also creates multiplicity
+and correlated estimands. We address these issues using prospective temporal
+splits, outcome-specific eligibility, paired patient-level comparisons,
+hierarchical uncertainty models, and complete reporting of the prediction
+atlas rather than selective endpoint publication.
+
+\section*{Methods}
+
+\subsection*{Data sources and study population}
+All data were obtained from DALY-CARE, which links ten Danish national
+registers with hospital electronic health records, laboratory results,
+pathology, microbiology, and disease-specific quality registries for adults
+diagnosed with lymphoid cancers since 2002 \citep{brieghel2025dalycare}. The
+resource publication describes the data available at the time of that report;
+the present study uses a later extract with additional accrued follow-up, and
+cohort counts therefore differ from the published resource description.
+\placeholder{Insert approved descriptions of the specific linked EHR sources,
+RKKP/quality data, extract date, ethical approvals, data governance, and
+linkage keys.}
+
+The index date is the start of a reconstructed first-line treatment episode.
+This differs from our earlier lymphoma study, which indexed first-line therapy
+in aggressive lymphoma only and required registry-confirmed treatment
+\citep{werling2026dlbcl}; the present cohort spans all included haematological
+diseases and admits episodes reconstructed from treatment records where
+registry confirmation is unavailable (\cref{fig:cohort-flow}). Patient overlap
+between the two studies is therefore substantial but partial, and no result
+reported here should be read as a direct replication of that analysis.
+
+Patients entered a supervised prediction cohort only when registry eligibility
+and the outcome-specific risk-set definition were satisfied at index time.
+Self-supervised pretraining could additionally include patients with eligible
+pre-index longitudinal records, and its denominator is reported separately.
+
+\subsection*{Temporal study design}
+All splits were defined at the patient level using a shared index date. Training
+included index dates through 31 December 2021, model selection used index dates
+from 1 January through 31 December 2022, and held-out evaluation began on 1
+January 2023. Held-out labels were not used for architecture, checkpoint, task
+weight, or hyperparameter selection. Patient histories were truncated at the
+prediction time. During masked-language-model pretraining, long histories were
+expanded into non-overlapping context windows so that earlier history remained
+available without future leakage.
+
+\subsection*{Cohorts, outcomes, and competing events}
+The canonical inventory contained 24 fine diagnoses nested within 10 grouped
+cohorts. Outcomes were represented as time to primary event, time to competing
+death where applicable, or censoring. Outcomes already containing death as
+part of their definition were modelled as one-cause endpoints. Prediction was
+evaluated at 30, 60, 90, 180, 365, and 730 days. Full definitions, code lists,
+eligibility rules, and cohort-flow counts are provided in
+\placeholder{Supplementary Tables}.
+
+\subsection*{Sequence representation and pretraining}
+Longitudinal records were converted to ordered sequences of diagnoses,
+procedures, medications, laboratory concepts, encounter descriptors, and
+background tokens. Numerical measurements were represented using prespecified
+bins in the local sequence runs. The local encoder used a four-layer
+transformer with a maximum context of 8,192 tokens; Fourier and scaled
+Time2Vec temporal encodings were compared before the main router screen, which
+uses the Time2Vec checkpoint. The proposed PHAIR transfer analysis begins from
+a separately pretrained general-population encoder and either fine-tunes it
+directly or continues self-supervised pretraining on local haematology records
+before supervised adaptation. PHAIR checkpoint loading requires a verified
+mapping of vocabulary, numerical representation, temporal encoding, model
+dimensions and pretraining history; local Time2Vec pretraining is not itself
+PHAIR transfer. \placeholder{Insert delivered PHAIR encoder specification,
+compatibility audit, pretraining population and domain-adaptation schedule.}
+
+\subsection*{Multi-outcome prediction}
+The direct model produced outcome- and interval-specific primary-event and
+competing-event hazards, following the discrete-time and competing-risk
+formulations established for neural survival models
+\citep{gensheimer2019nnetsurvival,lee2018deephit} and extended here to many
+outcomes in a single pass \citep{steinberg2023motor}. Piecewise-constant
+hazards were transformed into monotone cumulative incidence functions at each
+evaluation horizon. We compared exact-time competing-risk likelihood with a
+censoring-aware multi-horizon binary cross-entropy objective. Where outcomes
+were weighted by learned task uncertainty, we used homoscedastic uncertainty
+weighting \citep{kendall2018multitask}. A curriculum introduced tasks according
+to outcome support. Alternative readouts are summarized in
+\cref{fig:architectures}.
+
+The primary readout ladder holds the training population, approved outcomes,
+time representation, loss and selection metric fixed. Disease-only and
+outcome-only variants mask one adapter source bank but still train jointly on
+all patients and outcomes. Additive routing sums patient, disease and target
+queries before scoring sources; interactive routing adds a learned nonlinear
+function of their combination. Both return a target-specific residual update
+to the shared patient representation. The residual scale is compared in a
+separate sensitivity sweep. For a query-mode contrast, scale and all other
+hyperparameters must match.
+
+\subsection*{Source-anchored routing}
+Let $z_i\in\mathbb{R}^{H}$ be the pooled encoder representation of patient
+$i$ at the index date, $d_i$ the patient's fine disease and $k$ a target
+outcome. The source bank contains one source for each fine disease ($D=24$)
+and one for each approved outcome ($K=69$). For a given patient and target,
+the \emph{home} sources are the patient's own disease $d_i$ and the source of
+outcome $k$; all others are \emph{borrowed}.
+
+\emph{Adapters.} Each source $s$ has a low-rank adapter
+$A_s(z)=U_s\,\mathrm{GELU}(V_s z)$, with $V_s\in\mathbb{R}^{r\times H}$,
+$U_s\in\mathbb{R}^{H\times r}$ and rank $r=8$. The up-projection $U_s$ is
+initialized with standard deviation $10^{-3}$, so every adapter initially
+returns an almost null correction and the routed model starts from the same
+function as the shared readout. Router models were trained end to end from the
+domain-adapted encoder, with a newly initialized shared head and router.
+
+\emph{Gate.} The query for patient $i$ and target $k$ is
+$q_{ik}=Pz_i+e_{d_i}+t_k$, where $P$ is a learned linear map and $e$ and $t$
+are learned disease and outcome embeddings initialized at zero. With this
+additive query, the patient, disease and target terms each shift every source
+score independently, so changing the target changes the log-odds between two
+sources by the same amount, $(t_k-t_{k'})^{\top}(\kappa_s-\kappa_{s'})/\sqrt{H}$,
+for every patient and disease. Interactive routing adds a two-layer
+perceptron of the concatenated terms,
+$q_{ik}\leftarrow q_{ik}+g\big([Pz_i;\,e_{d_i};\,t_k]\big)$, whose output layer
+is initialized at zero, so that the two variants start from the same function
+and any dependence of source preference on the combination of patient,
+disease and target is learned only if it helps. Each source has a learned key
+$\kappa_s$ and score $a_{iks}=q_{ik}^{\top}\kappa_s/\sqrt{H}$. The gate
+$\pi_{ik}$ is a softmax over a learned unadjusted-path logit $a_0$ and the
+source scores; sources in a disabled bank, and sources without training
+events, are masked before the softmax. A home floor then reserves weight
+$\phi$ for each available home source,
+$\pi_{iks}\leftarrow\big(1-\textstyle\sum_{s'}h_{iks'}\big)\,\pi_{iks}+h_{iks}$,
+where $h_{iks}=\phi$ if $s$ is a home source and zero otherwise. Gate weights
+are computed once per patient and target and are shared across horizons.
+Patients without a recognized fine disease use the unadjusted path only.
+
+\emph{Update.} The routed representation is given by \cref{eq:router}, with
+support factor $c_s=e_s/(e_s+\tau)$ computed from the training split only. For
+a disease source, $e_s$ counts primary events in the eligible training records
+of patients with that disease, across outcomes; for an outcome source, it
+counts that outcome's primary events across diseases. The routed
+representation enters the shared linear competing-risk head, which returns
+primary- and competing-event log-hazards for every interval of outcome $k$.
+
+\emph{Anchoring.} Each adapter is updated only by its own supervision.
+Borrowed adapters are evaluated with gradient-stopped parameters, so a loss
+that draws on them updates the encoder and the gate but not the adapters
+themselves; home adapters are evaluated with their live parameters. A disease
+adapter therefore learns only from patients with that disease, across all of
+their outcomes, and an outcome adapter only from that outcome's loss, across
+all diseases.
+
+\emph{Settings.} The primary router used $\lambda=0.3$, $\phi=0.1$, $\tau=20$
+and an unadjusted-path logit initialized at $a_0=3$. Residual scales of 0.1,
+0.2 and 0.3 were compared as a sensitivity analysis. An exploratory
+low-constraint configuration changed four settings together ($\lambda=0.7$,
+$\phi=0.02$, $\tau=0$, $a_0=0$), so its effect cannot be attributed to any one
+of them. \placeholder{Insert the locked router configuration and any
+one-factor ablations of anchoring, shrinkage and the home floor.}
+
+\subsection*{Specialist fine-tuning}
+The primary pooling counterfactual trains one disease--outcome specialist for
+each estimable cell from the same pretrained encoder as the joint model, with
+all horizons predicted together. A second specialist arm may start from the
+pooled supervised checkpoint before cell-specific fine-tuning. This separates
+the value of joint training as a final predictor from its value as an
+initialization. A coarser factorial can additionally train one model per
+disease across outcomes and one per outcome across diseases, isolating the two
+axes of training-data pooling. These are training-regime comparisons, distinct
+from adapter source-bank masking within a jointly trained router.
+
+\subsection*{Comparator models}
+Clinical scores will be evaluated without refitting where their required
+inputs are available. The XGBoost comparator will be trained on locked
+EHR-derived feature matrices for the approved cohort--outcome--horizon cells.
+The intended feature-construction pipeline follows our earlier lymphoma study,
+aggregating each modality over fixed pre-index lookback windows
+\citep{werling2026dlbcl}, but the current matrix and eligibility audit remains
+open. Registry-augmented models will be restricted to patients with required
+quality variables observed by prediction time, and complete-case support will
+be reported. Hyperparameters are selected on 2022 tuning data; final model
+comparisons must use identical held-out subjects and risk sets.
+
+\subsection*{Model selection and statistical analysis}
+We distinguish checkpoint selection, architecture selection, and held-out
+reporting. Checkpoints were selected using tuning data only. The confirmatory
+architecture score first averages horizons within an outcome and then averages
+outcomes, preventing outcomes with more estimable horizons from receiving
+greater weight. Population-weighted and equal-cohort summaries are reported as
+complementary estimands.
+
+Held-out model differences are calculated from paired patient predictions.
+Bootstrap intervals resample patients within the evaluation population. A
+hierarchical Bayesian model estimates the overall model contrast and variation
+by cohort, outcome, horizon, clinical domain, and training support. We report
+posterior probabilities of superiority and practical equivalence using a
+prespecified AUC region of practical equivalence
+\placeholder{lock threshold, proposed $\pm0.005$}. Discrimination is reported
+using cumulative/dynamic AUC; probabilistic accuracy and calibration are
+reported using Brier score, calibration intercept, and calibration slope.
+
+\subsection*{Reproducibility}
+Every run records the temporal split, source checkpoint, configuration hash,
+seed, cohort and outcome inventory, and software revision. Compact patient-
+level prediction artifacts are retained for paired comparisons and local figure
+generation. \placeholder{Insert code/data availability statement.}
+
+\section*{Data availability}
+\placeholder{Controlled-access statement and application procedure.}
+
+\section*{Code availability}
+\placeholder{Repository, archival DOI, license, and reproducible environment.}
+
+\section*{Acknowledgements}
+\placeholder{Funding, collaborators, and compute resources.}
+
+\section*{Author contributions}
+\placeholder{CRediT statement.}
+
+\section*{Competing interests}
+\placeholder{Statement.}
+
+\bibliographystyle{unsrtnat}
+\bibliography{paper}
+
+\end{document}
