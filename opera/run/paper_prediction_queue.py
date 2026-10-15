@@ -27,6 +27,7 @@ def bundle_runs(bundle_dir):
         "rank_screen": 4,
         "query_screen": 5,
         "pretraining_control": 6,
+        "router_controls": 7,
     }
     seen = set()
     rows = []
@@ -53,6 +54,8 @@ def canonical_models(row, config, bundle):
     origin = row["origin"]
     if row["phase"] == "supervision":
         return [f"{row['regime']}_{origin}"]
+    if row["phase"] == "router_controls":
+        return [row["name"].rsplit("control_", 1)[-1] + f"_{origin}"]  # JDE_L, RDH_L, ROH_L
     if row["phase"] == "pretraining_control":
         return [f"J_{origin}"]  # joint model without pretraining: J_RI
     if row["phase"] == "external":

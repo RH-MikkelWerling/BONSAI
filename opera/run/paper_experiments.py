@@ -25,6 +25,7 @@ PHASES = (
     "final_sources",
     "external",
     "pretraining_control",
+    "router_controls",
 )
 
 
@@ -117,7 +118,7 @@ def build_commands(args, env):
             "--output-dir",
             bundle,
         )
-        if stage == 2:
+        if stage >= 2:
             command += [
                 "--router-lock",
                 str(path_value(env, "OPERA_PAPER_ROUTER_LOCK")),

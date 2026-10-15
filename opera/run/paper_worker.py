@@ -49,6 +49,7 @@ PHASE_ORDER = (
     ("rank_screen", None),
     ("query_screen", None),
     ("final_sources", None),
+    ("router_controls", None),
     ("external", None),
     ("supervision", "S"),
 )

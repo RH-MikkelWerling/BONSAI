@@ -66,8 +66,17 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
     return result
 
 
+ROUTER_CONTROLS = {
+    # alias: (source bank, borrowing, disease embedding)
+    "JDE": ("none", True, True),           # joint + disease identity only
+    "RDH": ("disease_only", False, False),  # own-disease adapter, no borrowing
+    "ROH": ("outcome_only", False, False),  # own-outcome adapter, no borrowing
+}
+
+
 def build_bundle(
-    base, reference, checkpoints, *, seeds=(42,), epochs=30, selected_router=None
+    base, reference, checkpoints, *, seeds=(42,), epochs=30, selected_router=None,
+    router_controls=True,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -189,6 +198,22 @@ def build_bundle(
                                 "config": config,
                             }
                         )
+        if selected_router is not None and router_controls and seed == seeds[0]:
+            # Decompose routing: identity, own-adapter capacity, then borrowing.
+            for alias, (source, borrowing, embedding) in ROUTER_CONTROLS.items():
+                config = router_config(
+                    shared, reference, source_mode=source,
+                    rank=int(selected_router["rank"]),
+                    query_mode=selected_router["query_mode"],
+                    query_width=int(selected_router["query_width"]),
+                )
+                config["competing_risk"].update(
+                    adapter_borrowing=borrowing, adapter_disease_embedding=embedding)
+                entries.append({
+                    "name": f"seed{seed}/L/control_{alias}",
+                    "phase": "router_controls", "origin": "L", "seed": seed,
+                    "condition": {}, "config": config,
+                })
         if selected_router is not None:
             for source in ("none", "disease_only", "outcome_only", "both"):
                 config = router_config(
@@ -343,6 +368,8 @@ def main():
     parser.add_argument("--external-direct-checkpoint")
     parser.add_argument("--external-dapt-checkpoint")
     parser.add_argument("--router-lock", type=Path)
+    parser.add_argument("--no-router-controls", action="store_true",
+                        help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--seeds", default="42")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument(
@@ -381,6 +408,7 @@ def main():
         seeds=seeds,
         epochs=args.epochs,
         selected_router=selected,
+        router_controls=not args.no_router_controls,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

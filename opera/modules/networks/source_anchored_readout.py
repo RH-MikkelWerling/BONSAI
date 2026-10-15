@@ -29,6 +29,8 @@ class SourceAnchoredReadout(nn.Module):
         query_mode: str = "additive",
         query_hidden_dim: int = 128,
         source_mode: str = "both",
+        borrowing: bool = True,
+        disease_embedding: bool = False,
     ) -> None:
         super().__init__()
         self.fine_names = tuple(sorted(fine_names))
@@ -56,6 +58,16 @@ class SourceAnchoredReadout(nn.Module):
         self.source_mode = source_mode
         self.use_disease_sources = source_mode in {"both", "disease_only"}
         self.use_outcome_sources = source_mode in {"both", "outcome_only"}
+        # Decomposition controls (off by default; parameter-identical when off):
+        # without borrowing, a prediction may use only its own disease's and its
+        # own outcome's adapter; the disease embedding gives a shared readout
+        # the disease identity and nothing else.
+        self.borrowing = bool(borrowing)
+        self.disease_embedding = (
+            nn.Embedding(self.n_disease, hidden_size) if disease_embedding else None
+        )
+        if self.disease_embedding is not None:
+            nn.init.zeros_(self.disease_embedding.weight)
 
         self.down = nn.Parameter(torch.empty(self.n_sources, bottleneck, hidden_size))
         self.up = nn.Parameter(torch.empty(self.n_sources, hidden_size, bottleneck))
@@ -136,6 +148,13 @@ class SourceAnchoredReadout(nn.Module):
         scores = scores.masked_fill(
             (~enabled | (self.source_shrinkage <= 0))[None, None, :], -1e4
         )
+        if not self.borrowing:
+            own = torch.zeros(len(patient), self.n_outcome, self.n_sources,
+                              dtype=torch.bool, device=patient.device)
+            own[torch.arange(len(patient), device=patient.device), :, safe_index] = True
+            outcome_rows = torch.arange(self.n_outcome, device=patient.device)
+            own[:, outcome_rows, self.n_disease + outcome_rows] = True
+            scores = scores.masked_fill(~own, -1e4)
         shared = self.shared_logit.expand(len(patient), self.n_outcome, 1)
         weights = torch.softmax(torch.cat((shared, scores), dim=-1), dim=-1)
         if self.home_floor:
@@ -210,4 +229,9 @@ class SourceAnchoredReadout(nn.Module):
                 )
 
         output = patient[:, None, :] + self.residual_scale * residual
+        if self.disease_embedding is not None:
+            fine = fine_index.long().reshape(-1).to(patient.device)
+            known = ((fine >= 0) & (fine < self.n_disease)).to(output.dtype)
+            shift = self.disease_embedding(fine.clamp(0, self.n_disease - 1))
+            output = output + (known[:, None] * shift)[:, None, :].to(output.dtype)
         return (output, weights) if return_weights else output

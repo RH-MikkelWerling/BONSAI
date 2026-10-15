@@ -352,7 +352,11 @@ encoder initialisation and optimiser for up to 30 epochs, stopping after five
 epochs without improvement in tuning loss, and kept the tuning-best checkpoint. The routed model used the joint
 model's labels but let each prediction weight low-rank adapters owned by
 individual diseases and outcomes \citep{ma2018mmoe,houlsby2019adapters}; its
-configuration was chosen on the tuning set. As a control for pretraining
+configuration was chosen on the tuning set. Because the router is the only model
+told the patient's disease, three controls separate what it adds: the joint
+model with a learned disease embedding (identity alone), and routers restricted
+to the patient's own disease adapter or the target's own outcome adapter
+(specific capacity without borrowing). As a control for pretraining
 itself, one joint model was trained from a randomly initialised encoder of the
 same architecture. Encoder, objective and router are
 specified in the Supplementary Methods.
@@ -525,6 +529,8 @@ Y relative to the joint model, against a practical margin of M; it was worse in
 N cells.} Comparisons of adapter banks separate disease-specific from
 outcome-specific adaptation (\cref{fig:routing}B). \placeholder{Effect of
 disease adapters, outcome adapters and both, and whether one bank sufficed.}
+\placeholder{Decomposition of the routing gain: disease identity alone, own
+disease or outcome adapters, and borrowing from other diseases or outcomes.}
 \placeholder{In cells where the joint model had been worse than the
 specialist on the tuning set, routing changed test AUC by X relative to the
 joint model (\cref{fig:supp-rescue}).} Patients' routing weights concentrated on

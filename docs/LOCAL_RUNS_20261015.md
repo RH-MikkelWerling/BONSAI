@@ -82,18 +82,28 @@ If the local encoder was trained on a different vocabulary than
 the collaborators' aggregated values), the audit stops at "vocabulary sizes
 differ": point the sequence directory and base config at the matching data.
 
-## 1. Confirm pretraining has finished
+## 1. Audit the finished pretraining run
 
 ```bash
-RUN=<local 256 run dir>/version_0
-ls $RUN                                   # best.ckpt, last.ckpt, epoch_010.ckpt, checkpoint_metadata.json
-cat $RUN/checkpoint_metadata.json         # completed_epochs (21 in this run = 20 epochs; known off-by-one)
-python -c "import torch; c=torch.load('$RUN/best.ckpt',map_location='cpu',weights_only=False); \
-print('best epoch', c['epoch']+1)"
+python -m opera.run.audit_local_checkpoint \
+  --run-dir <local 256 run>/version_0 \
+  --vocabulary $OPERA_SEQUENCE_DATA_DIR/vocabulary.pt
 ```
 
-Record the best epoch and the validation loss at epoch 10 and at the best epoch
-(from the run's `metrics.csv`) for the Supplementary Methods.
+It must report `encoder_audit.status: strict_load_and_forward_passed` with
+`hidden_size 256, num_layers 4, num_attention_heads 4, abspos_encoding
+scaled_time2vec`. Also look at:
+
+- `sidecar.completed_epochs` / `extra.completed_epochs`: 21 for this run (= 20
+  epochs; known off-by-one, passes the gate).
+- `curve`: validation loss should fall and flatten, not rise at the end;
+  `best_epoch` is what `best.ckpt` holds. Note `value_at_epoch_10` and
+  `improvement_after_epoch_10` for the Supplementary Methods (comparison with
+  the 10-epoch PHAIR encoder).
+- `best.ckpt`, `epoch_010.ckpt`, `last.ckpt` all present.
+
+A failed audit (vocabulary size, architecture, missing sidecar) stops here:
+fix the path or data before `prepare`.
 
 ## 2. Readiness (no long compute; one GPU allocation)
 
@@ -137,7 +147,7 @@ order, and wait (with `WAIT=1`) when the next runs are blocked:
 | 5 | Router source screen (none, disease, outcome, both; rank 8) | 4 | — |
 | 6 | Router rank screen (8 vs 16) | 2 | `source_mode` in decisions |
 | 7 | Router query screen | 3 | `source_mode` + `rank` in decisions |
-| 8 | Final source banks with the locked router | 4 | stage-2 bundle |
+| 8 | Final source banks with the locked router, then the 3 routing decomposition controls | 4 + 3 | stage-2 bundle |
 | 9 | National/adapted joint and routed | 4 | stage-2 bundle with external arms |
 | 10 | Specialists | 1,644 | — |
 
@@ -216,3 +226,13 @@ bash scripts/run_paper_experiments.sh evaluate --stage 2 --split held_out --exec
 
 Paper models export patient embeddings automatically; the locked routers also
 export routing weights.
+
+## 8. Routing decomposition controls (part of stage 2)
+
+Stage 2 also contains three single fits that separate what the router adds:
+the joint model with a learned disease embedding (disease identity only,
+`JDE_L`), the own-disease adapter without borrowing (`RDH_L`), and the
+own-outcome adapter without borrowing (`ROH_L`). Workers run them right after
+the final source banks. Contrasts `C1`–`C5` in the manifest decompose the
+disease side into identity → own-disease capacity → borrowing, and the outcome
+side into own-outcome capacity → borrowing.

@@ -236,6 +236,7 @@ def main():
             "final_sources",
             "external",
             "pretraining_control",
+            "router_controls",
         ],
         required=True,
     )

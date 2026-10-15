@@ -37,6 +37,7 @@ CONTRAST_CODES = {
     "P1": "D-S", "P2": "O-S", "P3": "J-O", "P4": "J-D", "P5": "J-S", "P6": "interaction",
     "T1": "R-X", "T2": "J-X", "T3": "S-X", "T4": "X-LR",
     "T6": "J-XP", "T7": "XP-X", "T8": "D-XP", "P0": "L-RI",
+    **{f"C{i}": f"C{i}" for i in range(1, 6)},
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
     **{f"R{i}": f"R{i}" for i in range(8)},

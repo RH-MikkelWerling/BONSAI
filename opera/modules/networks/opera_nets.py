@@ -1843,6 +1843,9 @@ class OperaContrastiveModel(nn.Module):
                 query_mode=str(competing_risk_settings.get("adapter_query_mode", "additive")),
                 query_hidden_dim=int(competing_risk_settings.get("adapter_query_hidden_dim", 128)),
                 source_mode=str(competing_risk_settings.get("adapter_source_mode", "both")),
+                borrowing=bool(competing_risk_settings.get("adapter_borrowing", True)),
+                disease_embedding=bool(
+                    competing_risk_settings.get("adapter_disease_embedding", False)),
             )
             shared_logit_init = float(competing_risk_settings.get("adapter_shared_logit_init", 3.0))
             if not math.isfinite(shared_logit_init):

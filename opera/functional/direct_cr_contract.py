@@ -177,6 +177,9 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             "both", "disease_only", "outcome_only", "none"
         }:
             raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
+        for flag in ("adapter_borrowing", "adapter_disease_embedding"):
+            if not isinstance(competing.get(flag, False), bool):
+                raise ValueError(f"{flag} must be true or false")
         shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
         if not math.isfinite(shared_init):
             raise ValueError("adapter_shared_logit_init must be finite")

@@ -44,3 +44,23 @@ def test_population_filter_accepts_several_fine_cohorts(tmp_path):
         path, index=False)
     assert population_subject_ids(path, "cohort_fine", "DLBCL,FL") == {1, 2}
     assert population_subject_ids(path, "cohort_fine", "MM") == {3}
+
+
+def test_router_decomposition_controls_come_with_the_router_lock():
+    from test_paper_run_bundle import base_config, reference
+
+    from opera.run.prepare_paper_run_bundle import build_bundle
+
+    lock = {"source_mode": "both", "rank": 8, "query_mode": "interacting",
+            "query_width": 128}
+    stage1 = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"})
+    assert not [e for e in stage1 if e["phase"] == "router_controls"]  # needs the lock
+    entries = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"},
+                           selected_router=lock)
+    controls = {e["name"].rsplit("control_", 1)[-1]: e["config"]["competing_risk"]
+                for e in entries if e["phase"] == "router_controls"}
+    assert set(controls) == {"JDE", "RDH", "ROH"}
+    assert controls["JDE"]["adapter_source_mode"] == "none"
+    assert controls["JDE"]["adapter_disease_embedding"] is True
+    assert controls["RDH"]["adapter_borrowing"] is False
+    assert controls["ROH"]["adapter_source_mode"] == "outcome_only"

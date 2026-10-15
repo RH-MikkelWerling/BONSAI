@@ -56,6 +56,12 @@ essential_contrasts:
     T6: gain(J_L,XP)   # joint model vs disease-pooled XGBoost
     T7: gain(XP,X)     # value of pooling across diseases for XGBoost
     T8: gain(D_L,XP)   # neural vs XGBoost at the same (disease-pooled) scope
+  routing_decomposition:   # stage-3 controls; disease side adds identity first
+    C1: gain(JDE_L,J_L)    # knowing the disease (identity only)
+    C2: gain(RDH_L,JDE_L)  # own-disease adapter capacity
+    C3: gain(RD_L,RDH_L)   # borrowing from other diseases
+    C4: gain(ROH_L,N_L)    # own-outcome adapter capacity
+    C5: gain(RO_L,ROH_L)   # borrowing from other outcomes
   pretraining_control:
     P0: gain(J_L,J_RI) # local pretraining vs no pretraining (random initialisation)
   external_pretraining_and_adaptation:
