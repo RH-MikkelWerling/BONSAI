@@ -53,6 +53,28 @@ ARGS=(--config-name "pretrain_harmonized_scaled_time2vec_hidden${WIDTH}_20ep"
       "training.batch_size=$BATCH"
       "training.accumulate_grad_batches=$((128 / BATCH))"
       "hydra.run.dir=$RUN_DIR")
+if [[ "$WIDTH" != 256 ]]; then
+  # Width probe: start from the 256 run's own saved config, so data, vocabulary,
+  # time encoding and optimiser are identical; change only width, heads, batch
+  # and epochs (and the run directory).
+  REF_DIR="${BONSAI_256_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden256_20261013_v1}"
+  [[ "$REF_DIR" == /* ]] || REF_DIR="$REPO/$REF_DIR"
+  REF_CONFIG="$REF_DIR/hydra"
+  [[ -f "$REF_CONFIG/config.yaml" ]] || REF_CONFIG="$REF_DIR/.hydra"
+  [[ -f "$REF_CONFIG/config.yaml" ]] || {
+    echo "No saved config of the 256 run under $REF_DIR (set BONSAI_256_RUN_DIR)" >&2
+    exit 1
+  }
+  echo "Width probe based on the 256 run's config: $REF_CONFIG/config.yaml"
+  ARGS=(--config-path "$REF_CONFIG" --config-name config
+        "model.hidden_size=$WIDTH"
+        "model.num_attention_heads=$BONSAI_256_HEADS"
+        "model.num_layers=$BONSAI_256_LAYERS"
+        "training.batch_size=$BATCH"
+        "training.accumulate_grad_batches=$((128 / BATCH))"
+        "paths.ckpt_path=null"
+        "hydra.run.dir=$RUN_DIR")
+fi
 if [[ -n "${BONSAI_EPOCHS:-}" ]]; then
   ARGS+=("training.epochs=$BONSAI_EPOCHS")
   # The inherited epoch-10 milestone checkpoint only applies to longer runs.
