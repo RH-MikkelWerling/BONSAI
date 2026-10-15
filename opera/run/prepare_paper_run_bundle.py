@@ -313,15 +313,22 @@ def write_bundle(entries, output, *, provenance, selected_router=None):
     return report
 
 
-def load_resolved_config(path):
-    """Freeze scientific env-dependent paths before generating immutable configs."""
+def load_resolved_config(path, sequence_data_dir=None):
+    """Freeze scientific env-dependent paths before generating immutable configs.
+
+    ``sequence_data_dir`` replaces the config's ``paths.sequence_data_dir``; the
+    vocabulary and every cohort's ``data_dir`` interpolate from it, so all point
+    at the sequences the encoder was pretrained on.
+    """
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
 
     path = Path(path).resolve()
     OmegaConf.register_new_resolver("version", lambda: 0, replace=True)
     with initialize_config_dir(config_dir=str(path.parent), version_base="1.2"):
-        config = compose(config_name=path.stem)
+        overrides = ([f"paths.sequence_data_dir={Path(sequence_data_dir).resolve()}"]
+                     if sequence_data_dir else [])
+        config = compose(config_name=path.stem, overrides=overrides)
     resolved = OmegaConf.to_container(config, resolve=True)
     # Relative paths are relative to the invocation directory, as in the
     # existing runners. Save their absolute identities in the paper bundle.
@@ -368,6 +375,8 @@ def main():
     parser.add_argument("--external-direct-checkpoint")
     parser.add_argument("--external-dapt-checkpoint")
     parser.add_argument("--router-lock", type=Path)
+    parser.add_argument("--sequence-data-dir", type=Path,
+                        help="Sequences the local encoder was pretrained on (overrides the base config).")
     parser.add_argument("--no-router-controls", action="store_true",
                         help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--seeds", default="42")
@@ -382,7 +391,7 @@ def main():
     from dotenv import load_dotenv
 
     load_dotenv()
-    base = load_resolved_config(args.base_config)
+    base = load_resolved_config(args.base_config, args.sequence_data_dir)
     if args.batch_size is not None:
         if args.batch_size < 1:
             raise ValueError("batch-size must be positive")

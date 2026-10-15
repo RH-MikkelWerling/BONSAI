@@ -46,7 +46,8 @@ def check(env):
     if missing:
         raise FileNotFoundError("Missing paper inputs: " + ", ".join(missing))
     roster = yaml.safe_load(registry.read_text())["outcomes"]
-    base = load_resolved_config(paths["OPERA_PAPER_BASE_CONFIG"])
+    base = load_resolved_config(paths["OPERA_PAPER_BASE_CONFIG"],
+                                paths["OPERA_SEQUENCE_DATA_DIR"])
     if (
         len(roster) != 69
         or set(base["outcomes"]) != set(roster)

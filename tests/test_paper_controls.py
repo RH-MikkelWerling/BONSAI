@@ -64,3 +64,18 @@ def test_router_decomposition_controls_come_with_the_router_lock():
     assert controls["JDE"]["adapter_disease_embedding"] is True
     assert controls["RDH"]["adapter_borrowing"] is False
     assert controls["ROH"]["adapter_source_mode"] == "outcome_only"
+
+
+def test_sequence_directory_override_reaches_vocabulary_and_cohorts(tmp_path):
+    from opera.run.prepare_paper_run_bundle import load_resolved_config
+
+    config = tmp_path / "base.yaml"
+    config.write_text(
+        "paths:\n  sequence_data_dir: /old/harmonized_v4\n"
+        "  vocabulary: ${paths.sequence_data_dir}/vocabulary.pt\n"
+        "cohorts:\n  DLBCL_like:\n    data_dir: ${paths.sequence_data_dir}\n")
+    target = tmp_path / "with_sor_final_v1"
+    resolved = load_resolved_config(config, target)
+    assert resolved["paths"]["vocabulary"] == str(target.resolve() / "vocabulary.pt")
+    assert resolved["cohorts"]["DLBCL_like"]["data_dir"] == str(target.resolve())
+    assert load_resolved_config(config)["paths"]["sequence_data_dir"].endswith("harmonized_v4")

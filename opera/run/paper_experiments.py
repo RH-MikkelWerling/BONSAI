@@ -109,6 +109,8 @@ def build_commands(args, env):
             path_value(env, "OPERA_PAPER_ROUTER_REFERENCE"),
             "--encoder-checkpoint",
             path_value(env, "OPERA_PAPER_LOCAL_CKPT"),
+            "--sequence-data-dir",
+            path_value(env, "OPERA_SEQUENCE_DATA_DIR"),
             "--seeds",
             value(env, "OPERA_PAPER_SEEDS", "42"),
             "--epochs",
