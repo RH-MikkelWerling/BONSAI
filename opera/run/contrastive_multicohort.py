@@ -324,6 +324,12 @@ def _checkpoint_metadata(
     version_base="1.2",
 )
 def main(cfg: DictConfig) -> None:
+    # Gradient caching hands each logical batch to the main process as a list
+    # of microbatches; with the default "file_descriptor" sharing strategy every
+    # tensor holds an open descriptor, which exceeds the open-file limit at small
+    # microbatches. Shared-memory files avoid that limit.
+    if int(cfg.hardware.get("num_workers", 0) or 0) > 0:
+        torch.multiprocessing.set_sharing_strategy("file_system")
     # Transfer conditions are run once per declared seed.  Existing production
     # configs have no top-level seed, so leave their stochastic behaviour
     # unchanged unless a seed was explicitly supplied.

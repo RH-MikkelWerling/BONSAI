@@ -365,17 +365,26 @@ def run(config, output_dir):
     if (
         metadata is not None
         and config.get("identity_date_sensitivity", True)
-        and {"index_date", "cohort_identity_evidence_date"} <= set(metadata)
+        and (
+            "cohort_identity_post_index" in metadata
+            or {"index_date", "cohort_identity_evidence_date"} <= set(metadata)
+        )
     ):
-        index = pd.to_datetime(metadata.index_date, errors="raise")
-        diagnosis = pd.to_datetime(
-            metadata.cohort_identity_evidence_date, errors="raise"
-        )
-        retained_ids = set(
-            metadata.loc[
-                diagnosis.notna() & index.notna() & (diagnosis <= index), "subject_id"
-            ]
-        )
+        if "cohort_identity_post_index" in metadata:
+            # Flag from how the subtype was assigned (first-line pipeline pass).
+            late = metadata.cohort_identity_post_index.astype(bool)
+            retained_ids = set(metadata.loc[~late, "subject_id"])
+        else:
+            index = pd.to_datetime(metadata.index_date, errors="raise")
+            diagnosis = pd.to_datetime(
+                metadata.cohort_identity_evidence_date, errors="raise"
+            )
+            retained_ids = set(
+                metadata.loc[
+                    diagnosis.notna() & index.notna() & (diagnosis <= index),
+                    "subject_id",
+                ]
+            )
         subset = predictions.loc[predictions.subject_id.isin(retained_ids)]
         before = (
             predictions.drop_duplicates([*CELL, "subject_id"])

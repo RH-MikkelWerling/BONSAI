@@ -164,3 +164,17 @@ def test_subgroup_tables_have_readable_labels_and_render():
     fig = figures.figure_subgroup_effects(table, contrast_styles=styles,
                                           covariate_order=order, xlabel="Brier")
     plt.close(fig)
+
+
+def test_identity_evidence_date_and_assignment_source_are_carried():
+    population = pd.DataFrame({"subject_id": [1, 2], "index_date": ["2023-02-01"] * 2,
+                               "age_at_index": [61, 74], "sex": ["F", "M"],
+                               "cohort_fine": ["DLBCL", "FL"],
+                               "cohort_source": ["pass1", "pass2_fwd_dx"],
+                               "dx_date": ["2023-01-20", "2023-03-15"]})
+    history = pd.DataFrame({"subject_id": [1, 2], "history_event_count": [10, 20]})
+    metadata = build_patient_metadata(population, history, identity_date_column="dx_date")
+    late = metadata.cohort_identity_evidence_date > metadata.index_date
+    assert late.tolist() == [False, True]
+    assert metadata.cohort_source.tolist() == ["pass1", "pass2_fwd_dx"]
+    assert metadata.cohort_identity_post_index.tolist() == [False, True]

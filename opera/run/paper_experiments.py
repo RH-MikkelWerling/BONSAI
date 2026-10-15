@@ -334,6 +334,8 @@ def build_commands(args, env):
                                              value(env, "OPERA_SEQUENCE_DATA_DIR")),
             "--vocabulary", path_value(env, "OPERA_PAPER_LOCAL_VOCAB"),
             "--index-date-column", value(env, "OPERA_PAPER_INDEX_DATE_COLUMN", "index_date"),
+            *(("--identity-date-column", env["OPERA_PAPER_IDENTITY_DATE_COLUMN"])
+              if env.get("OPERA_PAPER_IDENTITY_DATE_COLUMN") else ()),
             "--output", path_value(env, "OPERA_PAPER_PATIENT_METADATA"))
         if env.get("OPERA_PAPER_CLINICAL_METADATA"):
             command += ["--clinical-metadata",

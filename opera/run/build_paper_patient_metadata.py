@@ -59,7 +59,7 @@ def history_summary(subjects, index_abspos, vocabulary, national_vocabulary=None
 
 
 def build_patient_metadata(population, history, *, score_columns=("index", "IPI"),
-                           index_date_column="index_date"):
+                           index_date_column="index_date", identity_date_column=None):
     index_date = pd.to_datetime(population[index_date_column], errors="coerce")
     age, _ = _age_at_index(population)
     sex, _ = _sex(population)
@@ -70,9 +70,21 @@ def build_patient_metadata(population, history, *, score_columns=("index", "IPI"
         "age_at_index": age,
         "sex": sex,
     })
-    for column in ("cohort_fine", "cohort_grouped", "split", *score_columns):
+    for column in ("cohort_fine", "cohort_grouped", "split", "cohort_source",
+                   *score_columns):
         if column in population:
             metadata[column] = population[column].to_numpy()
+    if "cohort_source" in metadata:
+        # Pass 1 assigns the subtype from diagnoses within 14 days of treatment
+        # start; the 90-day reassessment and treatment-arm rescue rely on later
+        # or indirect evidence and form the late-assignment sensitivity group.
+        metadata["cohort_identity_post_index"] = (
+            metadata.cohort_source.astype(str) != "pass1").to_numpy()
+    if identity_date_column:
+        # Date of the diagnosis that assigned the fine subtype; the analysis
+        # repeats every contrast without patients whose evidence is post-index.
+        metadata["cohort_identity_evidence_date"] = pd.to_datetime(
+            population[identity_date_column], errors="coerce").to_numpy()
     metadata = metadata.merge(history, on="subject_id", how="left", validate="one_to_one")
     if metadata.subject_id.duplicated().any():
         raise ValueError("Patient metadata must have one row per patient")
@@ -90,6 +102,8 @@ def main():
     parser.add_argument("--vocabulary", type=Path, required=True)
     parser.add_argument("--national-vocabulary", type=Path)
     parser.add_argument("--index-date-column", default="index_date")
+    parser.add_argument("--identity-date-column",
+                        help="Column with the date of the diagnosis that assigned the subtype.")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     import torch
@@ -100,7 +114,11 @@ def main():
     population = _read_population(args.population)
     if args.clinical_metadata:
         clinical = _read_population(args.clinical_metadata)
-        keep = ["subject_id", *[c for c in ("index", "IPI") if c in clinical]]
+        # The prognostic index and, when the membership file lacks them,
+        # demographics may come from this table.
+        keep = ["subject_id", *[c for c in ("index", "IPI", "age_at_index", "age",
+                                            "birth_date", "sex", "cohort_source")
+                                if c in clinical]]
         population = population.drop(columns=[c for c in keep[1:] if c in population])
         population = population.merge(clinical[keep], on="subject_id", how="left",
                                       validate="one_to_one")
@@ -114,7 +132,8 @@ def main():
     history = history_summary(load_subject_pool(map(str, shards)), index_abspos,
                               vocabulary, national)
     metadata = build_patient_metadata(population, history,
-                                      index_date_column=args.index_date_column)
+                                      index_date_column=args.index_date_column,
+                                      identity_date_column=args.identity_date_column)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     metadata.to_parquet(args.output, index=False)
     print(json.dumps({

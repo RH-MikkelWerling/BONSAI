@@ -1,0 +1,8 @@
+# Keep Unix line endings for files that shells and env loaders read literally;
+# CRLF breaks `set -o pipefail` and adds a hidden \r to every .env value.
+*.sh      text eol=lf
+*.R       text eol=lf
+.env*     text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.py      text eol=lf
