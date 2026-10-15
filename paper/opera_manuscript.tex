@@ -9,6 +9,7 @@
 \usepackage{microtype}
 \usepackage{amsmath}
 \usepackage{booktabs,tabularx,multirow,longtable}
+\usepackage{rotating}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{graphicx}
 \usepackage{pdfpages}
@@ -373,7 +374,10 @@ with the same 1 January 2022 cutoff for 10 epochs \placeholder{number of
 individuals and events; reference}, used either directly or after 20 epochs of
 continued pretraining on our records (local adaptation)---the same exposure to
 our records as the local encoder, which was pretrained for 20 epochs with the
-validation-best checkpoint retained. Its vocabulary was mapped to ours by exact code.
+validation-best checkpoint retained. For the national encoder, our patients'
+records were taken from the national data extract and tokenised with its own
+vocabulary and preprocessing, so that it read them in the form it was trained on;
+outcomes, cohort membership and splits were unchanged.
 Downstream training was identical for the local, national and adapted national
 encoders, so the comparisons concern the encoders as delivered, which may also
 differ in population, coding and training budget.
@@ -383,8 +387,9 @@ For each cell and horizon we trained XGBoost \citep{chen2016xgboost} and
 ridge-penalised logistic regression on features from the pipeline of our earlier
 DLBCL study \citep{werling2026dlbcl}: history summaries over three windows
 before the index date, built with timeseriesflattener
-\citep{bernstorff2023tsflattener}, with quality-registry variables removed so
-that tabular and sequence models received the same information. To separate
+\citep{bernstorff2023tsflattener}, with quality-registry variables and
+registry-recorded adverse events removed so that tabular and sequence models
+received the same information. To separate
 the value of pooling from the value of the neural model, we also trained one
 XGBoost per outcome across all diseases---the tabular counterpart of the
 disease-pooled model, which like it is not told the patient's disease.
@@ -604,7 +609,10 @@ pooled against the per-disease XGBoost: whether the gain over XGBoost came from
 pooling, from the neural model, or both.} \placeholder{Clinical domains and diseases in which XGBoost remained best;
 consistency across horizons (\cref{fig:tabular}D).} Because the tabular and
 sequence models received the same information, these differences reflect how
-the history is represented and learned, not what is available.
+the history is represented and learned, not what is available. Adding the
+quality-registry variables to XGBoost \placeholder{changed its performance by
+X; the joint model, without them, was better / similar / worse than this
+reference}.
 
 \begin{figure}[H]
   \resultfigure{fig_calibration}{Calibration}
@@ -954,6 +962,11 @@ or simpler approach remains preferable.}
   \label{fig:clinical-score}
 \end{figure}
 
+% One plate like the figure above for every recorded index, written by the
+% clinical-scores step; copy its clinical_scores/ folder into the figure directory.
+\IfFileExists{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}{%
+  \input{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}}{}
+
 \begin{figure}[p]
   \resultfigure[0.6\textwidth]{fig_who_benefits}{Who benefits}
     {Paired Brier improvement of the joint model over the specialist and over
@@ -1049,9 +1062,11 @@ or simpler approach remains preferable.}
   \caption{\textbf{How patient representations change across training stages.}
   The same test patients under five model stages: local pretraining, the
   locally pretrained joint model, national pretraining, national pretraining
-  with local adaptation, and the nationally initialised joint model. Rows
-  colour patients by disease group, IPI category, age and length of recorded
-  history; grey marks patients without a recorded IPI. Each column's projection
+  with local adaptation, and the nationally initialised joint model. The first
+  row outlines where each disease group lies; the others show the local mean
+  (Gaussian kernel) of age at treatment, the number of recorded events before
+  treatment (log scale) and the IPI category among patients with a recorded IPI,
+  left blank where too few patients are nearby. Each column's projection
   was fitted on tuning patients and applied unchanged to test patients, so
   coordinates are comparable within a column but not between columns. The maps
   are descriptive and carry no performance claim.}
@@ -1067,6 +1082,96 @@ or simpler approach remains preferable.}
   predicted risk and the IPCW-weighted local residual (observed minus
   predicted).}
   \label{fig:supp-calibration-maps}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_1}{Outcome risk across the embedding (1/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (1 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-1}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_2}{Outcome risk across the embedding (2/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (2 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-2}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_3}{Outcome risk across the embedding (3/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (3 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-3}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_4}{Outcome risk across the embedding (4/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (4 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-4}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_5}{Outcome risk across the embedding (5/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (5 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-5}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_6}{Outcome risk across the embedding (6/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Where each outcome's risk lies in the joint model's patient representation (6 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk, dark regions a quarter;
+  regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group; outcomes whose risk lies in the same
+  region of the map share where their risk concentrates.}
+  \label{fig:supp-embedding-gallery-6}
 \end{figure}
 
 \clearpage

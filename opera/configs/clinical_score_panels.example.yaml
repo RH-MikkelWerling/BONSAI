@@ -39,7 +39,7 @@ all_indices:
     score_date_column: null
     score_timing: recorded at diagnosis in the quality registry, before treatment start
     cutoff_rule: risk_matched_low
-    minimum_patients: 20         # held-out patients needed to render
+    minimum_patients: 50         # test patients needed for a full plate (S7 row + own S8 page)
     lock_provenance: null
     applicability_review: null
   overrides: {}  # per index value, e.g. {"<index>": {group_map: {...}, group_order: [...]}}
@@ -66,7 +66,7 @@ scores:  # explicit entries (scores not in the `index` column)
     score_date_column: null
     score_timing: computed from components recorded at diagnosis, before treatment start
     cutoff_rule: risk_matched_low
-    minimum_patients: 20
+    minimum_patients: 50
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
     applicability_review: null
@@ -92,7 +92,7 @@ scores:  # explicit entries (scores not in the `index` column)
     score_date_column: null
     score_timing: computed from components recorded at diagnosis, before treatment start
     cutoff_rule: risk_matched_low
-    minimum_patients: 20
+    minimum_patients: 50
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
     applicability_review: null

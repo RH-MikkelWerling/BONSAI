@@ -217,9 +217,14 @@ def test_manuscript_table_renders_released_display_values_verbatim():
     assert "export sha256 abc123" in tex and "Review version" in tex
     assert r"\quad Common\_arm" in tex  # escaped, indented category row
     assert "$<$5" in tex  # suppressed small cell kept as released
-    pooled = release.loc[release.cohort_level == "all"]
+    pooled = release.loc[(release.cohort_level == "all") & (release.kind != "continuous")]
     for value in pooled.display.dropna().astype(str):
+        if value == "Not available":  # rows without data anywhere are left out
+            assert value not in tex
+            continue
         assert value.replace("<", "$<$").replace("%", r"\%") in tex
+    # Continuous rows are reformatted from the exact median/IQR (age in whole years).
+    assert "65 (52–77)" in tex
     assert tex.count(r"\begin{table*}") == 1
     assert "Review version" not in pooled_table_latex(
         release, source_sha256="abc123", status="approved"
@@ -243,3 +248,41 @@ def test_contact_days_and_common_specialties_are_summarised():
     assert result.loc[2, "hospital_encounters"] == 1  # post-index contact excluded
     assert result.loc[1, "contact_specialty__Cardiology"] == 1
     assert result.loc[2, "contact_specialty__Cardiology"] == 0
+
+
+def test_small_cells_shown_as_less_than_five_in_both_manuscript_tables():
+    from opera.run.format_table1_release import disease_table_latex, pooled_table_latex
+
+    pop = pd.DataFrame({
+        "subject_id": range(300),
+        "split": ["train"] * 100 + ["tuning"] * 100 + ["held_out"] * 100,
+        "sex": ["Female"] * 2 + ["Male"] * 98 + ["Female", "Male"] * 100,
+        "age": list(range(40, 90)) * 6,
+        "female_flag": 0,
+        "cohort_grouped": ["DLBCL_like"] * 150 + ["MM"] * 150,
+        "contact_specialty__Cardiology": [1] * 3 + [0] * 297,
+    })
+    table = build_tables(pop)
+    release, _ = release_table(table, policy="primary-only")
+    tex = pooled_table_latex(release, source_sha256="abc", policy="primary-only")
+    assert "$<$5" in tex and "Counts of 1--4 are shown as $<$5" in tex
+    assert "Contact with specialty" in tex and r"\quad Cardiology" in tex
+    assert r"\quad 1 &" not in tex  # binary rows are single rows
+    supplement = disease_table_latex(release, source_sha256="abc", policy="primary-only")
+    assert "DLBCL-like" in supplement and "Myeloma" in supplement
+
+
+
+def test_subtypes_are_nested_under_their_disease_group():
+    from opera.run.format_table1_release import pooled_table_latex
+
+    pop = pd.DataFrame({
+        "subject_id": range(60), "split": "train", "sex": ["Female", "Male"] * 30,
+        "cohort_fine": ["DLBCL"] * 20 + ["RT"] * 10 + ["HL"] * 30,
+        "cohort_grouped": ["DLBCL_like"] * 30 + ["HL"] * 30})
+    release, _ = release_table(build_tables(pop), policy="primary-only")
+    tex = pooled_table_latex(release, source_sha256="x", policy="primary-only")
+    lines = tex.splitlines()
+    group = next(i for i, line in enumerate(lines) if line.startswith(r"\quad DLBCL-like"))
+    assert lines[group + 1].startswith(r"\qquad DLBCL") and lines[group + 2].startswith(r"\qquad RT")
+    assert not any(line.startswith(r"\qquad HL") for line in lines)  # single-subtype group

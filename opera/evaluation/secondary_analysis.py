@@ -20,7 +20,9 @@ from sklearn.metrics import roc_auc_score
 
 CELL = ["split", "seed", "cohort", "outcome", "horizon_days"]
 PATIENT = [*CELL, "subject_id"]
-METRICS = ("auc", "brier", "log_loss", "calibration_bias", "ece")
+# ipa: index of prediction accuracy, 1 - Brier / Brier of the observed event
+# rate in the same (weighted) sample; comparable across outcomes.
+METRICS = ("auc", "brier", "ipa", "log_loss", "calibration_bias", "ece")
 ESTIMANDS = ("binary_known_status_unweighted", "cif_ipcw")
 
 
@@ -273,9 +275,13 @@ def metric_values(labels, probabilities, weights=None, ipcw=None):
     auc = float("nan")
     if weights[labels == 1].sum() > 0 and weights[labels == 0].sum() > 0:
         auc = float(roc_auc_score(labels, probabilities, sample_weight=weights))
+    brier = risk_set_average((labels - probabilities) ** 2)
+    event_rate = risk_set_average(labels.astype(float))
+    null_brier = risk_set_average((labels - event_rate) ** 2)
     return {
         "auc": auc,
-        "brier": risk_set_average((labels - probabilities) ** 2),
+        "brier": brier,
+        "ipa": 1 - brier / null_brier if null_brier > 0 else float("nan"),
         "log_loss": risk_set_average(-(labels * np.log(p) + (1 - labels) * np.log1p(-p))),
         "calibration_bias": average(probabilities - labels),
         "ece": float(
@@ -338,6 +344,14 @@ def bootstrap_metric_values(labels, probabilities, weights, ipcw=None):
                 out=np.full(len(w), np.nan),
                 where=denominator > 0,
             )
+        # Brier of the event rate in each draw: (S - 2 r S + r^2 W) / R with
+        # S = weighted events, W = total weight, r = S / R.
+        events, total = w @ y, w.sum(axis=1)
+        rate = np.divide(events, risk_set, out=np.full(len(w), np.nan), where=risk_set > 0)
+        null_brier = np.divide(events - 2 * rate * events + rate**2 * total, risk_set,
+                               out=np.full(len(w), np.nan), where=risk_set > 0)
+        scores["ipa"] = 1 - np.divide(scores["brier"], null_brier,
+                                      out=np.full(len(w), np.nan), where=null_brier > 0)
         error = sum(
             np.abs(w[:, bins == index] @ (p - y)[bins == index]) for index in range(10)
         )
@@ -495,7 +509,7 @@ def paired_analysis(
                 continue
             for metric in METRICS:
                 # Bias is signed calibration error, not a higher-is-better skill.
-                orientation = 1 if metric in {"auc", "calibration_bias"} else -1
+                orientation = 1 if metric in {"auc", "ipa", "calibration_bias"} else -1
                 estimate = orientation * sum(
                     coef * values[model][metric] for model, coef in coefficients.items()
                 )

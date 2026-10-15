@@ -237,27 +237,26 @@ def test_every_recorded_index_becomes_a_score_entry():
     assert generated["cll_ipi_cll"]["index_values"] == ["CLL-IPI"]
 
 
-def test_registry_variables_augment_only_the_reference_matrix(tmp_path):
-    import json
-
-    from opera.functional.tabular_features import augment_with_registry_variables
+def test_registry_profile_keeps_only_the_rkkp_predictors(tmp_path):
+    from opera.functional.tabular_features import prepare_feature_matrix
     from opera.run.paper_tabular_queue import job_models
 
-    matrix = tmp_path / "matched.parquet"
-    pd.DataFrame({"subject_id": [1, 2, 3], "pred_lab_mean": [1.0, 2.0, 3.0]}).to_parquet(matrix)
-    registry = tmp_path / "registry.csv"
-    pd.DataFrame({"subject_id": [1, 3], "ps": [0, 2], "ldh_elevated": [True, False]}).to_csv(
-        registry, index=False)
-    output, manifest = augment_with_registry_variables(matrix, registry, tmp_path / "aug.parquet")
-    augmented = pd.read_parquet(output)
-    assert list(augmented.columns) == ["subject_id", "pred_lab_mean", "registry_ps",
-                                       "registry_ldh_elevated"]
-    assert augmented.registry_ps.isna().tolist() == [False, True, False]
-    assert manifest["patients_with_registry_record"] == 2
-    assert json.loads(output.with_suffix(".parquet.manifest.json").read_text())
+    source = tmp_path / "export.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "pred_lab_mean": [1.0, 2.0, 3.0],
+                  "pred_rkkp_ps": [0, 2, 1], "pred_adverse_event_x": [0, 1, 0]}
+                 ).to_parquet(source)
+    population = tmp_path / "population.csv"
+    pd.DataFrame({"subject_id": [1, 2, 3], "index_date": ["2020-01-01"] * 3,
+                  "birth_date": ["1950-01-01", "1960-01-01", "1970-01-01"], "sex": ["F", "M", "F"]}
+                 ).to_csv(population, index=False)
+    matched, _ = prepare_feature_matrix(source, profile="sequence_matched",
+                                        population_path=population, output_dir=tmp_path)
+    augmented, _ = prepare_feature_matrix(source, profile="registry_augmented",
+                                          population_path=population, output_dir=tmp_path)
+    matched, augmented = pd.read_parquet(matched), pd.read_parquet(augmented)
+    assert "pred_rkkp_ps" not in matched and "pred_rkkp_ps" in augmented
+    assert "pred_adverse_event_x" not in matched and "pred_adverse_event_x" in augmented
     assert job_models({}, ("xgboost",)) == ("xgboost",)
-    assert job_models({"pooled": True}) == ("xgboost",)
-
 
 def test_an_index_recorded_in_several_subtypes_is_also_compared_across_them():
     from opera.run.render_clinical_score_panels import expand_index_scores

@@ -180,7 +180,8 @@ def test_dapt_uses_same_direct_export_and_correct_local_dataset(tmp_path):
         f"paths.initialization_ckpt={tmp_path}/paper/external_direct/encoder.ckpt"
         in command
     )
-    assert f"paths.dir={tmp_path}/sequences" in command
+    # Local adaptation reads our patients in the national encoder's own format.
+    assert f"paths.dir={tmp_path}/paper/external_sequences/sequences" in command
     assert "training.batch_size=1" in command
     assert "training.accumulate_grad_batches=128" in command
 

@@ -104,7 +104,7 @@ def run(config):
         seeds=tuple(config["seeds"]),
         trend=config.get("trend", "none"),
         support_bins=config.get("support_bins"),
-        weighting=config.get("weighting", "equal_disease_endpoint_group"),
+        weighting=config.get("weighting", "equal_disease_loss_endpoint"),
         rarity_column=config.get("rarity_column", "n_events_train"),
         covariance_shrinkage=config.get("covariance_shrinkage", 0.02),
         se_floor=config.get("se_floor", 1e-6),

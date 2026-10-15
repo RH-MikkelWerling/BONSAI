@@ -10,7 +10,9 @@ horizon_days: 365
 split: held_out
 seeds: [42]  # one training seed; add seeds only for a variability analysis
 rarity_column: n_events_train  # Fixed target-cell counts, never held-out support.
-weighting: equal_disease_endpoint_group  # Requires endpoint_group in cell metadata.
+# Every disease equal; within a disease every loss endpoint (grade variants
+# together) equal. Sensitivity: equal_disease_endpoint_group (clinical domains).
+weighting: equal_disease_loss_endpoint
 trend: spline  # Primary: regularised support curve. 'spline' models the support curve; 'bins' checks it; 'linear' is optional.
 # Prespecified training-event bin edges for trend: bins (lock before held-out
 # inspection; each bin needs >= 3 cells). Piecewise-constant: no shape assumed.

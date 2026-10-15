@@ -93,17 +93,27 @@ def contrast_design(family):
     return basis, contrasts, matrix
 
 
+# Panel weights: every disease counts equally; within a disease, every loss
+# endpoint (grade variants of one finding together) counts equally
+# (primary), or every clinical display domain (sensitivity).
+WEIGHTING_COLUMNS = {"equal_disease_loss_endpoint": "loss_endpoint",
+                     "equal_disease_endpoint_group": "endpoint_group"}
+
+
 def panel_weights(cells, weighting):
     if weighting == "equal_cell":
         return np.full(len(cells), 1 / len(cells))
-    if weighting != "equal_disease_endpoint_group":
+    if weighting not in WEIGHTING_COLUMNS:
         raise ValueError("Unknown panel weighting")
-    if "endpoint_group" not in cells or cells.endpoint_group.isna().any():
-        raise ValueError(
-            "Equal disease/endpoint-group weighting requires endpoint_group"
-        )
-    groups = cells.groupby("cohort").endpoint_group.transform("nunique")
-    members = cells.groupby(["cohort", "endpoint_group"]).outcome.transform("count")
+    column = WEIGHTING_COLUMNS[weighting]
+    if column == "loss_endpoint" and column not in cells:
+        # Older cell metadata: grade variants (_g2plus/_g3plus) form one endpoint.
+        cells = cells.assign(loss_endpoint=cells.outcome.astype(str).str.replace(
+            r"_g[23]plus$", "", regex=True))
+    if column not in cells or cells[column].isna().any():
+        raise ValueError(f"{weighting} weighting requires {column} in the cell metadata")
+    groups = cells.groupby("cohort")[column].transform("nunique")
+    members = cells.groupby(["cohort", column]).outcome.transform("count")
     return (1 / (cells.cohort.nunique() * groups * members)).to_numpy(float)
 
 
@@ -235,7 +245,7 @@ def prepare_contrast_data(
     trend="linear",
     spline_knots=4,
     rarity_column="n_events_train",
-    weighting="equal_disease_endpoint_group",
+    weighting="equal_disease_loss_endpoint",
     covariance_shrinkage=0.02,
     se_floor=1e-6,
     minimum_draws=100,
@@ -252,7 +262,7 @@ def prepare_contrast_data(
     bin; no shape assumption), or the sensitivity models ``linear`` (a fixed
     change per doubling of support) and ``spline``.
     """
-    if family not in FAMILIES or metric not in {"auc", "brier", "log_loss"}:
+    if family not in FAMILIES or metric not in {"auc", "ipa", "brier", "log_loss"}:
         raise ValueError(
             "Choose a declared question family and positive-oriented metric"
         )
@@ -343,6 +353,7 @@ def prepare_contrast_data(
         c
         for c in (
             "endpoint_group",
+            "loss_endpoint",
             "cohort_group",
             "outcome_family",
             "minority_class",
@@ -359,6 +370,7 @@ def prepare_contrast_data(
             raise ValueError(f"Cell metadata changes across contrasts/seeds: {column}")
     for child, parent in (
         ("outcome", "endpoint_group"),
+        ("outcome", "loss_endpoint"),
         ("cohort", "cohort_group"),
         ("outcome", "outcome_family"),
     ):

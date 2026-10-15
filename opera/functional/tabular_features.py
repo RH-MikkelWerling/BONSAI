@@ -17,7 +17,10 @@ import pandas as pd
 
 
 SEQUENCE_MATCHED_PROFILE = "sequence_matched"
-SUPPORTED_PROFILES = frozenset({SEQUENCE_MATCHED_PROFILE})
+# The same matrix with the registry predictors (RKKP, adverse events) kept:
+# the tabular reference arm XR. The sequence models never see these.
+REGISTRY_AUGMENTED_PROFILE = "registry_augmented"
+SUPPORTED_PROFILES = frozenset({SEQUENCE_MATCHED_PROFILE, REGISTRY_AUGMENTED_PROFILE})
 BOOKKEEPING_COLUMNS = frozenset(
     {"timestamp", "prediction_time_uuid", "patientid"}
 )
@@ -91,9 +94,15 @@ def _sex(population: pd.DataFrame) -> tuple[pd.Series, str]:
     )
 
 
-def _is_unmatched_sequence_feature(column: str) -> bool:
+def _is_unmatched_sequence_feature(column: str, keep_registry: bool = False) -> bool:
+    """Registry-derived predictors the sequence models do not read.
+
+    RKKP quality-registry variables and the registry-derived adverse-event
+    history (both timeseriesflattener look-behind predictors, so pre-index).
+    The registry-augmented profile keeps both.
+    """
     name = str(column).lower()
-    return "pred_rkkp" in name or "adverse_event" in name
+    return not keep_registry and ("pred_rkkp" in name or "adverse_event" in name)
 
 
 def prepare_sequence_matched_features(
@@ -102,14 +111,16 @@ def prepare_sequence_matched_features(
     output_path: str | Path,
     *,
     overwrite: bool = False,
+    profile: str = SEQUENCE_MATCHED_PROFILE,
 ) -> tuple[Path, dict[str, Any]]:
-    """Prepare or reuse a sequence-matched tabular feature parquet."""
+    """Prepare or reuse a sequence-matched (or registry-augmented) feature parquet."""
+    keep_registry = profile == REGISTRY_AUGMENTED_PROFILE
     source = Path(source_path)
     population_source = Path(population_path)
     target = Path(output_path)
     manifest_path = target.with_suffix(target.suffix + ".manifest.json")
     expected_inputs = {
-        "profile": SEQUENCE_MATCHED_PROFILE,
+        "profile": profile,
         "source": _file_signature(source),
         "population": _file_signature(population_source),
     }
@@ -142,7 +153,8 @@ def prepare_sequence_matched_features(
     removed_unmatched = sorted(
         column
         for column in features.columns
-        if column != "subject_id" and _is_unmatched_sequence_feature(column)
+        if column != "subject_id"
+        and _is_unmatched_sequence_feature(column, keep_registry)
     )
     removed_demographics = sorted(
         column for column in DEMOGRAPHIC_ALIASES if column in features.columns
@@ -221,39 +233,6 @@ def prepare_feature_matrix(
     directory = Path(output_dir) if output_dir else source.parent / "prepared"
     target = directory / f"{source.stem}__{profile}.parquet"
     return prepare_sequence_matched_features(
-        source, population_path, target, overwrite=overwrite
+        source, population_path, target, overwrite=overwrite, profile=profile
     )
 
-
-def augment_with_registry_variables(matrix_path, registry_path, output_path):
-    """The sequence-matched matrix plus clinical quality-registry variables.
-
-    ``registry_path`` holds one row per patient (``subject_id``) with the
-    variables recorded at diagnosis (performance status, stage, LDH,
-    cytogenetics, ...); they must not post-date the index date. Columns are
-    prefixed ``registry_`` and left missing where not recorded; the tabular
-    preprocessing adds missingness indicators. Only the tabular reference arm
-    uses this matrix: the sequence models never see these variables.
-    """
-    matrix = read_feature_table(Path(matrix_path))
-    registry = read_feature_table(Path(registry_path))
-    if "subject_id" not in registry or registry.subject_id.duplicated().any():
-        raise ValueError("Registry variables need one row per subject_id")
-    _align_subject_id_dtype(registry, matrix)
-    registry = registry.rename(columns={c: f"registry_{c}" for c in registry
-                                        if c != "subject_id"})
-    augmented = matrix.merge(registry, on="subject_id", how="left", validate="one_to_one")
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    augmented.to_parquet(output_path, index=False)
-    manifest = {
-        "matrix": _file_signature(Path(matrix_path)),
-        "registry": _file_signature(Path(registry_path)),
-        "registry_columns": [c for c in registry if c != "subject_id"],
-        "patients_with_registry_record": int(
-            augmented.subject_id.isin(registry.subject_id).sum()),
-        "prepared_shape": [int(augmented.shape[0]), int(augmented.shape[1])],
-    }
-    output_path.with_suffix(output_path.suffix + ".manifest.json").write_text(
-        json.dumps(manifest, indent=2, default=str))
-    return output_path, manifest

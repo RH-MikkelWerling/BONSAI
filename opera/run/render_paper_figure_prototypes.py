@@ -351,6 +351,9 @@ def synthetic_embedding_comparison(seed=23):
               "National pretrained": 0.3, "National + local": 0.5,
               "National fine-tuned": 0.9}
     noise = rng.normal(size=(n, 2))
+    # More recorded history with age, and least in Hodgkin lymphoma.
+    sequence_length = np.maximum(1, np.exp(5 + 0.02 * (age - 66) - 0.5 * (disease == 4)
+                                           + rng.normal(0, 0.6, n))).astype(int)
     within = np.c_[(age - 66) / 18, rng.normal(0, 0.6, n)]
     frames = []
     for stage, separation in stages.items():
@@ -358,8 +361,32 @@ def synthetic_embedding_comparison(seed=23):
         frames.append(pd.DataFrame({
             "model": stage, "patient_id": np.arange(n), "x": xy[:, 0], "y": xy[:, 1],
             "disease": np.array(names)[disease], "ipi_group": groups, "age": age,
-            "sequence_length": np.maximum(1, np.exp(5 + rng.normal(0, 0.7, n))).astype(int)}))
+            "sequence_length": sequence_length}))
     return pd.concat(frames, ignore_index=True)
+
+
+def synthetic_gallery(rng, n=2500):
+    """Patients in six regions; each outcome's risk concentrates in one."""
+    import yaml
+    from opera.run.build_paper_embedding_tables import embedding_gallery_inputs
+    from opera.visualization.paper_taxonomy import DISPLAY_GROUPS
+
+    angle = 2 * np.pi * np.arange(6) / 6
+    centers = np.c_[np.cos(angle), np.sin(angle)] * 4
+    region = rng.integers(0, 6, n)
+    xy = centers[region] + rng.normal(0, 1.3, (n, 2))
+    coords = pd.DataFrame({"subject_id": range(n), "x": xy[:, 0], "y": xy[:, 1]})
+    groups = yaml.safe_load(Path(DISPLAY_GROUPS).read_text())
+    rows = []
+    for k, outcome in enumerate(o for members in groups.values() for o in members[:6]):
+        risk = np.clip((0.04 + 0.1 * rng.uniform())
+                       * np.where(region == k % 6, 3.0, 0.7), 0, 0.95)
+        event_time = np.where(rng.uniform(size=n) < risk, rng.uniform(1, 365, n), 2000)
+        censor = rng.uniform(200, 1500, n)
+        rows.append(pd.DataFrame({"subject_id": range(n), "outcome": outcome,
+                                  "time_days": np.minimum(event_time, censor),
+                                  "event": (event_time <= censor).astype(int)}))
+    return embedding_gallery_inputs(coords, pd.concat(rows))
 
 
 def main():
@@ -422,6 +449,10 @@ def main():
         "supp_calibration_maps": figures.figure_calibration_maps(
             *synthetic_maps(rng), mark=mark),
     }
+    gallery = synthetic_gallery(np.random.default_rng(23))
+    for page in range(1, 7):
+        renders[f"supp_embedding_gallery_{page}"] = figures.figure_embedding_gallery(
+            *gallery, page=page, mark=mark)
     who, national = synthetic_subgroups(rng)
     renders["fig_who_benefits"] = figures.figure_subgroup_effects(
         who, contrast_styles={"J-S": (figures.MODEL_STYLE["J"][0], "Joint vs specialist"),

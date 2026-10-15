@@ -79,3 +79,59 @@ def test_sequence_directory_override_reaches_vocabulary_and_cohorts(tmp_path):
     assert resolved["paths"]["vocabulary"] == str(target.resolve() / "vocabulary.pt")
     assert resolved["cohorts"]["DLBCL_like"]["data_dir"] == str(target.resolve())
     assert load_resolved_config(config)["paths"]["sequence_data_dir"].endswith("harmonized_v4")
+
+
+def test_national_arms_read_national_sequences_but_our_outcomes(tmp_path):
+    from opera.run.prepare_paper_run_bundle import external_sequences
+
+    config = {"paths": {"vocabulary": "/local/vocabulary.pt"},
+              "cohorts": {"DLBCL": {"data_dir": "/local/dlbcl"}}}
+    result = external_sequences(config, tmp_path)
+    assert result["paths"]["vocabulary"] == str(tmp_path.resolve() / "vocabulary.pt")
+    assert result["cohorts"]["DLBCL"]["data_dir"] == "/local/dlbcl"  # outcomes unchanged
+    assert result["cohorts"]["DLBCL"]["subject_data_paths"] == [
+        str(tmp_path.resolve() / "subject_data_train.pt"),
+        str(tmp_path.resolve() / "subject_data_tuning.pt")]
+    assert external_sequences({"paths": {}}, None) == {"paths": {}}
+
+
+def test_national_meds_is_filtered_to_our_patients_in_their_local_split(tmp_path):
+    import pandas as pd
+
+    from opera.run.prepare_external_sequences import (
+        filter_external_meds, local_split_assignment)
+
+    local = tmp_path / "local" / "data"
+    for split, ids in (("train", [1, 2]), ("tuning", [3])):
+        (local / split).mkdir(parents=True)
+        pd.DataFrame({"subject_id": ids, "time": pd.Timestamp("2020-01-01"),
+                      "code": "X"}).to_parquet(local / split / "0.parquet")
+    national = tmp_path / "national" / "data" / "train"
+    national.mkdir(parents=True)
+    pd.DataFrame({"subject_id": [1, 3, 3, 9], "code": ["A", "B", "C", "D"],
+                  "time": pd.to_datetime(["2019-01-01", "2023-05-01", "2023-06-01",
+                                          "2020-01-01"])}).to_parquet(national / "0.parquet")
+    assignment = local_split_assignment(tmp_path / "local")
+    assert assignment == {1: "train", 2: "train", 3: "tuning"}
+    report = filter_external_meds(tmp_path / "national", assignment, tmp_path / "out")
+    assert report["rows_by_split"] == {"train": 1, "tuning": 2}
+    assert report["missing_from_national"] == 1  # patient 2
+    tuning = pd.read_parquet(next((tmp_path / "out/meds/data/tuning").glob("*.parquet")))
+    assert set(tuning.subject_id) == {3}
+    assert report["latest_event"].startswith("2023-06-01")
+
+
+def test_width_probe_changes_only_the_encoder(tmp_path):
+    import yaml
+
+    from opera.run.width_probe import JOINT, probe_config
+
+    joint = {"dapt_ckpt": "/local/256/best.ckpt", "training": {"epochs": 30},
+             "paths": {"vocabulary": "/v.pt"}}
+    path = tmp_path / "configs" / "seed42" / "L" / f"{JOINT}.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(joint))
+    config = probe_config(tmp_path, tmp_path / "512" / "best.ckpt")
+    assert config["dapt_ckpt"] == str((tmp_path / "512" / "best.ckpt").resolve())
+    assert {k: v for k, v in config.items() if k != "dapt_ckpt"} == {
+        k: v for k, v in joint.items() if k != "dapt_ckpt"}

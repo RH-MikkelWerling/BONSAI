@@ -116,6 +116,27 @@ def calibration_map_inputs(coords: pd.DataFrame, predictions: pd.DataFrame, outc
     return coords[["x", "y"]], payload
 
 
+def embedding_gallery_inputs(coords: pd.DataFrame, predictions: pd.DataFrame):
+    """Every outcome's (time, event) on the joint model's projection, by domain.
+
+    Each outcome keeps its own evaluated patients; the projection is shared.
+    """
+    from opera.visualization.paper_taxonomy import DISPLAY_GROUPS, outcome_endpoint_groups
+
+    domains = outcome_endpoint_groups()
+    domain_order = {name: i for i, name in enumerate(
+        yaml.safe_load(Path(DISPLAY_GROUPS).read_text()))}
+    data = predictions.loc[predictions.subject_id.isin(set(coords.subject_id)),
+                           ["subject_id", "outcome", "time_days", "event"]].copy()
+    missing = sorted(set(data.outcome) - set(domains))
+    if missing:
+        raise ValueError(f"Outcomes without a clinical domain: {missing}")
+    data["domain"] = data.outcome.map(domains)
+    data["domain_order"] = data.domain.map(domain_order)
+    data["outcome"] = data.outcome.map(outcome_display_name)
+    return coords[["subject_id", "x", "y"]], data.drop_duplicates(["subject_id", "outcome"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -134,6 +155,12 @@ def main():
         coordinates[maps["stage"]], read_table(maps["predictions"]), maps["outcomes"],
         horizon=maps.get("horizon_days", 365))
     coords.to_csv(args.output_dir / "patient_coordinates.csv", index=False)
+    # Supplementary gallery: every outcome on the same projection, by domain.
+    gallery = config.get("gallery", maps)
+    gallery_coords, gallery_outcomes = embedding_gallery_inputs(
+        coordinates[gallery["stage"]], read_table(gallery["predictions"]))
+    gallery_coords.to_csv(args.output_dir / "gallery_coordinates.csv", index=False)
+    gallery_outcomes.to_parquet(args.output_dir / "embedding_gallery.parquet", index=False)
     (args.output_dir / "calibration_map_outcomes.json").write_text(json.dumps(payload))
     print(json.dumps({"stages": list(config["stages"]),
                       "patients_compared": int(comparison.patient_id.nunique()),

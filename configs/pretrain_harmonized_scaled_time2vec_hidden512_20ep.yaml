@@ -1,0 +1,15 @@
+defaults:
+  - pretrain_harmonized_scaled_time2vec_len8192_20ep
+  - _self_
+
+# Width probe: the local 256 encoder at twice the width, same data, objective,
+# layers and optimiser. Heads/layers come from the launch script.
+model:
+  hidden_size: 512
+  num_attention_heads: ???
+  num_layers: ???
+
+training:
+  batch_size: 1
+  accumulate_grad_batches: 128
+  learning_rate: 3e-4

@@ -88,12 +88,13 @@ delivered feature export: anchoring at first-line treatment, source list and
 number of features.}
 
 As a reference outside the information-matched comparison, XGBoost was also
-trained for each cell with the clinical quality-registry variables recorded at
-diagnosis added to the same features (performance status, stage, lactate
-dehydrogenase, extranodal involvement, B symptoms and cytogenetic risk where the
-registry for the disease records them; \placeholder{final list}). Values were
-taken as recorded at diagnosis, left missing where not recorded, and handled by
-the same missingness indicators; hyperparameters were tuned on the same grid.
+trained for each cell with the quality-registry predictors of the earlier
+study's feature set kept: clinical variables recorded at diagnosis (such as
+performance status, stage, lactate dehydrogenase, extranodal involvement and
+cytogenetic risk, where the registry for the disease records them) and
+registry-recorded adverse events before the index date. They were left missing
+where not recorded and handled by the same missingness indicators;
+hyperparameters were tuned on the same grid.
 The sequence models never saw these variables, so this arm estimates what the
 curated registry adds, not a like-for-like comparison.
 

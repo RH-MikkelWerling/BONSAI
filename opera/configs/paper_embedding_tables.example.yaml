@@ -18,3 +18,6 @@ calibration_maps:
   horizon_days: 365
   outcomes: [treatment_failure, serious_infection_composite, neutropenia_g3plus,
              hospitalisation]
+# Supplementary gallery: every outcome on the same projection, grouped by
+# clinical domain. Defaults to the calibration_maps stage and predictions.
+# gallery: {stage: Local fine-tuned, predictions: null}

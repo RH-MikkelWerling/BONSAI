@@ -320,7 +320,7 @@ def run(config, output_dir):
     )
     if "n_events_train" in annotated:
         rarity = annotated.loc[
-            annotated.metric.isin(["auc", "brier", "log_loss"])
+            annotated.metric.isin(["auc", "ipa", "brier", "log_loss"])
         ].copy()
         rarity["metric"] = rarity.metric.replace(
             {"auc": "auroc", "brier": "brier_score"}

@@ -600,3 +600,23 @@ class CalibrationSummaryTest(unittest.TestCase):
         self.assertAlmostEqual(summary.loc["overconfident", "calibration_slope"], 0.5, delta=0.04)
         self.assertAlmostEqual(summary.loc["calibrated", "calibration_in_the_large"], 0.0, delta=0.01)
         self.assertAlmostEqual(summary.loc["calibrated", "observed_expected_ratio"], 1.0, delta=0.04)
+
+
+def test_ipa_is_brier_relative_to_the_event_rate_and_matches_bootstrap():
+    import numpy as np
+
+    from opera.evaluation.secondary_analysis import bootstrap_metric_values, metric_values
+
+    rng = np.random.default_rng(3)
+    y = rng.binomial(1, 0.2, 400)
+    p = np.clip(0.2 + 0.3 * (y - 0.2) + rng.normal(0, 0.1, 400), 0.01, 0.99)
+    ipcw = rng.uniform(0.8, 1.5, 400) * (rng.uniform(size=400) > 0.1)
+    for weights in (None, ipcw):
+        point = metric_values(y, p, ipcw=weights)
+        rate = (y * (1 if weights is None else weights)).sum() / len(y)
+        null = (((y - rate) ** 2) * (1 if weights is None else weights)).sum() / len(y)
+        assert np.isclose(point["ipa"], 1 - point["brier"] / null)
+        draws = bootstrap_metric_values(y, p, np.ones((2, 400)), ipcw=weights)
+        assert np.allclose(draws["ipa"], point["ipa"])
+    # The event rate itself scores IPA 0.
+    assert np.isclose(metric_values(y, np.full(400, y.mean()))["ipa"], 0)

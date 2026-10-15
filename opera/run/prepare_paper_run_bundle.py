@@ -74,9 +74,26 @@ ROUTER_CONTROLS = {
 }
 
 
+def external_sequences(config, sequence_dir):
+    """Point a national arm at our patients tokenised in the national format.
+
+    Outcomes, membership and splits stay the paper's (each cohort's
+    ``data_dir``); only the sequences and vocabulary are the national ones.
+    """
+    if sequence_dir is None:
+        return config
+    sequence_dir = Path(sequence_dir).resolve()
+    config["paths"]["vocabulary"] = str(sequence_dir / "vocabulary.pt")
+    files = [str(sequence_dir / f"subject_data_{split}.pt") for split in ("train", "tuning")]
+    for cohort in config["cohorts"].values():
+        cohort["subject_data_paths"] = files
+    return config
+
+
 def build_bundle(
     base, reference, checkpoints, *, seeds=(42,), epochs=30, selected_router=None,
     router_controls=True,
+    external_sequence_dir=None,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -237,7 +254,8 @@ def build_bundle(
             for origin in ("E", "EA"):
                 if not checkpoints.get(origin):
                     continue
-                external_shared = copy.deepcopy(shared)
+                external_shared = external_sequences(
+                    copy.deepcopy(shared), external_sequence_dir)
                 external_shared["dapt_ckpt"] = checkpoints[origin]
                 for mode, config in (
                     ("J", external_shared),
@@ -377,6 +395,9 @@ def main():
     parser.add_argument("--router-lock", type=Path)
     parser.add_argument("--sequence-data-dir", type=Path,
                         help="Sequences the local encoder was pretrained on (overrides the base config).")
+    parser.add_argument("--external-sequence-dir", type=Path,
+                        help="Our patients tokenised in the national encoder's own format "
+                        "(prepare_external_sequences); used by the national arms.")
     parser.add_argument("--no-router-controls", action="store_true",
                         help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--seeds", default="42")
@@ -424,6 +445,7 @@ def main():
         epochs=args.epochs,
         selected_router=selected,
         router_controls=not args.no_router_controls,
+        external_sequence_dir=args.external_sequence_dir,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

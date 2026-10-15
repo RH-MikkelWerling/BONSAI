@@ -9,7 +9,15 @@ if [[ -f "$REPO/setup_v100.sh" ]]; then
   source "$REPO/setup_v100.sh"
 fi
 PYTHON_BIN="${OPERA_PYTHON:-python}"
-RUN_DIR="${BONSAI_256_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden256_20261013_v1}"
+# BONSAI_WIDTH=512 runs the width probe (configs/..._hidden512_20ep.yaml);
+# BONSAI_EPOCHS shortens it (e.g. 10, to compare with the 256 run's epoch_010.ckpt).
+WIDTH="${BONSAI_WIDTH:-256}"
+case "$WIDTH" in 256|512) ;; *) echo "BONSAI_WIDTH must be 256 or 512" >&2; exit 2 ;; esac
+if [[ "$WIDTH" == 256 ]]; then
+  RUN_DIR="${BONSAI_256_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden256_20261013_v1}"
+else
+  RUN_DIR="${BONSAI_512_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden512_20261016_v1}"
+fi
 [[ "$RUN_DIR" == /* ]] || RUN_DIR="$REPO/$RUN_DIR"
 if [[ "$MODE" == resume || "$MODE" == resume-preflight ]]; then
   CKPT="$RUN_DIR/version_0/last.ckpt"
@@ -32,19 +40,24 @@ fi
 : "${BONSAI_256_HEADS:?Set the confirmed number of attention heads, not dimensions per head}"
 : "${BONSAI_256_LAYERS:?Set the confirmed number of transformer layers}"
 BATCH="${BONSAI_256_BATCH_SIZE:-1}"
-"$PYTHON_BIN" - "$BONSAI_256_HEADS" "$BONSAI_256_LAYERS" "$BATCH" <<'PY'
+"$PYTHON_BIN" - "$BONSAI_256_HEADS" "$BONSAI_256_LAYERS" "$BATCH" "$WIDTH" <<'PY'
 import sys
-heads, layers, batch = map(int, sys.argv[1:])
-if heads <= 0 or 256 % heads or layers <= 0 or batch <= 0 or 128 % batch:
-    raise SystemExit('Require positive layers, heads dividing 256, and physical batch dividing 128')
-print(f'Width 256; {heads} heads; head dimension {256 // heads}; {layers} layers; effective single-GPU batch 128')
+heads, layers, batch, width = map(int, sys.argv[1:])
+if heads <= 0 or width % heads or layers <= 0 or batch <= 0 or 128 % batch:
+    raise SystemExit(f'Require positive layers, heads dividing {width}, and physical batch dividing 128')
+print(f'Width {width}; {heads} heads; head dimension {width // heads}; {layers} layers; effective single-GPU batch 128')
 PY
-ARGS=(--config-name pretrain_harmonized_scaled_time2vec_hidden256_20ep
+ARGS=(--config-name "pretrain_harmonized_scaled_time2vec_hidden${WIDTH}_20ep"
       "model.num_attention_heads=$BONSAI_256_HEADS"
       "model.num_layers=$BONSAI_256_LAYERS"
       "training.batch_size=$BATCH"
       "training.accumulate_grad_batches=$((128 / BATCH))"
       "hydra.run.dir=$RUN_DIR")
+if [[ -n "${BONSAI_EPOCHS:-}" ]]; then
+  ARGS+=("training.epochs=$BONSAI_EPOCHS")
+  # The inherited epoch-10 milestone checkpoint only applies to longer runs.
+  (( BONSAI_EPOCHS <= 10 )) && ARGS+=("training.checkpoint_milestone_epochs=[]")
+fi
 if [[ "$MODE" == preflight ]]; then
   exec "$PYTHON_BIN" -m bonsai.run.pretrain "${ARGS[@]}" --cfg job --resolve
 fi

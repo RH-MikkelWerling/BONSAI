@@ -26,7 +26,7 @@ from opera.analysis.bayesian_contrasts import (
     prepare_contrast_data,
 )
 
-METRICS = ("auc", "brier", "log_loss")
+METRICS = ("auc", "ipa", "brier", "log_loss")
 # Deliberately small. "exchangeable" answers: how large is the typical effect,
 # and how much does it vary between diseases and outcomes? "support_spline"
 # answers: does the effect change with the target's training data, in any
@@ -100,96 +100,102 @@ def prepare(
         # Recipes must target the estimand the analysis actually computed.
         template = {**template, "estimand": json.loads(manifest_path.read_text())["estimand"]}
     rule = template.get("estimability", {}) or {}
-    horizon = template.get("horizon_days", 365)
+    # Every listed horizon gets its own recipes (all six are reported); a
+    # single horizon keeps the original file names.
+    horizons = [int(h) for h in template.get("horizons_days") or
+                [template.get("horizon_days", 365)]]
     split = template.get("split", "held_out")
     rarity = template.get("rarity_column", "n_events_train")
     recipes, primary, status = [], [], []
     rosters = {}
-    for family in families or FAMILIES:
-        for metric in metrics:
-            roster, exclusions = estimable_cell_roster(
-                effects,
-                index,
-                gains,
+    for horizon, family, metric in (
+            (h, f, m) for h in horizons for f in (families or FAMILIES) for m in metrics):
+        tag = f"{family}_{metric}" + (f"_h{horizon}" if len(horizons) > 1 else "")
+        roster, exclusions = estimable_cell_roster(
+            effects,
+            index,
+            gains,
+            family=family,
+            metric=metric,
+            horizon_days=horizon,
+            split=split,
+            seeds=seeds,
+            rarity_column=rarity,
+            min_cases=int(rule.get("min_cases", 5)),
+            min_controls=int(rule.get("min_controls", 5)),
+            minimum_finite_fraction=float(rule.get("minimum_finite_fraction", 0.8)),
+        )
+        rosters[tag] = (roster, exclusions)
+        for name, overrides in VARIANTS:
+            config = recipe_config(
+                template,
+                metric,
                 family=family,
-                metric=metric,
-                horizon_days=horizon,
-                split=split,
+                analysis_dir=analysis_dir,
                 seeds=seeds,
-                rarity_column=rarity,
-                min_cases=int(rule.get("min_cases", 5)),
-                min_controls=int(rule.get("min_controls", 5)),
-                minimum_finite_fraction=float(rule.get("minimum_finite_fraction", 0.8)),
+                output_dir=Path(results_root) / family / metric
+                / (f"h{horizon}" if len(horizons) > 1 else "") / name,
             )
-            rosters[(family, metric)] = (roster, exclusions)
-            for name, overrides in VARIANTS:
-                config = recipe_config(
-                    template,
-                    metric,
-                    family=family,
-                    analysis_dir=analysis_dir,
-                    seeds=seeds,
-                    output_dir=Path(results_root) / family / metric / name,
-                )
-                config.update(overrides)
-                config["cell_roster"] = str(
-                    (output / "rosters" / f"{family}_{metric}.csv").resolve()
-                )
-                record = {
-                    "family": family,
-                    "metric": metric,
-                    "variant": name,
-                    "n_cells": len(roster),
-                    "n_excluded": len(exclusions),
-                }
-                missing_nesting = [
-                    column
-                    for flag, column in NESTING_COLUMNS.items()
-                    if config.get(flag) and column not in effects
-                ]
-                try:
-                    if missing_nesting:
-                        raise ValueError(
-                            "nesting metadata absent: " + ",".join(missing_nesting)
-                        )
-                    if roster.empty:
-                        raise ValueError("no estimable cells under the roster rule")
-                    data = prepare_contrast_data(
-                        effects,
-                        index,
-                        gains,
-                        family=family,
-                        metric=metric,
-                        horizon_days=horizon,
-                        split=split,
-                        seeds=tuple(seeds),
-                        trend=config["trend"],
-                        support_bins=config.get("support_bins"),
-                        weighting=config.get(
-                            "weighting", "equal_disease_endpoint_group"
-                        ),
-                        rarity_column=rarity,
-                        covariance_shrinkage=config.get("covariance_shrinkage", 0.02),
-                        se_floor=config.get("se_floor", 1e-6),
-                        spline_knots=config.get("spline_knots", 4),
-                        cell_roster=roster,
+            config.update(overrides)
+            config["horizon_days"] = horizon
+            config.pop("horizons_days", None)
+            config["cell_roster"] = str(
+                (output / "rosters" / f"{tag}.csv").resolve()
+            )
+            record = {
+                "family": family,
+                "metric": metric,
+                "horizon_days": horizon,
+                "variant": name,
+                "n_cells": len(roster),
+                "n_excluded": len(exclusions),
+            }
+            missing_nesting = [
+                column
+                for flag, column in NESTING_COLUMNS.items()
+                if config.get(flag) and column not in effects
+            ]
+            try:
+                if missing_nesting:
+                    raise ValueError(
+                        "nesting metadata absent: " + ",".join(missing_nesting)
                     )
-                except ValueError as error:
-                    record.update(status="not_estimable", reason=str(error))
-                else:
-                    record.update(status="validated_not_fitted", n_cells=len(data.cells))
-                    path = output / f"{family}_{metric}_{name}.yaml"
-                    recipes.append((path, config))
-                    if name == PRIMARY_VARIANT:
-                        primary.append(str(path.resolve()))
-                status.append(record)
+                if roster.empty:
+                    raise ValueError("no estimable cells under the roster rule")
+                data = prepare_contrast_data(
+                    effects,
+                    index,
+                    gains,
+                    family=family,
+                    metric=metric,
+                    horizon_days=horizon,
+                    split=split,
+                    seeds=tuple(seeds),
+                    trend=config["trend"],
+                    support_bins=config.get("support_bins"),
+                    weighting=config.get(
+                        "weighting", "equal_disease_loss_endpoint"
+                    ),
+                    rarity_column=rarity,
+                    covariance_shrinkage=config.get("covariance_shrinkage", 0.02),
+                    se_floor=config.get("se_floor", 1e-6),
+                    spline_knots=config.get("spline_knots", 4),
+                    cell_roster=roster,
+                )
+            except ValueError as error:
+                record.update(status="not_estimable", reason=str(error))
+            else:
+                record.update(status="validated_not_fitted", n_cells=len(data.cells))
+                path = output / f"{tag}_{name}.yaml"
+                recipes.append((path, config))
+                if name == PRIMARY_VARIANT:
+                    primary.append(str(path.resolve()))
+            status.append(record)
     output.mkdir(parents=True)
     (output / "rosters").mkdir()
-    for (family, metric), (roster, exclusions) in rosters.items():
-        roster.to_csv(output / "rosters" / f"{family}_{metric}.csv", index=False)
-        exclusions.to_csv(
-            output / "rosters" / f"{family}_{metric}_exclusions.csv", index=False
-        )
+    for tag, (roster, exclusions) in rosters.items():
+        roster.to_csv(output / "rosters" / f"{tag}.csv", index=False)
+        exclusions.to_csv(output / "rosters" / f"{tag}_exclusions.csv", index=False)
     for path, config in recipes:
         path.write_text(yaml.safe_dump(config, sort_keys=False))
     pd.DataFrame(status).to_csv(output / "recipe_status.csv", index=False)

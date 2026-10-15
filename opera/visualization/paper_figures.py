@@ -608,6 +608,100 @@ def _map_axis(ax):
         spine.set_visible(False)
 
 
+def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
+                             horizon=365, grid_size=90, min_effective_support=15.0,
+                             bandwidth=None, mark=None):
+    """Where each outcome's observed risk concentrates in one patient embedding.
+
+    ``coords``: ``subject_id``, ``x``, ``y`` (the joint model's projection).
+    ``outcomes``: long table with ``subject_id``, ``outcome`` (display name),
+    ``domain``, ``domain_order``, ``time_days`` and ``event``. Each panel is the
+    IPCW kernel estimate of the observed risk at the horizon among the
+    patients evaluated for that outcome (as in the calibration maps), divided
+    by the outcome's overall risk, so outcomes with very different event rates
+    share one colour scale. Outcomes are ordered by clinical domain; a bracket
+    above each run of panels names its domain. ``page`` selects ``per_page``.
+    """
+    from matplotlib.colors import LogNorm
+    from opera.visualization.censoring_aware_embeddings import (
+        _default_bandwidth, _display_grid, _kernel_surfaces, horizon_ipcw_data)
+
+    coords = coords.sort_values("subject_id").reset_index(drop=True)
+    points = coords[["x", "y"]].to_numpy(float)
+    bandwidth = bandwidth or _default_bandwidth(points)
+    xx, yy, _ = _display_grid(points, grid_size, min_padding=0.8)
+    extent = (xx.min(), xx.max(), yy.min(), yy.max())
+    order = (outcomes[["outcome", "domain", "domain_order"]].drop_duplicates()
+             .sort_values(["domain_order", "outcome"]))
+    selected = order.iloc[(page - 1) * per_page: page * per_page].reset_index(drop=True)
+    if selected.empty:
+        raise ValueError(f"Page {page} has no outcomes")
+    nrows = int(np.ceil(per_page / ncols))
+    fig = plt.figure(figsize=(7.2, 1.85 * nrows + 0.7))
+    height = fig.get_figheight()
+    grid = fig.add_gridspec(nrows, ncols, wspace=0.06, hspace=0.42, left=0.02,
+                            right=0.98, top=1 - 0.42 / height, bottom=0.62 / height)
+    cmap = plt.get_cmap("plasma").copy()
+    cmap.set_bad((1, 1, 1, 0))
+    norm = LogNorm(vmin=0.25, vmax=4)
+    image = None
+    position = dict(zip(coords.subject_id, range(len(coords))))
+    axes = []
+    for index, row in selected.iterrows():
+        ax = fig.add_subplot(grid[index // ncols, index % ncols])
+        axes.append(ax)
+        _map_axis(ax)
+        ax.set_xlim(extent[:2])
+        ax.set_ylim(extent[2:])
+        ax.set_aspect("equal")
+        part = outcomes.loc[(outcomes.outcome == row.outcome)
+                            & outcomes.subject_id.isin(position)]
+        at = part.subject_id.map(position).to_numpy()
+        data = horizon_ipcw_data(part.time_days.to_numpy(float),
+                                 part.event.to_numpy(float), horizon)
+        used = data.eligible
+        overall = (np.sum(data.weights[used] * data.target[used])
+                   / max(np.sum(data.weights[used]), 1e-12))
+        if used.sum() and overall > 0:
+            _, _, surface, support, _ = _kernel_surfaces(
+                points[at][used], data.target[used], data.weights[used],
+                bandwidth=bandwidth, grid_size=grid_size, bounds_coords=points,
+                min_padding=0.8)
+            relative = np.clip(surface / overall, 0.25, 4)
+            relative[support < min_effective_support] = np.nan
+            image = ax.imshow(relative, origin="lower", extent=extent, cmap=cmap,
+                              norm=norm, interpolation="bilinear", zorder=2)
+        ax.scatter(points[:, 0], points[:, 1], s=0.8, alpha=0.18, linewidths=0,
+                   color="white", rasterized=True, zorder=3)
+        ax.set_title(f"{row.outcome}\n{100 * overall:.1f}% at {horizon} days",
+                     fontsize=6.4, pad=2, color=PALETTE["ink"], loc="center",
+                     linespacing=1.25)
+    # Domain brackets: one labelled rule over each run of panels in a row.
+    fig.canvas.draw()
+    lift = 0.2 / height
+    for row_start in range(0, len(selected), ncols):
+        members = selected.iloc[row_start:row_start + ncols]
+        runs = (members.domain != members.domain.shift()).cumsum()
+        for _, run in members.groupby(runs):
+            first = axes[run.index[0]].get_position()
+            last = axes[run.index[-1]].get_position()
+            y = first.y1 + lift
+            fig.add_artist(Line2D([first.x0, last.x1], [y, y], transform=fig.transFigure,
+                                  color=PALETTE["ink_secondary"], lw=0.7))
+            fig.text(first.x0, y + 0.03 / height, run.domain.iloc[0], fontsize=6.6,
+                     fontweight="bold", color=PALETTE["ink"], va="bottom", ha="left")
+    if image is not None:
+        bar = fig.add_axes([0.3, 0.22 / height, 0.4, 0.1 / height])
+        cb = fig.colorbar(image, cax=bar, orientation="horizontal")
+        cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
+        cb.ax.minorticks_off()
+        cb.ax.tick_params(labelsize=6)
+        cb.set_label(f"Observed {horizon}-day risk (IPCW kernel) relative to the "
+                     "outcome's average", fontsize=6.4)
+    watermark(fig, mark)
+    return fig
+
+
 def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                             grid_size=140, min_effective_support=15.0,
                             residual_limit=0.2, router_bins=9, router_min_count=20,
@@ -1252,7 +1346,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                 ha="center", va="bottom", fontsize=5.8,
                 color=_risk_colors(len(band_labels))[index],
                 fontweight="bold", clip_on=False)
-    ax.text(0, -0.25, "Candidate model groups: " + " / ".join(
+    ax.text(0, -0.25, "Model groups (cutoffs fixed on tuning data): " + " / ".join(
                 [f"< {thresholds[0]:.2f}",
                  *[f"{lo:.2f}–< {hi:.2f}" for lo, hi in zip(thresholds[:-1], thresholds[1:])],
                  f"≥ {thresholds[-1]:.2f}"]),
@@ -1349,9 +1443,10 @@ def figure_score_overview(scores, *, mark=None, seed=0):
     systems' estimates at the horizon.
     """
     rng = np.random.default_rng(seed)
-    fig = plt.figure(figsize=(7.2, 1.45 * len(scores) + 0.95))
-    grid = fig.add_gridspec(len(scores), 3, width_ratios=[1, 1, 0.95], wspace=0.28,
-                            hspace=0.42, left=0.09, right=0.985,
+    fig = plt.figure(figsize=(7.2, 1.55 * len(scores) + 0.95))
+    # Column 3 is an empty gutter that holds the estimate labels of column 4.
+    grid = fig.add_gridspec(len(scores), 4, width_ratios=[1, 1, 0.5, 0.78],
+                            wspace=0.16, hspace=0.5, left=0.09, right=0.985,
                             top=1 - 0.72 / fig.get_figheight(),
                             bottom=0.48 / fig.get_figheight())
     for row, spec in enumerate(scores):
@@ -1400,7 +1495,7 @@ def figure_score_overview(scores, *, mark=None, seed=0):
                          "By model risk group" if column == 0 else "By index category",
                          fontsize=8.5, color=PALETTE["ink"], va="top")
             despine(ax, "y")
-        ax = fig.add_subplot(grid[row, 2])
+        ax = fig.add_subplot(grid[row, 3])
         for y, (label, group, n, value, low, high, color) in enumerate(estimates):
             ax.plot([low, high], [y, y], color=color, lw=1.2, alpha=0.55)
             ax.scatter(value, y, marker="D" if label == "Model" else "o", s=18,
@@ -1700,10 +1795,12 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
     setup_style()
     rows = color_rows or [
         {"column": "disease", "label": "Disease group", "kind": "categorical"},
+        {"column": "age", "label": "Age at treatment (years)", "kind": "continuous"},
+        {"column": "sequence_length", "label": "Recorded events before treatment",
+         "kind": "continuous", "log": True},
         {"column": "ipi_group", "label": "IPI category", "kind": "ordinal",
          "order": ["Low", "Low-intermediate", "Intermediate", "High-intermediate",
                    "High"]},
-        {"column": "age", "label": "Age (years)", "kind": "continuous"},
     ]
     required = {"model", "patient_id", "x", "y"} | {r["column"] for r in rows}
     if not required.issubset(coords.columns):
@@ -1746,6 +1843,7 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
                 raise ValueError(f"Unmapped categories in {column}")
             rank = {c: i for i, c in enumerate(levels)}
             cmap = LinearSegmentedColormap.from_list("risk", _risk_colors(len(levels)))
+            cmap.set_bad((1, 1, 1, 0))
             norm = Normalize(0, len(levels) - 1)
             cax = legend_ax.inset_axes([0.08, 0.22, 0.1, 0.56])
             bar = fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cax,
@@ -1784,9 +1882,15 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
             if lo == hi:
                 hi = lo + 1
             norm = LogNorm(lo, hi) if row.get("log") else Normalize(lo, hi)
-            cmap = sequential_cmap()
+            cmap = sequential_cmap().copy()
+            cmap.set_bad((1, 1, 1, 0))
             cax = legend_ax.inset_axes([0.08, 0.22, 0.1, 0.56])
             bar = fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), cax=cax)
+            if row.get("log"):
+                ticks = [t for t in (10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
+                         if lo <= t <= hi]
+                bar.set_ticks(ticks, labels=[f"{t:,}" for t in ticks])
+                bar.ax.minorticks_off()
             bar.ax.tick_params(labelsize=6.5)
             bar.outline.set_visible(False)
             cax.set_title(textwrap.fill(row["label"], 14), fontsize=7.5, loc="left", pad=6)
@@ -1802,13 +1906,31 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
             if categorical:
                 _category_regions(ax, data, column, colors, extent)
             else:
+                # Smooth local mean (Gaussian kernel), as in the risk maps; blank
+                # where too few patients carry the value.
+                from opera.visualization.censoring_aware_embeddings import (
+                    _default_bandwidth, _kernel_surfaces)
+                points = data[["x", "y"]].to_numpy(float)
                 valid = data.loc[data[column].notna()]
                 values = (valid[column].map(rank).to_numpy(dtype=float) if ordinal
                           else valid[column].to_numpy(dtype=float))
-                ax.hexbin(valid.x, valid.y, C=values,
-                          reduce_C_function=np.mean if ordinal else np.median,
-                          gridsize=20, extent=extent, mincnt=4, cmap=cmap, norm=norm,
-                          linewidths=0, zorder=2, rasterized=True)
+                if row.get("log"):
+                    values = np.log(values)
+                bandwidth = 0.6 * _default_bandwidth(points)
+                xx, yy, surface, support, _ = _kernel_surfaces(
+                    valid[["x", "y"]].to_numpy(float), values, np.ones(len(values)),
+                    bandwidth=bandwidth, grid_size=180, bounds_coords=points,
+                    min_padding=0.0)
+                if row.get("log"):
+                    surface = np.exp(surface)
+                # Blank where the map has too few patients nearby.
+                surface[support < 20] = np.nan
+                ax.imshow(surface, origin="lower", cmap=cmap, norm=norm,
+                          extent=(xx.min(), xx.max(), yy.min(), yy.max()),
+                          interpolation="bilinear", aspect="auto", alpha=0.92,
+                          zorder=2, rasterized=True)
+                ax.scatter(data.x, data.y, s=0.8, color="white", alpha=0.25,
+                           linewidths=0, rasterized=True, zorder=3)
             ax.set_xlim(extent[:2])
             ax.set_ylim(extent[2:])
             ax.set_aspect("auto")
@@ -1816,9 +1938,7 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
             ax.set_yticks([])
             ax.grid(False)
             for spine in ax.spines.values():
-                spine.set_visible(True)
-                spine.set_color(PALETTE["grid"])
-                spine.set_linewidth(0.6)
+                spine.set_visible(False)
             if ri == 0:
                 title = str(model).replace(" (tuning-selected)", "")
                 ax.set_title(f"{chr(65 + mi)}  " + textwrap.fill(title, 20), loc="left",

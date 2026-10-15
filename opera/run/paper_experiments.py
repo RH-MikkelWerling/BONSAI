@@ -55,6 +55,12 @@ def path_value(env, key, default=None):
     return (REPO / path).resolve() if not path.is_absolute() else path.resolve()
 
 
+def external_sequence_dir(env, root):
+    """Our patients tokenised in the national encoder's format (external-data)."""
+    return path_value(env, "OPERA_PAPER_EXTERNAL_SEQUENCE_DIR",
+                      str(root / "external_sequences" / "sequences"))
+
+
 def module(name, *args):
     return [sys.executable, "-m", name, *map(str, args)]
 
@@ -133,6 +139,8 @@ def build_commands(args, env):
                     str(root / "external_direct" / "encoder.ckpt"),
                     "--external-dapt-checkpoint",
                     str(root / "external_dapt" / "version_0" / "best.ckpt"),
+                    "--external-sequence-dir",
+                    str(external_sequence_dir(env, root)),
                 ]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
@@ -211,14 +219,32 @@ def build_commands(args, env):
                 path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_CKPT"),
                 "--source-vocab",
                 path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"),
+                # National vocabulary (our records tokenised in its format):
+                # the export is an exact identity mapping.
                 "--target-vocab",
-                path_value(env, "OPERA_SEQUENCE_DATA_DIR") / "vocabulary.pt",
+                external_sequence_dir(env, root) / "vocabulary.pt",
                 "--seed",
                 "42",
                 "--output-dir",
                 root / "external_direct",
                 *(("--source-rope-layout", rope_layout) if rope_layout else ()),
             )
+        ]
+    if args.action == "external-data":
+        # Our patients from the national MEDS, tokenised with the national
+        # vocabulary, then audited (coverage, [UNK] share).
+        output = root / "external_sequences"
+        script = "opera.run.prepare_external_sequences"
+        return [
+            module(script, "filter", "--output-dir", output,
+                   "--external-meds", path_value(env, "OPERA_PAPER_EXTERNAL_MEDS_DIR"),
+                   "--local-meds", path_value(env, "OPERA_PAPER_MEDS_DIR")),
+            module(script, "tokenize", "--output-dir", output,
+                   "--external-vocab", path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"),
+                   "--data-config", value(env, "OPERA_PAPER_EXTERNAL_DATA_CONFIG",
+                                          "daly_care_data")),
+            module(script, "audit", "--output-dir", output,
+                   "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP")),
         ]
     if args.action == "dapt":
         return [
@@ -230,7 +256,7 @@ def build_commands(args, env):
                 "pretrain_external_bonsai_dapt_v1",
                 f"paths.initialization_ckpt={root / 'external_direct' / 'encoder.ckpt'}",
                 f"paths.initialization_vocab={root / 'external_direct' / 'vocabulary.pt'}",
-                f"paths.dir={path_value(env, 'OPERA_SEQUENCE_DATA_DIR')}",
+                f"paths.dir={external_sequence_dir(env, root)}",
                 f"training.epochs={value(env, 'OPERA_PAPER_MIN_DAPT_EPOCHS', '20')}",
                 # The inherited epoch-10 milestone is only valid for longer runs.
                 *(() if int(value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20")) > 10
@@ -250,10 +276,9 @@ def build_commands(args, env):
                 path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
                 "--output_dir",
                 root / "features",
-                # Quality-registry variables for the tabular reference arm only.
-                *(("--registry-variables", path_value(env, "OPERA_PAPER_REGISTRY_VARIABLES"),
-                   "--registry-output", root / "features" / "registry_augmented.parquet")
-                  if value(env, "OPERA_PAPER_REGISTRY_VARIABLES", "") else ()),
+                # Primary matrix, and one keeping the quality-registry
+                # predictors for the tabular reference arm (XR).
+                "--feature_profile", "sequence_matched", "registry_augmented",
             )
         ]
     if args.action == "tabular":
@@ -261,8 +286,11 @@ def build_commands(args, env):
             "opera.run.paper_tabular_queue",
             *shared,
             "--features",
-            (root / "features" / "registry_augmented.parquet" if args.registry
-             else path_value(env, "OPERA_PAPER_FEATURE_MATRIX")),
+            (root / "features" / (Path(value(env, "OPERA_PAPER_FEATURE_SOURCE")).stem
+                                  + "__registry_augmented.parquet") if args.registry
+             else path_value(env, "OPERA_PAPER_FEATURE_MATRIX", str(
+                 root / "features" / (Path(value(env, "OPERA_PAPER_FEATURE_SOURCE")).stem
+                                      + "__sequence_matched.parquet")))),
             "--output-dir",
             root / ("tabular_runs_registry" if args.registry else "tabular_runs"),
             "--horizons",
@@ -362,15 +390,25 @@ def build_commands(args, env):
         command = module(
             "opera.run.export_table1",
             "--population", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
-            *[item for key in ("OPERA_PAPER_CLINICAL_METADATA", "OPERA_PAPER_REGISTRY_VARIABLES")
-              if env.get(key) for item in ("--metadata", path_value(env, key))],
+            *(("--metadata", path_value(env, "OPERA_PAPER_CLINICAL_METADATA"))
+              if env.get("OPERA_PAPER_CLINICAL_METADATA") else ()),
             "--overall-survival", path_value(env, "OPERA_PAPER_OVERALL_SURVIVAL",
                                              str(outcomes / "overall_survival.parquet")),
             "--meds-dir", path_value(env, "OPERA_PAPER_MEDS_DIR"),
             "--meds-code-prefixes", REPO / "opera/configs/table1_meds_prefixes.json",
             "--disclosure-policy", "targeted",
             "--output-dir", root / "table1")
-        return [command + (["--inspect-inputs"] if args.inspect_inputs else [])]
+        if args.inspect_inputs:
+            return [command + ["--inspect-inputs"]]
+        # Manuscript tables, rendered on the server from the exact export with
+        # counts of 1-4 shown as <5 (no complementary suppression).
+        manuscript = root / "table1" / "manuscript"
+        return [command, module(
+            "opera.run.format_table1_release",
+            "--input", root / "table1" / "LOCAL_ONLY_internal" / "table1_values_long.csv",
+            "--output-dir", manuscript,
+            "--disclosure-policy", "primary-only",
+            "--latex", manuscript / "table1_current_review.tex")]
     if args.action == "embedding-tables":
         return [module("opera.run.build_paper_embedding_tables",
                        "--config", path_value(env, "OPERA_PAPER_EMBEDDING_CONFIG"),
@@ -530,6 +568,7 @@ def main():
             "smoke",
             "tuning-summary",
             "prepare-bayes",
+            "external-data",
             "export-external",
             "dapt",
             "features",

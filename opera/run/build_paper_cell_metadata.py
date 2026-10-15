@@ -41,9 +41,18 @@ def build_cell_metadata(registry, training_config, *, horizons=HORIZONS,
     cells = cells.rename(columns={"cohort_grouped": "cohort_group"})
     cells["n_events_train"] = cells["n_primary_events_train"].astype(int)
     cells["endpoint_group"] = cells.outcome.map(endpoint_groups)
+    # The training loss's endpoints: grade variants of one finding share one
+    # endpoint (69 outcomes, 52 endpoints); used for the primary panel weights.
+    loss_endpoints = {}
+    for endpoint, members in (training_config.get("cross_outcome", {})
+                              .get("endpoint_groups") or {}).items():
+        for outcome in members:
+            loss_endpoints.setdefault(outcome, endpoint)
+    cells["loss_endpoint"] = cells.outcome.map(lambda o: loss_endpoints.get(o, o))
     if cells.duplicated(["cohort", "outcome", "horizon_days"]).any():
         raise ValueError("Duplicate cohort/outcome/horizon cells")
-    leading = ["cohort", "cohort_group", "outcome", "endpoint_group", "horizon_days",
+    leading = ["cohort", "cohort_group", "outcome", "endpoint_group", "loss_endpoint",
+               "horizon_days",
                "n_events_train"]
     return cells[leading + [c for c in cells.columns if c not in leading]]
 

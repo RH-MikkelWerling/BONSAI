@@ -83,7 +83,7 @@ def test_server_workspace_registers_every_plate_with_absolute_paths(tmp_path, mo
     monkeypatch.setattr(sys, "argv", ["prepare", "--output-dir", str(root), "--execute"])
     prepare()
     recipe = yaml.safe_load((root / "figures.yaml").read_text())
-    assert len(recipe["required_figures"]) == 17
+    assert len(recipe["required_figures"]) == 23
     assert set(recipe["required_figures"]) == {p["id"] for p in recipe["figures"]}
     for plate in recipe["figures"]:
         for section in ("tables", "json_inputs"):

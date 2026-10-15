@@ -18,6 +18,12 @@ required_figures:
 - supp_rescue
 - supp_strategy
 - supp_calibration_maps
+- supp_embedding_gallery_1
+- supp_embedding_gallery_2
+- supp_embedding_gallery_3
+- supp_embedding_gallery_4
+- supp_embedding_gallery_5
+- supp_embedding_gallery_6
 - fig_who_benefits
 - supp_national_where
 - supp_embedding_comparison
@@ -91,6 +97,42 @@ figures:
     coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_coordinates.csv
   json_inputs:
     outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_map_outcomes.json
+- id: supp_embedding_gallery_1
+  function: figure_embedding_gallery
+  options: {page: 1, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_embedding_gallery_2
+  function: figure_embedding_gallery
+  options: {page: 2, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_embedding_gallery_3
+  function: figure_embedding_gallery
+  options: {page: 3, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_embedding_gallery_4
+  function: figure_embedding_gallery
+  options: {page: 4, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_embedding_gallery_5
+  function: figure_embedding_gallery
+  options: {page: 5, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_embedding_gallery_6
+  function: figure_embedding_gallery
+  options: {page: 6, per_page: 12}
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
 - id: fig_who_benefits
   function: figure_subgroup_effects
   tables:
