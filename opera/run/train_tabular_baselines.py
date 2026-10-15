@@ -76,14 +76,13 @@ def normalize_categorical_missing(frame):
 # Validation-set tuning grids for binary classifiers.
 # Each entry is a list of parameter dicts to evaluate on the validation split.
 # Kept deliberately small so tuning adds little wall-clock overhead.
+LOGISTIC_C_PATH = (0.0003, 0.001, 0.003, 0.01, 0.03, 0.1, 1.0)
+
 TUNING_GRIDS: dict[str, list[dict]] = {
-    # Sparse/elastic-net solutions are substantially more stable than an
-    # effectively unregularized fit when the encoded feature count exceeds n.
-    "logistic": [
-        {"C": c, "l1_ratio": ratio}
-        for c in (0.001, 0.01, 0.1, 1.0)
-        for ratio in (0.0, 0.5, 1.0)
-    ],
+    # Ridge (L2) logistic regression along a regularisation path, strongest
+    # first; fitted with warm starts on features preprocessed once per cell.
+    # (Elastic-net with saga cost ~10x more per cell for no material gain.)
+    "logistic": [{"C": c} for c in LOGISTIC_C_PATH],
     # ``n_estimators`` is the largest tree count; tuning also scores every
     # smaller count in XGBOOST_TREE_COUNTS, which acts as early stopping on the
     # tuning set without refitting.
@@ -416,11 +415,9 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
     if base_model == "logistic":
         return LogisticRegression(
             C=0.1,
-            solver="saga",
-            penalty="elasticnet",
-            l1_ratio=0.5,
-            max_iter=5000,
-            tol=1e-3,
+            solver="lbfgs",  # default penalty: L2 (ridge)
+            max_iter=1000,
+            tol=1e-4,
             # Unweighted: predictions are evaluated as probabilities (Brier,
             # calibration), and class reweighting would inflate every risk.
             class_weight=None,
@@ -531,6 +528,30 @@ def tune_estimator_params(
 
     y_train = train_df["label"].to_numpy(dtype=int)
     y_val = val_df["label"].to_numpy(dtype=int)
+
+    def score_of(probs):
+        return (float(roc_auc_score(y_val, probs)) if selection_metric == "auroc"
+                else -float(log_loss(y_val, probs, labels=[0, 1])))
+
+    if base_model == "logistic":
+        # Preprocess once; walk the path from strong to weak regularisation,
+        # each fit warm-started from the previous solution.
+        preprocess = build_preprocessor(train_df, feature_columns, categorical_columns)
+        x_train = preprocess.fit_transform(train_df[feature_columns])
+        x_val = preprocess.transform(val_df[feature_columns])
+        estimator = make_estimator(base_model, seed)
+        estimator.set_params(warm_start=True)
+        best_score, best_params = -float("inf"), {}
+        for params in sorted(grid, key=lambda item: item["C"]):
+            try:
+                estimator.set_params(**params)
+                estimator.fit(x_train, y_train, sample_weight=sample_weight)
+                score = score_of(estimator.predict_proba(x_val)[:, 1])
+            except Exception:
+                continue
+            if score > best_score:
+                best_score, best_params = score, dict(params)
+        return best_params
 
     best_score = -float("inf")
     best_params: dict = {}

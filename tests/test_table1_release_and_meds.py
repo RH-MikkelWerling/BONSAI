@@ -224,3 +224,22 @@ def test_manuscript_table_renders_released_display_values_verbatim():
     assert "Review version" not in pooled_table_latex(
         release, source_sha256="abc123", status="approved"
     )
+
+
+def test_contact_days_and_common_specialties_are_summarised():
+    from opera.functional.table1_meds import summarize_meds_batches
+
+    pop = pd.DataFrame({"subject_id": [1, 2], "index_date": ["2020-01-10", "2020-01-10"]})
+    events = pd.DataFrame({
+        "subject_id": [1, 1, 1, 2, 2],
+        "time": ["2020-01-01 08:00", "2020-01-01 15:00", "2020-01-05 00:00", "2020-01-02 00:00", "2020-01-20 00:00"],
+        "code": ["SPEC//Haematology", "SPEC//Haematology", "SPEC//Cardiology",
+                 "SPEC//Haematology", "SPEC//Cardiology"]})
+    prefixes = {"distinct_medications": ["MED//"], "distinct_diagnoses": ["DX//"],
+                "laboratory_measurements": ["LAB//"], "hospital_encounters": ["SPEC//"],
+                "n_unique_specialties": ["SPEC//"]}
+    result = summarize_meds_batches(pop, [events], prefixes).set_index("subject_id")
+    assert result.loc[1, "hospital_encounters"] == 2  # two distinct contact days
+    assert result.loc[2, "hospital_encounters"] == 1  # post-index contact excluded
+    assert result.loc[1, "contact_specialty__Cardiology"] == 1
+    assert result.loc[2, "contact_specialty__Cardiology"] == 0

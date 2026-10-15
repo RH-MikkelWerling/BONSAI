@@ -116,9 +116,9 @@ def main():
         clinical = _read_population(args.clinical_metadata)
         # The prognostic index and, when the membership file lacks them,
         # demographics may come from this table.
-        keep = ["subject_id", *[c for c in ("index", "IPI", "age_at_index", "age",
-                                            "birth_date", "sex", "cohort_source")
-                                if c in clinical]]
+        # Every column of the clinical table is carried (registry IPI,
+        # NCCN-IPI score and group, demographics, cohort_source, ...).
+        keep = list(clinical.columns)
         population = population.drop(columns=[c for c in keep[1:] if c in population])
         population = population.merge(clinical[keep], on="subject_id", how="left",
                                       validate="one_to_one")

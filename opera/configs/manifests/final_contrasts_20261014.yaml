@@ -56,6 +56,8 @@ essential_contrasts:
     T6: gain(J_L,XP)   # joint model vs disease-pooled XGBoost
     T7: gain(XP,X)     # value of pooling across diseases for XGBoost
     T8: gain(D_L,XP)   # neural vs XGBoost at the same (disease-pooled) scope
+    T9: gain(J_L,XR)   # joint model vs XGBoost given quality-registry variables
+    T10: gain(XR,X)    # value of quality-registry variables for XGBoost
   routing_decomposition:   # stage-3 controls; disease side adds identity first
     C1: gain(JDE_L,J_L)    # knowing the disease (identity only)
     C2: gain(RDH_L,JDE_L)  # own-disease adapter capacity

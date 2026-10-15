@@ -21,6 +21,7 @@ CONTINUOUS = {
     "distinct_medications": ("Distinct medications", 1),
     "laboratory_measurements": ("Pre-index laboratory-coded records", 1),
     "comorbidity_score": ("Comorbidity burden", 1),
+    "days_since_last_preindex_event": ("Days from last recorded event to treatment", 1),
     "diagnosis_to_index_days": ("Diagnosis to first-line treatment, days", 1),
     "followup_days": ("Observed follow-up duration, years", 365.25),
 }
@@ -64,6 +65,8 @@ CLINICAL_CATEGORICAL = {
     "ipi_risk_group",
     "nccn_ipi",
     "nccn_ipi_score",
+    "nccn_ipi_group",
+    "cohort_source",
     "age_adjusted_ipi",
     "cll_ipi",
     "flipi",
@@ -288,6 +291,11 @@ def summarize(frame):
                 f"{column} must be explicitly coded 0/1; no code guessing."
             )
         add(column, label, values, "binary", 1)
+    for column in sorted(c for c in frame if str(c).startswith("contact_specialty__")):
+        # Share of patients with any pre-index contact in each common specialty.
+        values = pd.to_numeric(frame[column], errors="raise")
+        add(column, "Pre-index contact: " + column.split("__", 1)[1].replace("_", " "),
+            values, "binary", 1)
     for column in [
         "cohort_grouped",
         "cohort_fine",
@@ -296,9 +304,15 @@ def summarize(frame):
         if column not in frame:
             continue
         values = frame[column]
+        if column == "predominant_region":
+            # Display the region name, not its MEDS code prefix.
+            values = values.astype("string").str.split("//", n=1).str[-1]
         for level in sorted(values.dropna().unique(), key=str):
             label = {
                 "index": "Prognostic scoring system",
+                "nccn_ipi_group": "NCCN-IPI risk group",
+                "nccn_ipi_score": "NCCN-IPI score",
+                "cohort_source": "Subtype assignment (pass)",
                 "ipi": "Prognostic score value (IPI field)",
             }.get(str(column).lower(), column.replace("_", " ").title())
             add(column, label, values, "categorical", level)
@@ -588,6 +602,7 @@ def main():
         | set(BINARY)
         | set(clinical_categorical_columns(frame))
         | {"cohort_grouped", "cohort_fine", "index_date"}
+        | {c for c in frame if str(c).startswith("contact_specialty__")}
     )
     pd.DataFrame(
         [

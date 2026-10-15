@@ -2,6 +2,7 @@
   "distinct_medications": ["MEDICATION//"],
   "distinct_diagnoses": ["DIAGNOSIS//"],
   "laboratory_measurements": ["LABTEST//"],
+  "hospital_encounters": ["CONTACT_SPECIALTY//"],
   "n_unique_specialties": ["CONTACT_SPECIALTY//"],
   "predominant_region": ["REGION//"]
 }

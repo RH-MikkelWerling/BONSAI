@@ -250,6 +250,10 @@ def build_commands(args, env):
                 path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
                 "--output_dir",
                 root / "features",
+                # Quality-registry variables for the tabular reference arm only.
+                *(("--registry-variables", path_value(env, "OPERA_PAPER_REGISTRY_VARIABLES"),
+                   "--registry-output", root / "features" / "registry_augmented.parquet")
+                  if value(env, "OPERA_PAPER_REGISTRY_VARIABLES", "") else ()),
             )
         ]
     if args.action == "tabular":
@@ -257,11 +261,14 @@ def build_commands(args, env):
             "opera.run.paper_tabular_queue",
             *shared,
             "--features",
-            path_value(env, "OPERA_PAPER_FEATURE_MATRIX"),
+            (root / "features" / "registry_augmented.parquet" if args.registry
+             else path_value(env, "OPERA_PAPER_FEATURE_MATRIX")),
             "--output-dir",
-            root / "tabular_runs",
+            root / ("tabular_runs_registry" if args.registry else "tabular_runs"),
             "--horizons",
             value(env, "OPERA_PAPER_TABULAR_HORIZONS", "30,60,90,180,365,730"),
+            # Registry arm: per-cell XGBoost only (model XR).
+            *(("--per-cell-models", "xgboost", "--no-pooled") if args.registry else ()),
         )
         if args.max_runs:
             command += ["--max-runs", str(args.max_runs)]
@@ -294,6 +301,8 @@ def build_commands(args, env):
                 root / "predictions",
                 "--tabular-dir",
                 root / "tabular_runs",
+                "--registry-tabular-dir",
+                root / "tabular_runs_registry",
                 "--template",
                 path_value(
                     env,
@@ -346,6 +355,22 @@ def build_commands(args, env):
             command += ["--national-vocabulary",
                         str(path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"))]
         return [command]
+    if args.action == "table1":
+        # Supervised population with its splits, clinical metadata, overall
+        # survival and pre-index MEDS history; small cells suppressed for release.
+        outcomes = Path(value(env, "BONSAI_OUTCOMES_DIR"))
+        command = module(
+            "opera.run.export_table1",
+            "--population", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+            *[item for key in ("OPERA_PAPER_CLINICAL_METADATA", "OPERA_PAPER_REGISTRY_VARIABLES")
+              if env.get(key) for item in ("--metadata", path_value(env, key))],
+            "--overall-survival", path_value(env, "OPERA_PAPER_OVERALL_SURVIVAL",
+                                             str(outcomes / "overall_survival.parquet")),
+            "--meds-dir", path_value(env, "OPERA_PAPER_MEDS_DIR"),
+            "--meds-code-prefixes", REPO / "opera/configs/table1_meds_prefixes.json",
+            "--disclosure-policy", "targeted",
+            "--output-dir", root / "table1")
+        return [command + (["--inspect-inputs"] if args.inspect_inputs else [])]
     if args.action == "embedding-tables":
         return [module("opera.run.build_paper_embedding_tables",
                        "--config", path_value(env, "OPERA_PAPER_EMBEDDING_CONFIG"),
@@ -517,6 +542,7 @@ def main():
             "init-figures",
             "cell-metadata",
             "patient-metadata",
+            "table1",
             "embedding-tables",
             "plot-tables",
             "supplement-tables",
@@ -538,10 +564,14 @@ def main():
     parser.add_argument("--split", choices=("tuning", "held_out"), default="tuning")
     parser.add_argument("--include-external", action="store_true")
     parser.add_argument("--export-routes", action="store_true")
+    parser.add_argument("--registry", action="store_true",
+                        help="tabular: the registry-augmented XGBoost arm (XR).")
     parser.add_argument("--prior-only", action="store_true")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--validate-render", action="store_true",
                         help="figures: validate all render schemas without saving outputs")
+    parser.add_argument("--inspect-inputs", action="store_true",
+                        help="table1: print input coverage and split labels only")
     parser.add_argument("--worker-name", help="Label for this GPU worker's claims")
     parser.add_argument(
         "--wait",

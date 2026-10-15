@@ -7,6 +7,7 @@ output directory. Clinical applicability/cutoffs must be locked before test use.
 from __future__ import annotations
 import argparse
 import json
+import re
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -94,6 +95,97 @@ def score_patients(predictions, metadata, spec, split):
     }
 
 
+CUTOFF_RULES = ("size_matched", "risk_matched_low")
+
+
+def select_model_cutoffs(tuning, spec, *, minimum_group=20):
+    """Model risk-group cutoffs chosen on tuning patients only.
+
+    ``risk_matched_low`` (default; as in the earlier DLBCL study) anchors both
+    ends of the stratification to the index:
+
+    * low cutoff: the largest model low-risk group whose observed risk is no
+      higher than the index's low-risk group (at least ``minimum_group``);
+    * high cutoff: the model calls high risk at the specificity of the index's
+      high-risk group, so both flag the same share of patients without events;
+    * middle cutoffs (e.g. NCCN-IPI's two intermediate groups): the patients
+      between the two are split in the proportions of the index's middle groups.
+
+    ``size_matched`` gives the model groups exactly the index's group sizes.
+    """
+    from opera.visualization.paper_figures import _known_status
+
+    rule = spec.get("cutoff_rule", "risk_matched_low")
+    if rule not in CUTOFF_RULES:
+        raise ValueError(f"cutoff_rule must be one of {CUTOFF_RULES}")
+    order = list(spec["group_order"])
+    shares = tuning.ipi_group.value_counts(normalize=True).reindex(order).fillna(0)
+    risk = tuning.model_risk.to_numpy(float)
+    if rule == "size_matched":
+        cuts = [float(np.quantile(risk, q)) for q in shares.cumsum().to_numpy()[:-1]]
+    else:
+        known, labels = _known_status(tuning, spec["horizon_days"])
+        model_risk = known.model_risk.to_numpy(float)
+        events = labels.to_numpy()
+        low_rate = float(events[(known.ipi_group == order[0]).to_numpy()].mean())
+        candidates = np.unique(np.quantile(model_risk, np.linspace(0.01, 0.99, 197)))
+        feasible = [c for c in candidates
+                    if (model_risk < c).sum() >= minimum_group
+                    and events[model_risk < c].mean() <= low_rate]
+        low = float(max(feasible)) if feasible else float(np.quantile(risk, shares.iloc[0]))
+        high_group = (known.ipi_group == order[-1]).to_numpy()
+        specificity = float((~high_group[events == 0]).mean())
+        high = float(np.quantile(model_risk[events == 0], specificity))
+        middle = shares.iloc[1:-1].to_numpy()
+        between = np.sort(risk[(risk >= low) & (risk < high)])
+        inner = ([float(np.quantile(between, q)) for q in np.cumsum(middle)[:-1] / middle.sum()]
+                 if len(middle) > 1 and len(between) and middle.sum() > 0 else [])
+        cuts = [low, *inner, high]
+    for i in range(1, len(cuts)):  # strictly increasing
+        cuts[i] = max(cuts[i], cuts[i - 1] + 1e-6)
+    return [round(float(c), 6) for c in cuts]
+
+
+def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
+    """How each system stratifies held-out patients with known horizon status.
+
+    Per group of the index and of the model: size, share, observed risk, and
+    the sensitivity and specificity of calling this group or higher "at risk".
+    The cutoffs fix the comparison at the index's operating points; the
+    ``top`` rows show what the model finds beyond them, the observed risk in
+    its highest-risk 5% and 10% of patients (the index cannot rank within
+    its top group, so its row is the high-risk group itself).
+    """
+    from opera.visualization.paper_figures import _known_status
+
+    known, labels = _known_status(patients, spec["horizon_days"])
+    events = labels.to_numpy().astype(bool)
+    order = list(spec["group_order"])
+    model_group = pd.cut(known.model_risk, [-np.inf, *cuts, np.inf],
+                         labels=order, right=False)
+    rows = []
+    for system, groups in (("index", known.ipi_group), ("model", model_group)):
+        rank = groups.map({g: i for i, g in enumerate(order)}).astype(float).to_numpy()
+        for i, group in enumerate(order):
+            inside, at_or_above = rank == i, rank >= i
+            rows.append(dict(
+                score_id=spec["id"], system=system, group=group,
+                n=int(inside.sum()), share=float(inside.mean()),
+                observed_risk=float(events[inside].mean()) if inside.any() else np.nan,
+                sensitivity_at_or_above=float(at_or_above[events].mean()),
+                specificity_at_or_above=float((~at_or_above[~events]).mean())))
+    risk = known.model_risk.to_numpy(float)
+    for fraction in top_fractions:
+        top = risk >= np.quantile(risk, 1 - fraction)
+        rows.append(dict(
+            score_id=spec["id"], system="model", group=f"top {fraction:.0%}",
+            n=int(top.sum()), share=float(top.mean()),
+            observed_risk=float(events[top].mean()),
+            sensitivity_at_or_above=float(top[events].mean()),
+            specificity_at_or_above=float((~top[~events]).mean())))
+    return rows
+
+
 def score_availability(metadata, *, cohort_column, index_column, group_column):
     """Aggregate counts of the recorded index and category in each disease."""
     data = metadata[[cohort_column, index_column, group_column]].fillna("not recorded")
@@ -106,6 +198,68 @@ MANUSCRIPT_NAMES = {"risk_groups": "fig_risk_groups",
                     "clinical_score_age": "supp_clinical_score_age"}
 
 
+def expand_index_scores(config, metadata):
+    """One score entry per recorded prognostic index and disease.
+
+    ``all_indices`` in the score config holds a ``template`` (model, endpoint,
+    group mapping, provenance, ...) and optional per-index ``overrides``. Every
+    value of the index column recorded for at least ``minimum_patients``
+    patients of a disease becomes an entry, unless an explicit entry already
+    covers that index and disease. ``manuscript`` names the index and disease
+    that supply the main-text figures.
+    """
+    block = config.get("all_indices")
+    explicit = []
+    for spec in config.get("scores", []):
+        if spec.get("cohorts") == "all":
+            # Every subtype with at least one patient scored.
+            scored = metadata.loc[metadata[spec["group_column"]].notna(), "cohort_fine"]
+            spec = {**spec, "cohorts": sorted(scored.dropna().unique()),
+                    "population_label": spec.get("population_label", "all subtypes")}
+        explicit.append(spec)
+    if not block:
+        return explicit
+    index_column = block.get("index_column", "index")
+    cohort_column = block.get("cohort_column", "cohort_fine")
+    group_column = block["template"].get("group_column", "IPI")
+    # ``pooled`` (default true) adds one comparison per index across every
+    # subtype in which it is recorded.
+    covered = {(str(v), c) for spec in explicit
+               for v in (spec.get("index_values") or []) for c in spec["cohorts"]}
+    recorded = metadata.loc[metadata[index_column].notna() & metadata[group_column].notna()]
+    counts = recorded.groupby([index_column, cohort_column]).size()
+    manuscript = block.get("manuscript") or {}
+    generated = []
+    for (value, cohort), n in counts.items():
+        if n < block.get("minimum_patients", 50) or (str(value), cohort) in covered:
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "_", f"{value}_{cohort}".lower()).strip("_")
+        spec = {**block["template"], **(block.get("overrides", {}).get(str(value), {}))}
+        spec.update(id=slug, score_label=str(value), cohorts=[cohort],
+                    index_column=index_column, index_values=[value],
+                    group_column=group_column,
+                    manuscript_figures=(str(value) == str(manuscript.get("index"))
+                                        and cohort == manuscript.get("cohort")))
+        generated.append(spec)
+    if block.get("pooled", True):
+        # Each index used in several subtypes is also compared once across all
+        # of them (e.g. the IPI across the aggressive and rare lymphomas),
+        # including subtypes too small for their own comparison.
+        totals = counts.groupby(level=0).sum()
+        for value, cohorts in counts.groupby(level=0):
+            names = sorted(cohorts.index.get_level_values(1))
+            if len(names) < 2 or totals[value] < block.get("minimum_patients", 50):
+                continue
+            slug = re.sub(r"[^a-z0-9]+", "_", f"{value}_all_subtypes".lower()).strip("_")
+            spec = {**block["template"], **(block.get("overrides", {}).get(str(value), {}))}
+            spec.update(id=slug, score_label=str(value), cohorts=names,
+                        population_label="all subtypes", index_column=index_column,
+                        index_values=[value], group_column=group_column,
+                        manuscript_figures=False)
+            generated.append(spec)
+    return explicit + generated
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--analysis-config", type=Path, required=True)
@@ -115,7 +269,10 @@ def main():
     args = parser.parse_args()
     analysis = yaml.safe_load(args.analysis_config.read_text())
     config = yaml.safe_load(args.score_config.read_text())
-    specs = config.get("scores", [])
+    metadata = read_table(analysis["patient_metadata"])
+    metadata.subject_id = metadata.subject_id.astype(str)
+    metadata = metadata.rename(columns=analysis.get("patient_metadata_column_map", {}))
+    specs = expand_index_scores(config, metadata)
     if not specs:
         raise ValueError("Register every score/population in score config first")
     names = [s["id"] for s in specs]
@@ -155,6 +312,10 @@ def main():
             raise ValueError(
                 "Each score needs cutoff-lock and applicability provenance"
             )
+        if spec.get("cutoff_rule"):
+            if spec["cutoff_rule"] not in CUTOFF_RULES:
+                raise ValueError(f"cutoff_rule must be one of {CUTOFF_RULES}")
+            continue  # cutoffs are chosen on tuning patients during rendering
         cuts = spec["model_cutoffs"]
         if (
             len(cuts) != len(spec["group_order"]) - 1
@@ -175,9 +336,6 @@ def main():
         return
     if args.output_dir.exists():
         raise FileExistsError("Use a fresh output directory for this locked report")
-    metadata = read_table(analysis["patient_metadata"])
-    metadata.subject_id = metadata.subject_id.astype(str)
-    metadata = metadata.rename(columns=analysis.get("patient_metadata_column_map", {}))
     if metadata.subject_id.duplicated().any():
         raise ValueError("Patient metadata must be unique")
     tables = []
@@ -202,6 +360,7 @@ def main():
     args.output_dir.mkdir(parents=True)
     records = []
     group_rows = []
+    stratification = []
     overview = []
     for spec in specs:
         record = {"score_id": spec["id"]}
@@ -213,6 +372,10 @@ def main():
                 record["status"] = "insufficient_support"
                 records.append(record)
                 continue
+            cuts = (select_model_cutoffs(tuning, spec) if spec.get("cutoff_rule")
+                    else list(spec["model_cutoffs"]))
+            record["model_cutoffs"] = json.dumps(cuts)
+            record["cutoff_rule"] = spec.get("cutoff_rule", "fixed_in_config")
             known, labels = figures._known_status(tuning, spec["horizon_days"])
             if labels.nunique() != 2:
                 raise ValueError(
@@ -231,7 +394,7 @@ def main():
             common = dict(
                 outcome_label=spec["outcome_label"],
                 horizon_days=spec["horizon_days"],
-                thresholds=tuple(spec["model_cutoffs"]),
+                thresholds=tuple(cuts),
                 ipi_label=spec["score_label"],
                 ipi_order=tuple(spec["group_order"]),
                 event_free=spec["death_in_endpoint"],
@@ -256,7 +419,7 @@ def main():
                 plt.close(fig)
             held["model_group"] = pd.cut(
                 held.model_risk,
-                [-np.inf, *spec["model_cutoffs"], np.inf],
+                [-np.inf, *cuts, np.inf],
                 labels=spec["group_order"],
                 right=False,
             )
@@ -284,10 +447,14 @@ def main():
                             estimate=1 - value if spec["death_in_endpoint"] else value,
                         )
                     )
+            stratification.extend(stratification_summary(
+                held, spec, cuts,
+                top_fractions=tuple(spec.get("top_fractions", (0.05, 0.10)))))
             overview.append({
-                "title": f"{spec['score_label']} · {', '.join(spec['cohorts'])}",
+                "title": f"{spec['score_label']} · "
+                         f"{spec.get('population_label', ', '.join(spec['cohorts']))}",
                 "endpoint": spec["outcome_label"], "patients": held,
-                "thresholds": tuple(spec["model_cutoffs"]),
+                "thresholds": tuple(cuts),
                 "ipi_order": tuple(spec["group_order"]),
                 "horizon_days": spec["horizon_days"],
                 "event_free": spec["death_in_endpoint"]})
@@ -301,9 +468,12 @@ def main():
         records.append(record)
     if overview:
         # Every rendered index on one page, for the supplement.
-        fig = figures.figure_score_overview(overview)
-        save_fig(fig, str(args.output_dir / "supp_score_overview.png"))
-        plt.close(fig)
+        # Six indices per page; the first page keeps the manuscript name.
+        for page, start in enumerate(range(0, len(overview), 6), start=1):
+            fig = figures.figure_score_overview(overview[start:start + 6])
+            suffix = "" if page == 1 else f"_{page}"
+            save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
+            plt.close(fig)
     pd.DataFrame(records).to_csv(args.output_dir / "score_inventory.csv", index=False)
     availability = config.get("availability")
     if availability:
@@ -312,6 +482,10 @@ def main():
     pd.DataFrame(group_rows).to_csv(
         args.output_dir / "risk_group_point_estimates.csv", index=False
     )
+    # Group sizes, observed risk, sensitivity and specificity per system, and
+    # the model's top-risk fractions (supplement table).
+    pd.DataFrame(stratification).to_csv(
+        args.output_dir / "stratification_diagnostics.csv", index=False)
     (args.output_dir / "report_manifest.json").write_text(
         json.dumps(
             dict(

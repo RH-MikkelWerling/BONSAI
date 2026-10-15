@@ -6,9 +6,17 @@ from pathlib import Path
 import pandas as pd
 
 
-def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
+def summarize_meds_batches(population, batches, prefixes, lookback_days=None,
+                           top_specialties=15):
+    """Pre-index history per patient.
+
+    Besides counts, ``hospital_encounters`` (optional prefix key) counts the
+    distinct days with a contact, and, when specialties are configured, the
+    ``top_specialties`` most common contact specialties become indicator
+    columns ``contact_specialty__<name>`` (any pre-index contact).
+    """
     required = {"distinct_medications", "distinct_diagnoses", "laboratory_measurements"}
-    optional = {"n_unique_specialties", "predominant_region"}
+    optional = {"n_unique_specialties", "predominant_region", "hospital_encounters"}
     if not required <= set(prefixes) or not set(prefixes) <= required | optional or any(
         not isinstance(v, list)
         or not v
@@ -31,6 +39,7 @@ def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
     }
     specialties = defaultdict(set)
     regions = defaultdict(Counter)
+    contact_days = defaultdict(set)
     matched_context = Counter()
     for batch in batches:
         if not {"subject_id", "time", "code"} <= set(batch):
@@ -63,6 +72,9 @@ def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
                         if code != matched_prefix:
                             specialties[sid].add(code)
                             matched_context[key] += 1
+                    elif key == "hospital_encounters":
+                        contact_days[sid].add(time.normalize())
+                        matched_context[key] += 1
                     elif key == "predominant_region":
                         if code != matched_prefix:
                             regions[sid][code] += 1
@@ -72,6 +84,8 @@ def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
     for key in optional & prefixes.keys():
         if matched_context[key] == 0:
             raise ValueError(f"No pre-index MEDS events matched configured {key} prefixes")
+    specialty_patients = Counter(code for codes in specialties.values() for code in codes)
+    common = [code for code, _ in specialty_patients.most_common(top_specialties)]
     rows = []
     for sid in index_dates.index:
         values = {"subject_id": sid}
@@ -89,6 +103,10 @@ def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
             values["n_unique_specialties"] = (
                 len(specialties[sid]) if specialties[sid] else pd.NA
             )
+        if "hospital_encounters" in prefixes and sid in counts:
+            values["hospital_encounters"] = len(contact_days[sid])
+        for code in common:
+            values[f"contact_specialty__{code.split('//', 1)[-1]}"] = int(code in specialties[sid])
         if "predominant_region" in prefixes:
             if regions[sid]:
                 top = max(regions[sid].values())
@@ -105,8 +123,11 @@ def summarize_meds_batches(population, batches, prefixes, lookback_days=None):
         rows.append(values)
     columns = ["subject_id", "recorded_events", "observable_history_years",
                "days_since_last_preindex_event", *sorted(required)]
+    if "hospital_encounters" in prefixes:
+        columns.append("hospital_encounters")
     if "n_unique_specialties" in prefixes:
         columns.append("n_unique_specialties")
+        columns.extend(f"contact_specialty__{code.split('//', 1)[-1]}" for code in common)
     if "predominant_region" in prefixes:
         columns.extend(["predominant_region", "predominant_region_status"])
     return pd.DataFrame(rows).reindex(columns=columns)

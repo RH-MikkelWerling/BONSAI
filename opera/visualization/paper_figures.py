@@ -330,7 +330,7 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=365, mark=None):
                     series_style={k: CONTRAST_STYLE[k] for k in ("D-S", "O-S", "J-S")},
                     xlabel=f"{METRIC_LABEL[metric]} (median, IQR)", show_counts=False)
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "F", "By endpoint group")
+    _panel_title(ax, "F", "By clinical domain")
     watermark(fig, mark)
     return fig
 
@@ -343,7 +343,8 @@ def figure_tabular(cells, curve=None, *, horizon=365, mark=None):
     styles = {"S-X": (MODEL_STYLE["S"][0], "Specialist vs XGBoost"),
               "J-X": (MODEL_STYLE["J"][0], "Joint vs XGBoost"),
               "R-X": (MODEL_STYLE["R"][0], "Routed vs XGBoost"),
-              "J-XP": ("#B18B4D", "Joint vs disease-pooled XGBoost")}
+              "J-XP": ("#B18B4D", "Joint vs disease-pooled XGBoost"),
+              "J-XR": ("#6E6E6E", "Joint vs XGBoost with registry variables")}
     data = cells.loc[(cells.horizon_days == horizon) & cells.contrast.isin(styles)]
     order = (data.loc[(data.contrast == "J-X") & (data.metric == "auc")]
              .groupby("endpoint_group").gain.median().sort_values(ascending=False)
@@ -386,10 +387,11 @@ def figure_tabular(cells, curve=None, *, horizon=365, mark=None):
     ax = fig.add_subplot(lower[1])
     part = cells.loc[(cells.contrast.isin(["J-X", "X-LR"])) & (cells.metric == "auc")
                      & (cells.horizon_days == horizon)]
-    horizons_summary = cells.loc[cells.contrast.isin(["J-X", "X-LR", "XP-X"])
+    horizons_summary = cells.loc[cells.contrast.isin(["J-X", "X-LR", "XP-X", "XR-X"])
                                  & (cells.metric == "auc")]
     for contrast, color, label in (("J-X", MODEL_STYLE["J"][0], "Joint vs XGBoost"),
                                    ("XP-X", "#B18B4D", "Pooled vs per-disease XGBoost"),
+                                   ("XR-X", "#6E6E6E", "Registry variables added (XGBoost)"),
                                    ("X-LR", MODEL_STYLE["X"][0], "XGBoost vs logistic")):
         if contrast not in set(horizons_summary.contrast):
             continue
@@ -583,7 +585,7 @@ def figure_atlas(atlas, *, mark=None):
         series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
         xlabel="Held-out AUC (median, IQR)", show_counts=True, zero_line=False)
     group_ax.set_xlim(0.5, 1.0)
-    _panel_title(group_ax, "B", "Endpoint groups")
+    _panel_title(group_ax, "B", "Clinical domains")
     _legend(group_ax, handles, loc="lower right", title="Horizon")
     fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.12, wspace=1.0)
     watermark(fig, mark)

@@ -217,10 +217,17 @@ def build_inventory(args):
                             }
                         )
     horizons = tuple(int(x) for x in args.tabular_horizons.split(","))
-    for job in tabular_jobs(args.bundle_dir, horizons):
+    # Per-cell tabular arms: information-matched XGBoost and logistic regression,
+    # and XGBoost with quality-registry variables added (XR) when it was run.
+    arms = [(Path(args.tabular_dir), (("xgboost", "X"), ("logistic", "LR")), "")]
+    registry_dir = getattr(args, "registry_tabular_dir", None)
+    if registry_dir and Path(registry_dir).is_dir():
+        arms.append((Path(registry_dir), (("xgboost", "XR"),), "registry__"))
+    for (tabular_dir, models, prefix), job in (
+            (arm, job) for arm in arms for job in tabular_jobs(args.bundle_dir, horizons)):
         if job["horizon_days"] not in wanted_horizons:
             continue
-        directory = Path(args.tabular_dir) / job["relative_dir"]
+        directory = tabular_dir / job["relative_dir"]
         marker = directory / "training_complete.json"
         complete = marker.is_file()
         if complete:
@@ -230,7 +237,7 @@ def build_inventory(args):
                 for name, digest in saved["outputs"].items()
             ):
                 raise ValueError("Tabular outputs differ from completed-fit provenance")
-        for model, alias in (("xgboost", "X"), ("logistic", "LR")):
+        for model, alias in models:
             for split in splits:
                 filename = f"{model}_{'tuning_predictions' if split == 'tuning' else 'predictions'}.csv"
                 ready = complete and (directory / filename).is_file()
@@ -255,7 +262,7 @@ def build_inventory(args):
                         output
                         / "tabular"
                         / (
-                            job["relative_dir"].replace("/", "__")
+                            prefix + job["relative_dir"].replace("/", "__")
                             + f"__{model}__{split}.parquet"
                         )
                     )
@@ -367,6 +374,8 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--data-contract", required=True)
     parser.add_argument("--analysis-horizons", default="365")
+    parser.add_argument("--registry-tabular-dir", type=Path,
+                        help="Registry-augmented XGBoost runs (model XR), if run.")
     parser.add_argument("--tabular-horizons", default="30,60,90,180,365,730")
     parser.add_argument(
         "--estimand",

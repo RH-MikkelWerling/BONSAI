@@ -22,8 +22,11 @@ was a binary cross-entropy at each horizon: patients with the event before the
 horizon were positive, patients who died of another cause or were followed
 beyond the horizon were negative, and patients censored earlier did not
 contribute at that horizon. Losses were averaged within each outcome and then
-across groups of related outcomes, so that families with many grade variants
-did not dominate.
+across endpoints, where the grade variants of one laboratory finding (grade
+$\geq$2 and $\geq$3) and nested definitions of the same finding formed one
+endpoint (69 outcomes, 52 endpoints), so that a finding defined at two grades
+did not count twice. This weighting is separate from the clinical domains used
+to present results, which group related outcomes for display only.
 
 The four supervision scopes differed only in which cells of the
 disease-by-outcome grid---one outcome in one disease---provided labels
@@ -58,7 +61,7 @@ given in Supplementary Methods S5--S9.
 
 \subsection*{Tabular comparators: features and tuning}
 For each disease--outcome cell and horizon, we trained gradient-boosted trees
-(XGBoost; \citealp{chen2016xgboost}) and elastic-net logistic regression on the
+(XGBoost; \citealp{chen2016xgboost}) and ridge-penalised logistic regression on the
 same patients, labels and competing-event handling as the neural models. Their
 features came from the pipeline of our earlier DLBCL study
 \citep{werling2026dlbcl}: using timeseriesflattener
@@ -78,11 +81,58 @@ fitted on training data. Hyperparameters were chosen for each cell by log loss
 on the tuning set from a prespecified grid: for XGBoost, shallow trees (depth
 1--3), deeper trees (depth 4 and 6) and the setting of the earlier study
 (depth 8, learning rate 0.01, up to 3,000 trees), with the number of trees also
-chosen on the tuning set; for logistic regression, the strength and mix of the
-elastic-net penalty. Neither model was class-reweighted, so both produce
+chosen on the tuning set; for logistic regression, the penalty strength along
+a seven-value path ($C$ from $3\times10^{-4}$ to 1, fitted with warm starts). Neither model was class-reweighted, so both produce
 probabilities that can be compared directly. \placeholder{Confirm against the
 delivered feature export: anchoring at first-line treatment, source list and
 number of features.}
+
+As a reference outside the information-matched comparison, XGBoost was also
+trained for each cell with the clinical quality-registry variables recorded at
+diagnosis added to the same features (performance status, stage, lactate
+dehydrogenase, extranodal involvement, B symptoms and cytogenetic risk where the
+registry for the disease records them; \placeholder{final list}). Values were
+taken as recorded at diagnosis, left missing where not recorded, and handled by
+the same missingness indicators; hyperparameters were tuned on the same grid.
+The sequence models never saw these variables, so this arm estimates what the
+curated registry adds, not a like-for-like comparison.
+
+\subsection*{Comparison with clinical prognostic indices}
+The quality registries record, for each patient, the prognostic index scored at
+diagnosis (for example the IPI, FLIPI, MIPI, CLL-IPI or ISS) and its risk
+category (low, intermediate or high), before treatment started. Every index
+recorded for at least 50 patients of a subtype, and every index used in more
+than one subtype pooled across all subtypes recording it, was compared with the joint
+model's predicted two-year risk of treatment failure, with death part of the
+endpoint, in the patients who had that index. For DLBCL we also computed the
+NCCN-IPI from the components recorded in the lymphoma registry, following
+the original definition \citep{zhou2014nccnipi}: age (41--60, 61--75 and
+over 75 years: 1, 2 and 3 points), LDH relative to the upper limit of normal
+(205~U/L, or 255~U/L from age 70; ratio above 1 and above 3: 1 and 2 points),
+Ann Arbor stage III--IV (1 point), involvement of bone marrow, central nervous
+system, liver, gastrointestinal tract or lung (1 point), and performance
+status $\geq$2 (1 point); low 0--1, low-intermediate 2--3, high-intermediate
+4--5, high $\geq$6. Patients missing any component were not scored.
+
+Model risk groups were fixed on tuning patients with known two-year status and
+applied unchanged to the test set. The low cutoff was the highest predicted
+risk at which the group below it, of at least 20 patients, had an observed risk
+no higher than the index's low-risk category. The high cutoff was the predicted
+risk at which the model's specificity equalled that of the index's high-risk
+category, so that both flagged the same proportion of patients without the
+event; this is also the operating point marked in the precision--recall
+comparison. Patients between the two cutoffs were divided in the proportions
+of the index's intermediate categories (one for the registry indices, two for
+the NCCN-IPI). Anchoring both ends to the index makes the groups directly
+comparable while leaving the model free to differ: a model that ranks patients
+better places more patients at low risk at the same risk, and captures more
+events at the same specificity. For each index and each system we report group
+size, observed risk, and the sensitivity and specificity of classifying a
+patient in that group or higher, and, for the model, the observed risk in its
+highest-risk 5\% and 10\% of patients, which the index cannot resolve within
+its top category. As a sensitivity analysis, model groups were instead given
+exactly the index's group sizes. Discrimination used the index category (or
+NCCN-IPI points) as an ordinal score.
 
 \subsection*{Routing formulation and selection}
 To test whether a joint model benefits from conditioning its predictions on

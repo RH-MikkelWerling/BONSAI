@@ -333,7 +333,9 @@ for Adverse Events, adjusted for abnormal pre-treatment values
 treatment. A patient contributed to an outcome only if it was
 ascertainable for them, death competed with every non-fatal outcome, and the
 panel was selected from 87 candidates using training and tuning data only.
-Definitions and risk sets are in the Supplementary Methods.
+For presentation, outcomes are grouped into clinical domains (for example
+infection, renal injury, or sodium and potassium); the domains play no part in
+training. Definitions and risk sets are in the Supplementary Methods.
 
 \subsection*{Models}
 Every neural model shares one architecture: a causal transformer encoder,
@@ -342,7 +344,10 @@ event in each patient's chronological history of diagnoses, procedures,
 medications, laboratory results and contacts, followed by a linear head that
 produces outcome-specific hazards with death as a competing risk
 \citep{gensheimer2019nnetsurvival,lee2018deephit}. Supervised training
-minimised a cross-entropy at each horizon over patients with known status.
+minimised a cross-entropy at each horizon over patients with known status,
+with the grade variants of one laboratory finding (grade $\geq$2 and
+$\geq$3) weighted together as one endpoint, so that the 69 outcomes counted as
+52 endpoints.
 The four supervision scopes differed only in which cells of the
 disease-by-outcome grid---one outcome in one disease---provided labels
 (\cref{fig:supervision-grid}): a specialist learned one cell, a disease-pooled
@@ -375,20 +380,40 @@ differ in population, coding and training budget.
 
 \subsection*{Benchmarks}
 For each cell and horizon we trained XGBoost \citep{chen2016xgboost} and
-elastic-net logistic regression on features from the pipeline of our earlier
+ridge-penalised logistic regression on features from the pipeline of our earlier
 DLBCL study \citep{werling2026dlbcl}: history summaries over three windows
 before the index date, built with timeseriesflattener
 \citep{bernstorff2023tsflattener}, with quality-registry variables removed so
 that tabular and sequence models received the same information. To separate
 the value of pooling from the value of the neural model, we also trained one
 XGBoost per outcome across all diseases---the tabular counterpart of the
-disease-pooled model, which like it is not told the patient's disease. Hyperparameters, including the
-setting of the earlier study, were chosen on tuning-set log loss, and no model
-was class-reweighted. The quality
-registries record which prognostic index was scored at diagnosis and its risk
-category; we compared the models with each index in its own population, and
-with the IPI in DLBCL for two-year treatment failure, using model risk groups
-whose cutoffs were fixed on the tuning set.
+disease-pooled model, which like it is not told the patient's disease.
+Clinical quality-registry variables such as performance status, stage,
+lactate dehydrogenase and cytogenetics were among the strongest predictors in
+the earlier study but are not part of the records the sequence models read; as
+a reference, we therefore also trained XGBoost for each cell with these
+variables added. Hyperparameters, including the setting of the earlier study,
+were chosen on tuning-set log loss, and no model was class-reweighted.
+
+\subsection*{Clinical prognostic indices}
+The quality registries record which prognostic index was scored at diagnosis
+and its risk category. We compared the joint model with every index recorded
+for at least 50 patients of a subtype, in the patients who had it, for
+two-year treatment failure, and each index used in several subtypes also
+across all of them---the IPI, for instance, is applied to many rare
+lymphomas for which no specific score exists; in DLBCL we also computed the NCCN-IPI from its
+recorded components \citep{zhou2014nccnipi}. Model risk groups were defined on
+the tuning set to mirror the index at both ends: the low-risk group was the
+largest whose observed risk did not exceed that of the index's low-risk
+category, the high-risk group flagged the same proportion of patients without
+the event as the index's high-risk category (equal specificity), and patients
+between them were divided in the proportions of the index's intermediate
+categories. The comparison then asks how many more events the model's
+high-risk group captures at the index's false-alarm rate, and how many patients
+it can place at low risk without raising their risk; the observed risk in the
+model's highest-risk 5\% and 10\% shows what it identifies beyond the index's
+top category. Details and a size-matched sensitivity analysis are in the
+Supplementary Methods.
 
 \subsection*{Evaluation}
 Discrimination was measured by the time-dependent AUC and accuracy by the
@@ -456,17 +481,17 @@ evaluated at one year; event rates ranged from \placeholder{range}, and
 \begin{figure}[H]
   \resultfigure{fig_atlas}{Predictability atlas}
     {Held-out AUC of the joint model for every outcome at six horizons,
-    ordered within endpoint groups, with group summaries.}
+    ordered within clinical domains, with group summaries.}
   \caption{\textbf{The landscape of predictable outcomes.} \textbf{A},
   Test-period AUC of the joint model for each of the 69 outcomes at each
-  horizon (colour), ordered within endpoint groups. \textbf{B}, The same
-  results summarised by endpoint group. Outcomes or horizons without enough
+  horizon (colour), ordered within clinical domains. \textbf{B}, The same
+  results summarised by clinical domain. Outcomes or horizons without enough
   test events are shown as not estimable rather than omitted.}
   \label{fig:atlas}
 \end{figure}
 
 We first describe which risks could be anticipated at the start of treatment at
-all (\cref{fig:atlas}). \placeholder{Which endpoint groups the joint model
+all (\cref{fig:atlas}). \placeholder{Which clinical domains the joint model
 predicted well at one year (AUC range), which it did not, how discrimination
 changed from 30 days to two years, and how it varied across diseases.}
 
@@ -474,17 +499,17 @@ changed from 30 days to two years, and how it varied across diseases.}
 \begin{figure}[H]
   \subsection*{Learning across diseases and across outcomes}
   \resultfigure{fig_pooling}{Learning across diseases and outcomes}
-    {A--D: disease by endpoint-group maps of the gain from disease pooling,
+    {A--D: disease by clinical-domain maps of the gain from disease pooling,
     outcome pooling and joint learning over the specialist, and their
     interaction. E: gains versus target training events. F: gains by endpoint
     group.}
   \caption{\textbf{Which supervision helps, and when?} \textbf{A--C},
   Median paired one-year AUC gain over the specialist, by disease and
-  endpoint group, for the disease-pooled, outcome-pooled and joint models.
+  clinical domain, for the disease-pooled, outcome-pooled and joint models.
   \textbf{D}, Interaction: the joint gain beyond the sum of the two pooling
   gains. \textbf{E}, Cell gains against the number of training events, with
   the hierarchical support curve and 95\% credible band. \textbf{F}, Gains by
-  endpoint group (median and interquartile range across cells). Positive
+  clinical domain (median and interquartile range across cells). Positive
   values favour the pooled model; grey cells could not be estimated. The
   support curve describes natural variation in the number of events, not the
   effect of removing labels. Cell-level maps and all horizons are in
@@ -506,11 +531,11 @@ Each axis was also evaluated given the other. \placeholder{Adding other
 diseases to an outcome-pooled model changed AUC by X; adding other outcomes to a
 disease-pooled model by Y; the interaction was Z. State whether the axes were
 complementary, redundant or interfering.} The maps show where these gains arose
-across diseases and endpoint groups (\cref{fig:pooling}A--D).
+across diseases and clinical domains (\cref{fig:pooling}A--D).
 
 Gains were \placeholder{concentrated in / not limited to} cells with
 few training events (\cref{fig:pooling}E--F). \placeholder{Shape of the support
-curve with its interval; differences between endpoint groups; the number and
+curve with its interval; differences between clinical domains; the number and
 share of cells in which pooling was worse than the specialist, with
 examples.} Pooled models also predicted \placeholder{N} cells for which
 no specialist could be trained, with \placeholder{absolute performance}; these
@@ -560,8 +585,8 @@ replaces.}
   \caption{\textbf{Does shared learning improve on the usual tabular
   approach?} \textbf{A}, Paired one-year AUC differences of the specialist,
   joint and routed models against XGBoost, and of XGBoost against logistic
-  regression, by endpoint group. \textbf{B}, The same for the Brier score.
-  \textbf{C}, Disease by endpoint-group map of the joint model's gain over
+  regression, by clinical domain. \textbf{B}, The same for the Brier score.
+  \textbf{C}, Disease by clinical-domain map of the joint model's gain over
   XGBoost. \textbf{D}, Gains across horizons. All models are evaluated on the
   same test patients and cells.}
   \label{fig:tabular}
@@ -576,18 +601,18 @@ of the specialists, the joint model and the routed model against XGBoost, and of
 XGBoost against logistic regression as a measure of how strong the baseline
 was.} \placeholder{The joint model against the disease-pooled XGBoost, and the
 pooled against the per-disease XGBoost: whether the gain over XGBoost came from
-pooling, from the neural model, or both.} \placeholder{Endpoint groups and diseases in which XGBoost remained best;
+pooling, from the neural model, or both.} \placeholder{Clinical domains and diseases in which XGBoost remained best;
 consistency across horizons (\cref{fig:tabular}D).} Because the tabular and
 sequence models received the same information, these differences reflect how
 the history is represented and learned, not what is available.
 
 \begin{figure}[H]
   \resultfigure{fig_calibration}{Calibration}
-    {A: calibration slope by endpoint group. B: calibration in the large.
+    {A: calibration slope by clinical domain. B: calibration in the large.
     C: reliability curves for four example outcomes.}
   \caption{\textbf{Are the predicted risks calibrated?} \textbf{A},
   Calibration slope at one year for the joint, routed, specialist and
-  XGBoost models by endpoint group (median and interquartile range across
+  XGBoost models by clinical domain (median and interquartile range across
   cells; ideal 1). \textbf{B}, Calibration in the large, observed minus
   mean predicted risk (ideal 0). \textbf{C}, Reliability curves for four
   example outcomes; observed risks are weighted by the inverse probability of
@@ -599,7 +624,7 @@ the history is represented and learned, not what is available.
 
 Better ranking is of limited use if the predicted probabilities are wrong.
 \placeholder{Calibration slopes and calibration-in-the-large of each model by
-endpoint group (\cref{fig:calibration}); whether the joint model's
+clinical domain (\cref{fig:calibration}); whether the joint model's
 probabilities were as well calibrated as those of the specialists and XGBoost,
 and where they were over- or underestimated.}
 
@@ -648,8 +673,9 @@ number of training events and the year of treatment
   \caption{\textbf{Risk groups from the model and from the IPI.} Patients with
   diffuse large B-cell lymphoma and an IPI recorded at diagnosis.
   \textbf{A}, Kaplan--Meier treatment-failure-free survival, with death part of
-  the endpoint, by model risk group (predicted two-year risk $<$0.10,
-  0.10--0.40 and $\geq$0.40; \placeholder{cutoffs fixed on tuning data}).
+  the endpoint, by model risk group, with cutoffs fixed on tuning data to match
+  the IPI's low-risk observed risk and high-risk specificity
+  (\placeholder{cutoffs}).
   Groups are fixed at baseline; numbers at risk are shown below the curves.
   \textbf{B}, The same by IPI category. Shaded bands are 95\% bootstrap
   intervals; the dashed line marks two years. \textbf{C}, Two-year
@@ -673,8 +699,11 @@ including older patients whom the model placed at low risk.} At the
 specificity of the IPI high-risk category, the model's recall and precision
 were \placeholder{X and Y, against A and B for the IPI}; across all thresholds
 its average precision was \placeholder{X versus Y} (\cref{fig:clinical-score}).
-The same comparison for every other index recorded in the registers, each
-in its own population, is shown in \cref{fig:score-overview}.
+Against the NCCN-IPI, \placeholder{result}. The model's highest-risk 5\%
+had an observed two-year risk of \placeholder{X}, against \placeholder{Y} in
+the IPI high-risk category. The same comparison for every other index recorded
+in the registers, each in its own population, is shown in
+\cref{fig:score-overview}.
 \placeholder{Summary across indices: where model groups separated outcomes
 more or less clearly than the index.} These results describe risk
 stratification, not the effect of acting on it.
@@ -782,7 +811,11 @@ combinations, so its relation to the benefit of sharing is an association, not
 the effect of removing labels. Each model was trained once, so intervals do not
 include variation between training runs. The registers record the IPI as a
 category rather than a score, which limits comparisons to stratification and
-discrimination. Finally, the many correlated comparisons were analysed with
+discrimination. The sequence models did not read the clinical quality-registry
+variables---performance status, stage, LDH, cytogenetics---that were among the
+strongest predictors in our earlier DLBCL model \citep{werling2026dlbcl}; they
+are often missing for recent patients, but adding them is a natural extension,
+and the registry-augmented XGBoost shows what they contribute. Finally, the many correlated comparisons were analysed with
 shared patient resamples and summarised hierarchically, but the raw paired
 estimates remain the primary evidence.
 
@@ -819,7 +852,7 @@ or simpler approach remains preferable.}
   \resultfigure[\textwidth]{supp_routing}{Routing}{Routed versus joint
     and adapter-bank comparison.}
   \caption{\textbf{Does routing add to joint learning?} \textbf{A}, Paired
-  one-year AUC gain of the routed over the joint model by endpoint group; the
+  one-year AUC gain of the routed over the joint model by clinical domain; the
   shaded band is the prespecified margin of practical equivalence. \textbf{B},
   Panel gains of adapter banks trained under the same protocol: no adapters
   versus the joint model (a check that the architecture alone changes nothing),
@@ -835,7 +868,7 @@ or simpler approach remains preferable.}
   \textbf{A}, Test AUC of the joint model against the specialist in each
   cell; point size reflects training events. \textbf{B}, Against the best of
   the specialist, disease-pooled and outcome-pooled models chosen per cell on
-  the tuning set. \textbf{C}, Which model was chosen, by endpoint group.}
+  the tuning set. \textbf{C}, Which model was chosen, by clinical domain.}
   \label{fig:strategy}
 \end{figure}
 
@@ -897,7 +930,11 @@ or simpler approach remains preferable.}
   risk group; middle, by index category, on the same patients; right, estimates
   at two years with 95\% CI (M, model; I, index). Shaded bands are 95\%
   bootstrap intervals and the dashed line marks two years. Model cutoffs were
-  fixed on tuning data for each index. \placeholder{Endpoint per index.}}
+  fixed on tuning data for each index, matching its low-risk observed risk and
+  high-risk specificity. Every index recorded for at least 50 patients of a
+  subtype is shown, and the NCCN-IPI in DLBCL. Group sizes, observed risk,
+  sensitivity and specificity of both systems are in Supplementary
+  Table~\placeholder{S}. \placeholder{Endpoint per index.}}
   \label{fig:score-overview}
 \end{figure}
 
@@ -962,7 +999,7 @@ or simpler approach remains preferable.}
   \resultfigure[0.9\textwidth]{supp_horizons}{Pooling gains across
     horizons}{Gains at 30 to 730 days.}
   \caption{\textbf{Pooling gains across horizons.} Median paired AUC gain
-  over the specialist by endpoint group at each horizon for the
+  over the specialist by clinical domain at each horizon for the
   disease-pooled, outcome-pooled and joint models.}
   \label{fig:supp-horizons}
 \end{figure}
@@ -974,7 +1011,7 @@ or simpler approach remains preferable.}
     patients use which adapters.}
   \caption{\textbf{Which patients use which adapters.} \textbf{A}, Mean
   routing weight on each disease adapter by patients' disease (the patient's
-  own disease hatched). \textbf{B}, Outcome-adapter weights by endpoint group.
+  own disease hatched). \textbf{B}, Outcome-adapter weights by clinical domain.
   \textbf{C}, Share of the routed correction carried by the disease and
   outcome banks. \textbf{D}, Routing intensity across patients.}
   \label{fig:supp-router-usage}

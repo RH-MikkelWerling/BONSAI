@@ -223,3 +223,37 @@ def prepare_feature_matrix(
     return prepare_sequence_matched_features(
         source, population_path, target, overwrite=overwrite
     )
+
+
+def augment_with_registry_variables(matrix_path, registry_path, output_path):
+    """The sequence-matched matrix plus clinical quality-registry variables.
+
+    ``registry_path`` holds one row per patient (``subject_id``) with the
+    variables recorded at diagnosis (performance status, stage, LDH,
+    cytogenetics, ...); they must not post-date the index date. Columns are
+    prefixed ``registry_`` and left missing where not recorded; the tabular
+    preprocessing adds missingness indicators. Only the tabular reference arm
+    uses this matrix: the sequence models never see these variables.
+    """
+    matrix = read_feature_table(Path(matrix_path))
+    registry = read_feature_table(Path(registry_path))
+    if "subject_id" not in registry or registry.subject_id.duplicated().any():
+        raise ValueError("Registry variables need one row per subject_id")
+    _align_subject_id_dtype(registry, matrix)
+    registry = registry.rename(columns={c: f"registry_{c}" for c in registry
+                                        if c != "subject_id"})
+    augmented = matrix.merge(registry, on="subject_id", how="left", validate="one_to_one")
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    augmented.to_parquet(output_path, index=False)
+    manifest = {
+        "matrix": _file_signature(Path(matrix_path)),
+        "registry": _file_signature(Path(registry_path)),
+        "registry_columns": [c for c in registry if c != "subject_id"],
+        "patients_with_registry_record": int(
+            augmented.subject_id.isin(registry.subject_id).sum()),
+        "prepared_shape": [int(augmented.shape[0]), int(augmented.shape[1])],
+    }
+    output_path.with_suffix(output_path.suffix + ".manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=str))
+    return output_path, manifest

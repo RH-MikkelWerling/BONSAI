@@ -1,25 +1,36 @@
-# Register every score/population pair in the patient metadata. The DALY-CARE
-# metadata records, per patient, the prognostic index used (column `index`)
-# and its risk category (column `IPI`: low / medium / high). There is no
-# numeric score, so the category rank serves as the score for discrimination.
-# Copy one record per applicable index; resolve every null before executing
-# on held-out data, and keep unavailable scores in the inventory.
+# Clinical prognostic indices against the model. The DALY-CARE metadata records,
+# per patient, the prognostic index used (column `index`) and its risk category
+# (column `IPI`: low / medium / high), scored at diagnosis in the quality
+# registry. Every index value recorded for >= minimum_patients patients of a
+# disease becomes one comparison (all_indices). There is no numeric score for
+# these, so the category rank serves as the score for discrimination.
+#
+# Model risk groups are chosen on tuning patients. risk_matched_low (default):
+# low cutoff = largest model low-risk group no riskier than the index's;
+# high cutoff = the index's high-risk specificity; middle groups split in the
+# index's proportions. size_matched: the index's group sizes. Fixed
+# model_cutoffs: [...] may be given instead. stratification_diagnostics.csv
+# reports sizes, observed risk, sensitivity and specificity per group, and the
+# observed risk in the model's top 5% and 10% (top_fractions).
+#
+# Fill every null before executing on held-out data.
 availability:  # aggregate index/category counts per disease (supplement table)
   cohort_column: cohort_fine
   index_column: index
   group_column: IPI
-scores:
-  - id: ipi_dlbcl
-    score_label: IPI
+all_indices:
+  index_column: index
+  cohort_column: cohort_fine
+  minimum_patients: 50          # recorded patients of that disease with this index
+  pooled: true                  # also each index across all subtypes recording it
+  manuscript: {index: null, cohort: DLBCL}  # exact `index` value of the IPI
+  template:
     model: J_L
     seed: 42
-    cohorts: [DLBCL]
     outcome: null  # Exact registry name of death-inclusive treatment failure.
     outcome_label: Treatment failure
     horizon_days: 730
     death_in_endpoint: true
-    index_column: index
-    index_values: [null]  # Exact value(s) of `index` for this score, e.g. the IPI label.
     group_column: IPI
     group_map: {low: Low, medium: Intermediate, high: High}
     group_order: [Low, Intermediate, High]
@@ -27,8 +38,61 @@ scores:
     age_column: age_at_index
     score_date_column: null
     score_timing: recorded at diagnosis in the quality registry, before treatment start
-    model_cutoffs: [0.10, 0.40]  # Candidates; lock from the tuning analysis.
-    minimum_patients: 20
-    manuscript_figures: true  # This score supplies the main-text figures.
+    cutoff_rule: risk_matched_low
+    minimum_patients: 20         # held-out patients needed to render
     lock_provenance: null
+    applicability_review: null
+  overrides: {}  # per index value, e.g. {"<index>": {group_map: {...}, group_order: [...]}}
+scores:  # explicit entries (scores not in the `index` column)
+  - id: ipi_computed_all
+    # IPI computed from registry components (opera.run.compute_prognostic_scores)
+    # for every patient with all five components, across all subtypes.
+    score_label: IPI (computed)
+    model: J_L
+    seed: 42
+    cohorts: all
+    outcome: null  # Same endpoint as all_indices.template.
+    outcome_label: Treatment failure
+    horizon_days: 730
+    death_in_endpoint: true
+    score_column: ipi_computed_score    # integer 0-5
+    score_high_threshold: 4
+    group_column: ipi_computed_group
+    group_map: {low: Low, low-intermediate: Low-intermediate,
+                high-intermediate: High-intermediate, high: High}
+    group_order: [Low, Low-intermediate, High-intermediate, High]
+    score_high_group: High
+    age_column: age_at_index
+    score_date_column: null
+    score_timing: computed from components recorded at diagnosis, before treatment start
+    cutoff_rule: risk_matched_low
+    minimum_patients: 20
+    manuscript_figures: false
+    lock_provenance: null       # as in all_indices.template
+    applicability_review: null
+  - id: nccn_ipi_dlbcl
+    # NCCN-IPI computed from the registry components (comparability with the
+    # earlier DLBCL study). Flat columns in the clinical metadata table.
+    score_label: NCCN-IPI
+    model: J_L
+    seed: 42
+    cohorts: [DLBCL]
+    outcome: null  # Same endpoint as all_indices.template.
+    outcome_label: Treatment failure
+    horizon_days: 730
+    death_in_endpoint: true
+    score_column: nccn_ipi_score        # integer 0-8
+    score_high_threshold: 6
+    group_column: nccn_ipi_group
+    group_map: {low: Low, low-intermediate: Low-intermediate,
+                high-intermediate: High-intermediate, high: High}
+    group_order: [Low, Low-intermediate, High-intermediate, High]
+    score_high_group: High
+    age_column: age_at_index
+    score_date_column: null
+    score_timing: computed from components recorded at diagnosis, before treatment start
+    cutoff_rule: risk_matched_low
+    minimum_patients: 20
+    manuscript_figures: false
+    lock_provenance: null       # as in all_indices.template
     applicability_review: null

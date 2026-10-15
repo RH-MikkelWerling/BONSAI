@@ -178,3 +178,150 @@ def test_identity_evidence_date_and_assignment_source_are_carried():
     assert late.tolist() == [False, True]
     assert metadata.cohort_source.tolist() == ["pass1", "pass2_fwd_dx"]
     assert metadata.cohort_identity_post_index.tolist() == [False, True]
+
+
+def test_model_cutoffs_are_chosen_on_tuning_patients():
+    from opera.run.render_clinical_score_panels import select_model_cutoffs
+    from opera.visualization.paper_figures import _known_status
+
+    rng = np.random.default_rng(5)
+    n = 1500
+    risk = rng.uniform(0, 1, n)
+    group = np.digitize(risk + rng.normal(0, 0.25, n), [0.35, 0.7])
+    event_time = np.where(rng.uniform(size=n) < risk, rng.uniform(1, 700, n), 2000.0)
+    tuning = pd.DataFrame({
+        "model_risk": risk, "ipi_group": np.array(["Low", "Intermediate", "High"])[group],
+        "time_days": np.minimum(event_time, 1000.0),
+        "event": (event_time <= 1000).astype(int)})
+    spec = dict(three_group_spec(), horizon_days=730)
+    size = select_model_cutoffs(tuning, {**spec, "cutoff_rule": "size_matched"})
+    shares = tuning.ipi_group.value_counts(normalize=True)
+    assert abs((risk < size[0]).mean() - shares["Low"]) < 0.01
+    low = select_model_cutoffs(tuning, {**spec, "cutoff_rule": "risk_matched_low"})
+    known, labels = _known_status(tuning, 730)
+    assert labels[(known.model_risk < low[0]).to_numpy()].mean() <= labels[
+        (known.ipi_group == "Low").to_numpy()].mean()
+    assert low == sorted(low)
+    # High cutoff: the model's high-risk group has the index's specificity.
+    controls = known.loc[labels.to_numpy() == 0]
+    index_specificity = (controls.ipi_group != "High").mean()
+    model_specificity = (controls.model_risk < low[-1]).mean()
+    assert abs(model_specificity - index_specificity) < 0.01
+
+    from opera.run.render_clinical_score_panels import stratification_summary
+    rows = pd.DataFrame(stratification_summary(tuning, {**spec, "id": "ipi"}, low))
+    assert set(rows.system) == {"index", "model"}
+    assert {"top 5%", "top 10%"} <= set(rows.group)
+    top = rows.set_index("group").loc["top 5%"]
+    assert top.observed_risk > rows.query("system == 'index' and group == 'High'").observed_risk.iloc[0]
+
+
+def test_every_recorded_index_becomes_a_score_entry():
+    from opera.run.render_clinical_score_panels import expand_index_scores
+
+    metadata = pd.DataFrame({
+        "subject_id": range(400),
+        "cohort_fine": ["DLBCL"] * 200 + ["CLL"] * 150 + ["FL"] * 50,
+        "index": ["IPI"] * 120 + ["aaIPI"] * 80 + ["CLL-IPI"] * 150 + ["FLIPI"] * 10 + [None] * 40,
+        "IPI": ["low", "medium", "high", "medium"] * 100})
+    template = dict(three_group_spec(), outcome="failure", lock_provenance="x",
+                    applicability_review="y")
+    config = {"all_indices": {"minimum_patients": 50, "template": template, "pooled": False,
+                              "manuscript": {"index": "IPI", "cohort": "DLBCL"}},
+              "scores": [{"id": "explicit", "cohorts": ["DLBCL"], "index_values": ["aaIPI"]}]}
+    specs = expand_index_scores(config, metadata)
+    generated = {s["id"]: s for s in specs if s["id"] != "explicit"}
+    assert set(generated) == {"ipi_dlbcl", "cll_ipi_cll"}  # aaIPI explicit, FLIPI too few
+    assert generated["ipi_dlbcl"]["manuscript_figures"]
+    assert not generated["cll_ipi_cll"]["manuscript_figures"]
+    assert generated["cll_ipi_cll"]["index_values"] == ["CLL-IPI"]
+
+
+def test_registry_variables_augment_only_the_reference_matrix(tmp_path):
+    import json
+
+    from opera.functional.tabular_features import augment_with_registry_variables
+    from opera.run.paper_tabular_queue import job_models
+
+    matrix = tmp_path / "matched.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "pred_lab_mean": [1.0, 2.0, 3.0]}).to_parquet(matrix)
+    registry = tmp_path / "registry.csv"
+    pd.DataFrame({"subject_id": [1, 3], "ps": [0, 2], "ldh_elevated": [True, False]}).to_csv(
+        registry, index=False)
+    output, manifest = augment_with_registry_variables(matrix, registry, tmp_path / "aug.parquet")
+    augmented = pd.read_parquet(output)
+    assert list(augmented.columns) == ["subject_id", "pred_lab_mean", "registry_ps",
+                                       "registry_ldh_elevated"]
+    assert augmented.registry_ps.isna().tolist() == [False, True, False]
+    assert manifest["patients_with_registry_record"] == 2
+    assert json.loads(output.with_suffix(".parquet.manifest.json").read_text())
+    assert job_models({}, ("xgboost",)) == ("xgboost",)
+    assert job_models({"pooled": True}) == ("xgboost",)
+
+
+def test_an_index_recorded_in_several_subtypes_is_also_compared_across_them():
+    from opera.run.render_clinical_score_panels import expand_index_scores
+
+    metadata = pd.DataFrame({
+        "subject_id": range(300),
+        "cohort_fine": ["DLBCL"] * 200 + ["PTCL"] * 70 + ["BL"] * 30,
+        "index": "IPI", "IPI": ["low", "medium", "high"] * 100})
+    template = dict(three_group_spec(), outcome="failure")
+    specs = {s["id"]: s for s in expand_index_scores(
+        {"all_indices": {"minimum_patients": 50, "template": template}}, metadata)}
+    assert set(specs) == {"ipi_dlbcl", "ipi_ptcl", "ipi_all_subtypes"}
+    assert specs["ipi_all_subtypes"]["cohorts"] == ["BL", "DLBCL", "PTCL"]  # BL too small alone
+
+
+def test_ipi_and_nccn_ipi_from_registry_components():
+    from opera.run.compute_prognostic_scores import compute_scores
+
+    registry = pd.DataFrame({
+        "pid": [1, 2, 3],
+        "alder": [80, 50, 65],
+        "ldh_ratio_col": [3.5, 0.8, 1.2],
+        "ann_arbor": ["IVB", "1", None],
+        "ecog": [2, 0, 1],
+        "n_extranodal": [2, 0, 1],
+        "en_site": ["ja", "nej", "nej"]})
+    scores = compute_scores(registry, {
+        "subject_id": "pid", "age": "alder", "ldh_ratio": "ldh_ratio_col",
+        "stage": "ann_arbor", "ps": "ecog", "extranodal_sites": "n_extranodal",
+        "nccn_extranodal": "en_site"}).set_index("subject_id")
+    # Patient 1: every IPI factor; NCCN 3 (age) + 2 (LDH) + 1 + 1 + 1 = 8.
+    assert scores.loc[1, "ipi_computed_score"] == 5
+    assert scores.loc[1, "nccn_ipi_score"] == 8 and scores.loc[1, "nccn_ipi_group"] == "high"
+    # Patient 2: NCCN 1 point (age 41-60) -> low; IPI 0 -> low.
+    assert scores.loc[2, "nccn_ipi_score"] == 1 and scores.loc[2, "nccn_ipi_group"] == "low"
+    assert scores.loc[2, "ipi_computed_group"] == "low"
+    # Missing stage: no score rather than a partial one.
+    assert pd.isna(scores.loc[3, "nccn_ipi_score"]) and pd.isna(scores.loc[3, "ipi_computed_group"])
+
+
+def test_explicit_score_over_all_scored_subtypes():
+    from opera.run.render_clinical_score_panels import expand_index_scores
+
+    metadata = pd.DataFrame({"subject_id": range(4), "cohort_fine": ["DLBCL", "PTCL", "CLL", "BL"],
+                             "ipi_computed_group": ["low", "high", None, "low"]})
+    (spec,) = expand_index_scores({"scores": [{"id": "x", "cohorts": "all",
+                                               "group_column": "ipi_computed_group"}]}, metadata)
+    assert spec["cohorts"] == ["BL", "DLBCL", "PTCL"]
+
+
+def test_nccn_ipi_matches_the_lyfo_definition():
+    """Age-specific LDH limit (205, 255 from 70) and site-based extranodal flag."""
+    from opera.run.compute_prognostic_scores import NCCN_EXTRANODAL_SITES, compute_scores
+
+    sites = {s: ["No", "No", None] for s in NCCN_EXTRANODAL_SITES}
+    sites["lung_diagnosis"] = ["Yes", "No", None]
+    registry = pd.DataFrame({"subject_id": [1, 2, 3], "age": [72, 55, 50],
+                             "ldh": [600, 210, 100], "stage": [3, 2, 1], "ps": [1, 2, 0],
+                             **sites})
+    scores = compute_scores(registry, {"nccn_extranodal": NCCN_EXTRANODAL_SITES}
+                            ).set_index("subject_id")
+    # 72 y: age 2; LDH 600/255 = 2.4 -> 1; stage III 1; lung 1; PS 1 -> 0 => 5.
+    assert scores.loc[1, "nccn_ipi_score"] == 5
+    # 55 y: age 1; LDH 210/205 > 1 -> 1; stage II 0; no sites 0; PS 2 -> 1 => 3.
+    assert scores.loc[2, "nccn_ipi_score"] == 3
+    # All sites missing: no score.
+    assert pd.isna(scores.loc[3, "nccn_ipi_score"])

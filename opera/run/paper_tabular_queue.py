@@ -96,8 +96,8 @@ def pooled_tabular_jobs(bundle_dir, horizons):
     return pooled
 
 
-def job_models(job):
-    return ("xgboost",) if job.get("pooled") else ("xgboost", "logistic")
+def job_models(job, per_cell=("xgboost", "logistic")):
+    return ("xgboost",) if job.get("pooled") else tuple(per_cell)
 
 
 def training_command(job, args):
@@ -125,7 +125,7 @@ def training_command(job, args):
         "--n_hours_end_include",
         str(job["horizon_days"] * 24),
         "--models",
-        ",".join(job_models(job)),
+        ",".join(job_models(job, getattr(args, "per_cell_models", ("xgboost", "logistic")))),
         "--known_status_cif",
         "--selection_metric",
         "log_loss",
@@ -188,7 +188,7 @@ def run_job(job, args):
             )
         expected = [
             f"{model}_{suffix}"
-            for model in job_models(job)
+            for model in job_models(job, getattr(args, "per_cell_models", ("xgboost", "logistic")))
             for suffix in ("predictions.csv", "tuning_predictions.csv", "metadata.json")
         ]
         if not all((directory / name).is_file() for name in expected):
@@ -222,7 +222,10 @@ def main():
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--no-pooled", action="store_true",
                         help="Skip the disease-pooled XGBoost per outcome.")
+    parser.add_argument("--per-cell-models", default="xgboost,logistic",
+                        help="Models per disease-outcome cell (registry arm: xgboost).")
     args = parser.parse_args()
+    args.per_cell_models = tuple(args.per_cell_models.split(","))
     horizons = tuple(int(x) for x in args.horizons.split(","))
     if (
         not horizons
