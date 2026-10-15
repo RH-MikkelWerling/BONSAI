@@ -113,6 +113,12 @@ attempt, use a fresh `OPERA_PAPER_ROOT` (bundles are immutable by design).
 
 ## 3. GPU workers (as many GPUs as you have)
 
+Every fit trains for up to 30 epochs and stops after 5 epochs without
+improvement in the tuning loss (same rule for all scopes); `best.ckpt` is the
+tuning-best epoch either way. Runs added later go in a new bundle
+(`prepare --stage 3 ...`); workers pick up every `bundles/stage*` directory
+when started, so restart them after preparing one.
+
 In each GPU allocation (one GPU each):
 
 ```bash

@@ -49,7 +49,10 @@ def factorial_configs(
         {
             "epochs": epochs,
             "eval_monitor_metric": SELECTION_METRIC,
-            "early_stopping_patience": None,
+            # Stop after 5 epochs without improvement on the selection metric;
+            # the same rule for every scope, and best.ckpt is still the
+            # tuning-best epoch.
+            "early_stopping_patience": 5,
             "enable_validation_probe": False,
             "limit_val_batches": 1.0,
             "limit_train_batches": 1.0,

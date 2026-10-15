@@ -32,7 +32,8 @@ throughout. A specialist learned one outcome
 in one disease; a disease-pooled model learned one outcome across all diseases;
 an outcome-pooled model learned all outcomes within one disease; and the joint
 model learned all outcomes in all diseases. Every model predicted all six
-horizons and was trained for 30 epochs with the same optimiser, batch size and
+horizons and was trained for up to 30 epochs, stopping after five epochs
+without improvement in tuning loss, with the same optimiser, batch size and
 sampling settings, and every comparison used the same target patients, labels
 and horizons. Because equal epochs do not mean equal optimisation steps or
 computation, we report both for each scope.

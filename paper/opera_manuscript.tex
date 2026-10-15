@@ -348,7 +348,8 @@ disease-by-outcome grid---one outcome in one disease---provided labels
 (\cref{fig:supervision-grid}): a specialist learned one cell, a disease-pooled
 model one outcome across all diseases, an outcome-pooled model all outcomes in
 one disease, and the joint model every cell. All were trained with the same
-encoder initialisation, optimiser and budget. The routed model used the joint
+encoder initialisation and optimiser for up to 30 epochs, stopping after five
+epochs without improvement in tuning loss, and kept the tuning-best checkpoint. The routed model used the joint
 model's labels but let each prediction weight low-rank adapters owned by
 individual diseases and outcomes \citep{ma2018mmoe,houlsby2019adapters}; its
 configuration was chosen on the tuning set. As a control for pretraining

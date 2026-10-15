@@ -58,6 +58,18 @@ def module(name, *args):
     return [sys.executable, "-m", name, *map(str, args)]
 
 
+def stage_bundles(root):
+    """Bundle directories the worker reads: stage 1, stage 2 and any later stage.
+
+    Follow-up runs are added as a new immutable bundle (stage 3, ...) that
+    repeats earlier entries; identical runs share their run directory, so
+    nothing is retrained. Restart workers after preparing a new stage.
+    """
+    stages = {root / "bundles" / "stage1", root / "bundles" / "stage2"}
+    stages.update(path for path in (root / "bundles").glob("stage*") if path.is_dir())
+    return sorted(stages, key=lambda path: int(path.name.removeprefix("stage") or 0))
+
+
 def build_commands(args, env):
     root = path_value(env, "OPERA_PAPER_ROOT")
     estimand = value(env, "OPERA_PAPER_ANALYSIS_ESTIMAND", "binary_known_status_unweighted")
@@ -419,8 +431,7 @@ def build_commands(args, env):
         return [
             module(
                 "opera.run.paper_compute_inventory",
-                "--bundle-dir", root / "bundles" / "stage1",
-                "--bundle-dir", root / "bundles" / "stage2",
+                *[item for path in stage_bundles(root) for item in ("--bundle-dir", path)],
                 "--runs-dir", runs,
                 "--output-dir", root / "compute_inventory",
             )
@@ -429,10 +440,7 @@ def build_commands(args, env):
         command = module(
             "opera.run.paper_worker",
             "next" if args.action == "worker" else "status",
-            "--bundle-dir",
-            root / "bundles" / "stage1",
-            "--bundle-dir",
-            root / "bundles" / "stage2",
+            *[item for path in stage_bundles(root) for item in ("--bundle-dir", path)],
             "--runs-dir",
             runs,
             "--minimum-local-pretraining-epochs",
@@ -513,7 +521,8 @@ def main():
         ],
     )
     parser.add_argument("--env-file", type=Path, default=REPO / ".env")
-    parser.add_argument("--stage", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--stage", type=int, default=1,
+                        help="Bundle stage: 1 local, 2 locked router and external, 3+ follow-ups")
     parser.add_argument("--phase", choices=PHASES, default="supervision")
     parser.add_argument("--regime", choices=("S", "D", "O", "J"))
     parser.add_argument("--shard-count", type=int, default=1)
