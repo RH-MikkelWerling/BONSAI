@@ -3,6 +3,9 @@ outputs/
 corebehrt.egg-info/
 .venv
 .env
+.env.backup.*
+.env.paper
+.env.paper.backup.*
 .coverage
 coverage.xml
 .pytest_cache/

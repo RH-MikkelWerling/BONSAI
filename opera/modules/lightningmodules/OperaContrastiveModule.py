@@ -7,6 +7,7 @@ Handles:
   - Separate param groups for encoder vs projection head (different LR)
 """
 
+import contextlib
 import logging
 import math
 import lightning as L
@@ -26,6 +27,24 @@ from opera.modules.networks.competing_risk import piecewise_exponential_cif
 
 LOGGER = logging.getLogger(__name__)
 
+
+
+def _capture_rng(device):
+    """CPU and (on GPU) device RNG state before one microbatch's first pass."""
+    cuda = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
+    return torch.get_rng_state(), cuda
+
+
+@contextlib.contextmanager
+def _replayed_rng(device, state):
+    """Re-run code under a captured RNG state without disturbing the stream."""
+    cpu, cuda = state
+    devices = [device] if device.type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.set_rng_state(cpu)
+        if cuda is not None:
+            torch.cuda.set_rng_state(cuda, device)
+        yield
 
 class OperaContrastiveModule(L.LightningModule):
     def __init__(
@@ -48,6 +67,7 @@ class OperaContrastiveModule(L.LightningModule):
         selection_min_controls: int = 20,
         checkpoint_metadata: dict = None,
         adapter_optimizer_epsilon: float = None,
+        checkpoint_selection_metric: str = "val/cr_cif_auc_endpoint_group_macro",
     ):
         super().__init__()
         self.model = model
@@ -89,6 +109,7 @@ class OperaContrastiveModule(L.LightningModule):
         }
         self._val_cr_predictions = {}
         self.endpoint_groups = dict(endpoint_groups or {})
+        self.checkpoint_selection_metric = checkpoint_selection_metric
         self.selection_min_cases = int(selection_min_cases)
         self.selection_min_controls = int(selection_min_controls)
         if self.gradient_cache:
@@ -149,7 +170,12 @@ class OperaContrastiveModule(L.LightningModule):
                 self.current_epoch, training=True
             )
         optimizer.zero_grad()
-        self.model.eval()  # both encoder passes must describe the same network
+        # Both encoder passes must describe the same network. Instead of
+        # disabling dropout, record each microbatch's RNG state before the
+        # first pass and replay it in the recomputation so the dropout masks
+        # (and therefore the gradient) are identical (cf. GradCache).
+        self.model.train()
+        rng_states = []
         pooled_parts = []
         survival_parts = {
             name: {"times": [], "events": [], "weights": []} for name in self.outcome_names
@@ -159,6 +185,7 @@ class OperaContrastiveModule(L.LightningModule):
         with torch.no_grad():
             for cpu_batch in microbatches:
                 batch = self._to_device(cpu_batch)
+                rng_states.append(_capture_rng(self.device))
                 pooled_parts.append(self.model.get_objective_representations(batch))
                 survival = self._build_outcome_survival(batch)
                 for name in self.outcome_names:
@@ -185,9 +212,10 @@ class OperaContrastiveModule(L.LightningModule):
         if not self.model.freeze_encoder:
             pooled_grad = pooled.grad.detach()
             offset = 0
-            for cpu_batch in microbatches:
+            for cpu_batch, rng_state in zip(microbatches, rng_states):
                 batch = self._to_device(cpu_batch)
-                recomputed = self.model.get_objective_representations(batch)
+                with _replayed_rng(self.device, rng_state):
+                    recomputed = self.model.get_objective_representations(batch)
                 count = recomputed.shape[0]
                 self.manual_backward(
                     (recomputed * pooled_grad[offset : offset + count]).sum()
@@ -458,10 +486,19 @@ class OperaContrastiveModule(L.LightningModule):
         outcome_aucs = {}
         outcome_briers = {}
         selection_aucs, selection_briers, inventory = {}, {}, []
+        selection_bce = {}
         for name, store in self._val_cr_predictions.items():
             times = torch.cat(store["times"]).numpy()
             events = torch.cat(store["events"]).numpy()
             cif = torch.cat(store["cif"]).numpy()
+            if (
+                self.endpoint_groups
+                and self.checkpoint_selection_metric
+                == "val/cr_horizon_bce_endpoint_group_macro"
+            ):
+                from opera.functional.checkpoint_selection import horizon_bce_values
+
+                selection_bce[name] = horizon_bce_values(times, events, cif, horizons)
             for horizon_index, horizon in enumerate(horizons):
                 metrics = compute_competing_risk_metrics_at_horizon(
                     times, events, cif[:, horizon_index], float(horizon)
@@ -528,9 +565,23 @@ class OperaContrastiveModule(L.LightningModule):
                     raise RuntimeError("Tuning selection inventory changed; use full fixed validation data.")
             else:
                 destination.write_text(json.dumps(inventory, indent=2))
+            bce_selection = (
+                self.checkpoint_selection_metric
+                == "val/cr_horizon_bce_endpoint_group_macro"
+            )
+            if bce_selection:
+                score, coverage = endpoint_group_score(selection_bce, self.endpoint_groups)
+                if not np.isfinite(score):
+                    raise RuntimeError(
+                        "No known tuning horizon labels for BCE checkpoint selection."
+                    )
+                self.log("val/cr_horizon_bce_endpoint_group_macro", score, prog_bar=True)
+                self.log("val/cr_horizon_bce_selection_groups", float(coverage))
             for metric, values in (("auc", selection_aucs), ("brier", selection_briers)):
                 score, coverage = endpoint_group_score(values, self.endpoint_groups)
                 if not np.isfinite(score):
+                    if bce_selection:
+                        continue  # Single-class cells can still select on BCE.
                     raise RuntimeError("No endpoint groups meet the prespecified tuning support threshold.")
                 self.log(f"val/cr_cif_{metric}_endpoint_group_macro", score, prog_bar=metric == "auc")
                 self.log(f"val/cr_cif_{metric}_selection_groups", float(coverage))

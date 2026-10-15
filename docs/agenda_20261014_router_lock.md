@@ -2,6 +2,15 @@
 
 ## Objective
 
+Follow-up decisions and executable supervision-factorial preparation are in
+`docs/supervision_factorial_20261014.md`. The 256 pretraining is now running
+with the collaborator specification. Final comparisons use a common full-tuning
+horizon-BCE checkpoint selector; disease-only routing is an acceptable selected
+model if outcome sources add no supported incremental value.
+The current ordered pre-launch checks and reduced external-pretraining design
+are in `docs/final_experiment_gates_20261014.md`; use that order before queuing
+the full grid. Source mode and additive/interacting query are separate axes.
+
 Freeze the remaining router decisions, then rebuild the essential paper fits
 on the new local 256-wide encoder. No further open-ended architecture sweeps.
 Pretraining can run now independently of the downstream router decisions.

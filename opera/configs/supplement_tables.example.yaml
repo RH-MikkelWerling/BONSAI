@@ -1,0 +1,24 @@
+# Reviewed aggregate summaries; retain complete cell-level CSVs separately.
+# Relative paths resolve against this copied server recipe.
+tables:
+  - id: intended_endpoint_scores
+    source: plot_tables/clinical_score_endpoint_summary.csv
+    caption: Clinical scores, tabular models and sequence models on intended endpoints.
+    columns: [score, evaluated_endpoint, model, auc, auc_interval, common_n]
+    labels: {evaluated_endpoint: Endpoint, common_n: Patients, auc: AUC}
+  - id: outcome_support
+    source: plot_tables/outcome_support_summary.csv
+    caption: Outcome support and ascertainment by clinical domain.
+    columns: [endpoint_group, horizon_days, eligible_n, primary_events, competing_events, unknown_status_n]
+  - id: calibration
+    source: plot_tables/calibration_domain_summary.csv
+    caption: Probability calibration by model and clinical domain.
+    columns: [model, endpoint_group, horizon_days, calibration_in_the_large, calibration_slope, status]
+  - id: resources
+    source: plot_tables/compute_summary.csv
+    caption: Actual model size and computational resources.
+    columns: [model, origin, total_parameters, gpu_hours, peak_memory_gb, inference_seconds]
+  - id: paired_effects
+    source: plot_tables/paired_domain_summary.csv
+    caption: Paired effects with uncertainty on declared common target sets.
+    columns: [contrast, endpoint_group, metric, gain, interval, common_cells]

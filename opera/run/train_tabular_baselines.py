@@ -84,6 +84,9 @@ TUNING_GRIDS: dict[str, list[dict]] = {
         for c in (0.001, 0.01, 0.1, 1.0)
         for ratio in (0.0, 0.5, 1.0)
     ],
+    # ``n_estimators`` is the largest tree count; tuning also scores every
+    # smaller count in XGBOOST_TREE_COUNTS, which acts as early stopping on the
+    # tuning set without refitting.
     "xgboost": [
         {
             "learning_rate": 0.03,
@@ -92,6 +95,7 @@ TUNING_GRIDS: dict[str, list[dict]] = {
             "reg_alpha": alpha,
             "reg_lambda": reg_lambda,
             "colsample_bytree": colsample,
+            "n_estimators": 500,
         }
         for depth, child, alpha, reg_lambda, colsample in (
             (2, 2, 0.5, 5.0, 0.5),
@@ -100,8 +104,20 @@ TUNING_GRIDS: dict[str, list[dict]] = {
             (2, 5, 1.0, 10.0, 0.5),
             (3, 10, 1.0, 20.0, 0.3),
         )
+    ] + [
+        # Deeper trees for cells with enough events to support interactions.
+        {"learning_rate": 0.03, "max_depth": depth, "min_child_weight": 3,
+         "reg_alpha": 1.0, "reg_lambda": 10.0, "colsample_bytree": 0.5,
+         "subsample": 0.9, "n_estimators": 1500}
+        for depth in (4, 6)
+    ] + [
+        # The setting of our earlier DLBCL study (Werling et al., HemaSphere 2026).
+        {"learning_rate": 0.01, "max_depth": 8, "min_child_weight": 3, "gamma": 0.0,
+         "subsample": 1.0, "colsample_bytree": 0.9, "reg_alpha": 10.0,
+         "reg_lambda": 1.0, "n_estimators": 3000},
     ],
 }
+XGBOOST_TREE_COUNTS = (100, 200, 300, 500, 1000, 1500, 2000, 3000)
 
 
 def validate_feature_matrix(
@@ -245,6 +261,7 @@ def outcome_labels(
     outcome_name: Optional[str] = None,
     eligibility_path: Optional[str] = None,
     allowed_subject_ids: Optional[Iterable] = None,
+    known_status_cif: bool = False,
 ) -> pd.DataFrame:
     """Derive labels and optional IPCW fields using the shared outcome pipeline.
 
@@ -266,7 +283,7 @@ def outcome_labels(
         outcome_name=outcome_name,
         allowed_subject_ids=allowed_subject_ids,
     )
-    regime = FIXED_HORIZON_REGIME if require_min_followup else SURVIVAL_REGIME
+    regime = FIXED_HORIZON_REGIME if require_min_followup and not known_status_cif else SURVIVAL_REGIME
     labels = {
         key: dict(value) for key, value in cohorts.for_regime(regime).records.items()
     }
@@ -281,7 +298,18 @@ def outcome_labels(
     frame = pd.DataFrame.from_dict(labels, orient="index").reset_index(
         names="subject_id"
     )
+    if known_status_cif:
+        if n_hours_end_include is None:
+            raise ValueError("Known-status CIF labels require a finite horizon")
+        horizon = float(n_hours_end_include)/24.0
+        if not frame.empty:
+            positive = (frame.event == 1) & (frame.time_days <= horizon)
+            known = positive | (frame.time_days >= horizon) | ((frame.event == 2) & (frame.time_days <= horizon))
+            frame = frame.loc[known].copy()
+            frame["label"] = positive.loc[known].astype(int)
     columns = ["subject_id", "label"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns + (["time_days", "event"] if include_survival_fields else []))
     if include_survival_fields:
         columns.extend(
             col for col in ("time_days", "event", "ipcw_weight") if col in frame.columns
@@ -393,7 +421,9 @@ def make_estimator(model_name: str, seed: int, tabpfn_device: str = "auto"):
             l1_ratio=0.5,
             max_iter=5000,
             tol=1e-3,
-            class_weight="balanced",
+            # Unweighted: predictions are evaluated as probabilities (Brier,
+            # calibration), and class reweighting would inflate every risk.
+            class_weight=None,
             random_state=seed,
         )
     if base_model == "xgboost":
@@ -446,15 +476,17 @@ def tune_estimator_params(
     categorical_columns: Optional[list[str]] = None,
     seed: int = 42,
     sample_weight: Optional[np.ndarray] = None,
+    selection_metric: str = "auroc",
 ) -> dict:
     """Select hyperparameters for *model_name* using a held-out validation split.
 
     Iterates over ``TUNING_GRIDS[base_model_name]``, fits each candidate on
     *train_df*, evaluates AUROC on *val_df*, and returns the parameter dict that
-    achieved the highest validation AUROC.  Falls back to an empty dict (default
+    achieved the highest validation AUROC (default), or lowest log loss when
+    explicitly requested by the paper protocol.  Falls back to an empty dict (default
     parameters) when:
 
-    * fewer than two classes are present in either split,
+    * training has fewer than two classes (or AUROC tuning lacks both classes),
     * the model is not in ``TUNING_GRIDS``, or
     * validation AUROC cannot be computed (e.g. all-positive labels).
 
@@ -480,7 +512,10 @@ def tune_estimator_params(
     dict
         Best hyperparameter dict from ``TUNING_GRIDS``, or ``{}`` on fallback.
     """
-    from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import log_loss, roc_auc_score
+
+    if selection_metric not in {"auroc", "log_loss"}:
+        raise ValueError("Unknown tabular selection metric")
 
     base_model = model_name.removesuffix("_ipcw_cif_bce").removesuffix("_ipcw_bce")
     grid = TUNING_GRIDS.get(base_model)
@@ -489,15 +524,15 @@ def tune_estimator_params(
 
     if (
         train_df["label"].nunique() < 2
-        or val_df["label"].nunique() < 2
-        or len(val_df) < 10
+        or (selection_metric == "auroc" and val_df["label"].nunique() < 2)
+        or len(val_df) < (10 if selection_metric == "auroc" else 1)
     ):
         return {}
 
     y_train = train_df["label"].to_numpy(dtype=int)
     y_val = val_df["label"].to_numpy(dtype=int)
 
-    best_auroc = -1.0
+    best_score = -float("inf")
     best_params: dict = {}
     for params in grid:
         try:
@@ -523,15 +558,27 @@ def tune_estimator_params(
                 else {}
             )
             pipeline.fit(train_df[feature_columns], y_train, **fit_kwargs)
-            probs = predict_pipeline_probabilities(
-                pipeline, val_df[feature_columns]
-            )
-            auroc = float(roc_auc_score(y_val, probs))
+            candidates = {None: predict_pipeline_probabilities(
+                pipeline, val_df[feature_columns])}
+            if base_model == "xgboost":
+                transformed = pipeline.named_steps["preprocess"].transform(
+                    val_df[feature_columns])
+                model = pipeline.named_steps["model"]
+                for trees in XGBOOST_TREE_COUNTS:
+                    if trees < params.get("n_estimators", 0):
+                        candidates[trees] = model.predict_proba(
+                            transformed, iteration_range=(0, trees))[:, 1]
+            for trees, probs in candidates.items():
+                score = (float(roc_auc_score(y_val, probs))
+                         if selection_metric == "auroc"
+                         else -float(log_loss(y_val, probs, labels=[0, 1])))
+                if score > best_score:
+                    best_score = score
+                    best_params = dict(params)
+                    if trees is not None:
+                        best_params["n_estimators"] = trees
         except Exception:
             continue
-        if auroc > best_auroc:
-            best_auroc = auroc
-            best_params = dict(params)
 
     return best_params
 
@@ -780,10 +827,21 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         cohort_fine_col=args.cohort_fine_col,
         cohort_fine_value=args.cohort_fine_value,
     )
+    cohort_feature = getattr(args, "add_cohort_feature", None)
+    if cohort_feature:
+        # Pooled models learn across diseases; the disease enters as a feature.
+        population = read_table(str(args.population))
+        population["subject_id"] = population.subject_id.astype(features.subject_id.dtype)
+        features = features.merge(
+            population[["subject_id", cohort_feature]].rename(
+                columns={cohort_feature: "pooled_disease"}),
+            on="subject_id", how="left", validate="one_to_one")
     feature_columns = infer_feature_columns(
         features, parse_columns(args.exclude_columns)
     )
     categorical_columns = parse_columns(args.categorical_columns) or None
+    if cohort_feature:
+        categorical_columns = sorted({*(categorical_columns or []), "pooled_disease"})
     contract = validate_feature_matrix(
         features,
         feature_columns,
@@ -851,6 +909,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=True,
+        known_status_cif=bool(getattr(args, "known_status_cif", False)),
         competing_outcome_path=args.competing_outcome,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
@@ -903,6 +962,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
         n_hours_start_include=args.n_hours_start_include,
         n_hours_end_include=args.n_hours_end_include,
         require_min_followup=True,
+        known_status_cif=bool(getattr(args, "known_status_cif", False)),
         competing_outcome_path=args.competing_outcome,
         registry_start_date=args.registry_start_date,
         cohort=args.cohort,
@@ -1000,6 +1060,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             n_hours_start_include=args.n_hours_start_include,
             n_hours_end_include=args.n_hours_end_include,
             require_min_followup=True,
+            known_status_cif=bool(getattr(args, "known_status_cif", False)),
             competing_outcome_path=args.competing_outcome,
             registry_start_date=args.registry_start_date,
             cohort=args.cohort,
@@ -1008,9 +1069,9 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             allowed_subject_ids=allowed_subject_ids,
         )
         tune_df = merge_features_and_labels(features, tune_labels)
-        if tune_df.empty or tune_df["label"].nunique() < 2:
+        if tune_df.empty or (getattr(args, "selection_metric", "auroc") == "auroc" and tune_df["label"].nunique() < 2):
             raise ValueError(
-                f"Tuning split {args.tune_split!r} must contain both classes; "
+                f"Tuning split {args.tune_split!r} must be nonempty and AUROC requires both classes; "
                 "held-out data cannot be used for model selection."
             )
     contract.update(
@@ -1186,6 +1247,7 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
                     model_name,
                     train_df=model_train_df,
                     val_df=tune_df,
+                    selection_metric=getattr(args, "selection_metric", "auroc"),
                     feature_columns=model_feature_columns,
                     categorical_columns=categorical_columns,
                     seed=args.seed,
@@ -1283,6 +1345,8 @@ def train_tabular_baselines(args: argparse.Namespace) -> None:
             else None,
             "fit_split": args.train_split,
             "selection_split": args.tune_split if tune_df is not None else None,
+            "selection_metric": getattr(args, "selection_metric", "auroc"),
+            "label_estimand": "binary_known_status_cif" if getattr(args, "known_status_cif", False) else "historical_fixed_horizon",
             "evaluation_split": args.test_split,
             "registry_start_date": args.registry_start_date,
             "eligibility": args.eligibility,
@@ -1352,7 +1416,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional population CSV/parquet defining the study cohort.",
     )
     parser.add_argument("--cohort_fine_col", default=None)
-    parser.add_argument("--cohort_fine_value", default=None)
+    parser.add_argument("--cohort_fine_value", default=None,
+                        help="Fine cohort, or a comma-separated list for pooled models.")
+    parser.add_argument("--add_cohort_feature", default=None,
+                        help="Population column added as a categorical disease feature.")
     parser.add_argument(
         "--registry_start_date",
         default=None,
@@ -1379,6 +1446,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write feature contract and missingness reports without fitting models.",
     )
+    parser.add_argument("--known_status_cif", action="store_true", help="Use ascertainment risk sets and the same known-status CIF labels as neural horizon BCE")
+    parser.add_argument("--selection_metric", choices=["auroc", "log_loss"], default="auroc")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--tune",

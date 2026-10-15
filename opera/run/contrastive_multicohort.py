@@ -32,6 +32,7 @@ from bonsai.functional.checkpointing import (
     clean_lightning_state_dict,
     extract_encoder_state_dict,
     get_saved_encoder_config,
+    checkpoint_selection_record,
     resolve_resume_checkpoint,
     save_checkpoint_metadata_sidecar,
 )
@@ -364,8 +365,16 @@ def main(cfg: DictConfig) -> None:
 
     model_cfg = get_saved_encoder_config(pretrain_hparams)
     encoder = build_bonsai_encoder(model_cfg, vocab_size=len(vocab))
-    encoder_state = extract_encoder_state_dict(ckpt["state_dict"])
-    encoder.load_state_dict(encoder_state, strict=True)
+    initialization = cfg.get("encoder_initialization", "pretrained")
+    if initialization == "pretrained":
+        encoder_state = extract_encoder_state_dict(ckpt["state_dict"])
+        encoder.load_state_dict(encoder_state, strict=True)
+    elif initialization == "random":
+        # Pretraining control: the same architecture and vocabulary with the
+        # module's default (seeded) initialisation; no pretrained weights.
+        print("Encoder initialised randomly; pretrained weights are not loaded.")
+    else:
+        raise ValueError(f"Unknown encoder_initialization {initialization!r}")
 
     # ── DAPT-prior embedding store (optional) ─────────────────────────
     dapt_embedding_store = None
@@ -599,6 +608,7 @@ def main(cfg: DictConfig) -> None:
         encoder_lr_multiplier=cfg.training.encoder_lr_multiplier,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         adapter_optimizer_epsilon=cfg.training.get("adapter_optimizer_epsilon"),
+        checkpoint_selection_metric=str(cfg.training.get("eval_monitor_metric", "val/loss")),
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),
         gradient_cache=_uses_gradient_cache(
@@ -668,7 +678,9 @@ def main(cfg: DictConfig) -> None:
     resume_checkpoint = resolve_resume_checkpoint(
         model_save_dir,
         cfg.paths.get("resume_ckpt"),
-        auto_resume=bool(cfg.training.get("auto_resume", False)),
+        # Resuming this run's own last.ckpt is the default: a restarted fit
+        # must continue the same optimization, not start a second attempt.
+        auto_resume=bool(cfg.training.get("auto_resume", True)),
     )
     trainer.fit(
         model=lightning_module,
@@ -676,7 +688,11 @@ def main(cfg: DictConfig) -> None:
         ckpt_path=resume_checkpoint,
     )
     save_checkpoint_metadata_sidecar(model_save_dir, lightning_module)
-    mark_training_complete(model_save_dir, cfg)
+    mark_training_complete(
+        model_save_dir,
+        cfg,
+        selection=checkpoint_selection_record(ckpt_callback, model_save_dir),
+    )
 
 
 if __name__ == "__main__":

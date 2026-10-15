@@ -1,0 +1,115 @@
+# Complete server recipe. Export OPERA_PAPER_PLOT_TABLE_ROOT to the real plot-table directory.
+# The clinical-score figures (fig_risk_groups, fig_clinical_score,
+# supp_clinical_score_age) are rendered by the clinical-scores action from patient
+# data that stays on the server; they are not plot tables.
+# Every table must come from real analysis; this recipe never generates synthetic inputs.
+required_figures:
+- fig_atlas
+- fig_pooling
+- supp_pooling_cells
+- fig_tabular
+- fig_external
+- supp_routing
+- supp_router_usage
+- supp_horizons
+- fig_calibration
+- supp_coverage
+- supp_support
+- supp_rescue
+- supp_strategy
+- supp_calibration_maps
+- fig_who_benefits
+- supp_national_where
+- supp_embedding_comparison
+figures:
+- id: fig_atlas
+  function: figure_atlas
+  tables:
+    atlas: ${OPERA_PAPER_PLOT_TABLE_ROOT}/atlas.csv
+- id: fig_pooling
+  function: figure_pooling
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    curve: ${OPERA_PAPER_PLOT_TABLE_ROOT}/support_curve.csv
+- id: supp_pooling_cells
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: fig_tabular
+  function: figure_tabular
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: fig_external
+  function: figure_external
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    estimates: ${OPERA_PAPER_PLOT_TABLE_ROOT}/origin_estimates.csv
+    panel: ${OPERA_PAPER_PLOT_TABLE_ROOT}/external_panel.csv
+- id: supp_routing
+  function: figure_routing
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    gate: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gate_effects.csv
+- id: supp_router_usage
+  function: figure_router_usage
+  tables:
+    routes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/route_summaries.csv
+  json_inputs:
+    disease_groups: ${OPERA_PAPER_PLOT_TABLE_ROOT}/disease_groups.json
+    outcome_groups: ${OPERA_PAPER_PLOT_TABLE_ROOT}/outcome_groups.json
+- id: supp_horizons
+  function: figure_horizons
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: fig_calibration
+  function: figure_calibration
+  tables:
+    summary: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_summary.csv
+    reliability: ${OPERA_PAPER_PLOT_TABLE_ROOT}/reliability.csv
+  json_inputs:
+    examples: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_examples.json
+- id: supp_coverage
+  function: figure_coverage
+  tables:
+    coverage: ${OPERA_PAPER_PLOT_TABLE_ROOT}/coverage.csv
+- id: supp_support
+  function: figure_support
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: supp_rescue
+  function: figure_rescue
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/rescue_cells.csv
+- id: supp_strategy
+  function: figure_strategy
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/strategy_cells.csv
+    selection: ${OPERA_PAPER_PLOT_TABLE_ROOT}/selected_strategy.csv
+- id: supp_calibration_maps
+  function: figure_calibration_maps
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_coordinates.csv
+  json_inputs:
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_map_outcomes.json
+- id: fig_who_benefits
+  function: figure_subgroup_effects
+  tables:
+    table: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups.csv
+  json_inputs:
+    contrast_styles: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups_styles.json
+    covariate_order: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups_order.json
+  options:
+    xlabel: Brier score improvement (×100, 95% CI)
+- id: supp_national_where
+  function: figure_subgroup_effects
+  tables:
+    table: ${OPERA_PAPER_PLOT_TABLE_ROOT}/national_subgroups.csv
+  json_inputs:
+    contrast_styles: ${OPERA_PAPER_PLOT_TABLE_ROOT}/national_subgroups_styles.json
+    covariate_order: ${OPERA_PAPER_PLOT_TABLE_ROOT}/national_subgroups_order.json
+  options:
+    xlabel: Brier score improvement (×100, 95% CI)
+- id: supp_embedding_comparison
+  function: figure_embedding_comparison
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/matched_patient_embeddings.csv

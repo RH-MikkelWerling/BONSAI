@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
+import math
 from pathlib import Path
 from typing import Any, Optional
 
@@ -163,9 +164,71 @@ def should_skip_completed_training(
     return False
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def checkpoint_selection_record(checkpoint_callback, output_dir: str | Path) -> dict:
+    """Describe the checkpoint a ModelCheckpoint callback actually selected.
+
+    Lightning restores the callback state on resume, so ``best_model_score``
+    spans the interrupted and resumed segments of one fit. Logged metric files
+    from abandoned attempts are deliberately not consulted.
+    """
+    best_path = Path(checkpoint_callback.best_model_path or "")
+    expected = Path(output_dir) / "best.ckpt"
+    if not best_path.is_file() or best_path.resolve() != expected.resolve():
+        raise RuntimeError(
+            f"Selected checkpoint {best_path} is not this run's best.ckpt ({expected})"
+        )
+    score = checkpoint_callback.best_model_score
+    if score is None:
+        raise RuntimeError("Checkpoint callback recorded no selection score")
+    score = float(score)
+    if not math.isfinite(score):
+        raise RuntimeError(f"Non-finite checkpoint selection score: {score}")
+    state = torch.load(expected, map_location="cpu", weights_only=False)
+    return {
+        "monitor": str(checkpoint_callback.monitor),
+        "mode": str(checkpoint_callback.mode),
+        "best_model_score": score,
+        "best_epoch": int(state.get("epoch", -1)),
+        "best_global_step": int(state.get("global_step", -1)),
+        "best_checkpoint": expected.name,
+        "best_checkpoint_sha256": _file_sha256(expected),
+    }
+
+
+def verified_training_selection(output_dir: str | Path) -> dict:
+    """Return the completed run's selection record after checking best.ckpt.
+
+    Raises ``ValueError`` when the run is incomplete, predates selection
+    records, or its best.ckpt no longer matches the checkpoint that completed.
+    """
+    output_dir = Path(output_dir)
+    marker_path = output_dir / COMPLETION_MARKER
+    if not marker_path.is_file():
+        raise ValueError("training_incomplete")
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    selection = marker.get("selection")
+    if not selection:
+        raise ValueError("completion_marker_without_selection_record")
+    checkpoint = output_dir / selection["best_checkpoint"]
+    if not checkpoint.is_file():
+        raise ValueError("missing_best_checkpoint")
+    if _file_sha256(checkpoint) != selection["best_checkpoint_sha256"]:
+        raise ValueError("best_checkpoint_changed_after_completion")
+    return selection
+
+
 def mark_training_complete(
     output_dir: str | Path,
     cfg: DictConfig | dict,
+    selection: dict | None = None,
 ) -> Path:
     """Atomically write the marker used by resumable checkpoint generation."""
     output_dir = Path(output_dir)
@@ -183,6 +246,8 @@ def mark_training_complete(
         "config_fingerprint": training_config_fingerprint(cfg),
         "artifacts": [item.name for item in required],
     }
+    if selection is not None:
+        payload["selection"] = selection
     temporary.write_text(
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",

@@ -1,0 +1,172 @@
+% Detailed methods moved from the main Methods.
+\subsection*{Sequence encoder and supervised training}
+Our sequence models build on CORE-BEHRT \citep{odgaard2024core}, adapted to a
+causal encoder with next-event pretraining and multi-outcome competing-risk
+prediction. Each patient's history was represented as a chronological sequence
+of diagnoses, procedures, medications, laboratory results (discretised into
+value bins) and hospital contacts, preceded by sex and age. A causal transformer
+encoder \citep{vaswani2017attention} with a hidden size of 256, four layers and
+four attention heads, and a scaled Time2Vec encoding of time
+\citep{kazemi2019time2vec}, was pretrained to predict the next event over a
+context of 8,192 events. \placeholder{Number of individuals and events,
+training budget and selected epoch.} This encoder initialised every supervised
+model in the main comparisons.
+
+\subsection*{Supervised training across diseases and outcomes}
+Every supervised model consisted of the pretrained encoder, trained further,
+and a linear head that produced, for each outcome, piecewise-constant hazards
+for the outcome and for competing death, building on neural interval-hazard and
+competing-risk models \citep{gensheimer2019nnetsurvival,lee2018deephit}.
+Cumulative incidence at each horizon was derived from these hazards. The loss
+was a binary cross-entropy at each horizon: patients with the event before the
+horizon were positive, patients who died of another cause or were followed
+beyond the horizon were negative, and patients censored earlier did not
+contribute at that horizon. Losses were averaged within each outcome and then
+across groups of related outcomes, so that families with many grade variants
+did not dominate.
+
+The four supervision scopes differed only in which cells of the
+disease-by-outcome grid---one outcome in one disease---provided labels
+(\cref{fig:supervision-grid}); we use ``cell'' for such a combination
+throughout. A specialist learned one outcome
+in one disease; a disease-pooled model learned one outcome across all diseases;
+an outcome-pooled model learned all outcomes within one disease; and the joint
+model learned all outcomes in all diseases. Every model predicted all six
+horizons and was trained for 30 epochs with the same optimiser, batch size and
+sampling settings, and every comparison used the same target patients, labels
+and horizons. Because equal epochs do not mean equal optimisation steps or
+computation, we report both for each scope.
+
+\subsection*{Outcome panel}
+We predicted 69 outcomes covering disease course (second-line treatment,
+treatment failure, transformation, new malignancy and death), infection,
+haematological toxicity and transfusion, kidney, liver and coagulation
+toxicity, electrolyte and metabolic disturbances, cardiovascular events and
+acute care, each at 30, 60, 90, 180, 365 and 730 days. Laboratory outcomes used
+grading thresholds aligned with, but not identical to, the Common Terminology
+Criteria for Adverse Events \citep{nci2025ctcae}, with baseline-aware thresholds
+when pre-treatment values were already abnormal; infection was additionally
+captured through antimicrobial treatment, which we label as such. A patient
+contributed to an outcome only if it was ascertainable for them---for example,
+if laboratory follow-up was available---and was otherwise treated as missing
+rather than negative. Death was a competing event for every non-fatal outcome.
+The 69 outcomes were selected from 87 candidates by a prespecified rule based on
+training and tuning event counts at one year, without held-out data
+(Supplementary Methods S8). Definitions, code lists and risk-set sizes are
+given in Supplementary Methods S5--S9.
+
+\subsection*{Tabular comparators: features and tuning}
+For each disease--outcome cell and horizon, we trained gradient-boosted trees
+(XGBoost; \citealp{chen2016xgboost}) and elastic-net logistic regression on the
+same patients, labels and competing-event handling as the neural models. Their
+features came from the pipeline of our earlier DLBCL study
+\citep{werling2026dlbcl}: using timeseriesflattener
+\citep{bernstorff2023tsflattener}, prescriptions, laboratory results,
+procedures and referrals, pathology codes, diagnoses, blood cultures and
+microbiology were summarised over 90-day, one-year and three-year windows before
+the index date, with aggregates suited to each source (counts and distinct
+counts for codes; latest, minimum, maximum, variance and slope for laboratory
+values). Variables recorded for fewer than 10\% of training patients were
+represented by per-source counts of such rare occurrences. To give the tabular
+and sequence models the same information, quality-registry variables such as
+stage and performance status were removed, and age and sex at the index date
+were added. Unlike the earlier study, no LASSO preselection was applied.
+Numeric features were median-imputed with missingness indicators and
+standardised, and categorical features one-hot encoded, with all preprocessing
+fitted on training data. Hyperparameters were chosen for each cell by log loss
+on the tuning set from a prespecified grid: for XGBoost, shallow trees (depth
+1--3), deeper trees (depth 4 and 6) and the setting of the earlier study
+(depth 8, learning rate 0.01, up to 3,000 trees), with the number of trees also
+chosen on the tuning set; for logistic regression, the strength and mix of the
+elastic-net penalty. Neither model was class-reweighted, so both produce
+probabilities that can be compared directly. \placeholder{Confirm against the
+delivered feature export: anchoring at first-line treatment, source list and
+number of features.}
+
+\subsection*{Routing formulation and selection}
+To test whether a joint model benefits from conditioning its predictions on
+disease and outcome beyond ordinary shared learning, we compared the joint
+model with a routed model trained on the same panel. In the routed model, the
+patient representation
+$h_i$ is adjusted for each target outcome $k$ by a weighted combination of
+small residual adapters, one per disease and one per outcome:
+\begin{equation}
+ \begin{aligned}
+ h_{ik}&=h_i+\lambda\sum_s\pi_{iks}\,c_s\,A_s(h_i),\\
+ A_s(h)&=U_s\,\mathrm{GELU}(V_s h),
+ \qquad c_s=\frac{e_s}{e_s+\tau}.
+ \end{aligned}
+ \label{eq:router}
+\end{equation}
+where $A_s$ is a low-rank adapter for source $s$, the weights $\pi_{iks}$ are
+computed from the patient, the patient's disease and the target outcome, and
+$c_s$ shrinks the contribution of sources with few training events $e_s$. The
+adapted representation enters the same linear head as in the joint model. Each adapter was
+updated only by the supervision of its own disease or outcome. The approach
+relates to mixtures of experts and parameter-efficient adapters
+\citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion}.
+
+The router configuration was chosen on the tuning set in a short prespecified
+sequence: which adapter banks to include (none, disease, outcome or both), then
+the adapter rank, then the form of the routing query. A simpler configuration
+was preferred unless a more complex one improved tuning performance beyond a
+prespecified margin, and a routed model with no adapters was required to
+match the joint model before differences between adapter banks were interpreted.
+\placeholder{Insert the selected configuration.} Because a target outcome
+already has its own prediction head, an outcome adapter bank must add value
+beyond that head; route weights describe how the model allocates corrections
+and are not interpreted as evidence of relationships between diseases.
+
+
+
+\begin{figure}[!htbp]
+  \centering
+  \resizebox{0.96\textwidth}{!}{\input{figures/source_router}}
+  \caption{\textbf{Source-anchored disease--outcome routing.} For each patient
+  and target outcome, the router mixes a shared representation with residual
+  adapters indexed by fine disease and outcome. Its weights depend on the
+  patient, disease and target; sources with no training support are masked and
+  low-event sources are shrunk. An adapter is updated by its own eligible
+  supervision, while borrowed adapter parameters are detached. The mixed
+  representation enters a shared linear head for interval hazards and
+  cumulative incidence. This is a model schematic, not an empirical route-weight
+  or performance plot.}
+  \label{fig:source-router}
+\end{figure}
+
+
+\subsection*{Hierarchy for effect heterogeneity}
+The primary evidence is the paired effect in each disease--outcome cell with
+its patient-bootstrap interval. Many cells are small, so their raw estimates
+are noisy and rankings of individual cells are unreliable. We therefore also
+fit a deliberately simple Bayesian hierarchical model whose purpose is partial
+pooling: each cell's effect is the panel mean plus a disease effect, an outcome
+effect and a cell-specific deviation, so that a noisy cell is shrunk towards
+what similar cells show, by an amount the data determine. The model answers
+two questions: how large is the typical effect, and how much does it vary
+between diseases and between outcomes? The cell estimates are not treated as
+independent: their sampling covariance, taken from the shared patient-bootstrap
+draws, enters the likelihood, because the same patients contribute to every
+outcome within a disease.
+
+Whether effects depend on the amount of training data available for the
+target is a separate question; we do not assume a linear relationship.
+A low-dimensional spline still constrains smoothness and complexity. The cell effect is allowed to vary smoothly with log training
+events through a cubic spline with few knots and a shrinkage prior, to regularise departures from a flat relationship; the prior still affects
+the fitted shape and is assessed in sensitivity checks. As a transparent check
+that does not depend on smoothing, cells are also grouped into prespecified
+bins of training events (fixed before held-out evaluation) and the mean effect
+is estimated within each bin. Within each
+question, the model fits the independent effects directly (for pooling:
+disease pooling, outcome pooling and their interaction); conditional and
+combined contrasts are exact sums of these, so all reported pooling contrasts
+are mutually consistent. Priors
+are weakly informative on each metric's scale and checked with prior
+predictive simulation; convergence and posterior predictive checks are
+reported. Posterior probabilities of benefit, harm and practical equivalence
+use a prespecified tolerance. Raw paired estimates are always shown alongside.
+\placeholder{Insert locked priors, tolerances, support-bin edges and sampling
+diagnostics.}
+
+
+\FloatBarrier

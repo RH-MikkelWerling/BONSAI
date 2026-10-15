@@ -1,0 +1,9 @@
+# Prespecified display choices for the paper figures. Lock before rendering
+# held-out results; changing them after seeing results is selective reporting.
+# Registry identifiers (fine cohort, outcome).
+status: candidate_pending_lock
+calibration_examples:  # one large cell per clinical domain
+  - {cohort: DLBCL, outcome: treatment_failure}
+  - {cohort: MM, outcome: serious_infection_composite}
+  - {cohort: CLL, outcome: neutropenia_g3plus}
+  - {cohort: DLBCL, outcome: aki_first_documented}

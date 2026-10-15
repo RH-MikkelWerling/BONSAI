@@ -3,12 +3,16 @@
 # gradient similarity or prevalence.
 endpoint_dependencies:
   composites:
+    # Matches opera/R/build_composites.R, calculate_adverse_events_update.R and
+    # the release-v2 hepatotoxicity rebuild. Components that are not separate
+    # outcomes (Pneumocystis, B59) are omitted from the dependency list.
     any_transfusion: [RBC_transfusion, platelet_transfusion]
-    serious_infection_composite: [sepsis, infections_IV_based, infections_prescription_based]
-    infections_all_definitions: [infections_IV_based, infections_prescription_based]
-    MACE_composite: [myocardial_infarction, stroke_TIA]
+    serious_infection_composite: [sepsis, invasive_fungal]  # + Pneumocystis (B59)
+    infections_all_definitions: [serious_infection_composite, infections_prescription_based, infections_IV_based]
+    MACE_composite: [atrial_fibrillation, VTE, heart_failure, myocardial_infarction, stroke_TIA]
     severe_cytopenia: [anemia_g3plus, neutropenia_g3plus, thrombocytopenia_g3plus]
+    hepatotoxicity: [ALT_increased_g3plus, AST_increased_g3plus, bilirubin_increased_g3plus]
     treatment_failure: [overall_survival, second_line_treatment]
-    treatment_failure_transformation: [overall_survival, second_line_treatment]
+    treatment_failure_transformation: [overall_survival, second_line_treatment, next_hematological_malignancy]
   aliases:
     treatment_failure: [treatment_failure_transformation]

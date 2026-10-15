@@ -332,3 +332,27 @@ def test_label_efficiency_calls_tabular_at_each_fraction_seed(tmp_path, monkeypa
         assert "--seed" in call
         seed_idx = call.index("--seed")
         assert call[seed_idx + 1] in ("42", "43")
+
+
+def test_xgboost_tuning_selects_tree_count_on_tuning_set(monkeypatch):
+    import numpy as np
+    import pandas as pd
+
+    import opera.run.train_tabular_baselines as tabular
+
+    rng = np.random.default_rng(0)
+
+    def frame(n):
+        x = rng.normal(size=(n, 3))
+        label = (x[:, 0] + rng.normal(0, 1, n) > 0).astype(int)
+        return pd.DataFrame({"a": x[:, 0], "b": x[:, 1], "c": x[:, 2], "label": label})
+
+    # The setting of the earlier DLBCL study is among the candidates.
+    assert any(p.get("max_depth") == 8 and p.get("n_estimators") == 3000
+               for p in tabular.TUNING_GRIDS["xgboost"])
+    monkeypatch.setitem(tabular.TUNING_GRIDS, "xgboost", [
+        {"learning_rate": 0.3, "max_depth": 2, "n_estimators": 300}])
+    best = tabular.tune_estimator_params(
+        "xgboost", frame(400), frame(200), ["a", "b", "c"], selection_metric="log_loss")
+    assert best["max_depth"] == 2
+    assert best["n_estimators"] in {100, 200, 300}

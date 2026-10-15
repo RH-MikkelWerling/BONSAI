@@ -1,0 +1,140 @@
+% Narrative methods and empirical table slots; no invented result rows.
+\subsection*{A common basis for comparing predictions}
+The unit of clinical evaluation is a disease--outcome--horizon combination.
+Its risk set is determined by endpoint eligibility and ascertainment, not by
+which model performs best. For each split we report eligible patients, outcome
+events, competing deaths and patients whose status is unknown at the horizon.
+A paired comparison then uses patients with predictions from both methods.
+Different contrasts may have different common risk sets; their denominators
+are reported rather than hidden by a single panel-wide total. A model that
+cannot be fitted or a metric that cannot be estimated remains in the coverage
+inventory with its reason. Such entries are not zero effects.
+
+The study distinguishes superiority among evaluable targets from coverage of
+additional targets. A pooled model can produce predictions where a specialist
+cannot be fitted, but there is then no observed specialist performance to
+subtract. Those targets receive absolute performance estimates and support
+information. They do not enter a paired superiority average through imputation.
+The full outcome definitions and treatment reconstruction are described in
+the appended data-definition supplement.
+
+\subsection*{Clinical scores on the questions they were developed to answer}
+A prognostic index assigns a score from selected clinical measurements and
+uses it to rank patients or assign risk categories. Its interpretation depends
+on the original disease population, clinical time point and endpoint. We
+therefore distinguish an intended-endpoint benchmark from an extension to a
+new endpoint. The former compares the score, logistic regression, XGBoost and
+sequence models for the score's original target in its applicable population.
+The latter asks whether that same score carries information about another
+risk, such as a treatment complication; it is reported as a separate question.
+Original and evaluated endpoints, horizons and prediction times are recorded
+side by side. A shorter available follow-up horizon is not described as a
+reproduction of a longer-horizon development result.
+
+All methods in a score comparison use identical score-available patients.
+Score availability is established at the prediction origin, and its frequency
+is reported by disease and calendar period. Original score categories remain
+unchanged. A tabular comparator restricted to score components examines what
+can be learned from the same clinical snapshot. Richer-history tabular and
+sequence models examine the additional value of information in routine
+histories. A gain in the latter comparison is a gain for the delivered
+pipeline; it does not isolate neural architecture from information content.
+
+Integer score values are not individual probabilities. They can be used
+directly for ranking-based discrimination, whereas Brier scores and probability
+calibration require an applicable published probability mapping or a mapping
+fitted on development data and frozen before testing. That mapping's data,
+endpoint, horizon and fitting procedure accompany the reported estimates.
+The full comparison roster includes unsupported and unavailable scores.
+\placeholder{Insert the reviewed score/version/population inventory and
+intended-endpoint benchmark estimates from the secure analysis.}
+
+\subsection*{Risk groups, age and operating points}
+Continuous model risks are converted to baseline groups using cutoffs selected
+on tuning data. The clinical-score groups retain their original definitions.
+Kaplan--Meier curves describe death-inclusive endpoints; Aalen--Johansen
+cumulative incidence describes nonfatal endpoints with competing death.
+Group sizes, events, follow-up support and uncertainty accompany the curves.
+Group membership is fixed at baseline and does not change as follow-up proceeds.
+Patients without an applicable score are not silently added to a paired score
+comparison or assigned to a favourable group.
+
+Age displays separate the number of patients from predicted and observed
+probabilities. The same age bands and group definitions underlie each row.
+The prediction row shows mean sequence-model probability, including within
+clinical-score categories; it is not a probability supplied by the index.
+The observed row uses the appropriate survival or competing-risk estimator.
+Sparse-cell counts remain visible when probability estimates are suppressed.
+These descriptive point summaries alone cannot establish an age effect or a
+calibration difference. Uncertainty and ascertainment must support any such claim.
+
+Operating-point comparisons use thresholds locked on tuning data. Matching
+specificity during tuning does not guarantee identical specificity in the
+test period. Report achieved sensitivity, specificity, positive and negative
+predictive values and uncertainty, together with the actual patient counts.
+Known-status confusion counts exclude patients censored before the horizon;
+those exclusions are reported. Censoring-weighted quantities are labelled as
+weighted estimates and are not presented as literal patient counts.
+
+\subsection*{Censoring, calibration and robustness}
+Known-status and censoring-weighted evaluation answer different questions and
+are kept separate in figures and tables. For inverse-probability weighting,
+report the censoring model, its fitting population, censoring survival at each
+horizon, weight distribution and the fraction affected by any numerical floor.
+Weak follow-up support can make a long-horizon estimate unstable even when the
+underlying prediction table is large. Sensitivity to censoring assumptions and
+weighting therefore accompanies substantive claims at those horizons.
+
+Calibration reporting includes calibration-in-the-large, slope where estimable
+and reliability examples chosen under a documented rule. A discrimination gain
+does not imply more accurate absolute probabilities. No test-period
+recalibration is part of the primary comparison. Any separately evaluated
+calibration procedure must be fitted on development data and identified as a
+new pipeline variant. Horizon, calendar, patient-history and diagnosis-timing
+sensitivities report their own target populations. Raw paired effects accompany hierarchical summaries; the support
+spline, unsmoothed and binned analyses are distinguished rather than interpreted
+as independent replications.
+
+\subsection*{Patient representations and training provenance}
+The patient embedding comparison uses the same patients at five stages:
+local pretraining, tuning-selected local fine-tuning, PHAIR pretraining,
+local adaptation of PHAIR, and tuning-selected PHAIR fine-tuning. The final
+stage identifies whether fine-tuning began directly from PHAIR or from its
+adapted export. Record checkpoint hashes, extraction layer, patient pooling,
+input cutoff, context truncation, preprocessing and projection parameters.
+Each model's projection is fitted on tuning-set representations and applied
+unchanged to test representations. Within a model, coordinates are reused when colouring
+by disease, score group, age or sequence length. Sequence length denotes the
+tokens entering the encoder; pre-truncation history length is a separate field.
+Scores outside their intended population remain unavailable.
+
+Coordinates from separately fitted projections have no common metric scale.
+Apparent clusters or changes in separation are descriptive and do not establish
+prediction superiority, biological mechanisms or the effect of transfer.
+Individual-point outputs require the applicable secure-data disclosure review.
+Vocabulary maps, if reported, distinguish input-token embeddings from contextual
+patient representations and record vocabulary alignment and token frequency.
+Actual model configuration and training exposure are described in the appended
+model-development supplement; planned epoch budgets are not completed-run data.
+
+\subsection*{Numerical evidence accompanying the figures}
+Figures organise the findings; numerical exports preserve the estimates and
+their denominators. The accompanying tables cover outcome risk sets, absolute
+performance, paired effects, clinical-score applicability and native-endpoint
+comparisons, calibration, selected operating points, training resources and
+sensitivity analyses. Each record identifies its source artifact and status.
+Each model is a single training run, so intervals describe patient
+sampling only.
+Readable summary tables accompany the complete cell-level CSVs; wide raw
+matrices are not reduced to favourable examples.
+\placeholder{Populate empirical tables from the locked analysis. Header-only
+CSV templates specify the export fields and contain no study results.}
+
+
+\IfFileExists{tables/generated/supplement_tables.tex}{%
+  \subsection*{Reviewed numerical summaries}
+  \input{tables/generated/supplement_tables}
+}{%
+  \noindent\placeholder{Reviewed aggregate summary tables have not yet been
+  exported. Complete cell-level numerical tables will accompany the figures.}
+}

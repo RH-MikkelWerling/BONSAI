@@ -1,0 +1,81 @@
+# Execution recipe: replace artifact paths/contract hashes on the secure server.
+# Never place real patient artifacts in the repository. No training is launched.
+estimand: binary_known_status_unweighted
+contrast_manifest: opera/configs/manifests/final_contrasts_20261014.yaml
+bootstrap_replicates: 1000
+bootstrap_seed: 2026
+analysis_horizons_days: [365]  # Run separate horizon/seed shards for large panels.
+patient_gain_contrasts: [P5, R1, T1, T2, E1, A1, A2, E3, E4]
+artifacts:
+  # Add entries for every model/seed/split and each specialist shard as needed.
+  # Pooled native exports use grouped cohort labels; map to fine diagnoses.
+  - path: /secure/locked/J_L/tuning/direct_cr_predictions.parquet
+    format: direct_cif
+    model: J_L
+    seed: 42
+    data_contract: REPLACE_WITH_RELEASE_SPLIT_ELIGIBILITY_CONTRACT_HASH
+    cohort_from_metadata: true
+  - path: /secure/locked/J_L/held_out/direct_cr_predictions.parquet
+    format: direct_cif
+    model: J_L
+    seed: 42
+    data_contract: REPLACE_WITH_RELEASE_SPLIT_ELIGIBILITY_CONTRACT_HASH
+    cohort_from_metadata: true
+  # Long CSV/parquet needs subject_id, cohort, outcome, horizon_days, split,
+  # label, probability; model/seed/data_contract may come from this declaration.
+  # Tabular outputs must already be joined to the locked label/eligibility table.
+patient_metadata: /secure/analysis/preindex_patient_metadata.parquet
+patient_metadata_column_map: {}  # Example: {firstline_date: index_date, diagnosis_date: cohort_identity_evidence_date}
+identity_date_sensitivity: true  # Same fitted models, exclude later-dated diagnoses.
+cell_metadata: /secure/analysis/target_cell_training_support.csv
+coverage_roster: /secure/analysis/planned_model_cell_status.csv
+# Optional route export adapted to long model/seed/split/cohort/outcome/
+# subject_id/source/bank/weight rows, including shared weight.
+route_weights: null
+route_model: R_L  # Needed only for native JSON-bank route exports.
+route_seed: 42
+compute_inventory: null
+calendar_covariates: [index_year]
+domain_mismatch_covariates: []  # Add declared baseline/train-only feature names.
+source_removal_contrasts: []  # Add extra_contrasts names for removal exports.
+cell_groups:
+  support_bin:
+    column: n_events_train
+    provenance: train_only
+    # Same partition as the Bayesian support bins [0, 20, 100, 500]:
+    # 0-19, 20-99, 100-499 and >=500 training events (integer counts).
+    bins: [-1, 19, 99, 499, .inf]
+patient_groups:
+  age_at_index:
+    provenance: pre_index
+    bins: [0, 50, 65, 80, .inf]
+  sex:
+    provenance: pre_index
+  history_event_count:
+    provenance: pre_index
+    bins: [-1, 99, 999, 9999, .inf]
+  index_year:
+    provenance: pre_index
+  IPI:  # recorded prognostic-index category (low/medium/high); missing = not recorded
+    provenance: pre_index
+  national_vocabulary_coverage:  # share of pre-index history tokens in the national vocabulary
+    provenance: pre_index
+    bins: [0, 0.8, 0.95, 1.0]
+  # Add train-defined/pre-index token coverage, source mix and atypicality
+  # columns with prespecified bins; never choose cutpoints on held-out gains.
+strategy_candidates: [S_L, D_L, O_L]
+rescue:
+  pooling: P5
+  rescue: R1
+  tolerance: 0.0  # Descriptive negative stratum; practical equivalence is separate.
+  min_cases: 5
+  min_controls: 5
+# Gate for source-bank effects R2-R7: the R0 = gain(N_L,J_L) panel interval
+# must lie inside +/- tolerance (gain scale per metric). Lock before held-out
+# inspection; null leaves bank effects flagged as not interpretable.
+router_null_equivalence:
+  tolerance: {auc: null, brier: null, log_loss: null}
+extra_contrasts:
+  router_vs_specialist: gain(R_L,S_L)
+# Source-removal inference exports can be entered as e.g. R_REMOVED_DLBCL;
+# add gain(R_L,R_REMOVED_DLBCL) here. No learned-route causal claim follows.

@@ -7,7 +7,14 @@ from bonsai.modules.networks.components.rope_fa import FlashRotaryEmbedding
 
 class FlashMultiHeadAttention(nn.Module):
     def __init__(
-        self, hidden_size, num_heads, attention_dropout, bias, max_seqlen, causal
+        self,
+        hidden_size,
+        num_heads,
+        attention_dropout,
+        bias,
+        max_seqlen,
+        causal,
+        rope_interleaved=False,
     ):
         super().__init__()
         assert hidden_size % num_heads == 0, (
@@ -18,7 +25,9 @@ class FlashMultiHeadAttention(nn.Module):
         self.max_seqlen = max_seqlen
 
         self.Wqkv = nn.Linear(hidden_size, hidden_size * 3, bias=bias)
-        self.rotary_embedding = FlashRotaryEmbedding(dim=self.head_dim)
+        self.rotary_embedding = FlashRotaryEmbedding(
+            dim=self.head_dim, interleaved=bool(rope_interleaved)
+        )
         self.self_attn = FlashSelfAttention(
             causal=causal, attention_dropout=attention_dropout
         )

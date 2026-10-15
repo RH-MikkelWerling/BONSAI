@@ -1,0 +1,50 @@
+# Copy and lock these choices before held-out inspection. Null values are gates,
+# not default scientific choices. Separate output directories for sensitivities.
+analysis_dir: /secure/analysis/locked_predictions_main365
+output_dir: /secure/analysis/bayesian/pooling_linear_flat
+estimand: binary_known_status_unweighted  # Must exactly match analysis_manifest.json.
+cell_roster: null  # prepare-bayes writes an explicit roster per family/metric; null requires the entire observed panel.
+family: pooling  # pooling, routing, source_banks, tabular, external, external_tabular
+metric: auc  # auc, brier, log_loss: positive gains always favour candidate.
+horizon_days: 365
+split: held_out
+seeds: [42]  # one training seed; add seeds only for a variability analysis
+rarity_column: n_events_train  # Fixed target-cell counts, never held-out support.
+weighting: equal_disease_endpoint_group  # Requires endpoint_group in cell metadata.
+trend: spline  # Primary: regularised support curve. 'spline' models the support curve; 'bins' checks it; 'linear' is optional.
+# Prespecified training-event bin edges for trend: bins (lock before held-out
+# inspection; each bin needs >= 3 cells). Piecewise-constant: no shape assumed.
+support_bins: [0, 20, 100, 500]
+spline_knots: 4
+nest_diseases: false
+nest_outcomes: false
+covariance_shrinkage: 0.02
+se_floor: 0.000001
+prior_scale: null
+random_effect_scale: null
+slope_scale: null
+practical_tolerance: null
+# Metric-scale locks used by prepare-bayes for each generated metric recipe;
+# flat keys above apply only to the template's own metric.
+metric_settings:
+  auc: {prior_scale: null, random_effect_scale: null, slope_scale: null, practical_tolerance: null}
+  brier: {prior_scale: null, random_effect_scale: null, slope_scale: null, practical_tolerance: null}
+  log_loss: {prior_scale: null, random_effect_scale: null, slope_scale: null, practical_tolerance: null}
+# Prespecified estimability rule for the generated cell rosters (support and
+# bootstrap degeneracy only, never effect size).
+estimability:
+  min_cases: 5
+  min_controls: 5
+  minimum_finite_fraction: 0.8
+sampling:
+  draws: 2000
+  tune: 2000
+  chains: 4
+  cores: 4
+  prior_draws: 500
+  target_accept: 0.95
+  random_seed: 2026
+  require_convergence: true
+  minimum_ess: 400
+  max_rhat: 1.01
+  minimum_bfmi: 0.3

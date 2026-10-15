@@ -1,0 +1,43 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=1.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{tgpagella,mathpazo}
+\usepackage[scaled=.95]{helvet}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx,tikz,booktabs,tabularx}
+\usetikzlibrary{arrows.meta,positioning,calc,backgrounds}
+\input{opera_style}
+\pagestyle{empty}
+\begin{document}
+\section*{The disease--outcome grid as the study's visual language}
+\resizebox{\textwidth}{!}{\input{figures/supervision_grid}}
+
+\vspace{5mm}
+\noindent\textbf{The two experiments must look different.}
+Filled cells show supervised training scope. Small badges or a second layer
+show the readout (shared BCE or selected router). Encoder-origin labels sit
+above the same grid: local, external-direct, external plus local DAPT.
+Changing a source bank must not erase training cells.
+
+\section*{Figure outline}
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+Display & Grid-inspired layout & Scientific question \\
+\midrule
+Figure 1 & S/D/O/J panels, common target outline, temporal split underneath & What supervision does each model receive? \\
+Figure 2 & Disease--outcome effect maps for D--S and O--S; adjacent J--O/J--D contrasts and rarity curves & Which pooling axis helps, and where? \\
+Figure 3 & Shared, specialist, router and XGBoost absolute/paired results on aligned target rows & Does sharing improve on strong tabular prediction? \\
+Figure 4 & Three encoder columns (local, external, external+DAPT), two readout rows (shared, router) & What do external pretraining and adaptation add? \\
+Supplement & Full six-horizon atlas, source-bank factorial, calibration, patient/era strata, coverage, compute & How stable, interpretable and broadly supported are the findings? \\
+\bottomrule
+\end{tabularx}
+
+\vspace{5mm}
+\noindent\textbf{Conventions.} Diseases remain rows and outcomes remain columns
+in every figure. The target cell is outlined in sienna; fills encode training
+availability or empirical effect only when the legend says which. In results
+maps, use a zero-centered diverging scale and mask unsupported cells explicitly.
+Each metric has its own scale. Routing arrows are directional and weighted;
+they are not observed patient outcomes or proof of beneficial transfer.
+This outline contains no empirical performance values.
+\end{document}

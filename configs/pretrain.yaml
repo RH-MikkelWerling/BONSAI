@@ -65,6 +65,9 @@ model:
   bias: false
   causal: true
   attn_type: flash
+  # Match upstream FGA-DIKU BONSAI (interleaved since 2026-09-29/a3fa6ac);
+  # checkpoints record this, older unrecorded local flash runs remain non-interleaved.
+  rope_interleaved: true
   # scaled_time2vec reproduces the upstream abs_pos branch at model input:
   # canonical hours since 1970 are divided by 1000 before Time2Vec.
   abspos_encoding: legacy

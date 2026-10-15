@@ -23,6 +23,7 @@ class TransformerLayer(nn.Module):
         max_seqlen,
         causal,
         attn_type,
+        rope_interleaved,
     ):
         super().__init__()
         self.ln1 = nn.LayerNorm(hidden_size, bias=bias)
@@ -33,6 +34,7 @@ class TransformerLayer(nn.Module):
             bias=bias,
             max_seqlen=max_seqlen,
             causal=causal,
+            rope_interleaved=rope_interleaved,
         )
         self.resid_dropout = nn.Dropout(dropout)
         self.ln2 = nn.LayerNorm(hidden_size, bias=bias)

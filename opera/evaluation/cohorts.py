@@ -112,8 +112,10 @@ def population_subject_ids(
                 f"cohort_fine_col={cohort_fine_col!r} not found in {source}; "
                 f"columns={list(population.columns)}."
             )
+        # A comma-separated value selects several fine cohorts (pooled models).
+        values = {part.strip() for part in str(cohort_fine_value).split(",")}
         population = population[
-            population[cohort_fine_col].astype(str) == str(cohort_fine_value)
+            population[cohort_fine_col].astype(str).isin(values)
         ].copy()
         if population.empty:
             raise ValueError(

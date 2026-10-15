@@ -22,11 +22,13 @@ MODEL_CONSTRUCTOR_KEYS = {
     "value_bin_vocab_size",
     "value_embedding_mode",
     "abspos_encoding",
+    "rope_interleaved",
 }
 REQUIRED_MODEL_CONSTRUCTOR_KEYS = MODEL_CONSTRUCTOR_KEYS - {
     "value_bin_vocab_size",
     "value_embedding_mode",
     "abspos_encoding",
+    "rope_interleaved",
 }
 
 _ALIASES = {
@@ -34,6 +36,26 @@ _ALIASES = {
     "num_hidden_layers": "num_layers",
     "is_causal": "causal",
 }
+
+
+def legacy_rope_interleaved(attn_type: str) -> bool:
+    """RoPE layout used by this fork before the layout was recorded.
+
+    The SDPA path (torchtune RoPE) always rotated adjacent pairs. The local
+    FlashAttention path used flash_attn's default ``interleaved=False``. This
+    describes LOCAL checkpoints only: upstream FGA-DIKU switched its flash
+    path to ``interleaved=True`` on 2026-09-29 (commit a3fa6ac), so a foreign
+    flash checkpoint without an explicit layout is ambiguous.
+    """
+    if attn_type not in {"flash", "sdpa"}:
+        raise ValueError("attn_type must be either 'flash' or 'sdpa'.")
+    return attn_type == "sdpa"
+
+
+def has_explicit_rope_layout(config: Any) -> bool:
+    """Whether saved model metadata records its RoPE layout."""
+    value = config_to_dict(config).get("rope_interleaved")
+    return value is not None
 
 
 class LegacyCheckpointError(ValueError):
@@ -81,6 +103,11 @@ def normalize_bonsai_model_config(
         if new_name not in source and old_name in source:
             source[new_name] = source[old_name]
 
+    # The RoPE layout is a property of the trained weights, not of the runtime
+    # backend: resolve it from the saved backend before any attn_type override.
+    if source.get("rope_interleaved") is None and source.get("attn_type") is not None:
+        source["rope_interleaved"] = legacy_rope_interleaved(source["attn_type"])
+
     if vocab_size is not None:
         source["vocab_size"] = int(vocab_size)
     source.update({key: value for key, value in overrides.items() if value is not None})
@@ -94,6 +121,9 @@ def normalize_bonsai_model_config(
     source.setdefault("value_bin_vocab_size", 0)
     source.setdefault("value_embedding_mode", "legacy")
     source.setdefault("abspos_encoding", "legacy")
+    if source.get("rope_interleaved") is None:
+        source["rope_interleaved"] = legacy_rope_interleaved(source["attn_type"])
+    source["rope_interleaved"] = bool(source["rope_interleaved"])
 
     result = {key: source[key] for key in MODEL_CONSTRUCTOR_KEYS if key in source}
     missing = REQUIRED_MODEL_CONSTRUCTOR_KEYS - set(result)

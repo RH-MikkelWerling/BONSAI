@@ -1,0 +1,26 @@
+# Real plot-ready tables: map audited analysis outputs to each plotting schema.
+# These are not necessarily the unmodified analysis CSVs. Do not use prototype
+# synthetic_cells/synthetic_curve as adapters. Preview validates input signatures.
+figures:
+  - id: fig_atlas
+    function: figure_atlas
+    tables: {atlas: /secure/plot_tables/atlas.csv}
+  - id: fig_pooling
+    function: figure_pooling
+    tables: {cells: /secure/plot_tables/paired_cells.csv, curve: /secure/plot_tables/support_curve.csv}
+    options: {metric: auc, horizon: 365}
+  - id: fig_tabular
+    function: figure_tabular
+    tables: {cells: /secure/plot_tables/paired_cells.csv}
+    options: {horizon: 365}
+  - id: fig_external
+    function: figure_external
+    tables: {estimates: /secure/plot_tables/origin_estimates.csv, cells: /secure/plot_tables/paired_cells.csv}
+    options: {horizon: 365, metric: auc}
+# Add coverage/support/horizons/calibration/strategy/rescue/route plates using
+# the named parameters of opera.visualization.paper_figures.figure_*.
+# Clinical score families use the dedicated clinical-scores action.
+
+  - id: supp_embedding_comparison
+    function: figure_embedding_comparison
+    tables: {coords: /secure/plot_tables/matched_patient_embeddings.csv}

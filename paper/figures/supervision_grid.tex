@@ -1,0 +1,110 @@
+% Supervision scopes drawn as four copies of the Fig. 2B disease-outcome matrix:
+% same axes, rows/columns, ellipses, cell geometry, lavender gradient, sienna
+% target and teal borrowing spokes. Filled cells are supervised tasks; pale
+% outlined cells are present in the panel but not supervised by that fit.
+% Lines are illustrative sharing paths, not learned gates or measured routes.
+\begin{tikzpicture}[opera,x=1cm,y=1cm]
+\foreach \scopeid/\sx/\sy/\letter/\eyebrowtext/\title/\sub/\note in {
+ S/0/0/A/{SPECIALIST}/{Learns from its own cell}/{One disease, one outcome: one fit per supported cell.}/{The target learns only from its own labels.},
+ D/10.75/0/B/{DISEASE-POOLED}/{Learns across diseases}/{All applicable diseases, one outcome: one fit per outcome.}/{The target borrows from the same outcome in other diseases.},
+ O/0/-9.55/C/{OUTCOME-POOLED}/{Learns across outcomes}/{One disease, all applicable outcomes: one fit per disease.}/{The target borrows from related outcomes in the same disease.},
+ J/10.75/-9.55/D/{JOINT}/{Learns from the whole panel}/{All diseases and outcomes: one shared fit; the routed model uses the same panel.}/{Every supervised cell can contribute through the shared encoder and readout.}}{
+\begin{scope}[xshift=\sx cm,yshift=\sy cm]
+ \node[panelletter,anchor=north west] at (0,0) {\letter};
+ \node[eyebrow,anchor=north west] at (.48,-.03) {\eyebrowtext};
+ \node[heading,anchor=north west] at (.48,-.38) {\title};
+ \node[labelsmall,anchor=north west,align=left,text width=8.6cm] at (.48,-.82) {\sub};
+ \begin{scope}[yshift=-5mm]
+ % Axes exactly as in Fig. 2B.
+ \draw[-{Latex[length=1.8mm]},draw=OperaIndigo,line width=.75pt] (2.76,-1.55)--(9.12,-1.55);
+ \node[eyebrow,text=OperaIndigo] at (5.94,-1.30) {MORE OUTCOME TASKS};
+ \foreach \r/\disease in {0/DLBCL,1/Multiple myeloma,2/CLL,3/Hodgkin lymphoma,4/PTCL}
+  \node[labelsmall,anchor=east] at (2.60,-2.72-.84*\r) {\disease};
+ \draw[-{Latex[length=1.8mm]},draw=OperaTeal,line width=.75pt] (.16,-2.40)--(.16,-7.62);
+ \node[eyebrow,text=OperaTeal,rotate=90] at (-.13,-5.01) {MORE DISEASE COHORTS};
+ \foreach \col/\outcome in {0/Anaemia,1/Infection,2/Renal,3/Fracture,4/Survival}
+  \node[font=\sffamily\fontsize{6.2}{7}\selectfont,text=OperaInkSecondary,
+   align=center,text width=1.05cm,anchor=south] at (3.22+1.12*\col,-2.27) {\outcome};
+ \node[font=\sffamily\fontsize{6.2}{7}\selectfont,text=OperaInkSecondary,
+  align=center,text width=1.05cm,anchor=south] at (9.12,-2.27) {Outcome$_n$};
+ % Main 5 x 5 block. Supervision depends on the scope; the target is row 4, column 1.
+ \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
+  \def\active{0}
+  \if\scopeid D \ifnum\col=1 \def\active{1}\fi\fi
+  \if\scopeid O \ifnum\r=4 \def\active{1}\fi\fi
+  \if\scopeid J \def\active{1}\fi
+  \def\tone{OperaPaper}
+  \ifnum\active=1 \pgfmathtruncatemacro{\shade}{7+3*\r+2*\col}\edef\tone{OperaIndigo!\shade}\fi
+  \node[rounded corners=.35mm,draw=OperaBorder,fill=\tone,
+   minimum width=8.8mm,minimum height=5.7mm] (\scopeid m\r\col) at (3.22+1.12*\col,-2.72-.84*\r) {};
+ }}
+ \foreach \r in {0,...,4}{
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (8.41,-2.72-.84*\r) {$\cdots$};
+  \def\active{0}
+  \if\scopeid O \ifnum\r=4 \def\active{1}\fi\fi
+  \if\scopeid J \def\active{1}\fi
+  \def\tone{OperaPaper}
+  \ifnum\active=1 \pgfmathtruncatemacro{\shade}{16+3*\r}\edef\tone{OperaIndigo!\shade}\fi
+  \node[rounded corners=.35mm,draw=OperaBorder,fill=\tone,
+   minimum width=8.8mm,minimum height=5.7mm] (\scopeid n\r) at (9.12,-2.72-.84*\r) {};
+ }
+ \foreach \x in {3.22,4.34,5.46,6.58,7.70,9.12}{
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (\x,-6.60) {$\vdots$};
+ }
+ \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (8.41,-6.60) {$\ddots$};
+ \node[labelsmall,anchor=east] at (2.60,-7.29) {Disease$_m$};
+ \foreach \col in {0,...,4}{
+  \def\active{0}
+  \if\scopeid D \ifnum\col=1 \def\active{1}\fi\fi
+  \if\scopeid J \def\active{1}\fi
+  \def\tone{OperaPaper}
+  \ifnum\active=1 \pgfmathtruncatemacro{\shade}{22+2*\col}\edef\tone{OperaIndigo!\shade}\fi
+  \node[rounded corners=.35mm,draw=OperaBorder,fill=\tone,
+   minimum width=8.8mm,minimum height=5.7mm] (\scopeid z\col) at (3.22+1.12*\col,-7.29) {};
+ }
+ \def\tone{OperaPaper}
+ \if\scopeid J \def\tone{OperaIndigo!34}\fi
+ \node[rounded corners=.35mm,draw=OperaBorder,fill=\tone,
+  minimum width=8.8mm,minimum height=5.7mm] (\scopeid zn) at (9.12,-7.29) {};
+ \node[rounded corners=.35mm,draw=OperaSienna,line width=1.1pt,fill=OperaSienna!8,
+  minimum width=8.8mm,minimum height=5.7mm] (\scopeid target) at (4.34,-6.08) {};
+ % Spokes from supervised cells only: bold when the cell shares the target's
+ % outcome (column 1) or disease (row 4), thin otherwise, as in Fig. 2B.
+ \begin{scope}[on background layer]
+  \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
+   \def\link{0}
+   \if\scopeid D \ifnum\col=1 \def\link{1}\fi\fi
+   \if\scopeid O \ifnum\r=4 \def\link{1}\fi\fi
+   \if\scopeid J \def\link{1}\fi
+   \ifnum\r=4 \ifnum\col=1 \def\link{0}\fi\fi
+   \ifnum\link=1
+    \def\bold{0}
+    \ifnum\col=1 \def\bold{1}\fi
+    \ifnum\r=4 \def\bold{1}\fi
+    \ifnum\bold=1
+     \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid m\r\col)--(\scopeid target);
+    \else
+     \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid m\r\col)--(\scopeid target);
+    \fi
+   \fi
+  }}
+  \if\scopeid O \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid n4)--(\scopeid target);\fi
+  \if\scopeid D \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid z1)--(\scopeid target);\fi
+  \if\scopeid J
+   \foreach \r in {0,...,3}{\draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid n\r)--(\scopeid target);}
+   \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid n4)--(\scopeid target);
+   \foreach \col in {0,2,3,4}{\draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid z\col)--(\scopeid target);}
+   \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid z1)--(\scopeid target);
+   \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid zn)--(\scopeid target);
+  \fi
+ \end{scope}
+ \node[captionnote,text width=8.5cm] at (5.60,-7.98) {\note};
+ \end{scope}
+\end{scope}
+}
+\draw[divider] (10.05,.05)--(10.05,-18.85);
+\draw[divider] (-.35,-9.15)--(20.15,-9.15);
+\node[labelsmall,text=OperaTeal,align=center,text width=18cm] at (9.90,-19.30)
+ {Sienna outline: the same target task in every panel. Filled cells: supervised tasks; pale cells: not supervised by that fit.
+ Thin and bold lines are illustrative sharing paths, bold where the cell shares the target's disease or outcome.};
+\end{tikzpicture}

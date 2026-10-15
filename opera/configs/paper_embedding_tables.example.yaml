@@ -1,0 +1,20 @@
+# Model stages for the patient-representation figures. Each stage lists npz
+# exports with subject_ids/embeddings/splits covering tuning and held-out
+# patients: fine-tuned models from `evaluate --split tuning|held_out`
+# (patient_embeddings.npz, exported automatically for paper models), pretrained
+# encoders from opera.run.extract_patient_embeddings. Projections are fitted on
+# tuning patients only. Order here is the column order of the figure.
+method: umap  # falls back to PCA when umap-learn is not installed
+ipi_group_map: {low: Low, medium: Intermediate, high: High}
+stages:
+  Local pretraining: [null]
+  Local fine-tuned: [null, null]   # J_L tuning and held-out patient_embeddings.npz
+  National pretraining: [null]
+  National + local adaptation: [null]
+  National fine-tuned: [null, null]  # J_E or J_EA, as locked
+calibration_maps:
+  stage: Local fine-tuned
+  predictions: null  # J_L held-out direct_cr_predictions.parquet
+  horizon_days: 365
+  outcomes: [treatment_failure, serious_infection_composite, neutropenia_g3plus,
+             hospitalisation]

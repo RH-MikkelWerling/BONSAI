@@ -1,0 +1,534 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[a4paper,margin=1.65cm,columnsep=0.7cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,mathpazo}
+% Body copy stays Pagella; diagrams use the atlas's Arial-like sans serif.
+\usepackage[scaled=0.95]{helvet}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,calc,fit,matrix,positioning,shapes.geometric}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+\usepackage{balance}
+\usepackage{titlesec}
+
+\input{opera_style}
+
+\captionsetup{font=small,labelfont={bf,sf},labelsep=period,justification=raggedright,singlelinecheck=false}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt plus 1pt minus 1pt}
+\setlist{nosep,leftmargin=*}
+\titleformat{\section}{\sffamily\bfseries\Large\color{OperaInk}}{}{0pt}{}
+\titleformat{\subsection}{\sffamily\bfseries\normalsize\color{OperaInk}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{16pt}{5pt}
+\titlespacing*{\subsection}{0pt}{10pt}{2pt}
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \newpage\null\vspace{-8mm}
+  {\sffamily\fontsize{8}{10}\selectfont\bfseries\color{OperaIndigo} ARTICLE}\par\vspace{5mm}
+  {\sffamily\fontsize{23}{26}\selectfont\bfseries\color{OperaInk}\@title\par}
+  \vspace{3mm}{\normalsize\@author\par}\vspace{2mm}
+  {\small\color{OperaInkMuted}\@date\par}\vspace{5mm}
+  \color{OperaIndigo}\rule{\textwidth}{1.1pt}\color{black}\vspace{5mm}}
+\makeatother
+\newcommand{\opera}{\textsc{opera}}
+\newcommand{\placeholder}[1]{\textcolor{OperaSienna}{\textbf{[#1]}}}
+\newcommand{\todo}[1]{\textcolor{OperaSienna}{\textbf{TODO: #1}}}
+\newcommand{\modelname}{Outcome-guided Patient Embedding for Registry Adaptation}
+\newcommand{\plotplaceholder}[2]{%
+  \begin{center}\fcolorbox{OperaBorder}{OperaPaper}{%
+  \begin{minipage}[c][4.0cm][c]{0.92\linewidth}\centering
+  {\sffamily\bfseries\color{OperaInk}#1\par}\vspace{2mm}
+  {\sffamily\footnotesize\color{OperaInkMuted}#2\par}
+  \end{minipage}}\end{center}}
+
+\title{Learning across diseases and outcomes for haematological risk prediction}
+\author{\placeholder{Authors and affiliations}}
+\date{Working manuscript --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Disease-specific clinical prediction fragments a large patient population into
+many disease--outcome problems with uneven label support. We ask three
+questions: whether supervised learning across diseases and outcomes improves
+prediction, whether those models outperform strong task-specific tabular
+models, and whether externally pretrained representations add value beyond
+local pretraining, before and after local domain adaptation. The study uses a
+linked Danish haematology resource with 24 fine disease cohorts, 69 approved
+outcomes and six prediction horizons. A matched supervision factorial compares
+one disease--outcome specialist, one model per outcome across diseases, one
+model per disease across outcomes, and a fully joint model. Patient-dependent
+source routing is tested separately against the fully joint shared model.
+External-direct and external-plus-domain-adapted encoders are compared under
+fixed shared and selected-router readouts. Model selection uses 2022 tuning
+data; patients indexed from 2023 onward form the held-out evaluation.
+\placeholder{Insert locked effects for pooling, XGBoost comparison, external
+pretraining and domain adaptation, including uncertainty and negative transfer.}
+The design distinguishes the availability of shared supervision from its use
+by a particular architecture and reports where transfer succeeds or fails.
+\end{abstract}
+
+\section*{Introduction}
+Prediction informs supportive care, surveillance and treatment planning in
+haematology. Even a large linked resource can contain few relevant events when
+patients are divided by disease, target outcome and prediction horizon.
+Disease-specific scores compress a limited diagnostic snapshot into risk
+strata \citep{zhou2014nccnipi,cllipi2016}. Task-specific machine learning can
+use more clinical history, but typically fits a separate predictor from an
+aggregated feature table \citep{agius2020clltim,werling2026dlbcl}. Neither
+approach automatically supplies supervision to a low-support target.
+
+Two different resources may help. First, labelled patients in other diseases
+and other outcomes may inform the target through shared supervised learning
+\citep{harutyunyan2019multitask,zhang2019metapred}. These two axes need not
+have the same value: observing the same outcome in another disease differs
+from observing another outcome in the same disease. Related clinical labels
+also do not guarantee positive transfer. Pooling can improve some prediction
+problems while worsening others.
+
+Second, self-supervised pretraining can learn representations from patient
+histories before target labels are supplied
+\citep{li2020behrt,rasmy2021med,odgaard2024core,steinberg2023motor}.
+Population-scale pretraining offers broader experience than a local resource,
+but the benefit must be measured against what can be learned locally and
+against strong tabular comparators \citep{wornow2023ehrshot,wornow2023shaky}.
+Local domain-adaptive pretraining is an additional intervention: it may change
+the value of the external representation and its interaction with downstream
+sharing. External initialization and local adaptation must therefore be
+compared separately.
+
+We organize supervised learning as a disease--outcome matrix
+(\cref{fig:supervision-grid}). Diseases form rows and outcomes form columns.
+A cell specialist receives one cell's labels; a cross-disease model receives
+one column; a cross-outcome model receives one row; and the fully joint model
+receives the whole available panel. Holding pretraining and the shared
+architecture fixed, this factorial measures the contribution of each pooling
+axis and their interaction. A separate comparison asks whether conditional
+routing over disease and outcome adapters improves on ordinary joint learning.
+Both shared BCE and the router receive the same fully populated training
+panel; switching an adapter bank off does not remove its supervision.
+
+DALY-CARE links Danish national registers, hospital records, laboratory data
+and disease-specific quality registries \citep{brieghel2025dalycare}. Its
+variation in disease frequency and endpoint support provides a natural setting
+for examining the three questions. Our earlier aggressive-lymphoma study
+motivated cross-disease learning for treatment failure
+\citep{werling2026dlbcl}; the present study uses a different, broader first-line
+population and evaluates both pooling axes across the approved panel. We
+report matched effects, negative transfer and unsupported cells rather than
+requiring the most complex model to win.
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/supervision_grid}}
+  \caption{\textbf{A disease--outcome matrix separates supervised pooling
+  from model architecture.} Diseases are rows and outcomes are columns. The
+  outlined target cell is the same evaluation problem in all panels.
+  \textbf{S}, one disease--outcome specialist; \textbf{D}, one outcome learned
+  across diseases; \textbf{O}, multiple outcomes learned within one disease;
+  \textbf{J}, fully joint shared learning. Filled cells indicate supervision,
+  not empirical performance. Structural exclusions and outcome eligibility
+  remain in force. Shared BCE and the selected router both use J's full panel;
+  routing is an added representation-adaptation mechanism. Each fit predicts
+  all six horizons together.}
+  \label{fig:supervision-grid}
+\end{figure*}
+
+\section*{Results}
+
+\subsection*{Study population and evaluable prediction problems}
+The current sealed first-line release records 37,557 patients and 37,531 with
+released overall-survival membership and a supervised split before
+outcome-specific eligibility. These denominators and the refreshed Table~1
+await final supervisor sign-off. The approved panel covers 69 outcomes across
+24 fine diseases nested within 10 broader groups. The main figures emphasize
+365-day prediction; the supplementary atlas retains all six horizons,
+clinical definitions, event support and ascertainment exclusions.
+\placeholder{Insert approved cohort flow, current Table 1, observation-history
+summaries and per-endpoint risk-set counts.}
+
+% The checked-in table1.tex is a historical layout, not current approved data.
+\IfFileExists{tables/table1_current_approved.tex}{
+  \input{tables/table1_current_approved}
+}{
+  \plotplaceholder{Table 1: approved current export pending}
+    {The historical layout is retained in the repository but is not used as
+    the final cohort description.}
+}
+
+\subsection*{Disease and outcome pooling contribute distinct sources of supervision}
+Using the same local encoder and shared prediction architecture, the
+supervision factorial estimates disease pooling without other outcomes
+($D-S$), outcome pooling within a disease ($O-S$), disease pooling conditional
+on outcome pooling ($J-O$), and outcome pooling conditional on disease pooling
+($J-D$). The combined effect is $J-S$; the interaction is $J-D-O+S$ on the
+chosen metric scale. Each comparison uses the same target patients, labels,
+eligibility and horizon. These contrasts measure training procedures that
+change available supervision, not pure biological relationships at equal
+compute.
+\placeholder{Insert paired held-out pooling effects and uncertainty, the
+relative contributions of the two axes, their interaction and coverage.}
+
+We examine whether these effects vary with target-cell training events,
+patient support, disease, endpoint group and horizon. Raw paired estimates
+remain visible beside hierarchical summaries. Cells without an estimable
+specialist contribute a separate coverage result and do not receive invented
+specialist contrasts. Natural rarity describes where gains occur; it does not
+establish the effect of experimentally reducing labels.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 2: the value of disease and outcome pooling}
+    {A: disease--outcome maps of D--S and O--S. B: conditional J--O and J--D
+    effects and their interaction. C: paired effects versus training-event
+    support, with raw cells, average-curve uncertainty and task heterogeneity.
+    Unsupported cells remain visible.}
+  \caption{\textbf{Which supervision helps, and when?} The main display uses
+  paired 365-day effects on identical target populations. Probability-loss
+  improvement is oriented so positive favors the candidate. Smooth curves are
+  model-based summaries of natural task support, not causal scarcity effects.
+  The complete six-horizon and cell-level results are supplementary.}
+  \label{fig:pooling}
+\end{figure*}
+
+\subsection*{Conditional routing is evaluated above ordinary joint learning}
+The selected router is compared with J under the same supervision and
+training protocol. A matched source-bank factorial compares neither bank,
+disease sources, outcome sources and both banks. Both-minus-disease estimates
+the outcome bank's incremental value; outcome-only resembling neither does
+not rule out that conditional effect. The source-only arms retain the disease
+and target query context and the entire supervised panel.
+\placeholder{Insert selected source bank, query mode, rank, paired router--J
+and source-bank effects, uncertainty and unsuccessful extensions.}
+
+Outcome routing is retained only if its incremental value is supported on
+tuning; disease-only routing or the shared model remains a valid final choice.
+Rank, query structure and query width are distinct choices assessed in a
+bounded tuning screen. Gate mass describes the allocation of corrections, not
+predictive contribution. Source removal redistributes the remaining gate
+weights, so its effect is a post-hoc sensitivity analysis. A claim that learned
+cross-source allocation causes the gain requires a separately trained
+fixed/home-only-routing comparator.
+
+\subsection*{Neural prediction is compared with strong task-specific tabular models}
+The selected local predictor, shared J and independent S are compared with
+train-fitted, tuning-selected EHR XGBoost on the same target populations.
+J versus XGBoost measures what is available without routing; S versus XGBoost
+assesses the sequence/pretraining pipeline without pooled supervision. These
+are practical pipeline comparisons, not isolated architecture effects with
+identical inputs. Logistic regression provides a tabular reference;
+registry-enriched predictors and clinical scores are reported on separately
+matched complete-case populations.
+\placeholder{Insert locked neural--XGBoost effects, absolute performance,
+calibration, heterogeneity and cells favoring the tabular comparator.}
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 3: shared prediction versus tabular benchmarks}
+    {A: absolute and paired 365-day performance for XGBoost, S, J and the
+    selected router. B: disease/endpoint heterogeneity and coverage.
+    C: Brier score, log loss and calibration. Show negative effects.}
+  \caption{\textbf{Does supervised sharing improve on the usual tabular
+  approach?} Matched patient-level predictions distinguish the value of the
+  sequence pipeline, pooled supervision and the added router architecture.
+  Registry/IPI complete-case results are not mixed with the EHR-only full
+  population.}
+  \label{fig:tabular}
+\end{figure*}
+
+\subsection*{External pretraining and local domain adaptation are separate interventions}
+Three encoder origins are compared under two fixed readouts: local256 (L),
+external-direct (E), and the same external initialization after local DAPT
+(EA), each with shared J and the locally selected router R. E versus L
+estimates the external-initialization package effect; EA versus E estimates
+the added local adaptation stage; EA versus L compares the full adapted
+external pipeline with local pretraining. Direct E still receives supervised
+training: only local self-supervised adaptation is absent.
+\placeholder{Insert verified external source provenance, direct export,
+DAPT completion and paired E--L, EA--E and EA--L effects under both readouts.}
+
+The difference in router-minus-J effects across origins measures
+pretraining-by-routing interaction; comparing that difference between EA and
+E measures DAPT-by-routing interaction. Downstream rank/query/source choices
+remain fixed, avoiding a new architecture search for each encoder. The
+reduced design does not establish whether external pretraining changes the
+value of supervised pooling itself. That stronger question requires the
+S/D/O/J factorial under the external origin, on a prespecified subset or the
+full panel depending on the intended claim.
+
+\begin{figure*}[t]
+  \plotplaceholder{Figure 4: external pretraining, adaptation and sharing}
+    {Columns: L, E and EA. Rows: shared J and locked R. Adjacent paired
+    contrasts show E--L, EA--E and EA--L. Insets show router--J across origins
+    and its change after DAPT, with support and uncertainty.}
+  \caption{\textbf{What does broad pretraining add, and what must be adapted
+  locally?} The matrix changes encoder origin under fixed downstream models.
+  Local DAPT is a distinct self-supervised stage. Benefits can arise directly,
+  emerge after adaptation, or be absent; no ordering implies a winner.}
+  \label{fig:encoder-transfer}
+\end{figure*}
+
+\subsection*{Required secondary analyses locate benefits and failures}
+Tuning-defined strata identify cells with negative J--S effects, then
+held-out router--J and router--S effects assess whether routing mitigates that
+harm. Patient-level paired probability-loss contributions are summarized by
+pre-index history density, age, sex and baseline-defined atypicality. DAPT
+contrasts are examined against train-defined domain mismatch and alongside
+calibration. Calendar/horizon analyses, specialist coverage and a
+\emph{tuning-selected} S/D/O bank versus one pooled model assess robustness
+and operational value. Computational cost and directional source-removal
+sensitivity accompany performance where those exports exist.
+\placeholder{Insert prespecified secondary findings, missing inputs,
+uncertainty and sensitivity to excluding rare later-coded diagnosis cases.}
+These analyses reuse locked predictions; they do not select subgroups,
+strategies or checkpoints using held-out outcomes.
+
+\section*{Discussion}
+This study separates three questions often combined in a foundation-model
+comparison: whether labelled tasks should be learned together, whether that
+learning improves on strong tabular prediction, and whether broader
+self-supervised experience improves what can be learned locally. The
+supervision matrix makes disease and outcome pooling explicit, while the
+readout and encoder comparisons change different parts of the pipeline.
+\placeholder{Insert the three principal findings and the most informative
+negative result after the held-out analysis is locked.}
+
+A benefit from multi-outcome training does not require outcome-source adapters
+to improve performance: the shared encoder already receives gradients from
+other outcomes. Conversely, a router improvement does not by itself identify
+biological task relationships, because explicit disease conditioning and added
+capacity are part of the architecture. The study therefore permits a simpler
+selected model and distinguishes predictive, mechanistic and operational claims.
+
+External pretraining is evaluated as a transferable initialization rather than
+assumed superior because it is larger. Local adaptation may address vocabulary
+or care-system differences, supply extra self-supervised optimization, or
+change the usefulness of downstream sharing. Its contribution is measured
+against the same direct external initialization, not inferred from EA--L alone.
+Where architecture, source population, objective or token budget differ,
+external-versus-local results concern the pretraining package rather than scale
+in isolation.
+
+Partial pooling helps summarize noisy effects across a large task panel, but
+clinical hierarchy and smoothness are assumptions, not evidence of relatedness.
+The raw paired effects and patient-bootstrap uncertainty remain the empirical
+foundation. Hierarchical summaries are interpreted alongside simpler models,
+prior/grouping sensitivities and predictive checks. Natural rarity cannot
+replace a controlled label-scarcity experiment, and posterior convergence does
+not certify the sampling-error dependence model.
+
+Limitations include the single healthcare context, changes in coding and
+measurement, endpoint-specific ascertainment, correlated outcomes and shared
+evaluation patients across seeds. Some endpoints are CTCAE-inspired numerical
+thresholds or administrative proxies rather than fully observed clinical
+grades. Rare later-coded diagnoses plausibly reflect clinical coding delay;
+the exact subtype's availability at treatment requires provenance and clinical
+review. The population and index reconstruction differ from earlier lymphoma
+studies, so cross-paper performance changes are not direct replications.
+
+\section*{Methods}
+
+\subsection*{Population, endpoints and prediction origin}
+DALY-CARE links national registers and hospital/quality-registry data
+\citep{brieghel2025dalycare}. The index is reconstructed first-line treatment.
+\placeholder{Insert approved extract dates, governance, cohort flow and
+current Table 1.} Each patient has one index across configured outcomes.
+Clinical inputs are truncated strictly before the index timestamp. Disease
+identity is separately audited as a prediction-time input: the cohort builder
+allows diagnosis-coding grace periods of 14 days and forward rescue through
+90 days. Disease-specific treatment before formal registration supports a
+coding-delay interpretation, but does not automatically establish every fine
+subtype. Date-lag counts and the same-fit sensitivity excluding later-coded
+cases are reported without silently redefining the cohort.
+
+The 69-endpoint release retains documented eligibility, baseline adequacy,
+source coverage, competing-event and follow-up definitions. Unascertainable
+outcomes are missing supervision, not negatives. Primary events after observed
+follow-up are not treated as observed. Nonfatal endpoints retain competing
+death; endpoints already containing death are modelled without a second
+competing cause. Numerical CTCAE-inspired endpoints and antimicrobial-use
+proxies are named with their definition caveats. Full code lists and risk-set
+counts are supplementary.
+
+\subsection*{Temporal split and local encoder}
+Supervised training uses index dates through 2021, tuning uses 2022, and
+held-out evaluation uses index dates from 2023. Patient-level membership is
+shared across endpoints. The physical random 90/10 subject stores govern
+self-supervised fitting/validation; they are pooled before applying the
+prospective supervised split. Pretraining uses events strictly before
+1 January 2022. Vocabulary and numeric metadata are fitted on the permitted
+SSL-training view and frozen. Pre-cutoff histories of subsequently treated
+patients can participate, so the claim concerns future treatment episodes,
+not necessarily entirely unseen individuals.
+
+The running local candidate uses a 256-wide native BONSAI encoder, four layers
+and four heads, scaled Time2Vec and context length 8,192. The harmonized local
+release uses categorical joined-bin numeric tokens. Autoregressive pretraining
+uses chronological event-complete windows and retains a validation-selected
+checkpoint after the recorded training budget. \placeholder{Insert actual
+saved architecture, vocabulary hash, epochs/token budget and compute audit.}
+The earlier 64-dimensional experiments are supplementary matched work; the
+primary comparisons require the new 256-dimensional initialization.
+
+\subsection*{Supervision factorial and direct prediction}
+S/D/O/J use the same selected local encoder, trainable backbone and shared
+linear interval-hazard heads. Each target produces primary and competing
+hazards whose cumulative incidence is evaluated at 30, 60, 90, 180, 365 and
+730 days. Direct multi-horizon BCE uses known labels at each horizon: primary
+events are positive from event time onward, competing death is a known
+negative, and administrative censoring before a horizon leaves status unknown.
+Clinical grade variants retain the approved endpoint-group loss weighting.
+Structural cohort/endpoint exclusions remain in force.
+
+The planned budget is 30 complete epochs with natural sampling and matched
+optimizer/batch settings across scopes. Support curriculum is off in this
+factorial. S starts from the pretrained encoder, without pooled supervised
+weights. D fits one outcome across all applicable fine diseases; O fits all
+applicable outcomes within one fine disease; J fits the whole panel. Horizons
+do not multiply the training count. Equal epochs do not equate optimizer steps,
+label exposure or compute, which are recorded separately.
+
+\subsection*{Conditional source routing}
+Let $h_i$ be the pre-index patient representation and $k$ the target outcome.
+The readout forms
+\begin{equation}
+ h_{ik}=h_i+\lambda\sum_s\pi_{iks}c_s A_s(h_i),
+ \qquad c_s=\frac{e_s}{e_s+\tau},
+ \label{eq:router}
+\end{equation}
+where $A_s$ is a low-rank nonlinear residual adapter, $e_s$ is its training
+support proxy, and $\pi$ mixes available sources with a shared-route logit.
+The patient remains an additive baseline regardless of shared gate mass.
+Support counts are training-only; disease counts pool events across endpoints
+and are not directly equivalent to outcome-bank counts. Shrinkage is a support
+heuristic, not an estimated posterior credibility weight.
+
+The query uses patient, disease and target identity. The additive query sums
+projected vectors; the interacting query adds an MLP of their concatenation.
+Target identity selects the prediction task, not its observed value. Both
+contexts remain in active source-only arms. Home floors retain the available
+home source; unknown fine identity uses the shared path. Anchored adapters
+receive parameter updates only from home supervision, whereas the borrowed
+variant permits cross-target updates. These are different supervised ownership
+rules, not different access to held-out outcomes. The construction relates to
+gated experts and parameter-efficient adapters
+\citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion}.
+
+The reference settings are rank8, residual scale0.7, home floor0.05, event
+tau10 and shared-logit initialization0. Source choice, rank8 versus16,
+additive versus interacting query, and query128 versus512 are assessed in a
+bounded tuning sequence. \placeholder{Insert final policy, source bank,
+rank/query capacity, adapter epsilon and initialization hash.} Shared/router
+comparisons match curriculum and the common probability-loss checkpoint rule.
+Earlier scale/architecture screens are reported separately. Learned-borrowing
+claims require trained fixed/home-only controls; removal inference alone is
+not that counterfactual.
+
+\subsection*{External initialization and local domain adaptation}
+The external checkpoint and original vocabulary undergo architecture,
+code-system, value/time and temporal-provenance audits. Encoder tensors are
+strictly loaded, common vocabulary rows are copied by token string, and
+local-only rows receive a recorded seeded initialization. Source prediction
+heads and optimizer state are excluded. The direct E export performs no local
+SSL fitting. EA begins from that same remapped export and continues SSL on the
+permitted local training records, with SSL validation selection and no
+supervised held-out labels. Thus remapping initialization is held fixed in
+EA--E. \placeholder{Insert source population/date coverage, unmatched-token
+frequencies and DAPT objective/budget/provenance.}
+
+J and the locally locked R are fitted for L/E/EA with matched downstream
+protocols. External architectures are not retuned through the full local
+router search. Pretraining-by-pooling is an optional prespecified subset
+extension, not implied by this six-fit downstream matrix.
+
+\subsection*{Tabular comparators}
+EHR feature matrices use the same patient-specific prediction origin.
+Preprocessing and imputation fit training data only; XGBoost and logistic
+hyperparameters minimize tuning log loss within each target cell and horizon.
+The matched binary comparisons use the same known-status CIF labels and
+ascertainment eligibility as neural horizon BCE, including competing deaths
+as known negatives and excluding early-censored unknown status. Outcome,
+horizon and prospective split definitions match neural evaluation. Cell-specific models know the
+disease through model choice; pooled tabular comparators receive the same
+legitimate baseline disease information. Registry-enriched predictors and
+clinical scores use separately matched complete-case populations. IPI-style
+rank scores are not treated as calibrated probabilities.
+
+\subsection*{Selection, estimands and paired uncertainty}
+All new neural comparison checkpoints minimize complete-tuning horizon BCE,
+averaging patients within known horizon status, then horizons, grades and
+endpoint groups. Single-class tuning cells can select on probability loss;
+zero known tuning evidence cannot. Each pooled fit supplies one selected
+checkpoint to all evaluation cells. Architectural choices, support criteria,
+aggregation, calibration rules and seed roster are fixed before held-out
+outcomes are inspected. \placeholder{Insert final practical tolerance,
+formal comparison family and support thresholds.}
+
+Primary population-risk reporting uses the matching CIF/IPCW AUC and Brier
+estimands. Required secondary binary analyses use the explicitly identified
+known-status population and report its exclusions; unweighted BCE/log loss
+is not called censoring-adjusted population risk. Patients are resampled
+jointly across methods, endpoints and horizons, and the same evaluation-patient
+draw is reused across training seeds. Seed-averaged intervals condition on the
+fitted seed roster; seed variation and pretraining-seed uncertainty are
+reported separately. Unsupported or failed specialists remain in coverage
+summaries. Task-balanced and population-weighted summaries are distinct.
+
+\subsection*{Hierarchy for effect heterogeneity}
+Paired contrasts are the foundation; hierarchical analysis summarizes where
+effects vary with target-cell training support. A crossed disease/outcome/cell
+model with a linear log-support trend is the reference. A smooth spline and
+clinical parent-group nesting are assessed through bounded sensitivity models,
+metric-scaled priors and prior/posterior predictive checks. Raw effects remain
+visible. Within each question family, independent paired effects are fitted
+jointly and conditional/combined contrasts are deterministic posterior sums.
+For example, disease and outcome pooling and their interaction determine both
+paths from a specialist to the fully joint model. Horizons and metrics are
+analysed separately. Training-seed effects are averaged within shared patient
+bootstrap draws before fitting. A multivariate Normal likelihood uses their
+estimated covariance across contrasts and endpoints within each fine disease,
+with prespecified diagonal shrinkage and a numerical variance floor. The
+finite-panel posterior average uses declared disease/endpoint-group weights;
+it is distinct from the mean rarity curve. Posterior probabilities of meaningful
+benefit, harm and practical equivalence use a metric-specific tolerance.
+Clinical nesting and spline flexibility are sensitivity assumptions, and
+convergence does not establish predictive adequacy. The old independent-error
+rarity spline is retained only for historical reproduction.
+\placeholder{Insert locked priors/tolerances, covariance sensitivity,
+validated predictive checks and real-data sampling diagnostics.}
+
+\subsection*{Secondary analyses and reproducibility}
+Negative-transfer strata and the best S/D/O strategy are defined on tuning,
+then evaluated on held-out predictions. Patient subgroups use pre-index or
+train-only definitions. No held-out recalibration or subgroup selection is
+performed. All fits retain resolved configurations, source checkpoints,
+release/vocabulary hashes, seeds and completion provenance. Prediction and
+bootstrap artifacts remain on protected storage; only reviewed aggregates
+enter figures. Software/run readiness and analysis definitions are documented
+separately from empirical findings.
+
+\section*{Data availability}
+\placeholder{Controlled-access statement and application procedure.}
+\section*{Code availability}
+\placeholder{Repository, archival DOI, license and environment.}
+\section*{Acknowledgements}
+\placeholder{Funding, collaborators and compute resources.}
+\section*{Author contributions}
+\placeholder{CRediT statement.}
+\section*{Competing interests}
+\placeholder{Statement.}
+
+\balance
+\bibliographystyle{unsrtnat}
+\bibliography{paper}
+\end{document}

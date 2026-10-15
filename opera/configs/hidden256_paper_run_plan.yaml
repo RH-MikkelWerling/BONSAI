@@ -1,17 +1,21 @@
 # Planning manifest / config overlays, NOT a Hydra launch configuration.
 # Materialize against the approved server release after the 14 October lock.
 status: pending_router_policy_lock
+prelaunch_runbook: docs/final_experiment_gates_20261014.md
+contrast_manifest: opera/configs/manifests/final_contrasts_20261014.yaml
 encoder:
   hidden_size: 256
   num_attention_heads: 4
-  num_layers: 4  # Retained local assumption; confirm collaborator config.
+  num_layers: 4  # Confirmed collaborator specification; audit saved checkpoint.
   abspos_encoding: scaled_time2vec
   checkpoint: null  # Required audited new256 checkpoint, never a64 checkpoint.
 selection:
   split: tuning
   seed: 42
   epochs: 30
-  metric: endpoint_group_macro_auc
+  metric: val/cr_horizon_bce_endpoint_group_macro
+  mode: min
+  reporting_metrics: [auc, brier]
 fixed_router_overrides:
   competing_risk.adapter_query_mode: interacting
   competing_risk.adapter_residual_scale: 0.7
@@ -44,12 +48,44 @@ source_arm_overrides:
 additional_required:
   - shared_endpoint_group_macro_baseline
   - independent_disease_by_outcome_specialists_all_diseases
+  - disease_fixed_multi_outcome_shared_bce
+  - outcome_fixed_multi_disease_shared_bce
   - matched_tabular_baselines
-  - primary_comparison_seed_replication
   - external_encoder_shared_and_locked_router
 specialists:
   shard_count: 4
   exclude_cll: false
   initialization: same_selected_encoder_checkpoint
-  selection: single_outcome_tuning_loss
+  selection: full_tuning_horizon_bce_endpoint_group_macro
   epochs: 30
+supervision_factorial:
+  runbook: docs/supervision_factorial_20261014.md
+  generator: opera.run.prepare_supervision_factorial
+  readout: shared_linear_no_router
+  checkpoint_metric: val/cr_horizon_bce_endpoint_group_macro
+  checkpoint_mode: min
+  curriculum_enabled: false
+  budget: equal_epochs_report_steps_exposure_and_compute
+  reuse_64wide_controls: false
+final_source_policy:
+  selected_bank: null  # disease_only is valid; both requires tuning evidence
+  outcome_bank_requirement: incremental_predictive_value_not_parameter_count
+  final_comparison_checkpoint_metric: val/cr_horizon_bce_endpoint_group_macro
+bounded_selection_order:
+  - optimization_policy_from_64wide_evidence_and_256_diagnostics
+  - source_banks_at_rank8_interacting_query128
+  - rank8_vs_rank16_with_selected_source_bank
+  - additive_vs_interacting_with_selected_bank_and_rank
+  - interacting_query128_vs_query512_at_selected_rank
+  - matched_final_controls_if_selected_settings_changed
+external_pretraining:
+  downstream_policy: frozen_local_selected_shared_and_router
+  encoder_origins: [local256, external_direct, external_plus_local_dapt]
+  full_supervision_factorial_repeat: false
+  repeat_all_architecture_sweeps: false
+  new_downstream_fits_per_seed: 4  # Two external origins x two readouts.
+  direct_export_status: implemented_requires_actual_external_artifact_audit
+  pooling_interaction_extension: prespecified_subset_only_if_claimed
+  local_dapt_stage_required: true
+  local_dapt_selection: permitted_ssl_validation
+  adaptation_contrasts: [shared_EA_vs_E, router_EA_vs_E]

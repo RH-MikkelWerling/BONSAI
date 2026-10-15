@@ -42,11 +42,14 @@ def main(cfg: DictConfig) -> None:
     if cfg.paths.get("initialization_use_source_architecture", False):
         if initialization_ckpt in (None, ""):
             raise ValueError("Source architecture requested without initialization_ckpt")
-        source_model_config = source_pretrain_model_config(initialization_ckpt)
+        source_model_config = source_pretrain_model_config(
+            initialization_ckpt, cfg.paths.get("initialization_rope_layout")
+        )
         for key in (
             "max_seqlen", "hidden_size", "num_layers", "num_attention_heads",
             "bias", "dropout", "attention_dropout", "causal",
             "value_bin_vocab_size", "value_embedding_mode", "abspos_encoding",
+            "rope_interleaved",
         ):
             cfg.model[key] = source_model_config[key]
         # Keep the local execution backend (e.g. SDPA on V100) rather than
@@ -104,6 +107,7 @@ def main(cfg: DictConfig) -> None:
         value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
         abspos_encoding=cfg.model.get("abspos_encoding", "legacy"),
+        rope_interleaved=cfg.model.get("rope_interleaved"),
     )
 
     transfer_report = None
@@ -122,6 +126,7 @@ def main(cfg: DictConfig) -> None:
                 cfg.paths.get("initialization_min_token_coverage", 0.0)
             ),
             load_weights=True,
+            source_rope_layout=cfg.paths.get("initialization_rope_layout"),
         )
         print(
             "Initialized local pretraining encoder from external BONSAI checkpoint: "
@@ -238,7 +243,8 @@ def main(cfg: DictConfig) -> None:
         model_save_dir,
         lightning_module,
         extra={
-            "completed_epochs": int(trainer.current_epoch) + 1,
+            # After fit, current_epoch already equals the number of completed epochs.
+            "completed_epochs": int(trainer.current_epoch),
             "optimizer_steps": int(trainer.global_step),
             "training_examples_seen": int(
                 lightning_module.training_examples_seen.item()

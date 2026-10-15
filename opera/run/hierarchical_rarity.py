@@ -1,4 +1,8 @@
-"""Run the publication-grade hierarchical natural-rarity analysis.
+"""Reproduce the legacy independent-error natural-rarity analysis.
+
+For the current paper, use ``opera.run.bayesian_contrasts`` with the locked
+prediction-analysis outputs. This older workflow is historical, not the
+question-aligned primary Bayesian analysis.
 
 Examples
 --------

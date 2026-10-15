@@ -1756,9 +1756,12 @@ message(sprintf(
 # Definition from "Databasen for Akutte Hospitalskontakter"
 # Sources: SDS_t_adm and SDS_kontakter
 #
-# ADM filter:
-#   Inpatient:  c_pattype == 1 AND c_indm == "1"
-#   Acute:      c_pattype == 2 AND c_indm == "1"
+# ADM filter (LPR2 patient type: 0 = inpatient/heldoegn, 2 = outpatient,
+# 3 = emergency room before 2014; from 2014 ER = outpatient with acute mode):
+#   Inpatient:  c_pattype == 0 (acute or planned; see episode rule below)
+#   Acute ER:   c_pattype %in% c(2, 3) AND c_indm == "1"
+# The predicted outcome keeps only episodes containing an acute contact, so a
+# planned admission counts only if merged with an acute contact (see below).
 #
 # CONTACTS filter:
 #   prioritet == "ATA1" AND kontakttype == "ALCA00"

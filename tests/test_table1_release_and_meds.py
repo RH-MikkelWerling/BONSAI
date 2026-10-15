@@ -198,3 +198,29 @@ def test_primary_only_review_does_not_spread_suppression():
     assert not common.suppressed.any()
     assert not result.loc[result.variable == "sex", "suppressed"].any()
     assert policy["disclosure_clearance"] is False
+
+
+def test_manuscript_table_renders_released_display_values_verbatim():
+    from opera.run.format_table1_release import pooled_table_latex
+
+    pop = pd.DataFrame(
+        {
+            "subject_id": range(300),
+            "split": ["train"] * 100 + ["tuning"] * 100 + ["held_out"] * 100,
+            "sex": ["Female"] * 2 + ["Male"] * 98 + ["Female", "Male"] * 100,
+            "age": list(range(40, 90)) * 6,
+            "arm_primary": ["Rare"] * 2 + ["Common_arm"] * 298,
+        }
+    )
+    release, _ = release_table(build_tables(pop))
+    tex = pooled_table_latex(release, source_sha256="abc123")
+    assert "export sha256 abc123" in tex and "Review version" in tex
+    assert r"\quad Common\_arm" in tex  # escaped, indented category row
+    assert "$<$5" in tex  # suppressed small cell kept as released
+    pooled = release.loc[release.cohort_level == "all"]
+    for value in pooled.display.dropna().astype(str):
+        assert value.replace("<", "$<$").replace("%", r"\%") in tex
+    assert tex.count(r"\begin{table*}") == 1
+    assert "Review version" not in pooled_table_latex(
+        release, source_sha256="abc123", status="approved"
+    )

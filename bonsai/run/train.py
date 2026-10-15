@@ -82,6 +82,7 @@ def main(cfg: DictConfig) -> None:
         value_bin_vocab_size=cfg.model.get("value_bin_vocab_size", 0),
         value_embedding_mode=cfg.model.get("value_embedding_mode", "legacy"),
         abspos_encoding=cfg.model.get("abspos_encoding", "legacy"),
+        rope_interleaved=cfg.model.get("rope_interleaved"),
     )
 
     lightning_module = FinetuneModule(

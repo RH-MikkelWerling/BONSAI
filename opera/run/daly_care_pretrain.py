@@ -132,7 +132,8 @@ def main(cfg: DictConfig) -> None:
         model_save_dir,
         lightning_module,
         extra={
-            "completed_epochs": int(trainer.current_epoch) + 1,
+            # After fit, current_epoch already equals the number of completed epochs.
+            "completed_epochs": int(trainer.current_epoch),
             "optimizer_steps": int(trainer.global_step),
             "training_examples_seen": int(
                 lightning_module.training_examples_seen.item()

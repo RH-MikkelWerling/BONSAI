@@ -1,5 +1,11 @@
 # External BONSAI encoder → local domain adaptation → OPERA
 
+The current study scope and reduced external/shared/router comparison matrix
+are in `docs/final_experiment_gates_20261014.md`. Repeat transfer audits and
+bounded smoke tests, not the entire local architecture/supervision search.
+The before/after local DAPT contrasts and their interactions with routing are
+explicitly listed in `docs/contrast_plan_20261014.md`.
+
 An external pretrained checkpoint must arrive with its **original**
 `vocabulary.pt` and, ideally, its resolved training config and
 `checkpoint_metadata.json`. Copy these files into a new, immutable input
@@ -41,8 +47,19 @@ or a legacy ModernBERT checkpoint is **not** silently converted. The 90%
 non-special-token coverage gate is deliberately conservative and can be
 revisited after reviewing the missing tokens and their frequencies.
 
-Once the audit passes, choose a fresh output directory and launch local
-domain-adaptive pretraining:
+For the matched direct-versus-DAPT comparison, first export the remapped
+encoder-only artifact (no local SSL):
+
+```bash
+DIRECT_EXPORT="$PWD/data/models/external_bonsai_direct_export_v1"
+python -m bonsai.run.export_external_encoder \
+  --checkpoint "$SOURCE_CKPT" --source-vocab "$SOURCE_VOCAB" \
+  --target-vocab "$LOCAL_SEQUENCE/vocabulary.pt" \
+  --seed 42 --minimum-token-coverage 0.9 --output-dir "$DIRECT_EXPORT"
+```
+
+Use its `encoder.ckpt` as E, and initialize EA from that same artifact so
+local-only random token rows match. Choose a fresh DAPT output directory:
 
 ```bash
 DAPT_RUN="$PWD/data/models/external_bonsai_local_dapt_v1"
@@ -51,8 +68,8 @@ test ! -e "$DAPT_RUN" || { echo "DAPT run directory already exists" >&2; exit 1;
 
 python -u -m bonsai.run.pretrain \
   --config-name pretrain_external_bonsai_dapt_v1 \
-  "paths.initialization_ckpt=$SOURCE_CKPT" \
-  "paths.initialization_vocab=$SOURCE_VOCAB" \
+  "paths.initialization_ckpt=$DIRECT_EXPORT/encoder.ckpt" \
+  "paths.initialization_vocab=$DIRECT_EXPORT/vocabulary.pt" \
   "hydra.run.dir=$DAPT_RUN"
 ```
 
@@ -92,7 +109,8 @@ checkpoint metric matched to the local-pretraining arm. The full end-to-end
 transfer remains conditional on receiving the actual source checkpoint and
 vocabulary and passing these audits on the secure server.
 
-The paper's direct external-pretraining arm (without local DAPT) needs an
-additional local-vocabulary checkpoint export. It should not be simulated by
-starting a zero-epoch DAPT run; implement and audit that arm separately before
-the matched pretraining ladder is declared complete.
+The direct arm is implemented by `bonsai.run.export_external_encoder` and is
+covered by native transfer tests. Actual external artifacts still require server
+audits. Use the new phased paper bundle for matched J/R across L/E/EA; the older
+candidate-launch examples above remain isolated exploratory runs, not the
+updated paper matrix. See `pretraining_finish_handoff_20261014.md`.

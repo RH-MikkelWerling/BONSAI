@@ -35,6 +35,10 @@ class RotaryPositionalEmbeddings(nn.Module):
             model, if exceeded the cached freqs will be recomputed
         base (int): The base for the geometric progression used to compute
             the rotation angles
+        interleaved (bool): Rotate adjacent dimension pairs ``(2i, 2i+1)``
+            (torchtune/GPT-J layout). When False, rotate ``(i, i + dim/2)``,
+            the flash_attn ``interleaved=False`` (GPT-NeoX) layout. Weights
+            trained with one layout are not interchangeable with the other.
     """
 
     def __init__(
@@ -42,11 +46,13 @@ class RotaryPositionalEmbeddings(nn.Module):
         dim: int,
         max_seq_len: int = 4096,
         base: int = 10_000,
+        interleaved: bool = True,
     ) -> None:
         super().__init__()
         self.dim = dim
         self.base = base
         self.max_seq_len = max_seq_len
+        self.interleaved = bool(interleaved)
         self.rope_init()
 
     def rope_init(self):
@@ -101,6 +107,16 @@ class RotaryPositionalEmbeddings(nn.Module):
         rope_cache = (
             self.cache[:seq_len] if input_pos is None else self.cache[input_pos]
         )
+
+        if not self.interleaved:
+            # Rotate (i, i + dim/2) pairs, matching flash_attn interleaved=False.
+            half = x.shape[-1] // 2
+            xf = x.float()
+            x1, x2 = xf[..., :half], xf[..., half:]
+            rope_cache = rope_cache.view(-1, x.size(1), 1, half, 2)
+            cos, sin = rope_cache[..., 0], rope_cache[..., 1]
+            x_out = torch.cat((x1 * cos - x2 * sin, x2 * cos + x1 * sin), dim=-1)
+            return x_out.type_as(x)
 
         # reshape input; the last dimension is used for computing the output.
         # Cast to float to match the reference implementation

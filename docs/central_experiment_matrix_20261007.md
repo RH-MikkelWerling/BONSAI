@@ -1,5 +1,11 @@
 # Central OPERA experiments and run order
 
+The current matched256 contrast inventory is `docs/contrast_plan_20261014.md`
+and `opera/configs/manifests/final_contrasts_20261014.yaml`. It separates direct
+external initialization from external plus local DAPT and limits the repeat
+supervision factorial to a prespecified subset unless a full-panel interaction
+claim is intended. The older run order below is historical context.
+
 ## Claim–comparator map
 
 | Claim | Primary contrast | What it isolates |

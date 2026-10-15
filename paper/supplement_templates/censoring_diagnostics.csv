@@ -1,0 +1,1 @@
+disease,outcome,horizon_days,risk_set_n,followup_support_n,g_at_horizon,weight_max,weight_p99,floored_fraction,censoring_fit_population,status,source_sha

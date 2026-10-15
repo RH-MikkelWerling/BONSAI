@@ -1,0 +1,824 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,mathpazo,amsmath,booktabs,longtable,array}
+\usepackage[scaled=0.95]{helvet}
+\usepackage{microtype,titlesec}
+\usepackage[dvipsnames,table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\usepackage{enumitem}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\input{opera_style}
+
+\raggedbottom
+\renewcommand{\arraystretch}{1.22}
+\setlength{\LTpre}{8pt}
+\setlength{\LTpost}{10pt}
+\titleformat{\section}{\sffamily\Large\bfseries\color{OperaIndigo}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\sffamily\normalsize\bfseries\color{OperaInk}}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{18pt}{8pt}
+\titlespacing*{\subsection}{0pt}{12pt}{5pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{2.5em}
+\setlength{\parskip}{4pt plus 1pt minus 1pt}
+\setlist{nosep,leftmargin=*}
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\tablename}{Supplementary Table}
+
+% Column layout for the outcome tables (Supplementary Tables S5--S11).
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\otablebegin}{\begin{longtable}{L{2.75cm}L{5.35cm}L{1.55cm}L{2.45cm}L{2.25cm}L{1.0cm}}}
+\newcommand{\otableheadrow}{\toprule
+\rowcolor{OperaIndigo!8}
+Outcome & Definition and threshold & Source & Baseline requirement & Ascertainment and censoring & Class\\
+\midrule}
+\newcommand{\otablehead}{%
+\otableheadrow\endfirsthead
+\otableheadrow\endhead
+\bottomrule\endfoot}
+
+\begin{document}
+\ifdefined\embeddedSupplement\pagestyle{empty}\fi
+\section*{Supplementary Methods: cohort, prediction time and outcome definitions}
+
+This supplement describes how the study cohort, the index date (start of
+first-line treatment), the temporal split, the disease-course endpoints and the
+69 treatment-related and acute-care outcomes were defined in the Danish
+Lymphoid Cancer Research (DALY-CARE) data resource~\citep{brieghel2025dalycare}.
+Reported cohort counts describe the current release and await final supervisor
+sign-off. Implementation traceability and unresolved clinical/source decisions
+are recorded in the companion traceability and open-question documents.
+
+\paragraph{Conventions.} Dates are calendar dates without time of day unless
+stated otherwise. The \emph{index date} is the start of the reconstructed
+first-line treatment episode (Section~\ref{sec:population}). \emph{End of
+follow-up} is the earlier of death and last follow-up as recorded in the
+DALY-CARE patient table. The \emph{administrative censoring date} is the
+earlier of end of follow-up and the data cutoff of 19 March 2026. Unless stated
+otherwise, an outcome event is the \emph{first} qualifying date $d$ with
+$\text{index date} < d \le \text{censoring date}$; events on the index date
+itself were never counted. For each outcome, patients for whom the outcome
+could not be ascertained were excluded from that outcome's risk set (masked
+supervision); exclusion was never interpreted as absence of the event.
+
+% ===========================================================================
+\paragraph{How to read this supplement.}
+Sections~\ref{sec:sources}--\ref{sec:split} describe the data and who enters the
+study, including the reconstructed treatment index and disease assignment.
+Section~\ref{sec:2l} explains disease-course outcomes, particularly second-line
+treatment. Section~\ref{sec:outcomes} gives the clinical outcome dictionary;
+Section~\ref{sec:elig} explains who can contribute a label and when observation
+ends. The final sections distinguish panel selection and reporting groups from
+the clinical definitions and state their limitations.
+
+\begin{center}
+\fcolorbox{OperaBorder}{OperaPaper}{\begin{minipage}{0.92\linewidth}
+\textbf{Three questions for every outcome}\par
+\textbf{What counts?} The qualifying event and its threshold or code rule.\par
+\textbf{Who is eligible?} Required baseline information and source coverage.\par
+\textbf{How long is it observable?} Ascertainment, censoring and competing death.\par
+An unavailable label is not a negative outcome. Clinical rationale and known
+limitations accompany the implementation; unresolved source decisions remain
+listed in the companion open-question document.
+\end{minipage}}
+\end{center}
+\tableofcontents
+\clearpage
+
+\section{Data sources and linkage}\label{sec:sources}
+
+All sources were accessed within the DALY-CARE secure environment and linked
+at patient level by the DALY-CARE pseudonymised patient identifier.
+Supplementary Table~\ref{tab:sources} lists the sources and their use.
+
+{\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{L{3.3cm}L{4.3cm}L{4.0cm}L{4.4cm}}
+\caption{Data sources.}\label{tab:sources}\\
+\toprule
+Source & Content used & Used for & Coverage and date handling\\
+\midrule\endfirsthead
+\toprule
+Source & Content used & Used for & Coverage and date handling\\
+\midrule\endhead
+DALY-CARE patient table & Vital status, date of death or end of follow-up, sex, date of birth & Death, end of follow-up, demographics & End of follow-up is the earlier of death and last follow-up.\\
+DALY-CARE haematological diagnoses & Harmonised haematological diagnoses with date, reliability rank and data source & Diagnosis anchor, disease classification, new haematological malignancy & Diagnoses from the Danish clinical quality registries (RKKP) were assigned the highest reliability rank.\\
+Danish National Patient Registry: diagnoses & All ICD-10 diagnoses (SKS diagnosis codes) & New malignancy, cardiovascular, infection and fracture outcomes & LPR2 until 2019 and LPR3 thereafter; no era restriction.\\
+DALY-CARE ICD-10 disease dictionaries & ICD-10 code patterns per haematological disease; SKS radiotherapy codes & Disease classification; radiotherapy as first-line treatment & Supplemented locally (Section~\ref{sec:disease}).\\
+Harmonised antineoplastic treatment data (version of 10 September 2026) & Drug code (ATC or SKS), drug text, indication code and text, source, start date & First- and second-line treatment episodes & Treatment-plan records were excluded; records from the LYFO, DaMyDa and DCLLR quality registries were regarded as reliable.\\
+Curated CLL and MM treatment-line data (CLL version 4, MM version 5) & Dated treatment lines & First-line anchoring in CLL/MM; second-line events in CLL/SLL and MM & Assumed complete for CLL/SLL and MM patients.\\
+Danish Lymphoma Registry (LYFO) & Date of second-line treatment & Second-line treatment in lymphoma & Data from the CLL (DCLLR) and myeloma (DaMyDa) registries were not used for second-line dating.\\
+Laboratory results & Analytes identified by NPU codes, cleaned with the DALY-CARE standard procedure & Laboratory outcomes and laboratory ascertainment & Complete capture assumed from 1 January 2017 (Section~\ref{sec:elig}).\\
+DALY-CARE acute kidney injury data & Start dates of acute kidney injury episodes derived from creatinine by a separate DALY-CARE algorithm & Acute kidney injury outcome & Laboratory ascertainment rule.\\
+Danish National Patient Registry: admissions, contacts and procedures (LPR2, LPR3) & Admissions and outpatient/emergency contacts (LPR2); physical contacts (LPR3); surgical and other procedures (SKS) & Procedure outcomes; acute hospitalisation & Procedures dated by the procedure start date, not the contact start.\\
+Hospital Medicines Register (SMR) & In-hospital medicine administrations with ATC code and route & Intravenous antimicrobial-use outcome & Reporting starts 15 May 2018; outcome restricted to index dates on or after this date.\\
+Danish National Prescription Registry & Dispensed prescriptions with ATC code and dispensing date & Prescription antimicrobial-use outcome & No era restriction.\\
+International Prognostic Index (IPI) & IPI at diagnosis & Descriptive population characteristics only & Not an outcome or model input.\\
+\bottomrule
+\end{longtable}}
+
+\paragraph{Linkage of procedures.} Procedure records in LPR2 were linked to
+their admission or contact through the full record identifier; records with a
+missing identifier were not linked. A data-quality audit on 4 October 2026
+showed that an earlier linkage, which truncated long record identifiers, had
+failed to link procedures for 355,581 (surgical procedures) and 1,576,198
+(other procedures) distinct record identifiers. Correcting the linkage, and
+dating procedures by the procedure start rather than the admission start, added
+22,208 event labels and moved 5,484 event dates earlier, summed across seven
+procedure outcomes (not distinct patients). The corresponding audit of LPR3
+procedure-to-contact linkage found no lost records.
+
+\paragraph{Data cutoff.} The administrative data cutoff was 19 March 2026 for
+all endpoints, including second-line treatment; an earlier cutoff of 4 March
+2026 was used only in historical sensitivity analyses. All endpoints shared the
+same cutoff, which was checked when composite outcomes were formed. A death
+recorded after the cutoff was treated as censoring at the cutoff, not as an
+event.
+
+% ===========================================================================
+\section{Study population and index date (first-line treatment)}\label{sec:population}
+
+The index date was the start of first-line treatment, reconstructed from the
+treatment records by the following algorithm. Exploratory variants (disabling
+anti-CD20 monotherapy as first-line treatment, and a fallback to
+registry-recorded treatment dates) were not used.
+
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=4.2em]
+\item \textbf{Diagnosis anchor.} For each patient, the earliest record of any
+DALY-CARE haematological diagnosis (including MGUS, MBL and unspecified codes)
+defined the diagnosis anchor date.
+\item \textbf{Record filter.} Treatment records required a patient identifier,
+a date and a drug code (or, if missing, a drug text). A record was retained if,
+in order of precedence: (i) it originated from a quality registry (LYFO,
+DaMyDa, DCLLR); (ii) its indication code started with a haematological ICD-10
+prefix (DC81--DC89, DC90--DC96, DD47). It was discarded if (iii) its
+four-character indication code was a listed non-haematological cancer (DC18,
+DC19, DC20, DC25, DC34, DC43, DC50, DC56, DC61, DC71, DC78), or (iv) the
+indication text matched a list of non-haematological Danish terms or the drug
+text named a listed agent not used for lymphoid malignancy (e.g.\
+fluorouracil, capecitabine, imatinib, azacitidine, hydroxycarbamide,
+cisplatin, carboplatin). Otherwise (v) it was retained as of uncertain
+indication.
+\item \textbf{Search window.} Records dated from 30 days before to 3,650 days
+after the diagnosis anchor were eligible.
+\item \textbf{Episodes.} Records were grouped into one treatment episode while
+successive treatment dates were at most 21 days apart (a gap rule, not a
+maximum duration). The episode start was the earliest record date.
+\item \textbf{Therapy-like criterion} (first matching rule): (a) the episode
+contained an \emph{anchor} agent $\Rightarrow$ qualified; (b) it contained a
+quality-registry record, unless it also contained an agent suspected of
+prophylactic or non-lymphoma use and fewer than two distinct codes
+$\Rightarrow$ qualified; (c) anti-CD20 monotherapy (ATC L01FA01, L01XC02, SKS
+BOHJ11, or drug text rituximab or ofatumumab) on $\ge$2 dates
+$\Rightarrow$ qualified; (d) it contained a suspect agent $\Rightarrow$
+required $\ge$3 dates and $\ge$2 distinct codes; (e) otherwise $\ge$2 dates or
+$\ge$2 distinct codes were required.
+
+Anchor agents comprised the CLL agents (fludarabine, cyclophosphamide,
+bendamustine, chlorambucil, obinutuzumab, ibrutinib, zanubrutinib,
+acalabrutinib, idelalisib, venetoclax, alemtuzumab; ATC and SKS BWHA/BOHJ
+codes), aggressive B-cell lymphoma agents and regimens (e.g.\ SKS codes for
+CHOP, COP and CHOEP; mitoxantrone, ifosfamide, carboplatin, gemcitabine,
+vincristine, melphalan, cytarabine, bortezomib, lenalidomide, thiotepa,
+carmustine), myeloma regimens identified by drug text (e.g.\ daratumumab,
+carfilzomib, pomalidomide, autologous stem-cell transplantation) and SKS
+radiotherapy codes (codes described as ``strålebehandling'' [radiotherapy],
+except listed prefixes, plus AFB04F3 and AFB03F3). Agents suspected of
+prophylactic or non-lymphoma use were removed from the anchor list: rituximab,
+unspecified CD20 antibody, methotrexate, gemcitabine and cisplatin identified
+by text, doxorubicin, etoposide, oxaliplatin, selinexor, the generic cytostatic
+codes BWHA1, BWHA2 and BWHA4, and bevacizumab.
+\item \textbf{Curated CLL and MM anchors.} For patients in the curated CLL or
+MM treatment-line data, the earliest first-line date (the earlier of the two if
+present in both) was attached. An episode was an \emph{anchored episode} if
+this date fell within it or within 30 days of its start or end. Anchored
+episodes did not need to meet the therapy-like criterion.
+\item \textbf{Selection.} Patients with a curated anchor received the anchored
+episode closest to the curated date; all others received the earliest
+qualifying episode. The index date was the start of the selected episode, not
+the curated date. Patients without a qualifying episode had no index date and
+were not included.
+\end{enumerate}
+
+\paragraph{Cohort flow.} Supplementary Table~\ref{tab:flow} shows the cohort
+flow. Patients enter the outcome population only if they had a follow-up record
+and both end of follow-up and the data cutoff fell after the index date; a
+patient with a missing follow-up record, end of follow-up on or before the
+index date (including death on the index date) or an index date on or after
+the cutoff was therefore excluded from all outcomes. Twenty-six patients of the
+first-line cohort were excluded in this way.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Cohort flow.}\label{tab:flow}
+\begin{tabular}{L{11cm}r}
+\toprule
+Stage & Patients\\
+\midrule
+Patients with a DALY-CARE haematological diagnosis (pretraining population) & 78,668\\
+\quad No qualifying first-line treatment & 40,033\\
+First-line index date identified (pass 1) & 38,635\\
+\quad Disease assigned in pass 1 (diagnoses from 20 years before to 14 days after index) & 37,357\\
+\quad Unassigned after pass 1 & 1,278\\
+\quad Additionally assigned in pass 2 (coding-lag reassessment, up to 90 days after index) & 209\\
+\quad Unassigned after pass 2 (excluded) & 1,069\\
+Disease assigned after both passes & 37,566\\
+\quad IgM MGUS excluded & 9\\
+First-line cohort & 37,557\\
+\quad No follow-up after the index date or index on/after the data cutoff & 26\\
+Supervised population & 37,531\\
+\quad Training (index date up to 31 December 2021) & 29,105\\
+\quad Tuning (index date in 2022) & 1,980\\
+\quad Held-out test (index date from 1 January 2023) & 6,446\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Disease classification}\label{sec:disease}
+
+Diagnosis codes were mapped to disease groups using the DALY-CARE ICD-10
+patterns with local refinements: SLL only by the exact code DC830;
+lymphoplasmacytic lymphoma by DC830B or DC880; nodal marginal-zone lymphoma by
+DC830C; splenic marginal-zone lymphoma by DC830D; the generic marginal-zone
+group was not used; and DD472A (IgM MGUS) was mapped to an exclusion group.
+
+\paragraph{Pass 1 (contemporaneous diagnoses).} Diagnoses dated from 7,300
+days (about 20 years) before to 14 days after the index date were considered
+(an asymmetric window). A disease group was \emph{confirmed} if any diagnosis
+had a reliability rank of 3 or better (1 being the highest; quality-registry
+diagnoses rank 1), if there were $\ge$2 diagnoses spanning $\ge$14 days, or if
+there was a single rank-1 diagnosis. Among confirmed groups, unspecified and
+supergroup-only labels (generic DALY-CARE, unspecified, unspecified B-cell
+lymphoma, unspecified lymphoma and unspecified leukaemia) and MGUS/MBL were not
+assignable. Two derived labels were added: Richter transformation (CLL/SLL and
+DLBCL both confirmed in the window, with the earliest recorded DLBCL code
+$\ge$90 days after the earliest recorded CLL/SLL code, both taken over the
+patient's full history) and transformed follicular lymphoma (same rule for
+FL). Specific labels took precedence over supergroups and aggressive over
+non-aggressive labels; remaining ties were broken by aggressiveness (Richter;
+then DLBCL, BL, PTCL, ALCL, AITL, LBL, PCL, MCL; then MM, solitary
+plasmacytoma; then CLL, SLL, LPL; then FL, MZL, EMZL, HCL; then others), then
+by best reliability rank, latest diagnosis date and specificity.
+
+\paragraph{Pass 2 (coding-lag reassessment).} A specific lymphoma diagnosis is
+often registered only after the diagnostic work-up is complete, which can be
+after treatment has started. Patients with an index date but no assignable
+disease after pass 1 therefore entered a second pass. Their earliest
+confirmed, assignable diagnosis anywhere in their history became a new anchor;
+first-line treatment was re-identified with the same algorithm in a window
+from 90 days before this anchor to 20 years after it (curated CLL/MM anchors
+still applied), and disease was re-assigned with a 10-year look-back and a
+90-day forward window. Pass-2 patients therefore received a new index date,
+replacing their pass-1 index. This allowed a specific diagnosis registered up
+to 90 days after treatment start to define disease identity.
+
+\paragraph{Regimen-based assignment and exclusions.} Patients still unassigned
+after pass 2 could be assigned a disease group from their first-line regimen;
+this added no patients to the final cohort. Patients assigned IgM MGUS (DD472A)
+were excluded. Regimen-level characteristics (for example, salvage-like or
+radiotherapy-only first episodes) were recorded descriptively and did not lead
+to exclusion.
+
+\paragraph{Disease taxonomy.} The analysis used 24 disease subtypes nested in
+10 disease groups (Supplementary Table~\ref{tab:taxonomy}). The plasma-cell
+dyscrasia supergroup was grouped with MM and the generic marginal-zone group
+with indolent B-NHL; neither occurs among the 24 analysis subtypes.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Disease groups and subtypes.}\label{tab:taxonomy}
+\begin{tabular}{L{3.2cm}L{10.5cm}}
+\toprule
+Disease group & Subtypes\\
+\midrule
+CLL/SLL & CLL, SLL\\
+Indolent B-NHL & FL, extranodal MZL, nodal MZL, splenic MZL, LPL, B-cell lymphoma without further specification\\
+DLBCL-like & DLBCL, Richter transformation (coded or derived), transformed FL\\
+MCL & MCL\\
+HL & HL\\
+MM & MM, plasma-cell leukaemia, solitary plasmacytoma\\
+T-NHL & AITL, ALCL, PTCL, T-cell lymphoma without further specification\\
+HCL & HCL\\
+BL/LBL & BL, LBL\\
+Amyloidosis & Amyloidosis\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Temporal split and prediction time}\label{sec:split}
+
+\paragraph{Temporal split.} Patients were assigned by index date to
+\textbf{training} (index date before 1 January 2022), \textbf{tuning} (1
+January to 31 December 2022) or \textbf{held-out test} (from 1 January 2023).
+Each patient had the same index date and split in every outcome; composite
+outcomes required agreement of index date and split across components.
+
+\paragraph{Prediction time.} The model input for each patient comprised all
+records timestamped before 00:00 on the index date, followed by a prediction
+token. Treatment and laboratory records on the index date itself were
+therefore not model inputs, although an index-date laboratory draw counted
+towards laboratory ascertainment (Section~\ref{sec:elig}). Because most
+records carry a date but no time, events on the index date cannot be ordered
+relative to treatment start; such events were not counted as outcomes, and
+models were evaluated on events occurring at least 1 hour after the
+prediction time.
+
+\paragraph{Pretraining.} The foundation model was pretrained with an exclusive
+calendar cutoff of 1 January 2022, applied in the same way, and its vocabulary
+was derived from pre-2022 events of pretraining patients only. Pre-2022
+histories of patients later assigned to tuning or held-out test were included
+in pretraining; the evaluation therefore concerns future treatment episodes,
+not unseen individuals.
+
+\paragraph{Disease identity at prediction time.} Disease labels could rely on
+codes registered up to 14 days (pass 1) or 90 days (pass 2) after the index
+date. Models conditioned on disease therefore used information that was not
+necessarily available at the index date for these patients; the main text
+describes a sensitivity analysis restricted to labels available at treatment
+start.
+
+% ===========================================================================
+\section{Disease-course endpoints}\label{sec:2l}
+
+\subsection{Second-line treatment}
+Second-line treatment was identified from the same filtered treatment records
+as first-line treatment, with disease-specific rules.
+
+\paragraph{Lymphoma groups} (DLBCL-like, HL, BL/LBL, MCL, T-NHL, HCL, indolent
+B-NHL). (1) If the first-line episode spanned a single day, its end was
+imputed as start plus an expected regimen duration. (2) Treatment records dated
+more than a minimum gap after the first-line end were grouped into episodes
+(21-day gap rule). (3) Episodes were excluded as autologous stem-cell
+transplant consolidation (transplant or conditioning codes within the
+consolidation window), consolidation (a share of first-line codes reappearing
+at or above an overlap threshold within the consolidation window), maintenance
+(only anti-CD20 or lenalidomide within the maintenance window), or single-date
+anti-CD20. (4) Remaining episodes had to be therapy-like (as for first line,
+except that quality-registry episodes needed $\ge$2 codes or $\ge$2 dates)
+\emph{and} have at least moderate evidence of treatment for lymphoid
+malignancy: quality-registry source; an anchor agent with haematological
+indication; an anchor agent without suspect agents; or haematological
+indication with $\ge$2 dates \emph{and} $\ge$2 distinct codes. Anti-CD20-only
+episodes on $\ge$2 dates were therefore counted as retreatment and qualified
+as second line when they met these evidence criteria (e.g.\ obinutuzumab, an
+anchor agent, or haematological indication with two distinct codes), except
+within the maintenance window in MCL and indolent B-NHL. The event date was
+the start of the earliest qualifying episode. (5) A second-line date recorded
+in LYFO after the index date replaced the derived date if it was earlier or if
+no derived date existed. The disease-specific parameters are listed in
+Supplementary Table~\ref{tab:2l}.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Disease-specific parameters for second-line treatment in lymphoma groups.
+Durations and windows in days; -- not applied.}\label{tab:2l}
+\begin{tabular}{lrrrrrl}
+\toprule
+Group & Imputed first-line & Minimum & Consolidation & Maintenance & Overlap & Reliability\\
+ & duration & gap & window & window & threshold & \\
+\midrule
+DLBCL-like & 126 & 60 & 90 & -- & 0.45 & high\\
+HL & 120 & 60 & 90 & -- & 0.45 & high\\
+BL/LBL & 28 & 45 & 90 & -- & 0.50 & low\\
+MCL & 140 & 60 & 180 & 548 & 0.40 & moderate\\
+T-NHL & 126 & 60 & 90 & -- & 0.40 & moderate\\
+HCL & 7 & 90 & -- & -- & 0.30 & low\\
+Indolent B-NHL & 168 & 90 & 120 & 730 & 0.35 & moderate\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Ascertainment in lymphoma groups.} Patients whose only
+post-first-line retreatment evidence was weak were excluded from the risk set
+rather than counted as event-free. Because second-line identification was
+unreliable in BL/LBL and HCL, these patients were excluded unless a LYFO
+second-line date created an event; BL/LBL, HCL and amyloidosis were
+consequently excluded from all second-line-dependent outcomes.
+
+\paragraph{CLL/SLL and MM.} The event was the earliest second-line date in
+the curated CLL or MM treatment-line data (matched on disease group), if later
+than the index date. CLL/SLL and MM patients without such a date were
+event-free, assuming completeness of the curated data. Amyloidosis was not
+included.
+
+\paragraph{Censoring.} Second-line treatment was censored at the earlier of
+the date of death and 19 March 2026; an event counted only if on or before
+this date, and patients censored on or before the index date were excluded.
+Death was not part of the endpoint and was handled as a competing event
+(Section~\ref{sec:elig}). The endpoint is time to next qualifying treatment,
+not directly observed progression.
+
+\subsection{Treatment failure and transformation}
+\textbf{Treatment failure} was the earlier of second-line treatment and death.
+\textbf{Treatment failure or transformation} was the earliest of second-line
+treatment, death and a new haematological malignancy. Transformation was
+thus operationalised as a new three-character ICD-10 block among C81--C96 and
+D45--D47 first recorded more than 31 days after the index date and not recorded
+on or before index $+$31 days; it is not histologically confirmed
+transformation and also captures unrelated second haematological neoplasms.
+Both composites inherited the second-line ascertainment rules and the exclusion
+of BL/LBL, HCL and amyloidosis (Section~\ref{sec:composites}).
+
+\subsection{Overall survival and new malignancy}
+Overall survival was the time to death on or before 19 March 2026, censored at
+the administrative censoring date. A new haematological malignancy and a new
+malignancy of any type were defined by the first post-index diagnosis in a
+three-character ICD-10 block never recorded on or before index $+$31 days;
+codes registered around treatment start, which typically reflect the presenting
+disease, were thereby not counted. Relapse coded in the same block therefore
+never counted, whereas a new block (for example, FL, C82, to DLBCL, C83) did.
+
+{\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{longtable}{L{3.0cm}L{5.5cm}L{2.5cm}L{3.3cm}L{1.6cm}}
+\caption{Disease-course endpoints (6 outcomes). OP, outcome population
+(Section~\ref{sec:elig}).}\label{tab:course}\\
+\toprule
+Outcome & Definition & Source & Ascertainment and censoring & Competing event\\
+\midrule\endfirsthead
+\toprule
+Outcome & Definition & Source & Ascertainment and censoring & Competing event\\
+\midrule\endhead
+\bottomrule\endfoot
+Overall survival & Death on or before 19 March 2026. & Patient table & OP; administrative. & None\\
+Second-line treatment & As above. & Treatment data, curated CLL/MM lines, LYFO & Disease-specific; censored at death or cutoff; excludes BL/LBL, HCL, amyloidosis. & Death\\
+Treatment failure & Earliest of second-line treatment and death. & Composite & Intersection of components; earliest component censoring. & None\\
+Treatment failure or transformation & Earliest of second-line treatment, death and new haematological malignancy. & Composite & As above. & None\\
+New haematological malignancy & New ICD-10 block among C81--C96, D45, D46, D47 after index $+$31 days. & DALY-CARE haematological diagnoses & OP; administrative. & Death\\
+New malignancy (any) & New ICD-10 block among C00--C97, except C44 and C80, after index $+$31 days. & DNPR diagnoses & OP; administrative. & Death\\
+\end{longtable}}
+
+% ===========================================================================
+\section{Treatment-related and acute-care outcomes}\label{sec:outcomes}
+
+\subsection{Outcome classes}
+Each outcome belongs to one of the following classes.
+\begin{description}[style=nextline,leftmargin=1.2em]
+\item[Graded laboratory (DALY-CARE grading).] Laboratory values were graded by
+the DALY-CARE standardised adverse-event grading algorithms, whose upstream
+documentation describes several as derived from CTCAE v5. The event was the
+first post-index measurement at or above the stated grade.
+\item[Local laboratory threshold.] As above, with the numeric threshold stated
+in the table.
+\item[Baseline-relative laboratory.] The event was defined relative to the
+patient's own pre-index value. The baseline was the median value on the latest
+day with a measurement in the 365 days strictly before the index date; patients
+without a gradable baseline were excluded. Many patients with lymphoid
+malignancy have abnormal values before treatment (for example, through
+hepatic or renal involvement); a fixed threshold would then record a
+pre-existing abnormality at the first post-index draw as an event, whereas a
+baseline-relative threshold requires worsening.
+\item[Registry diagnosis or procedure.] The first post-index ICD-10 diagnosis
+or SKS procedure code. For \emph{new-diagnosis} outcomes, a post-index code
+counted only if its three-character block had never been recorded on or before
+the index date (or index $+$ grace, where stated).
+\item[Medication-use proxy.] Repeated antimicrobial administration or
+dispensing (Section~\ref{sec:infections}).
+\item[Composite.] Earliest of its components (Section~\ref{sec:composites}).
+\end{description}
+
+Except for the baseline-relative definitions and the alkaline phosphatase
+tiers, laboratory events are the first post-index documentation of an abnormal
+value, not new onset or worsening: abnormal baseline values were not excluded.
+No outcome is a verified CTCAE v6 grade; grade labels denote the output of the
+grading algorithm (``CTCAE-aligned''). Prediction horizons were 30, 60, 90, 180,
+365 and 730 days (primary 365 days). For every outcome in
+Supplementary Tables~\ref{tab:inf}--\ref{tab:acute}, death was a competing event.
+
+\paragraph{Abbreviations in Supplementary Tables~\ref{tab:inf}--\ref{tab:acute}.}
+\emph{Sources}: DNPR-Dx, National Patient Registry diagnoses; DNPR-Proc,
+National Patient Registry procedures (LPR2 and LPR3); Lab, laboratory results;
+SMR, Hospital Medicines Register; Rx, National Prescription Registry.
+\emph{Baseline}: Lab rule, shared laboratory ascertainment rule
+(Section~\ref{sec:labrule}); OP, all patients in the outcome population.
+\emph{Ascertainment}: Admin, censored at the administrative censoring date;
+Lab, laboratory censoring (Section~\ref{sec:labrule}).
+\emph{Class}: Grd, DALY-CARE grading; Loc, local threshold; Rel,
+baseline-relative; Reg, registry; Prx, medication-use proxy; Cmp, composite.
+
+\subsection{Infection and antimicrobial use}\label{sec:infections}
+Diagnosis-based infection outcomes used the first post-index code without
+exclusion of prior episodes, because infections are acute events and a new
+post-index episode is clinically relevant even after an earlier one. The
+medication-use proxies grouped administrations (SMR, intravenous route only)
+or dispensings (prescription registry) of antimicrobials (DALY-CARE ATC
+selection) into episodes separated by gaps of more than 7 days; an episode
+qualified if it spanned at least 1 day, that is, $\ge$2 administrations or
+dispensings on different days. The event was the first date of the first
+qualifying post-index episode. No prophylaxis exclusion was applied to
+intravenous administrations; for prescriptions, ATC J01EE01
+(sulfamethoxazole--trimethoprim), J05AB01 (aciclovir), J05AB11
+(valaciclovir) and the exact code P02 were excluded as typical prophylaxis.
+These outcomes measure repeated antimicrobial use, not confirmed infection,
+days of supply or treatment intent. Because SMR reporting began on 15 May 2018,
+absence of intravenous administrations before that date is not evidence that
+none occurred; the intravenous proxy and the composite that contains it were
+therefore restricted to patients with index date on or after 15 May 2018.
+
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Infection and antimicrobial-use outcomes (6 outcomes).}\label{tab:inf}\\
+\otablehead
+Sepsis & ICD-10 A40, A41; first post-index code. & DNPR-Dx & OP & Admin & Reg\\
+Serious infection & ICD-10 A40, A41, B44, B45, B46, B59 (sepsis, invasive fungal infection, pneumocystosis) as one code set. & DNPR-Dx & OP & Admin & Reg\\
+Antibiotic treatment (procedure) & SKS procedure codes beginning BPH; dated by procedure start. & DNPR-Proc & OP & Admin & Reg\\
+Intravenous antimicrobial use & Qualifying episode of intravenous antimicrobial administration. & SMR & OP; index date $\ge$ 15 May 2018 & Admin & Prx\\
+Prescription antimicrobial use & Qualifying episode of antimicrobial dispensing, excluding prophylaxis codes. & Rx & OP & Admin & Prx\\
+Infection diagnosis or antimicrobial use & Earliest of serious infection, prescription and intravenous antimicrobial use. & Composite & Intersection; index date $\ge$ 15 May 2018 & Earliest component & Cmp\\
+\end{longtable}}
+
+\subsection{Blood counts, cytopenia and transfusion}
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Blood count, cytopenia and transfusion outcomes (16 outcomes).}\label{tab:blood}\\
+\otablehead
+Anaemia, grade $\ge$2; grade $\ge$3 & Haemoglobin graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Neutropenia, grade $\ge$2; grade $\ge$3 & Neutrophil count decreased, $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Leukopenia, grade $\ge$2; grade $\ge$3 & White blood cell count decreased, $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Thrombocytopenia, grade $\ge$2; grade $\ge$3 & Platelet count decreased, $\ge$2 / $\ge$3 (grade 3/4 boundary 25$\times10^9$/L, CTCAE v5). & Lab & Lab rule & Lab & Grd\\
+Lymphocytosis, grade $\ge$2; grade $\ge$3 & Lymphocyte count increased, $\ge$2 / $\ge$3. In CLL largely reflects disease activity. & Lab & Lab rule & Lab & Grd\\
+Eosinophilia & Eosinophil count increased, grade $\ge$1. & Lab & Lab rule & Lab & Grd\\
+Haptoglobin decreased & Haptoglobin decreased (binary grading). Not a diagnosis of haemolysis. & Lab & Lab rule & Lab & Grd\\
+Severe cytopenia & Earliest of neutropenia, thrombocytopenia and anaemia, each grade $\ge$3. & Composite & Intersection & Earliest component & Cmp\\
+Red-cell transfusion & SKS BOQA0, BOQA00--BOQA05; dated by procedure start. & DNPR-Proc & OP & Admin & Reg\\
+Platelet transfusion & SKS BOQC, BOQC3. & DNPR-Proc & OP & Admin & Reg\\
+Any transfusion & Union of the red-cell and platelet code sets (single code-set outcome). & DNPR-Proc & OP & Admin & Reg\\
+\end{longtable}}
+
+\subsection{Renal}
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Renal outcomes (5 outcomes).}\label{tab:renal}\\
+\otablehead
+Acute kidney injury (first documented) & First post-index start of an acute kidney injury episode derived from creatinine by the DALY-CARE algorithm. & Lab & Lab rule & Lab & Grd\\
+Creatinine increased, grade $\ge$2; grade $\ge$3 & Creatinine graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Creatinine rise $>$1.5$\times$ pre-index baseline & Creatinine (\textmu mol/L) $>$1.5 times baseline on any post-index day. Not a CTCAE grade or an acute kidney injury diagnosis. & Lab & Lab rule; baseline value $>$0 (no reference-limit requirement) & Lab & Rel\\
+Dialysis & SKS procedure codes beginning BJFD. & DNPR-Proc & OP & Admin & Reg\\
+\end{longtable}}
+
+\subsection{Hepatic and coagulation}
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Hepatic and coagulation outcomes (9 outcomes). ULN, upper limit of normal.}\label{tab:liver}\\
+\otablehead
+ALT increased, grade $\ge$2; grade $\ge$3 & ALT (U/L), with reference ULN $>$0. If baseline $>$ its ULN: value $>$1.5 / $>$2.0 times baseline. Otherwise: value $>$3 / $>$5 times the ULN of the measurement. & Lab & Lab rule; gradable baseline (value $>$0, baseline ULN $>$0) & Lab & Rel\\
+Alkaline phosphatase elevation, tier $\ge$2; tier $\ge$3 & $>$2.5 / $>$5 times the sample ULN if the running mean of prior samples was normal, otherwise $>$2.5 / $>$5 times that prior mean; missing ULN set to 105 U/L. Time-varying baseline; CTCAE v6 grades ALP at grade 1 only. & Lab & Lab rule & Lab & Grd\\
+Bilirubin increased, grade $\ge$2; grade $\ge$3 & Bilirubin graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Hepatotoxicity & Earliest of ALT increased grade $\ge$3 (baseline-relative), AST increased grade $\ge$3 and bilirubin increased grade $\ge$3. & Composite & Intersection, hence gradable ALT baseline & Earliest component & Cmp\\
+INR increased, grade $\ge$2; grade $\ge$3 & INR graded $\ge$2 / $\ge$3; anticoagulant therapy not considered. & Lab & Lab rule & Lab & Grd\\
+\end{longtable}}
+
+\subsection{Electrolytes and metabolic}
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Electrolyte and metabolic outcomes (19 outcomes). LLN/ULN, lower/upper limit of normal of the measurement.}\label{tab:metab}\\
+\otablehead
+Hyponatraemia, grade $\ge$2 & Sodium $<$130 mmol/L and $<$ LLN (LLN 136 mmol/L if missing). Symptoms not observed. & Lab & Lab rule & Lab & Loc\\
+Sodium $<$125 mmol/L & Sodium $<$125 mmol/L and $<$ LLN. Does not capture symptomatic hyponatraemia at 125 to $<$130 mmol/L. & Lab & Lab rule & Lab & Loc\\
+Potassium $<$3.0 mmol/L & Potassium $<$3.0 mmol/L on any post-index day. Symptoms and intervention not observed. & Lab & Lab rule & Lab & Loc\\
+Hypernatraemia, grade $\ge$2; grade $\ge$3 & Sodium graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Hyperkalaemia, grade $\ge$2; grade $\ge$3 & Potassium graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Hypercalcaemia, grade $\ge$2; grade $\ge$3 & Calcium graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Hypocalcaemia, grade $\ge$2; grade $\ge$3 & Calcium graded $\ge$2 / $\ge$3 (albumin correction not established). & Lab & Lab rule & Lab & Grd\\
+Hypomagnesaemia, grade $\ge$2 & Magnesium (NPU02647) $<$0.5 mmol/L and $<$ LLN (LLN 0.7 mmol/L if missing). & Lab & Lab rule & Lab & Loc\\
+Hypertriglycer\-idaemia, grade $\ge$2; grade $\ge$3 & Triglycerides graded $\ge$2 / $\ge$3; fasting status unknown. & Lab & Lab rule & Lab & Grd\\
+Hypoalbuminaemia, grade $\ge$2; grade $\ge$3 & Albumin graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
+Hyperphosphataemia & Phosphate $>$ ULN (ULN 1.45 mmol/L if missing); NPU03096 used where the standard phosphate code was absent. Laboratory elevation only. & Lab & Lab rule & Lab & Loc\\
+Hyperuricaemia & Urate $>$ ULN; no event if the ULN was missing. Laboratory elevation only. & Lab & Lab rule & Lab & Loc\\
+LDH increased & Lactate dehydrogenase $>$ ULN; no event if the ULN was missing. & Lab & Lab rule & Lab & Loc\\
+\end{longtable}}
+
+\subsection{Cardiovascular and thrombotic}
+New-diagnosis rule without grace period: a post-index code counted only if its
+three-character block had not been recorded on or before the index date. Blocks
+were evaluated separately, so that, for example, a prior I80 did not exclude a
+new I26.
+
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Cardiovascular and thrombotic outcomes (4 outcomes).}\label{tab:cv}\\
+\otablehead
+Atrial fibrillation & ICD-10 I48; new diagnosis. & DNPR-Dx & OP & Admin & Reg\\
+Heart failure & ICD-10 I50; new diagnosis. & DNPR-Dx & OP & Admin & Reg\\
+Stroke or TIA & ICD-10 I63, I64, G45; new diagnosis per block. & DNPR-Dx & OP & Admin & Reg\\
+Venous thromboembolism & ICD-10 I26, I80, I81, I82; new diagnosis per block. & DNPR-Dx & OP & Admin & Reg\\
+\end{longtable}}
+
+\subsection{Acute care and other events}
+\paragraph{Acute hospitalisation.} The definition followed the Danish database
+of acute hospital contacts. In LPR2, inpatient admissions (acute or planned)
+were combined with outpatient and emergency-room contacts with an acute mode
+of admission (LPR2 patient type: inpatient, outpatient, or emergency room
+before 2014; from 2014 emergency-room contacts were registered as outpatient
+contacts with acute mode of admission). Missing admission and discharge hours
+were set to 09:00 and 21:00; outpatient and emergency contacts were treated as
+point events. In LPR3, physical attendances were used, acute if registered
+with acute priority; planned LPR3 contacts were retained only if they lasted
+$\ge$12 hours. Psychiatric specialties were excluded in both eras. Contacts
+separated by at most 4 hours were merged into one episode. An episode was
+\emph{acute} if any of its contacts was acute, and a \emph{hospitalisation} if
+it contained an LPR2 inpatient admission, lasted $\ge$12 hours or crossed
+midnight. The outcome comprised acute hospitalisations only, so a planned
+admission counted only if it was merged with an acute contact; planned
+admissions, which typically deliver treatment, were not outcome events. The
+event date was the start date of the first post-index acute hospitalisation.
+
+{\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
+\caption{Acute-care and other outcomes (4 outcomes).}\label{tab:acute}\\
+\otablehead
+Acute hospitalisation & As described above. & DNPR admissions and contacts & OP & Admin & Reg\\
+Emergency department stay & SKS procedure codes beginning NAB, excluding codes containing NAB1. & DNPR-Proc & OP & Admin & Reg\\
+Respiratory support & SKS BGDA0, BGDA1, BGDA2, BGDA7. & DNPR-Proc & OP & Admin & Reg\\
+Bone fracture & ICD-10 S02, S12, S22, S32, S42, S52, S62, S72, S82, S92, T02, M80, M84.3, M84.4 (including subcodes); first post-index code, no exclusion of prior fractures. & DNPR-Dx & OP & Admin & Reg\\
+\end{longtable}}
+
+% ===========================================================================
+\section{Outcome-specific eligibility, ascertainment and censoring}\label{sec:elig}
+
+\paragraph{Outcome population.} All outcomes started from the first-line
+cohort restricted to patients with a follow-up record whose end of follow-up
+and data cutoff both fell after the index date (37,531 patients;
+Section~\ref{sec:population}).
+
+\subsection{Laboratory ascertainment}\label{sec:labrule}
+Laboratory outcomes are only observable in patients whose blood is tested.
+Absence of an abnormal value in a patient without measurements is not evidence
+that the abnormality did not occur. All graded, local-threshold and
+baseline-relative laboratory outcomes and acute kidney injury therefore used
+a shared ascertainment rule based on the dates of \emph{any} laboratory
+measurement (not only the outcome analyte). A patient was eligible if all three
+conditions held:
+\begin{itemize}
+\item \emph{source coverage}: index date on or after 1 January 2017 (the date
+from which laboratory capture was regarded as complete), or any measurement
+between 365 days before the index date and the administrative censoring date;
+\item \emph{baseline}: any measurement between 365 days before the index date
+and the index date inclusive;
+\item \emph{entry}: any measurement between the index date and 30 days after
+it, inclusive, \emph{or} death within 30 days of the index date with index
+date on or after 1 January 2017 (so that early death did not remove patients
+from the risk set).
+\end{itemize}
+A single measurement on the index date satisfied both the baseline and the
+entry condition. Observing an event did not override these criteria.
+
+\paragraph{Laboratory censoring.} Patients with an event were censored at the
+administrative censoring date. Event-free patients were censored at the
+earlier of their last post-index measurement of any analyte plus 180 days and
+the administrative censoring date, so that time without laboratory monitoring
+was not credited as event-free. The ascertainment status of each patient was
+recorded (before laboratory coverage, missing baseline, no post-index
+measurement, insufficient monitoring, eligible with event, eligible with
+competing death, eligible event-free).
+
+\paragraph{Baseline-relative and supplementary threshold outcomes.} The risk set was that of
+the corresponding graded outcome (creatinine increased grade $\ge$2; ALT
+increased grade $\ge$2; for potassium $<$3.0 mmol/L, hypokalaemia grade
+$\ge$3), further restricted to patients with a gradable pre-index baseline
+where required, and censored by the laboratory rule.
+
+\subsection{Non-laboratory outcomes}
+Diagnosis, procedure, hospitalisation, medication-use and survival outcomes
+were administratively ascertained: all patients in the outcome population were
+eligible and censored at the administrative censoring date. The only calendar
+restriction was the SMR start date (index date on or after 15 May 2018) for
+the intravenous antimicrobial-use proxy and the infection composite that
+contains it. A previous restriction of procedure outcomes to the LPR3 era (go-live 3
+February 2019 plus 30 days) was removed after the procedure linkage and dating
+were corrected (Section~\ref{sec:sources}); hospitalisation and diagnosis
+outcomes were deliberately not restricted by era (decision of 5 October 2026).
+Calendar trends in registry capture are therefore part of these labels. For
+every outcome, the released label set itself defined the risk set; no
+additional eligibility masks were applied.
+
+\subsection{Competing death and horizon labels}
+For a fixed horizon $h$, a patient was a case if the event occurred by $h$ and
+before any competing death; a known non-case if follow-up reached $h$ or a
+competing death occurred by $h$; and otherwise of unknown status
+(right-censored) and excluded from the fixed-horizon loss and from binary
+metrics. Death precludes the subsequent occurrence of every non-fatal outcome;
+treating it as ordinary censoring would overstate the risk of these outcomes,
+whereas treating it as a known non-case keeps patients who die early in the
+denominator. A death counted as a competing event only if it occurred on or
+after the index date, on or before the outcome's censoring date and within
+the horizon. For laboratory outcomes, an event-free patient who died more than
+180 days after the last measurement was therefore censored rather than
+counted as a competing death. Endpoints that include death (overall survival
+and both treatment-failure composites) had no competing event.
+
+% ===========================================================================
+\section{Selection of the outcome panel}\label{sec:panel}
+
+The panel was selected from a historical list of 87 candidate outcomes using
+only training and tuning data. Support was the number of eligible patients
+with an event within 365 days of the index date, without a follow-up
+requirement. The minimum support was $\ge$100 events in training and $\ge$20
+in tuning. Held-out test counts were reported descriptively and never used for
+selection. Clinical decisions took precedence over support
+(Supplementary Table~\ref{tab:panel}); every released outcome was re-checked
+against the support threshold.
+
+{\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{L{3.6cm}rL{12.0cm}}
+\caption{Selection of the outcome panel from 87 to 69 outcomes.}\label{tab:panel}\\
+\toprule
+Step & $n$ & Outcomes and reason\\
+\midrule\endfirsthead
+\toprule
+Step & $n$ & Outcomes and reason\\
+\midrule\endhead
+Historical candidate list & 87 & \\
+Retired & $-$6 & Hypofibrinogenaemia grade $\ge$2 and grade $\ge$3 (sparse; assay, unit and baseline grading not verified); leukocytosis grade $\ge$2 (the grading algorithm requested grade 3 despite the label, and CTCAE v6 discourages the term for leukaemia-related rises); DIC-like coagulopathy, Hy's-law drug-induced liver injury and tumour lysis syndrome (laboratory co-occurrence proxies without the usual monitoring-based ascertainment).\\
+Definition concerns, excluded & $-$5 & Lymphopenia grade $\ge$2 and grade $\ge$3 (CTCAE v6 has no grade 2/3 tier); hypokalaemia grade $\ge$2 and grade $\ge$3 (local thresholds $\le$3.0 and $\le$2.5 mmol/L, not CTCAE v6); major adverse cardiovascular events (composite included atrial fibrillation, venous thromboembolism and heart failure).\\
+Below support threshold & $-$9 & AST increased grade $\ge$2 and grade $\ge$3; herpes zoster; hypermagnesaemia grade $\ge$3; hypoglycaemia grade $\ge$2 and grade $\ge$3; hypomagnesaemia grade $\ge$3; invasive fungal infection; myocardial infarction.\\
+Primary candidates & 60 & Met the support threshold; no clinical concern.\\
+Definition concerns, retained & $+$7 & Renamed to describe the measured quantity: alkaline phosphatase grade $\ge$2/$\ge$3 as alkaline phosphatase elevation tier $\ge$2/$\ge$3; hyponatraemia grade $\ge$3 as sodium $<$125 mmol/L; intravenous, prescription and combined infection outcomes as antimicrobial-use proxies. Hyponatraemia grade $\ge$2 kept its name. All met the support threshold.\\
+Replacements & 0 & ALT increased grade $\ge$2/$\ge$3 replaced by the baseline-relative definition; hepatotoxicity rebuilt with the baseline-relative ALT grade $\ge$3.\\
+Additions & $+$2 & Creatinine rise $>$1.5$\times$ pre-index baseline; potassium $<$3.0 mmol/L.\\
+\midrule
+Final panel & 69 & \\
+\bottomrule
+\end{longtable}}
+
+Candidate tumour lysis labels (shared laboratory ascertainment; $\ge$2 of urate
+$\ge$476\,\textmu mol/L, potassium $\ge$6.0 mmol/L, phosphate $\ge$1.45 mmol/L
+and calcium $\le$1.75 mmol/L on the same day, on days 1--7 after the index
+date; with a variant additionally involving kidney injury) remained
+exploratory and outside the panel, with 243/45/114 and 207/41/100 events
+(training/tuning/held-out test), respectively.
+
+% ===========================================================================
+\section{Composite outcomes, endpoint groups and display groups}\label{sec:composites}
+
+\paragraph{Composite rule.} A patient was eligible for a composite only if
+eligible for every component (intersection of risk sets). The composite was
+censored at the earliest component censoring date, and the event was the
+earliest component event, counted only if on or before that censoring date.
+Components had to agree on index date and split. Death was an event only when
+overall survival was a component; otherwise death remained censoring in each
+component and was handled as a competing event. The composites were treatment
+failure, treatment failure or transformation, severe cytopenia, hepatotoxicity,
+and infection diagnosis or antimicrobial use. Any transfusion and serious
+infection were defined as single code-set outcomes rather than composites.
+
+\paragraph{Endpoint groups.} Training loss and checkpoint selection used a
+macro-average over endpoint groups of the competing-risk, cumulative-incidence
+based area under the curve on the tuning set. Endpoint groups combined the
+grade variants of one endpoint (grade $\ge$2 and grade $\ge$3), the two
+alkaline phosphatase tiers, and hyponatraemia grade $\ge$2 with sodium
+$<$125 mmol/L, giving 52 endpoint groups for the 69 outcomes. Related
+diagnoses, proxies and composites were not merged.
+
+\paragraph{Display groups.} For figures only, the 69 outcomes were assigned
+once each to 17 descriptive groups; creatinine rise $>$1.5$\times$ baseline
+was placed under ``Kidney injury and renal support'' and potassium
+$<$3.0 mmol/L under ``Sodium and potassium''. Display groups did not affect
+model weighting.
+
+% ===========================================================================
+\section{Limitations of the outcome definitions}\label{sec:limits}
+\begin{enumerate}
+\item \textbf{Proxies rather than adjudicated events.} Antimicrobial-use
+outcomes measure repeated antimicrobial administration or dispensing, not
+confirmed infection; the prescription proxy has no calendar restriction and
+intravenous prophylaxis was not excluded. Transformation is a new
+haematological ICD-10 block, not histologically confirmed transformation.
+Second-line treatment is time to next qualifying treatment, not observed
+progression.
+\item \textbf{CTCAE-aligned, not CTCAE.} Laboratory grades derive from the
+DALY-CARE grading algorithms (several described as CTCAE v5-derived) and local
+thresholds, some using reference limits with fixed fallback values. Symptoms,
+interventions and clinical context required by CTCAE for several grades are
+not observed; no outcome is a verified CTCAE v6 grade.
+\item \textbf{Prevalent versus incident abnormalities.} Except for the
+baseline-relative definitions, laboratory events are the first post-index
+documentation of an abnormal value, not incident toxicity.
+\item \textbf{Analyte-agnostic laboratory ascertainment.} Eligibility and
+censoring use measurements of any analyte, so a patient can be eligible for an
+outcome whose analyte was rarely measured.
+\item \textbf{Coding lag and retrospective disease identity.} Disease labels
+can use codes registered up to 14 days (pass 1) or 90 days (pass 2) after the
+index date and are used as model input.
+\item \textbf{First-line identification.} The search is anchored at the first
+DALY-CARE diagnosis of any kind and limited to 10 years in pass 1; treatment
+records without indication are retained as uncertain; curated anchors exist
+for CLL and MM only.
+\item \textbf{Registry era.} Diagnosis, procedure and hospitalisation outcomes
+are not restricted across LPR2 and LPR3, so changes in coding practice over
+calendar time are part of the labels; for LPR3 contacts without recorded clock
+times, the 12-hour criterion reduces to ending on a later calendar day.
+Diagnosis-based infection and fracture outcomes do not exclude continued coding
+of a pre-index episode.
+\item \textbf{Second-line ascertainment.} Second-line treatment depends on the
+completeness of the curated CLL and MM data, excludes patients with only weak
+retreatment evidence (enriching the risk set for events) and is censored at
+death or the data cutoff rather than at end of follow-up as for other
+outcomes.
+\item \textbf{Tumour lysis syndrome} is not part of the panel; candidate
+laboratory definitions remain exploratory and the historical co-occurrence
+proxy was retired.
+\end{enumerate}
+
+\bibliographystyle{unsrtnat}
+\bibliography{paper}
+\end{document}

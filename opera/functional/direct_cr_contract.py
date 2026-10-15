@@ -30,6 +30,16 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             "the final competing-risk boundary."
         )
     objective = str(competing.get("objective", "piecewise_exponential")).lower()
+    if training.get("eval_monitor_metric") == "val/cr_horizon_bce_endpoint_group_macro":
+        if (
+            objective != "horizon_bce"
+            or not cross.get("endpoint_groups")
+            or training.get("limit_val_batches", 1.0) != 1.0
+        ):
+            raise ValueError(
+                "Full-tuning BCE selection requires horizon_bce, endpoint groups "
+                "and complete validation"
+            )
     if objective not in {"piecewise_exponential", "horizon_bce"}:
         raise ValueError(
             "competing_risk.objective must be piecewise_exponential or horizon_bce."

@@ -326,6 +326,21 @@ The default configuration is `opera/configs/hierarchical_rarity.yaml`.
 
 ## Experiment Manifests
 
+The matched 256-wide supervision-pooling study separates disease pooling,
+outcome pooling, their combination, and independent cell specialists using
+shared multi-horizon BCE. Generate its configs with
+`python -m opera.run.prepare_supervision_factorial --help`; the protocol and
+separate router comparisons are recorded in
+[the supervision-factorial runbook](docs/supervision_factorial_20261014.md).
+The [contrast plan](docs/contrast_plan_20261014.md) maps pooling, routing,
+tabular, external-pretraining and domain-adaptation comparisons to study claims
+and separates required fits from optional analyses.
+Run the no-additional-training analyses with
+`python -m opera.run.analyse_locked_predictions`; the
+[analysis runbook](docs/locked_prediction_analysis_20261014.md) specifies input
+artifacts, paired uncertainty, tuning-only subgroup/strategy selection and the
+router identity-provenance audit.
+
 Paper-oriented manifests live in `opera/configs/manifests/`:
 
 - `paper_core.yaml`
@@ -368,3 +383,22 @@ If you use BONSAI in your research, cite:
   doi = {10.21105/joss.08869}
 }
 ```
+
+The current [full analysis plan](docs/full_analysis_plan_20261014.md) orders the
+three paper questions and required secondary analyses. The
+[pretraining-finish handoff](docs/pretraining_finish_handoff_20261014.md) covers
+immutable run bundles, conditional router phases and the external direct/DAPT
+matrix. The [figure outline](paper/FIGURE_OUTLINE.md) uses the disease × outcome
+grid throughout the revised manuscript.
+
+The [question-aligned Bayesian runbook](docs/bayesian_question_analysis_20261014.md)
+covers joint factorial contrasts, shared-patient covariance, prior checks and
+raw-versus-partially-pooled summaries. Run
+`python -m opera.run.bayesian_contrasts --help` for the current paper workflow;
+the older independent-error rarity spline remains historical.
+
+Use [the paper workflow launcher](docs/run_paper_workflow_20261014.md) for the
+new 256-dimensional experiment matrix: `bash scripts/run_paper_experiments.sh
+--help`. The tracked `.env.paper.example` defines paper-specific settings;
+`opera.run.configure_paper_env` previews and selectively applies changes to an
+existing private `.env` without printing unrelated values.

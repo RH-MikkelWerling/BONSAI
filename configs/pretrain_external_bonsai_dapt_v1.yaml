@@ -11,6 +11,10 @@ paths:
   initialization_vocab: null
   initialization_min_token_coverage: 0.9
   initialization_use_source_architecture: true
+  # Only needed for a FlashAttention source checkpoint that does not record
+  # rope_interleaved: 'interleaved' (upstream >= 2026-09-29/a3fa6ac) or
+  # 'non_interleaved' (earlier). The local export always records it.
+  initialization_rope_layout: null
   ckpt_path: null
 
 # The source architecture is imported explicitly, except that the local SDPA

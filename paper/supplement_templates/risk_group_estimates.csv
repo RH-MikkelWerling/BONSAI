@@ -1,0 +1,1 @@
+score_name,disease,endpoint,horizon_days,split,grouping_system,group,cutoffs,patient_n,primary_events,competing_events,estimator,estimate,lower,upper,at_risk_horizon_n,uncertainty_method,status,source_sha

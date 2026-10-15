@@ -1,0 +1,34 @@
+# Register every score/population pair in the patient metadata. The DALY-CARE
+# metadata records, per patient, the prognostic index used (column `index`)
+# and its risk category (column `IPI`: low / medium / high). There is no
+# numeric score, so the category rank serves as the score for discrimination.
+# Copy one record per applicable index; resolve every null before executing
+# on held-out data, and keep unavailable scores in the inventory.
+availability:  # aggregate index/category counts per disease (supplement table)
+  cohort_column: cohort_fine
+  index_column: index
+  group_column: IPI
+scores:
+  - id: ipi_dlbcl
+    score_label: IPI
+    model: J_L
+    seed: 42
+    cohorts: [DLBCL]
+    outcome: null  # Exact registry name of death-inclusive treatment failure.
+    outcome_label: Treatment failure
+    horizon_days: 730
+    death_in_endpoint: true
+    index_column: index
+    index_values: [null]  # Exact value(s) of `index` for this score, e.g. the IPI label.
+    group_column: IPI
+    group_map: {low: Low, medium: Intermediate, high: High}
+    group_order: [Low, Intermediate, High]
+    score_high_group: High
+    age_column: age_at_index
+    score_date_column: null
+    score_timing: recorded at diagnosis in the quality registry, before treatment start
+    model_cutoffs: [0.10, 0.40]  # Candidates; lock from the tuning analysis.
+    minimum_patients: 20
+    manuscript_figures: true  # This score supplies the main-text figures.
+    lock_provenance: null
+    applicability_review: null

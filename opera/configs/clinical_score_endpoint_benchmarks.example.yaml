@@ -1,0 +1,25 @@
+# Analysis design registry; not an executable evaluator configuration yet.
+# One record per verified score/version/population/intended endpoint.
+benchmarks:
+  - id: nccn_ipi_dlbcl_intended_endpoint
+    score: NCCN-IPI
+    version: null
+    development_reference: zhou2014nccnipi
+    applicability_review: null
+    disease_population: null
+    original_endpoint: null
+    evaluated_endpoint: null
+    original_index: null
+    evaluated_index: first_line_treatment
+    original_horizon_days: null
+    evaluated_horizon_days: null
+    deviations_and_rationale: null
+    common_population: score_available_at_index_and_endpoint_eligible
+    comparators: [clinical_score, logistic, XGBoost, S_L, J_L, R_L]
+    sequence_selection: prespecified_tuning_only
+    input_comparisons: [score_components_only, richer_history]
+    probability_mapping: null
+    mapping_fit_population: development_only
+    censoring_estimand: null
+    paired_patient_resampling: true
+    status: awaiting_endpoint_and_artifact_registration

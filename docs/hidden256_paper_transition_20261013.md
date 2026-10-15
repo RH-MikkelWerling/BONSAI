@@ -1,5 +1,11 @@
 # Transition to an architecture-matched 256-wide encoder
 
+Historical transition notes. The user has since confirmed the 256/4-layer/
+4-head scaled-Time2Vec specification and local pretraining is running.
+The current executable workflow and env settings are in
+[run_paper_workflow_20261014.md](run_paper_workflow_20261014.md); pending
+architecture-confirmation instructions below describe the earlier decision state.
+
 Next decision meeting: `docs/agenda_20261014_router_lock.md`.
 Downstream planning overlays: `opera/configs/hidden256_paper_run_plan.yaml`.
 These are not yet executable downstream configs: checkpoint and the remaining

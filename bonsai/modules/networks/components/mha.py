@@ -23,7 +23,14 @@ class SDPA(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(
-        self, hidden_size, num_heads, attention_dropout, bias, max_seqlen, causal
+        self,
+        hidden_size,
+        num_heads,
+        attention_dropout,
+        bias,
+        max_seqlen,
+        causal,
+        rope_interleaved=True,
     ):
         super().__init__()
         assert hidden_size % num_heads == 0, (
@@ -35,7 +42,7 @@ class MultiHeadAttention(nn.Module):
 
         self.Wqkv = nn.Linear(hidden_size, 3 * hidden_size, bias=bias)
         self.rotary_embedding = RotaryPositionalEmbeddings(
-            dim=self.head_dim, max_seq_len=max_seqlen
+            dim=self.head_dim, max_seq_len=max_seqlen, interleaved=rope_interleaved
         )
         self.self_attn = SDPA(causal=causal, attention_dropout=attention_dropout)
         self.out_proj = nn.Linear(hidden_size, hidden_size, bias=bias)

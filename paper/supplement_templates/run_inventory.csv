@@ -1,0 +1,1 @@
+run_id,model,origin,scope,seed,config_sha,checkpoint_sha,hidden_width,layers,attention_heads,feedforward_width,temporal_encoding,context_length,adapter_rank,query_width,optimizer,learning_rate,microbatch_size,gradient_accumulation,planned_epochs,completed_epochs,optimizer_steps,selected_epoch,selection_metric,trainable_parameters,wall_clock_hours,peak_memory_gb,status

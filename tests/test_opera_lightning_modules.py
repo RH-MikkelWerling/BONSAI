@@ -144,6 +144,33 @@ def test_opera_contrastive_module_imports():
     assert isinstance(module.model, OperaContrastiveModel)
 
 
+def test_full_tuning_bce_selection_survives_single_class_cells(tmp_path):
+    """Sparse specialists select by probability loss even without an AUC."""
+    from types import SimpleNamespace
+
+    module = OperaContrastiveModule(
+        model=_make_opera_model(), outcome_names=OUTCOMES,
+        evaluation_horizons_days=[30.0, 365.0],
+        endpoint_groups={"mortality": ["mortality"], "relapse": ["relapse"]},
+        checkpoint_selection_metric="val/cr_horizon_bce_endpoint_group_macro",
+    )
+    module._trainer = SimpleNamespace(default_root_dir=str(tmp_path), sanity_checking=False)
+    logged = {}
+    module.log = lambda key, value, **kwargs: logged.update({key: value})
+    module._val_cr_predictions = {
+        name: {"times": [torch.tensor([365.0, 365.0])],
+               "events": [torch.tensor([0, 0])],
+               "cif": [torch.tensor([[0.1, 0.2], [0.2, 0.3]])]}
+        for name in OUTCOMES
+    }
+    module._log_competing_risk_validation()
+    expected = -torch.log(torch.tensor([0.9, 0.8, 0.8, 0.7])).mean().item()
+    assert logged["val/cr_horizon_bce_endpoint_group_macro"] == pytest.approx(expected)
+    assert "val/cr_cif_auc_endpoint_group_macro" not in logged
+    assert (tmp_path / "endpoint_selection_inventory.json").exists()
+    assert module._val_cr_predictions == {}
+
+
 def test_opera_contrastive_loss_shape():
     module = OperaContrastiveModule(
         model=_make_opera_model(),
@@ -1133,3 +1160,79 @@ def test_mol_module_training_step_does_not_crash():
     assert loss.ndim == 0
     assert torch.isfinite(loss)
     assert loss.requires_grad
+
+
+class _DropoutStubEncoder(_StubEncoder):
+    """Stub encoder whose representation depends on random dropout masks."""
+
+    def __init__(self, hidden: int = HIDDEN):
+        super().__init__(hidden)
+        self.drop = nn.Dropout(0.5)
+
+    def forward(self, batch):
+        return (self.drop(self.proj(batch["input_emb"])),)
+
+
+def test_cached_gradient_with_dropout_replays_masks_and_is_exact():
+    from opera.modules.lightningmodules.OperaContrastiveModule import (
+        _capture_rng,
+        _replayed_rng,
+    )
+
+    config = {
+        "loss_weight": 1.0,
+        "contrastive_loss_weight": 0.0,
+        "interval_boundaries_days": [30.0, 90.0],
+        "no_competing_outcomes": [],
+    }
+    direct = _make_opera_model(competing_risk_config=config)
+    direct.encoder = _DropoutStubEncoder()
+    cached = copy.deepcopy(direct)
+    direct.train()
+    cached.train()
+    batch = _opera_survival_batch()
+    survival = {
+        name: {"times": batch[f"time_{name}"], "events": batch[f"event_{name}"]}
+        for name in OUTCOMES
+    }
+    microbatches = [
+        {k: v[s : s + 2] if torch.is_tensor(v) else v for k, v in batch.items()}
+        for s in (0, 2)
+    ]
+    device = torch.device("cpu")
+
+    torch.manual_seed(123)
+    pooled = torch.cat([direct._pool(m) for m in microbatches])
+    direct.forward_from_pooled(pooled, survival, batch["subject_id"])["loss"].backward()
+
+    torch.manual_seed(123)  # same mask stream as the direct pass
+    states, parts = [], []
+    with torch.no_grad():
+        for micro in microbatches:
+            states.append(_capture_rng(device))
+            parts.append(cached._pool(micro))
+    pooled_cached = torch.cat(parts).detach().requires_grad_(True)
+    cached.forward_from_pooled(pooled_cached, survival, batch["subject_id"])[
+        "loss"
+    ].backward()
+    for index, (micro, state) in enumerate(zip(microbatches, states)):
+        with _replayed_rng(device, state):
+            recomputed = cached._pool(micro)
+        torch.testing.assert_close(recomputed, parts[index])  # identical masks
+        (recomputed * pooled_cached.grad[2 * index : 2 * index + 2]).sum().backward()
+    for (name, a), (_, b) in zip(direct.named_parameters(), cached.named_parameters()):
+        if a.grad is not None or b.grad is not None:
+            torch.testing.assert_close(a.grad, b.grad, atol=1e-6, rtol=1e-5, msg=name)
+    # Without replay the recomputation would draw different dropout masks.
+    with torch.no_grad():
+        assert not torch.allclose(cached._pool(microbatches[0]), parts[0])
+
+
+def test_cached_training_keeps_dropout_active():
+    import inspect
+    from opera.modules.lightningmodules.OperaContrastiveModule import (
+        OperaContrastiveModule as Module,
+    )
+
+    source = inspect.getsource(Module._cached_training_step)
+    assert "self.model.eval()" not in source and "self.model.train()" in source

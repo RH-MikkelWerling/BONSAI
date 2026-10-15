@@ -9,27 +9,105 @@ from typing import Any
 import torch
 
 from bonsai.functional.checkpointing import (
+    MODEL_CONFIG_KEY,
     extract_encoder_state_dict,
-    get_saved_encoder_config,
 )
-from bonsai.functional.model_config import normalize_bonsai_model_config
+from bonsai.functional.model_config import (
+    NATIVE_ARCHITECTURE_VERSION,
+    config_to_dict,
+    has_explicit_rope_layout,
+    legacy_rope_interleaved,
+    normalize_bonsai_model_config,
+    require_native_checkpoint_config,
+)
 
 
 _CORE_CONFIG = (
     "max_seqlen", "hidden_size", "num_layers", "num_attention_heads",
     "bias", "causal", "value_bin_vocab_size", "value_embedding_mode",
-    "abspos_encoding",
+    "abspos_encoding", "rope_interleaved",
 )
+ROPE_LAYOUTS = {"interleaved": True, "non_interleaved": False}
 _SPECIAL_TOKENS = ("[PAD]", "[CLS]", "[SEP]", "[UNK]", "[MASK]")
 _CODE_WEIGHT = "embeddings.code_embedding.weight"
 
 
-def source_pretrain_model_config(checkpoint_path: str | Path) -> dict:
+def _raw_source_config(hparams: dict) -> dict:
+    return config_to_dict(
+        hparams[MODEL_CONFIG_KEY] if MODEL_CONFIG_KEY in hparams else hparams
+    )
+
+
+def _is_local_native(raw: dict) -> bool:
+    return raw.get("architecture_version") == NATIVE_ARCHITECTURE_VERSION
+
+
+def resolve_source_rope_interleaved(
+    hparams: dict, source_rope_layout: str | None = None
+) -> bool:
+    """Return the RoPE layout the source weights were trained with.
+
+    Precedence: a recorded ``rope_interleaved``; then this fork's native
+    checkpoints, whose layout follows the saved backend (SDPA interleaved,
+    local flash non-interleaved); otherwise upstream FGA-DIKU BONSAI, which is
+    interleaved for both backends since 2026-09-29 (commit a3fa6ac). An older
+    upstream flash checkpoint must be declared ``non_interleaved``.
+    """
+    if source_rope_layout is not None and source_rope_layout not in ROPE_LAYOUTS:
+        raise ValueError(f"source_rope_layout must be one of {sorted(ROPE_LAYOUTS)}")
+    raw = _raw_source_config(hparams)
+    declared = None if source_rope_layout is None else ROPE_LAYOUTS[source_rope_layout]
+    if has_explicit_rope_layout(raw):
+        inferred, basis = bool(raw["rope_interleaved"]), "recorded"
+    elif raw.get("attn_type") == "sdpa":
+        inferred, basis = True, "sdpa"
+    elif _is_local_native(raw):
+        inferred, basis = legacy_rope_interleaved(str(raw.get("attn_type"))), "local"
+    else:
+        # Upstream flash: current convention unless the caller declares the
+        # pre-a3fa6ac layout of an older training commit.
+        return True if declared is None else declared
+    if declared is not None and declared != inferred:
+        raise ValueError(
+            f"Declared source RoPE layout {source_rope_layout!r} contradicts the "
+            f"layout implied by the checkpoint ({basis}): rope_interleaved={inferred}"
+        )
+    return inferred
+
+
+def resolve_source_encoder_config(
+    hparams: dict, source_rope_layout: str | None = None
+) -> dict:
+    """Normalized source encoder config, including upstream conventions.
+
+    Current upstream BONSAI checkpoints store flat hyperparameters without
+    ``abspos_encoding`` and with ``value_embedding_mode=None`` for code-only
+    models. Upstream feeds absolute time in thousands of hours to Time2Vec,
+    which is this fork's ``scaled_time2vec`` applied to hours.
+    """
+    raw = _raw_source_config(hparams)
+    if not _is_local_native(raw):
+        raw = dict(raw)
+        if raw.get("value_embedding_mode") is None:
+            raw["value_embedding_mode"] = "legacy"
+        raw.setdefault("abspos_encoding", "scaled_time2vec")
+    config = require_native_checkpoint_config(raw)
+    config["rope_interleaved"] = resolve_source_rope_interleaved(
+        hparams, source_rope_layout
+    )
+    return config
+
+
+def source_pretrain_model_config(
+    checkpoint_path: str | Path, source_rope_layout: str | None = None
+) -> dict:
     """Read the native encoder specification without constructing a model."""
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if not isinstance(checkpoint, dict) or "hyper_parameters" not in checkpoint:
         raise ValueError("Source must be a BONSAI Lightning pretraining checkpoint")
-    return get_saved_encoder_config(checkpoint["hyper_parameters"])
+    return resolve_source_encoder_config(
+        checkpoint["hyper_parameters"], source_rope_layout
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -65,6 +143,7 @@ def prepare_pretrain_transfer(
     *,
     min_token_coverage: float = 0.0,
     load_weights: bool = False,
+    source_rope_layout: str | None = None,
 ) -> dict:
     """Check architecture/token identity and optionally initialize a local model.
 
@@ -87,7 +166,9 @@ def prepare_pretrain_transfer(
         "state_dict", "hyper_parameters"
     }.issubset(checkpoint):
         raise ValueError("Source must be a BONSAI Lightning pretraining checkpoint")
-    source_config = get_saved_encoder_config(checkpoint["hyper_parameters"])
+    source_config = resolve_source_encoder_config(
+        checkpoint["hyper_parameters"], source_rope_layout
+    )
     target_config = normalize_bonsai_model_config(model.hparams)
     mismatch = {
         key: (source_config[key], target_config[key])
@@ -159,6 +240,15 @@ def prepare_pretrain_transfer(
         "local_non_special_token_coverage": coverage,
         "new_local_tokens": len(target_vocab) - len(overlap),
         "source_abspos_encoding": source_config["abspos_encoding"],
+        "rope_interleaved": source_config["rope_interleaved"],
+        "source_rope_layout_recorded": has_explicit_rope_layout(
+            _raw_source_config(checkpoint["hyper_parameters"])
+        ),
+        "source_convention": (
+            "local_native"
+            if _is_local_native(_raw_source_config(checkpoint["hyper_parameters"]))
+            else "upstream_bonsai"
+        ),
         "target_abspos_encoding": target_config["abspos_encoding"],
         "operational_model_differences": {
             key: (source_config[key], target_config[key])

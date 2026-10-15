@@ -1,0 +1,117 @@
+# Symbolic analysis inventory, NOT a training config or executable evaluator.
+status: planned_requires_analysis_lock_and_real_prediction_inventory
+runbook: docs/contrast_plan_20261014.md
+notation:
+  origins: {L: local256, E: external_direct, EA: external_plus_local_dapt}
+  regimes: {S: one_disease_one_outcome, D: all_diseases_one_outcome,
+            O: one_disease_all_outcomes, J: all_diseases_all_outcomes_shared}
+  routing: {R: locked_router, RD: disease_sources, RO: outcome_sources,
+            RDO: both_sources, N: neither_sources}
+  tabular: {X: ehr_xgboost, LR: ehr_logistic, XR: registry_enriched_xgboost}
+gain:
+  auc: candidate_minus_reference
+  brier: reference_minus_candidate
+  log_loss: reference_minus_candidate
+evaluation:
+  main_horizon_days: 365
+  horizons_days: [30, 60, 90, 180, 365, 730]
+  paired_patient_and_label_parity: required
+  checkpoint_selection: val/cr_horizon_bce_endpoint_group_macro
+  pooling_effects: local256_fixed_pretraining
+  prediction_uncertainty: paired_patient_resampling_preserve_endpoint_dependence
+  training_seed_uncertainty: report_separately_from_patient_resampling
+  practical_tolerance: null
+  router_null_equivalence:
+    # Bank effects R2-R7 are interpretable only after the no-source adapter N
+    # is shown equivalent to shared J: the panel interval of R0 must lie inside
+    # +/- tolerance. Tolerances are locked before held-out inspection.
+    contrast: R0
+    gates: [R2, R3, R4, R5, R6, R7]
+    tolerance: {auc: null, brier: null, log_loss: null}
+  multiplicity_specification: pending_analysis_lock
+essential_contrasts:
+  pooling:
+    P1: gain(D_L,S_L)
+    P2: gain(O_L,S_L)
+    P3: gain(J_L,O_L)
+    P4: gain(J_L,D_L)
+    P5: gain(J_L,S_L)
+    P6: gain(J_L,D_L)-gain(O_L,S_L)
+  routing:
+    R0: gain(N_L,J_L)  # protocol gate: no-source router must match shared J
+    R1: gain(R_L,J_L)
+    R2: gain(RD_L,N_L)
+    R3: gain(RO_L,N_L)
+    R4: gain(RDO_L,RD_L)
+    R5: gain(RDO_L,RO_L)
+    R6: gain(RDO_L,N_L)
+    R7: gain(RDO_L,RD_L)-gain(RO_L,N_L)
+  tabular:
+    T1: gain(R_L,X)
+    T2: gain(J_L,X)
+    T3: gain(S_L,X)
+    T4: gain(X,LR)
+    T5_router: gain(R_EA,X)
+    T5_shared: gain(J_EA,X)
+    T6: gain(J_L,XP)   # joint model vs disease-pooled XGBoost
+    T7: gain(XP,X)     # value of pooling across diseases for XGBoost
+    T8: gain(D_L,XP)   # neural vs XGBoost at the same (disease-pooled) scope
+  pretraining_control:
+    P0: gain(J_L,J_RI) # local pretraining vs no pretraining (random initialisation)
+  external_pretraining_and_adaptation:
+    E1: gain(J_E,J_L)
+    E2: gain(R_E,R_L)
+    A1: gain(J_EA,J_E)
+    A2: gain(R_EA,R_E)
+    E3: gain(J_EA,J_L)
+    E4: gain(R_EA,R_L)
+    I1: gain(R_E,J_E)-gain(R_L,J_L)
+    I2: gain(R_EA,J_EA)-gain(R_E,J_E)
+    I3: gain(R_EA,J_EA)-gain(R_L,J_L)
+external_run_matrix:
+  origins: [L, E, EA]
+  downstream: [J, R]
+  local_fits_reusable_only_if_protocol_matches: true
+  new_downstream_fits_per_seed: 4
+  external_local_dapt_encoder_fit_required: true
+  dapt_shared_across_downstream_cells_and_regimes: true
+  dapt_selection: permitted_ssl_validation_no_supervised_held_out_labels
+  direct_external_export: implementation_and_audit_required
+analysis_without_new_training:
+  - pooling_axis_effects_by_training_support
+  - router_rescue_of_tuning_defined_negative_pooling_strata
+  - dapt_effect_by_train_defined_domain_mismatch
+  - dapt_by_router_interaction
+  - patient_probability_loss_gains_by_preindex_characteristics
+  - discrimination_versus_calibration
+  - specialist_coverage_and_failed_cells
+  - horizon_and_calendar_heterogeneity
+  - routing_mass_versus_source_removal_sensitivity
+  - tuning_selected_cell_strategy_vs_single_joint_model
+secondary_analysis:
+  required: true
+  runner: opera.run.analyse_locked_predictions
+  recipe: opera/configs/locked_prediction_analysis.example.yaml
+  runbook: docs/locked_prediction_analysis_20261014.md
+  estimand: cif_ipcw  # primary; binary_known_status_unweighted is the secondary run
+  estimands: [cif_ipcw, binary_known_status_unweighted]
+  retain_primary_cif_ipcw_evaluation: true
+  router_identity_time_provenance_audit: required_before_prospective_claim
+optional_new_fit_extensions:
+  pretraining_by_pooling:
+    origin: EA
+    regimes: [S, D, O, J]
+    cells: prespecified_subset_before_external_results
+    contrasts: repeat_P1_to_P6_and_compare_with_local
+  routing_mechanism:
+    controls: [trained_home_only_disease_sources, trained_static_cross_source_mixture]
+  controlled_label_scarcity:
+    regimes: [S, D, O, J]
+    cells: prespecified_subset
+    withhold_all_supervised_uses_of_target_labels: true
+  pooled_initialization_specialists:
+    cells: prespecified_subset
+  frozen_probes:
+    origins: [L, E, EA]
+  random_initialization:
+    required_only_for_claim: pretraining_vs_no_pretraining

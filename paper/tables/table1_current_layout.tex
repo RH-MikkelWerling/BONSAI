@@ -1,0 +1,52 @@
+% Current denominators only; no historical characteristic values are reused.
+\begin{table*}[tbp]
+\centering
+\caption{\textbf{Review layout: baseline characteristics at first-line treatment.}
+Current supervised counts await supervisor sign-off. All other cells await the
+current server export; ``Pending'' denotes unavailable draft content, not missing
+patient data. This is a layout for review, not a completed descriptive table.}
+\label{tab:characteristics}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}
+\toprule
+Characteristic & Overall & Training & Tuning & Held-out \\
+\midrule
+Patients, $n$ & 37,531 & 29,105 & 1,980 & 6,446 \\
+Index period & All included & Through 2021 & 2022 & From 2023 \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Demographics and follow-up}\\
+Age, years, median (IQR) & Pending & Pending & Pending & Pending \\
+Sex, $n$ (\%) & Pending & Pending & Pending & Pending \\
+Year of treatment, median (IQR) & Pending & Pending & Pending & Pending \\
+Observed follow-up, median (IQR) & Pending & Pending & Pending & Pending \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Disease composition}\\
+Grouped diseases, $n$ (\%) & Pending & Pending & Pending & Pending \\
+Fine diseases, $n$ (\%) & Pending & Pending & Pending & Pending \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Clinical status and treatment}\\
+Performance status and missingness & Pending & Pending & Pending & Pending \\
+Disease-specific score and missingness & Pending & Pending & Pending & Pending \\
+Treatment categories & Pending & Pending & Pending & Pending \\
+\addlinespace
+\multicolumn{5}{@{}l}{\sffamily\bfseries Pre-index clinical history}\\
+Clinical history span, median (IQR) & Pending & Pending & Pending & Pending \\
+Clinical-coded records, median (IQR) & Pending & Pending & Pending & Pending \\
+Distinct diagnosis concepts & Pending & Pending & Pending & Pending \\
+Distinct medication concepts & Pending & Pending & Pending & Pending \\
+Laboratory-coded records & Pending & Pending & Pending & Pending \\
+\bottomrule
+\end{tabularx}
+\vspace{2mm}
+\begin{minipage}{\textwidth}\scriptsize
+One record per patient at the shared first-line index. This supervised denominator
+is distinct from the 37,557-patient first-line source and from outcome-specific
+risk sets. Final rows and main/supplement placement require clinical review.
+History summaries exclude demographic/background tokens and use pre-index
+records. Disease-specific scores retain their original systems and denominators;
+missingness is reported separately. Supplementary tables will show all 24 fine
+diseases, original score categories and curated treatment categories from the
+same reviewed export. Historical values in \texttt{tables/table1.tex} are not used.
+\end{minipage}
+\end{table*}

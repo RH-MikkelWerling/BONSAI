@@ -21,22 +21,32 @@ underlying CSV or Parquet artifact.
      follow-up and estimable horizons.
    - Keep clinical reporting domains separate from optimization weights/trunks.
 4. **Study design and model schematics**
-   - The three TikZ figures in `figures/`.
+   - The disease–outcome supervision grid and separate figure-outline handout.
    - Exact temporal split, leakage controls, pretraining windows and comparator
      definitions in Methods.
 5. **Supplement scaffolding**
    - Cohort definitions, code families, outcome definitions, missingness,
      hyperparameters, compute, and model-selection rules.
 
+The original information grid, modelling paradigms, cohort flow and empirical
+predictability atlas are retained. The new supervision schematic supplements
+them. Numeric figure labels below are a question storyboard, not final numbering.
+
 ## Requires locked model outputs
 
 | Display | Main question | Required artifact |
 |---|---|---|
-| Fig. 4 Predictability atlas | What can be predicted? | One row per model × cohort × outcome × horizon × metric, with uncertainty and support |
-| Fig. 5 Scale and scarcity | When does transfer help? | Paired predictions/contrasts plus cohort size and event support |
-| Fig. 6 Model comparison | Does OPERA beat XGBoost? | Patient-matched OPERA and XGBoost predictions on held-out data |
-| Fig. 7 Representation | What structure was learned? | Fixed embeddings, projection coordinates and held-out labels |
-| Architecture supplement | Which readout wins and where? | Tuning-only architecture metrics plus selection provenance |
+| Additional supervision schematic (placement provisional) | What changes across S/D/O/J? | Native TikZ, approved scope/split definitions; no performance numbers |
+| Fig. 2 Pooling and routing increments | Which pooling axis helps, and where? | P1–P6 and R−J paired effects, support, shared bootstrap draws, seed summaries |
+| Fig. 3 Tabular comparison | Does the neural pipeline improve on standard tabular models? | Patient-matched S/J/R/X/logistic predictions and calibration |
+| Fig. 4 External transfer and adaptation | What does external pretraining add; what does DAPT add? | L/E/EA × J/R fixed-protocol predictions, provenance, costs |
+| Required supplement | How robust and broadly applicable are the findings? | Six horizons, coverage, bank controls, calibration, strata, coding audit and statistical sensitivities |
+
+The complete panel/storyboard contract is in [FIGURE_OUTLINE.md](FIGURE_OUTLINE.md).
+The question hierarchy is in [the full analysis plan](../docs/full_analysis_plan_20261014.md).
+Embedding maps are optional supplements. Hierarchical rarity curves require
+model/dependence validation and must accompany raw effects. Neither replaces
+the headline contrasts.
 
 ## Locked visual rules
 

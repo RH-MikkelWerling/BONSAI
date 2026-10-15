@@ -73,7 +73,7 @@ tabpfn = [
     "tabpfn",
 ]
 bayesian = [
-    "pymc>=5.20,<7",
+    "pymc>=5.20,<6",
     "arviz>=0.20,<1",
 ]
 flash_attn = [

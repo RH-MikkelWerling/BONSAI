@@ -1,4 +1,8 @@
-"""Bayesian hierarchical spline model for natural task rarity."""
+"""Legacy independent-error rarity spline; use bayesian_contrasts for the paper.
+
+Retained for historical result/figure reproduction. Its likelihood does not
+model shared patient evaluation noise or the new factorial identities.
+"""
 
 from __future__ import annotations
 

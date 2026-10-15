@@ -1,0 +1,1 @@
+score_name,score_version,disease,treatment_population,endpoint,horizon_days,split,eligible_n,score_available_n,availability_at_index,missingness_reason,model_cutoffs,tuning_provenance,status

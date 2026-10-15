@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 
-from bonsai.functional.model_config import NATIVE_ARCHITECTURE_VERSION
+from bonsai.functional.model_config import (
+    NATIVE_ARCHITECTURE_VERSION,
+    legacy_rope_interleaved,
+)
 from bonsai.modules.networks.components.embeddings import EhrEmbeddings
 from bonsai.modules.networks.components.layer import TransformerLayer, attn_types
 
@@ -58,12 +61,16 @@ class BonsaiBase(nn.Module):
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
         abspos_encoding="legacy",
+        rope_interleaved=None,
     ):
         if attn_type == "flash" and not _FLASH_ATTENTION_AVAILABLE:
             raise ImportError(
                 "flash_attn is not available. Please install flash-attn or use `attn_type='sdpa'` instead."
             )
         super().__init__()
+        if rope_interleaved is None:
+            rope_interleaved = legacy_rope_interleaved(attn_type)
+        rope_interleaved = bool(rope_interleaved)
         self.embeddings = EhrEmbeddings(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
@@ -84,6 +91,7 @@ class BonsaiBase(nn.Module):
                     max_seqlen=max_seqlen,
                     causal=causal,
                     attn_type=attn_type,
+                    rope_interleaved=rope_interleaved,
                 )
                 for _ in range(num_layers)
             ]
@@ -105,6 +113,7 @@ class BonsaiBase(nn.Module):
             "value_bin_vocab_size": int(value_bin_vocab_size),
             "value_embedding_mode": value_embedding_mode,
             "abspos_encoding": abspos_encoding,
+            "rope_interleaved": rope_interleaved,
         }
 
     def encode(self, batch, output_hidden_states: bool = False):
@@ -210,6 +219,7 @@ class BonsaiPretrain(BonsaiBase):
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
         abspos_encoding="legacy",
+        rope_interleaved=None,
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -225,6 +235,7 @@ class BonsaiPretrain(BonsaiBase):
             value_bin_vocab_size=value_bin_vocab_size,
             value_embedding_mode=value_embedding_mode,
             abspos_encoding=abspos_encoding,
+            rope_interleaved=rope_interleaved,
         )
         self.pretrain_head = nn.Linear(hidden_size, vocab_size, bias=bias)
         self.value_embedding_mode = value_embedding_mode
@@ -336,6 +347,7 @@ class BonsaiFinetune(BonsaiBase):
         value_bin_vocab_size=0,
         value_embedding_mode="legacy",
         abspos_encoding="legacy",
+        rope_interleaved=None,
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -351,6 +363,7 @@ class BonsaiFinetune(BonsaiBase):
             value_bin_vocab_size=value_bin_vocab_size,
             value_embedding_mode=value_embedding_mode,
             abspos_encoding=abspos_encoding,
+            rope_interleaved=rope_interleaved,
         )
         self.hparams["predict_token_id"] = predict_token_id
         self.finetune_head = nn.Linear(hidden_size, 1, bias=bias)

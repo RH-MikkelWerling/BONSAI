@@ -1,0 +1,331 @@
+"""Render every explicitly registered score/population from locked native CIFs.
+
+Preview validates configuration only; --execute creates a fresh server-side
+output directory. Clinical applicability/cutoffs must be locked before test use.
+"""
+
+from __future__ import annotations
+import argparse
+import json
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import yaml
+from opera.run.analyse_locked_predictions import file_hash, read_artifact, read_table
+
+
+def _score_rank(spec):
+    """Ordinal score from the category order when no numeric score exists."""
+    return {group: rank for rank, group in enumerate(spec["group_order"], start=1)}
+
+
+def high_score_threshold(spec):
+    """Score at or above which the clinical index calls a patient high risk."""
+    if spec.get("score_column"):
+        return spec["score_high_threshold"]
+    return _score_rank(spec)[spec.get("score_high_group", spec["group_order"][-1])]
+
+
+def score_patients(predictions, metadata, spec, split):
+    """Patients of one score population with their model risk and score group.
+
+    Metadata may carry a numeric score with its own date, or, as in the
+    DALY-CARE release, only the index used (``index_column``) and its risk
+    category (``group_column``); the category's rank then serves as the score.
+    Patients scored with a different index are not part of this population.
+    """
+    selected = predictions.loc[
+        (predictions.model == spec["model"])
+        & (predictions.seed == spec["seed"])
+        & (predictions.split == split)
+        & (predictions.outcome == spec["outcome"])
+        & (predictions.horizon_days == spec["horizon_days"])
+        & predictions.cohort.isin(spec["cohorts"])
+    ].copy()
+    if selected.subject_id.duplicated().any():
+        raise ValueError("Duplicate score-evaluation patient IDs")
+    optional = [spec.get(key) for key in ("score_column", "score_date_column",
+                                          "index_date_column", "index_column")]
+    needed = ["subject_id", spec["group_column"], spec["age_column"],
+              *[column for column in optional if column]]
+    if not set(needed) <= set(metadata):
+        raise ValueError("Missing registered score/date/age metadata columns")
+    data = selected.merge(
+        metadata[list(dict.fromkeys(needed))],
+        on="subject_id",
+        validate="one_to_one",
+        how="left",
+    )
+    available = data[spec["group_column"]].notna()
+    if spec.get("index_column"):
+        available &= data[spec["index_column"]].isin(spec["index_values"])
+    if spec.get("score_column"):
+        available &= data[spec["score_column"]].notna()
+    if spec.get("score_date_column"):
+        score_date = pd.to_datetime(data[spec["score_date_column"]], errors="coerce")
+        index_date = pd.to_datetime(data[spec["index_date_column"]], errors="coerce")
+        available &= score_date.notna() & index_date.notna() & (score_date <= index_date)
+    subset = data.loc[available].copy()
+    subset = subset.rename(
+        columns={
+            spec["group_column"]: "ipi_group",
+            spec["age_column"]: "age",
+            "probability": "model_risk",
+            **({spec["score_column"]: "ipi_score"} if spec.get("score_column") else {}),
+        }
+    )
+    # Registry categories vary in case and padding ("Medium ", "high").
+    group_map = {str(k).strip().lower(): v for k, v in spec["group_map"].items()}
+    subset["ipi_group"] = subset.ipi_group.astype(str).str.strip().str.lower().map(group_map)
+    if subset.ipi_group.isna().any():
+        raise ValueError("Unmapped score category; do not silently drop it")
+    if not spec.get("score_column"):
+        subset["ipi_score"] = subset.ipi_group.map(_score_rank(spec))
+    if not {"time_days", "event"} <= set(subset):
+        raise ValueError("Score survival plots require full native time/event records")
+    if not np.isfinite(
+        subset[["time_days", "event", "ipi_score", "model_risk", "age"]].to_numpy(float)
+    ).all():
+        raise ValueError("Missing/nonfinite score, follow-up or age")
+    return subset, {
+        "eligible_n": len(data),
+        "score_available_at_index_n": len(subset),
+        "unavailable_or_late_n": int((~available).sum()),
+    }
+
+
+def score_availability(metadata, *, cohort_column, index_column, group_column):
+    """Aggregate counts of the recorded index and category in each disease."""
+    data = metadata[[cohort_column, index_column, group_column]].fillna("not recorded")
+    return (data.groupby([cohort_column, index_column, group_column]).size()
+            .rename("n_patients").reset_index())
+
+
+MANUSCRIPT_NAMES = {"risk_groups": "fig_risk_groups",
+                    "clinical_score": "fig_clinical_score",
+                    "clinical_score_age": "supp_clinical_score_age"}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--analysis-config", type=Path, required=True)
+    parser.add_argument("--score-config", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--execute", action="store_true")
+    args = parser.parse_args()
+    analysis = yaml.safe_load(args.analysis_config.read_text())
+    config = yaml.safe_load(args.score_config.read_text())
+    specs = config.get("scores", [])
+    if not specs:
+        raise ValueError("Register every score/population in score config first")
+    names = [s["id"] for s in specs]
+    if len(set(names)) != len(names) or any(
+        Path(n).name != n or n in {".", ".."} for n in names
+    ):
+        raise ValueError("Score IDs must be unique safe directory names")
+    for spec in specs:
+        required = [
+            "model",
+            "cohorts",
+            "outcome",
+            "group_column",
+            "age_column",
+            "group_map",
+            "group_order",
+            "score_label",
+            "outcome_label",
+        ]
+        if any(not spec.get(key) for key in required):
+            raise ValueError(
+                "Resolve all score/population/outcome/date mappings before rendering"
+            )
+        if spec.get("index_column") and not spec.get("index_values"):
+            raise ValueError("Name the index values that define this score population")
+        if spec.get("score_date_column") and not spec.get("index_date_column"):
+            raise ValueError("A score date needs the index date to compare against")
+        if not spec.get("score_date_column") and not spec.get("score_timing"):
+            raise ValueError(
+                "Without a score date, state when the score is recorded (score_timing)"
+            )
+        if not 2 <= len(spec["group_order"]) <= 4:
+            raise ValueError(
+                "Currently supports original score populations with 2–4 groups"
+            )
+        if not spec.get("lock_provenance") or not spec.get("applicability_review"):
+            raise ValueError(
+                "Each score needs cutoff-lock and applicability provenance"
+            )
+        cuts = spec["model_cutoffs"]
+        if (
+            len(cuts) != len(spec["group_order"]) - 1
+            or not all(0 < x < 1 for x in cuts)
+            or cuts != sorted(set(cuts))
+        ):
+            raise ValueError("Cutoffs must be increasing, with one fewer than groups")
+    if not args.execute:
+        print(
+            json.dumps(
+                {
+                    "score_jobs": names,
+                    "output_dir": str(args.output_dir),
+                    "preview": True,
+                }
+            )
+        )
+        return
+    if args.output_dir.exists():
+        raise FileExistsError("Use a fresh output directory for this locked report")
+    metadata = read_table(analysis["patient_metadata"])
+    metadata.subject_id = metadata.subject_id.astype(str)
+    metadata = metadata.rename(columns=analysis.get("patient_metadata_column_map", {}))
+    if metadata.subject_id.duplicated().any():
+        raise ValueError("Patient metadata must be unique")
+    tables = []
+    hashes = {}
+    for artifact in analysis["artifacts"]:
+        if artifact["model"] not in {s["model"] for s in specs}:
+            continue
+        frame, _ = read_artifact(
+            artifact,
+            metadata,
+            analysis.get("estimand", "binary_known_status_unweighted"),
+        )
+        tables.append(frame)
+        hashes[str(artifact["path"])] = file_hash(artifact["path"])
+    if not tables:
+        raise ValueError("No registered model prediction artifacts")
+    predictions = pd.concat(tables, ignore_index=True)
+    from opera.visualization import paper_figures as figures
+    from opera.visualization.style import save_fig
+    import matplotlib.pyplot as plt
+
+    args.output_dir.mkdir(parents=True)
+    records = []
+    group_rows = []
+    overview = []
+    for spec in specs:
+        record = {"score_id": spec["id"]}
+        try:
+            held, audit = score_patients(predictions, metadata, spec, "held_out")
+            tuning, _ = score_patients(predictions, metadata, spec, "tuning")
+            record.update(audit)
+            if len(held) < spec.get("minimum_patients", 20):
+                record["status"] = "insufficient_support"
+                records.append(record)
+                continue
+            known, labels = figures._known_status(tuning, spec["horizon_days"])
+            if labels.nunique() != 2:
+                raise ValueError(
+                    "Tuning operating-point selection requires cases/controls"
+                )
+            specificity = float(
+                (
+                    known.loc[labels == 0, "ipi_score"] < high_score_threshold(spec)
+                ).mean()
+            )
+            threshold = float(
+                np.quantile(known.loc[labels == 0, "model_risk"], specificity)
+            )
+            directory = args.output_dir / spec["id"]
+            directory.mkdir()
+            common = dict(
+                outcome_label=spec["outcome_label"],
+                horizon_days=spec["horizon_days"],
+                thresholds=tuple(spec["model_cutoffs"]),
+                ipi_label=spec["score_label"],
+                ipi_order=tuple(spec["group_order"]),
+                event_free=spec["death_in_endpoint"],
+            )
+            for name, fn in [
+                ("risk_groups", figures.figure_risk_groups),
+                ("clinical_score", figures.figure_clinical_score),
+                ("clinical_score_age", figures.figure_clinical_score_age),
+            ]:
+                extra = (
+                    dict(
+                        model_threshold=threshold, ipi_high=high_score_threshold(spec)
+                    )
+                    if name == "clinical_score"
+                    else {}
+                )
+                fig = fn(held, **common, **extra)
+                save_fig(fig, str(directory / (name + ".png")))
+                if spec.get("manuscript_figures"):
+                    # The score shown in the main text, under its manuscript key.
+                    save_fig(fig, str(args.output_dir / (MANUSCRIPT_NAMES[name] + ".png")))
+                plt.close(fig)
+            held["model_group"] = pd.cut(
+                held.model_risk,
+                [-np.inf, *spec["model_cutoffs"], np.inf],
+                labels=spec["group_order"],
+                right=False,
+            )
+            for system in ["model_group", "ipi_group"]:
+                for group in spec["group_order"]:
+                    part = held.loc[held[system] == group]
+                    value = (
+                        figures.cumulative_incidence(
+                            part.time_days.to_numpy(),
+                            part.event.to_numpy(),
+                            [spec["horizon_days"]],
+                        )[0]
+                        if len(part)
+                        else np.nan
+                    )
+                    group_rows.append(
+                        dict(
+                            score_id=spec["id"],
+                            system=system,
+                            group=group,
+                            n=len(part),
+                            at_risk_horizon_n=int(
+                                (part.time_days >= spec["horizon_days"]).sum()
+                            ),
+                            estimate=1 - value if spec["death_in_endpoint"] else value,
+                        )
+                    )
+            overview.append({
+                "title": f"{spec['score_label']} · {', '.join(spec['cohorts'])}",
+                "endpoint": spec["outcome_label"], "patients": held,
+                "thresholds": tuple(spec["model_cutoffs"]),
+                "ipi_order": tuple(spec["group_order"]),
+                "horizon_days": spec["horizon_days"],
+                "event_free": spec["death_in_endpoint"]})
+            record.update(
+                status="rendered",
+                tuning_operating_threshold=threshold,
+                tuning_target_specificity=specificity,
+            )
+        except (ValueError, KeyError) as exc:
+            record.update(status="blocked", reason=str(exc))
+        records.append(record)
+    if overview:
+        # Every rendered index on one page, for the supplement.
+        fig = figures.figure_score_overview(overview)
+        save_fig(fig, str(args.output_dir / "supp_score_overview.png"))
+        plt.close(fig)
+    pd.DataFrame(records).to_csv(args.output_dir / "score_inventory.csv", index=False)
+    availability = config.get("availability")
+    if availability:
+        score_availability(metadata, **availability).to_csv(
+            args.output_dir / "score_availability.csv", index=False)
+    pd.DataFrame(group_rows).to_csv(
+        args.output_dir / "risk_group_point_estimates.csv", index=False
+    )
+    (args.output_dir / "report_manifest.json").write_text(
+        json.dumps(
+            dict(
+                analysis_config_sha=file_hash(args.analysis_config),
+                score_config_sha=file_hash(args.score_config),
+                metadata_sha=file_hash(analysis["patient_metadata"]),
+                prediction_hashes=hashes,
+            ),
+            indent=2,
+        )
+    )
+    if any(r["status"] == "blocked" for r in records):
+        raise SystemExit("Some scores blocked; see score_inventory.csv")
+
+
+if __name__ == "__main__":
+    main()

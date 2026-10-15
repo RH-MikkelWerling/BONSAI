@@ -33,11 +33,14 @@ def main() -> None:
     with initialize_config_dir(config_dir=str(args.config_dir.resolve()), version_base="1.2"):
         config = compose(config_name=args.config_name, overrides=args.override)
     if config.paths.get("initialization_use_source_architecture", False):
-        source_model_config = source_pretrain_model_config(args.checkpoint)
+        source_model_config = source_pretrain_model_config(
+            args.checkpoint, config.paths.get("initialization_rope_layout")
+        )
         for key in (
             "max_seqlen", "hidden_size", "num_layers", "num_attention_heads",
             "bias", "dropout", "attention_dropout", "causal",
             "value_bin_vocab_size", "value_embedding_mode", "abspos_encoding",
+            "rope_interleaved",
         ):
             config.model[key] = source_model_config[key]
     vocabulary = torch.load(args.target_vocab, map_location="cpu", weights_only=False)
@@ -55,10 +58,12 @@ def main() -> None:
         value_bin_vocab_size=int(config.model.get("value_bin_vocab_size", 0)),
         value_embedding_mode=str(config.model.get("value_embedding_mode", "legacy")),
         abspos_encoding=str(config.model.get("abspos_encoding", "legacy")),
+        rope_interleaved=config.model.get("rope_interleaved"),
     )
     report = prepare_pretrain_transfer(
         model, args.checkpoint, args.source_vocab, args.target_vocab,
         min_token_coverage=args.min_token_coverage, load_weights=True,
+        source_rope_layout=config.paths.get("initialization_rope_layout"),
     )
     model.eval()
     with torch.no_grad():
