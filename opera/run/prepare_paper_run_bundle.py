@@ -386,6 +386,8 @@ def main():
         type=int,
         help="Override physical batch size consistently in every arm",
     )
+    parser.add_argument("--num-workers", type=int,
+                        help="Override data-loading workers consistently in every arm")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     from dotenv import load_dotenv
@@ -396,6 +398,10 @@ def main():
         if args.batch_size < 1:
             raise ValueError("batch-size must be positive")
         base["training"]["batch_size"] = args.batch_size
+    if args.num_workers is not None:
+        if args.num_workers < 0:
+            raise ValueError("num-workers must be nonnegative")
+        base.setdefault("hardware", {})["num_workers"] = args.num_workers
     registry = yaml.safe_load(args.release_registry.read_text())
     if (
         set(base["outcomes"]) != set(registry["outcomes"])

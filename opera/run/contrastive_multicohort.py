@@ -318,6 +318,23 @@ def _checkpoint_metadata(
     return metadata
 
 
+def _raise_open_file_limit() -> None:
+    """Lift the soft open-file limit to the hard limit (allowed for any user).
+
+    Data-loading workers pass every microbatch tensor through shared memory;
+    cluster defaults of 1,024 open files are too low for gradient caching.
+    """
+    try:
+        import resource
+    except ImportError:  # not available on Windows
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = hard if hard != resource.RLIM_INFINITY else max(soft, 1 << 16)
+    if soft < target:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    print(f"Open-file limit: {resource.getrlimit(resource.RLIMIT_NOFILE)[0]} (hard {hard})")
+
+
 @hydra.main(
     config_path="../configs",
     config_name="generated/joint_opera_full_panel",
@@ -330,6 +347,7 @@ def main(cfg: DictConfig) -> None:
     # microbatches. Shared-memory files avoid that limit.
     if int(cfg.hardware.get("num_workers", 0) or 0) > 0:
         torch.multiprocessing.set_sharing_strategy("file_system")
+    _raise_open_file_limit()
     # Transfer conditions are run once per declared seed.  Existing production
     # configs have no top-level seed, so leave their stochastic behaviour
     # unchanged unless a seed was explicitly supplied.

@@ -117,6 +117,8 @@ def build_commands(args, env):
             value(env, "OPERA_PAPER_EPOCHS", "30"),
             "--batch-size",
             value(env, "OPERA_PAPER_BATCH_SIZE", "1"),
+            *(("--num-workers", env["OPERA_PAPER_NUM_WORKERS"])
+              if env.get("OPERA_PAPER_NUM_WORKERS") else ()),
             "--output-dir",
             bundle,
         )
