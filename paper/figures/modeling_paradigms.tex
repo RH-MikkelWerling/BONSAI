@@ -14,7 +14,7 @@
   % A — clinical score
   \node[panelletter,anchor=north west] at (0,0) {A};
   \node[eyebrow,anchor=north west] at (.48,-.03) {CLINICAL SCORE};
-  \node[heading,anchor=north west] at (.48,-.36) {A diagnostic snapshot};
+  \node[heading,anchor=north west] at (.48,-.36) {Points from a few variables};
   \node[labelsmall,anchor=north west,align=left,text width=4.65cm] at (.48,-.78)
     {Few variables, fixed combination, one disease};
   \foreach \name/\x/\lab in {age/.72/Age,stage/1.68/Stage,
@@ -41,7 +41,7 @@
   % B — tabular model
   \node[panelletter,anchor=north west] at (5.86,0) {B};
   \node[eyebrow,anchor=north west] at (6.34,-.03) {TABULAR MACHINE LEARNING};
-  \node[heading,anchor=north west] at (6.34,-.36) {History becomes features};
+  \node[heading,anchor=north west] at (6.34,-.36) {Engineered history features};
   \node[labelsmall,anchor=north west,align=left,text width=4.55cm] at (6.34,-.78)
     {Longitudinal history, engineered summaries, one task};
   \draw[OperaInkMuted,line width=.55pt] (6.35,-2.15)--(10.38,-2.15);
@@ -72,7 +72,7 @@
   % C — sequence model
   \node[panelletter,anchor=north west] at (11.46,0) {C};
   \node[eyebrow,anchor=north west] at (11.94,-.03) {LONGITUDINAL SEQUENCE MODEL};
-  \node[heading,anchor=north west] at (11.94,-.36) {The timeline remains visible};
+  \node[heading,anchor=north west] at (11.94,-.36) {Ordered clinical events};
   \node[labelsmall,anchor=north west,align=left,text width=4.75cm] at (11.94,-.78)
     {Ordered events, contextual states, reusable learning};
   \draw[OperaIndigo,line width=.65pt] (11.95,-2.15)--(16.25,-2.15);

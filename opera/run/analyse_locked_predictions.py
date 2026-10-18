@@ -12,6 +12,11 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from opera.evaluation.operating_points import (
+    DEFAULT_RULES,
+    operating_points,
+    suppress_small_counts,
+)
 from opera.evaluation.secondary_analysis import (
     CELL,
     ESTIMANDS,
@@ -297,6 +302,27 @@ def run(config, output_dir):
             tables["contrasts"], **config.get("rescue", {})
         ),
     )
+    # Decision points fixed on tuning data: confusion counts, sensitivity,
+    # specificity, predictive values and MCC, paired through the same draws.
+    point_settings = config.get("operating_points", {})
+    point_tables, difference_tables = [], []
+    for rule in point_settings.get("rules", DEFAULT_RULES):
+        points, differences = operating_points(
+            predictions,
+            draws,
+            rule=rule,
+            pairs=[tuple(pair) for pair in point_settings.get(
+                "pairs", [["J_L", "X"], ["J_L", "S_L"], ["R_L", "J_L"]])],
+            minimum_events=int(point_settings.get("minimum_tuning_events", 5)),
+        )
+        point_tables.append(points)
+        difference_tables.append(differences)
+    points = pd.concat(point_tables, ignore_index=True)
+    tables["operating_points_counts"] = points
+    tables["operating_points"] = suppress_small_counts(
+        points, int(point_settings.get("minimum_cell_count", 5))
+    )
+    tables["operating_point_differences"] = pd.concat(difference_tables, ignore_index=True)
     tables["seed_averaged_effects"] = seed_averaged_effects(
         tables["contrasts"], tables["bootstrap_draws"]
     )
@@ -423,6 +449,36 @@ def run(config, output_dir):
                     "status": "computed_same_fits_restricted_evaluation_population",
                 }
             )
+    # Same fits, evaluation restricted to one stratum at a time (e.g. the region
+    # where patients were treated): panel effects and absolute model metrics,
+    # each with intervals from the shared patient resamples.
+    for column, spec in (config.get("stratified_reanalysis") or {}).items():
+        if metadata is None or column not in metadata:
+            statuses.append({"analysis": f"stratified_{column}",
+                             "status": "missing_covariate"})
+            continue
+        wanted = {k: v for k, v in contrasts.items() if k in spec.get("contrasts", contrasts)}
+        effects, absolute = [], []
+        for value, ids in metadata.dropna(subset=[column]).groupby(column).subject_id:
+            subset = predictions.loc[predictions.subject_id.isin(set(ids))]
+            try:
+                result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
+                                         patient_gain_contrasts=[])
+            except ValueError:
+                continue
+            _, summary = effect_summaries(result["contrasts"], result["bootstrap_draws"],
+                                          cell_metadata, strata=["no_strata"])
+            effects.append(summary.assign(covariate=column, stratum_value=str(value),
+                                          n_subjects=len(set(ids))))
+            absolute.append(panel_estimates(
+                result["estimates"], result["model_bootstrap_draws"],
+                {column: spec.get("models", ["J_L", "X"])},
+            ).assign(covariate=column, stratum_value=str(value)))
+        if effects:
+            tables[f"stratified_{column}_effects"] = pd.concat(effects, ignore_index=True)
+            tables[f"stratified_{column}_models"] = pd.concat(absolute, ignore_index=True)
+        statuses.append({"analysis": f"stratified_{column}",
+                         "status": "computed" if effects else "no_estimable_stratum"})
     if (
         metadata is not None
         and config.get("patient_groups")
@@ -585,7 +641,11 @@ def run(config, output_dir):
                 output_dir / "paired_bootstrap_index.csv", index=False
             )
             continue
-        suffix = "_INTERNAL" if name in {"patient_gains", "bootstrap_draws"} else ""
+        suffix = (
+            "_INTERNAL"
+            if name in {"patient_gains", "bootstrap_draws", "operating_points_counts"}
+            else ""
+        )
         table.to_csv(output_dir / f"{name}{suffix}.csv", index=False)
     summary = {
         "estimand": config["estimand"],

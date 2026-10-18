@@ -170,6 +170,7 @@ def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
             inside, at_or_above = rank == i, rank >= i
             rows.append(dict(
                 score_id=spec["id"], system=system, group=group,
+                event_rate=float(events.mean()),
                 n=int(inside.sum()), share=float(inside.mean()),
                 observed_risk=float(events[inside].mean()) if inside.any() else np.nan,
                 sensitivity_at_or_above=float(at_or_above[events].mean()),
@@ -196,6 +197,67 @@ def score_availability(metadata, *, cohort_column, index_column, group_column):
 MANUSCRIPT_NAMES = {"risk_groups": "fig_risk_groups",
                     "clinical_score": "fig_clinical_score",
                     "clinical_score_age": "supp_clinical_score_age"}
+
+
+def native_entries(specs, native):
+    """A second comparison per score on the endpoint the index was built for.
+
+    ``native`` maps an index name (its ``index_values`` entry or score label)
+    to the closest panel outcome and the original endpoint, e.g.
+    ``{"IPI": {outcome: overall_survival, outcome_label: Overall survival,
+    death_in_endpoint: true, original_endpoint: "overall survival, 5 years"}}``.
+    The horizon is the longest of ``horizons_days`` the follow-up supports.
+    """
+    entries = []
+    for spec in specs:
+        keys = [str(v) for v in spec.get("index_values") or []] + [str(spec.get("score_label"))]
+        mapping = next((native[key] for key in keys if key in native), None)
+        if mapping is None:
+            continue
+        entries.append({
+            **spec,
+            **{key: value for key, value in mapping.items() if key != "horizons_days"},
+            "id": f"{spec['id']}_native",
+            "endpoint_role": "native",
+            "horizon_days": max(mapping.get("horizons_days", [730])),
+            "horizons_days": sorted(mapping.get("horizons_days", [730]), reverse=True),
+            "manuscript_figures": False,
+        })
+    return entries
+
+
+def followup_horizon(held, spec):
+    """Longest prespecified horizon within the median follow-up of these patients.
+
+    Uses only follow-up (reverse Kaplan-Meier on the overall-survival record),
+    never outcomes; returns the horizon and the follow-up summary.
+    """
+    from opera.evaluation.followup import median_followup
+
+    summary = median_followup(held.time_days, held.event)
+    options = spec.get("horizons_days") or [spec["horizon_days"]]
+    supported = [h for h in options if np.isfinite(summary["median_days"])
+                 and h <= summary["median_days"]]
+    if not np.isfinite(summary["median_days"]):
+        supported = [max(options)]  # median follow-up not reached: the longest
+    return (max(supported) if supported else min(options)), summary
+
+
+def population_followup(predictions, held, spec):
+    """Median follow-up of a score population from its overall-survival records."""
+    from opera.evaluation.followup import median_followup
+
+    survival = predictions.loc[
+        (predictions.outcome == "overall_survival") & (predictions.model == spec["model"])
+        & (predictions.seed == spec["seed"]) & predictions.subject_id.isin(held.subject_id)
+    ].drop_duplicates("subject_id")
+    if survival.empty or not {"time_days", "event"} <= set(survival):
+        return {"median_followup_days": np.nan, "followup_source": "unavailable"}
+    follow = median_followup(survival.time_days, survival.event)
+    return {"median_followup_days": follow["median_days"],
+            "followup_q25_days": follow["q25_days"],
+            "followup_q75_days": follow["q75_days"],
+            "followup_source": "overall_survival_reverse_km"}
 
 
 def expand_index_scores(config, metadata):
@@ -257,7 +319,8 @@ def expand_index_scores(config, metadata):
                         index_values=[value], group_column=group_column,
                         manuscript_figures=False)
             generated.append(spec)
-    return explicit + generated
+    specs = explicit + generated
+    return specs + native_entries(specs, config.get("native_endpoints") or {})
 
 
 def main():
@@ -365,9 +428,23 @@ def main():
     for spec in specs:
         record = {"score_id": spec["id"]}
         try:
+            if spec.get("endpoint_role") == "native":
+                # Native endpoint: the longest prespecified horizon the test
+                # patients' follow-up supports (outcome-blind).
+                longest = {**spec, "horizon_days": max(spec["horizons_days"])}
+                held, _ = score_patients(predictions, metadata, longest, "held_out")
+                horizon, follow = followup_horizon(held, spec)
+                spec = {**spec, "horizon_days": horizon}
+                record.update(endpoint_role="native", horizon_days=horizon,
+                              original_endpoint=spec.get("original_endpoint"),
+                              median_followup_days=follow["median_days"],
+                              followup_q25_days=follow["q25_days"],
+                              followup_q75_days=follow["q75_days"])
             held, audit = score_patients(predictions, metadata, spec, "held_out")
             tuning, _ = score_patients(predictions, metadata, spec, "tuning")
             record.update(audit)
+            if "median_followup_days" not in record:
+                record.update(population_followup(predictions, held, spec))
             if len(held) < spec.get("minimum_patients", 20):
                 record["status"] = "insufficient_support"
                 records.append(record)
@@ -506,6 +583,37 @@ def main():
     # the model's top-risk fractions (supplement table).
     pd.DataFrame(stratification).to_csv(
         args.output_dir / "stratification_diagnostics.csv", index=False)
+    # One row per index for the headline figure: events captured by the
+    # high-risk group of the index and of the model (at the index's specificity).
+    headline = []
+    strata = pd.DataFrame(stratification)
+    for spec, record in zip(specs, records):
+        if record.get("status") != "rendered":
+            continue
+        high = strata.loc[(strata.score_id == spec["id"])
+                          & (strata.group == spec["group_order"][-1])].set_index("system")
+        low = strata.loc[(strata.score_id == spec["id"])
+                         & (strata.group == spec["group_order"][0])].set_index("system")
+        rate = float(high.loc["index", "event_rate"])
+        gained = (high.loc["model", "sensitivity_at_or_above"]
+                  - high.loc["index", "sensitivity_at_or_above"])
+        headline.append({
+            "label": f"{spec['score_label']} · "
+                     f"{spec.get('population_label', ', '.join(spec['cohorts']))}",
+            "index_sensitivity": high.loc["index", "sensitivity_at_or_above"],
+            "model_sensitivity": high.loc["model", "sensitivity_at_or_above"],
+            "specificity": high.loc["index", "specificity_at_or_above"],
+            "event_rate": rate,
+            # Per 1,000 treated patients, at the index's own specificity:
+            # patients with the event that the model's high-risk group adds.
+            "extra_events_flagged_per_1000": 1000 * rate * gained,
+            # Low-risk groups: size per 1,000 and observed risk in each.
+            "index_low_per_1000": 1000 * low.loc["index", "share"],
+            "model_low_per_1000": 1000 * low.loc["model", "share"],
+            "index_low_observed_risk": low.loc["index", "observed_risk"],
+            "model_low_observed_risk": low.loc["model", "observed_risk"],
+            "manuscript": bool(spec.get("manuscript_figures"))})
+    pd.DataFrame(headline).to_csv(args.output_dir / "headline_scores.csv", index=False)
     (args.output_dir / "report_manifest.json").write_text(
         json.dumps(
             dict(

@@ -324,3 +324,18 @@ def test_nccn_ipi_matches_the_lyfo_definition():
     assert scores.loc[2, "nccn_ipi_score"] == 3
     # All sites missing: no score.
     assert pd.isna(scores.loc[3, "nccn_ipi_score"])
+
+
+def test_history_summary_records_the_predominant_region():
+    from opera.run.build_paper_patient_metadata import history_summary
+
+    vocabulary = {"[CLS]": 0, "BG_x": 1, "DX//A": 2, "REGION//Hovedstaden": 3,
+                  "REGION//Sjaelland": 4}
+    subjects = [
+        {"subject_id": 1, "code": [0, 2, 3, 3, 4, 2], "abspos": [0, 1, 2, 3, 4, 100]},
+        {"subject_id": 2, "code": [0, 3, 4], "abspos": [0, 1, 2]},
+    ]
+    table = history_summary(subjects, {1: 50, 2: 50}, vocabulary).set_index("subject_id")
+    assert table.loc[1, "predominant_region"] == "Hovedstaden"
+    assert pd.isna(table.loc[2, "predominant_region"])  # tie
+    assert table.loc[1, "history_event_count"] == 4  # DX + 3 region tokens, post-index DX dropped

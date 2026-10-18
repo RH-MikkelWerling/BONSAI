@@ -165,3 +165,20 @@ def test_cell_metadata_uses_train_labels_and_clinical_groups():
     assert cells.set_index("outcome").endpoint_group.to_dict() == {
         "sepsis": "Infection and antimicrobial use",
         "MACE_composite": "Cardiovascular and thrombotic events"}
+
+
+def test_model_cells_hold_each_models_absolute_estimate():
+    import pandas as pd
+
+    from opera.run.build_paper_plot_tables import model_cells
+
+    estimates = pd.DataFrame({
+        "split": "held_out", "seed": 42, "cohort": "DLBCL", "outcome": "sepsis",
+        "horizon_days": 365, "metric": "auc", "model": ["J_L", "X", "XR"],
+        "estimate": [0.8, 0.75, 0.77]})
+    metadata = pd.DataFrame({"cohort": ["DLBCL"], "outcome": ["sepsis"], "horizon_days": [365],
+                             "cohort_group": ["DLBCL_like"], "endpoint_group": ["Infection"],
+                             "n_events_train": [40]})
+    wide = model_cells(estimates, metadata, seed=42)
+    assert wide.loc[0, ["J", "X", "XR"]].tolist() == [0.8, 0.75, 0.77]
+    assert wide.loc[0, "n_events_train"] == 40

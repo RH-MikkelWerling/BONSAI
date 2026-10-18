@@ -277,6 +277,31 @@ def summarize(frame):
                 "binary",
                 True,
             )
+    if {"followup_days", "death_event"} <= set(frame):
+        # Reverse Kaplan-Meier: deaths do not shorten the follow-up summary.
+        from opera.evaluation.followup import median_followup
+
+        observed = frame.followup_days.notna() & frame.death_event.notna()
+        summary = median_followup(frame.followup_days[observed], frame.death_event[observed])
+        years = {key: value / 365.25 for key, value in summary.items() if key != "n"}
+        rows.append(
+            dict(
+                variable="followup_reverse_km",
+                characteristic="Median follow-up (reverse Kaplan-Meier), years",
+                kind="continuous",
+                n_total=len(frame),
+                n_observed=summary["n"],
+                n_missing=len(frame) - summary["n"],
+                median=years["median_days"],
+                q1=years["q25_days"],
+                q3=years["q75_days"],
+                display=(
+                    f"{years['median_days']:.1f} ({years['q25_days']:.1f}–{years['q75_days']:.1f})"
+                    if np.isfinite([years["median_days"], years["q25_days"], years["q75_days"]]).all()
+                    else "Not reached"
+                ),
+            )
+        )
     if "index_date" in frame:
         years = pd.to_datetime(frame.index_date, errors="raise").dt.year
         add("index_year", "Calendar year of first-line treatment", years, "continuous")

@@ -4,10 +4,14 @@
 # data that stays on the server; they are not plot tables.
 # Every table must come from real analysis; this recipe never generates synthetic inputs.
 required_figures:
+- fig_headline
 - fig_atlas
+- supp_atlas_matrix
 - fig_pooling
 - supp_pooling_cells
 - fig_tabular
+- fig_benchmarks
+- fig_patient_map
 - fig_external
 - supp_routing
 - supp_router_usage
@@ -25,6 +29,7 @@ required_figures:
 - supp_embedding_gallery_5
 - supp_embedding_gallery_6
 - fig_who_benefits
+- supp_regions
 - supp_national_where
 - supp_embedding_comparison
 figures:
@@ -32,6 +37,12 @@ figures:
   function: figure_atlas
   tables:
     atlas: ${OPERA_PAPER_PLOT_TABLE_ROOT}/atlas.csv
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
+- id: supp_atlas_matrix
+  function: figure_atlas_matrix
+  tables:
+    atlas: ${OPERA_PAPER_PLOT_TABLE_ROOT}/atlas.csv
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
 - id: fig_pooling
   function: figure_pooling
   tables:
@@ -41,6 +52,14 @@ figures:
   function: figure_pooling_cells
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: fig_headline
+  # Run `clinical-scores` before `figures`: panel D reads its headline_scores.csv.
+  function: figure_headline
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
+    subgroups: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups.csv
+    scores: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/headline_scores.csv
 - id: fig_tabular
   function: figure_tabular
   tables:
@@ -50,6 +69,7 @@ figures:
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
     estimates: ${OPERA_PAPER_PLOT_TABLE_ROOT}/origin_estimates.csv
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
     panel: ${OPERA_PAPER_PLOT_TABLE_ROOT}/external_panel.csv
 - id: supp_routing
   function: figure_routing
@@ -67,6 +87,20 @@ figures:
   function: figure_horizons
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: fig_patient_map
+  function: figure_patient_map
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: fig_benchmarks
+  function: figure_benchmarks
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    curve: ${OPERA_PAPER_PLOT_TABLE_ROOT}/support_curve.csv
+    summary: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_summary.csv
+    reliability: ${OPERA_PAPER_PLOT_TABLE_ROOT}/reliability.csv
+  json_inputs:
+    examples: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_examples.json
 - id: fig_calibration
   function: figure_calibration
   tables:
@@ -133,6 +167,14 @@ figures:
   tables:
     coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
     outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_regions
+  # Optional real boundaries: add json_inputs: {geometry: <regions GeoJSON>}
+  # (e.g. DAGI regions from Dataforsyningen); otherwise schematic tiles.
+  function: figure_regions
+  tables:
+    effects: ${OPERA_PAPER_PLOT_TABLE_ROOT}/region_effects.csv
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/region_models.csv
+    coverage: ${OPERA_PAPER_PLOT_TABLE_ROOT}/region_coverage.csv
 - id: fig_who_benefits
   function: figure_subgroup_effects
   tables:

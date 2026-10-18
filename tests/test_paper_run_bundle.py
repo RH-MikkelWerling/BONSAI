@@ -107,6 +107,12 @@ def test_final_external_matrix_requires_lock_and_uses_same_shared_protocol(tmp_p
         for row in external
         if row["name"].endswith("/R")
     )
+    efficiency = [row for row in entries if row["phase"] == "data_efficiency"]
+    assert sorted(row["name"] for row in efficiency) == [
+        f"seed42/{o}/J_frac{f}" for o in ("EA", "L") for f in (10, 25, 50)]
+    assert {row["config"]["dapt_ckpt"] for row in efficiency} == {"/L.ckpt", "/EA.ckpt"}
+    assert {row["config"]["training"]["train_patient_fraction"] for row in efficiency} == {
+        0.1, 0.25, 0.5}
 
 
 def test_external_export_remaps_rows_without_heads_optimizer_or_dapt(tmp_path):

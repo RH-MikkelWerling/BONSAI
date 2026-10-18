@@ -18,6 +18,8 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--available-only", action="store_true",
+                        help="Preview: render the figures whose inputs exist, list the rest")
     parser.add_argument("--validate-render", action="store_true",
                         help="Render every plate in memory to validate schemas without writing outputs")
     args = parser.parse_args()
@@ -34,7 +36,8 @@ def main():
     prepared = []
     required = set(recipe.get("required_figures", []))
     missing = required - {p["id"] for p in plates}
-    if missing:
+    skipped = {}
+    if missing and not args.available_only:
         raise ValueError(f"Missing required figure recipes: {sorted(missing)}")
     ids = set()
     for plate in plates:
@@ -48,6 +51,14 @@ def main():
         function = getattr(figures, kind)
         inputs = dict(plate.get("options", {}))
         hashes = {}
+        if args.available_only:
+            absent = [key for key, source in {**plate.get("tables", {}),
+                                              **plate.get("json_inputs", {})}.items()
+                      if "$" in os.path.expandvars(source)
+                      or not Path(os.path.expandvars(source)).is_file()]
+            if absent:
+                skipped[name] = "missing inputs: " + ", ".join(absent)
+                continue
         for key, source in {**plate.get("tables", {}), **plate.get("json_inputs", {})}.items():
             expanded = os.path.expandvars(source)
             if "$" in expanded:
@@ -58,7 +69,8 @@ def main():
             hashes[str(path)] = file_hash(path)
             inputs[key] = (json.loads(path.read_text()) if key in plate.get("json_inputs", {})
                            else read_table(path))
-        inputs["mark"] = None
+        # e.g. OPERA_PAPER_FIGURE_MARK="TUNING PREVIEW" for figures of the tuning split.
+        inputs["mark"] = os.environ.get("OPERA_PAPER_FIGURE_MARK") or None
         inspect.signature(function).bind(**inputs)
         prepared.append((name, function, inputs, hashes))
     if args.validate_render:
@@ -81,7 +93,14 @@ def main():
     args.output_dir.mkdir(parents=True)
     records = []
     for name, function, inputs, hashes in prepared:
-        fig = function(**inputs)
+        try:
+            fig = function(**inputs)
+        except Exception as exc:
+            if not args.available_only:
+                raise
+            skipped[name] = f"render failed: {exc}"
+            plt.close("all")
+            continue
         save_fig(fig, str(args.output_dir / (name + ".png")))
         plt.close(fig)
         records.append(
@@ -93,8 +112,11 @@ def main():
             }
         )
     (args.output_dir / "figure_manifest.json").write_text(
-        json.dumps({"recipe_sha": file_hash(args.config), "figures": records}, indent=2)
+        json.dumps({"recipe_sha": file_hash(args.config), "figures": records,
+                    "skipped": skipped}, indent=2)
     )
+    if skipped:
+        print(json.dumps({"rendered": [r["id"] for r in records], "skipped": skipped}, indent=2))
 
 
 if __name__ == "__main__":

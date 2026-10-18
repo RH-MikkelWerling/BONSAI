@@ -72,6 +72,7 @@ def synthetic_cells(rng):
                 base["XP-X"] = 0.6 * base["D-S"] + rng.normal(0, 0.008)
                 base["J-XP"] = base["J-X"] - base["XP-X"]
                 base["R-X"] = base["J-X"] + base["R1"]
+                base["J-XR"] = base["J-X"] - 0.012 + rng.normal(0, 0.008)
                 base["EA-L:J"] = rng.normal(0.008, 0.01) + 0.01 * scarcity
                 estimable = events >= 5
                 for contrast, gain in base.items():
@@ -85,6 +86,7 @@ def synthetic_cells(rng):
                             "horizon_days": horizon, "contrast": contrast,
                             "metric": metric, "gain": value, "lower": value - half,
                             "upper": value + half, "n_events_train": events,
+                            "n_patients_train": int(0.8 * disease.patients),
                         })
     return pd.DataFrame(rows)
 
@@ -270,6 +272,8 @@ def synthetic_subgroups(rng):
         "history": ["< 20 records", "20–99", "100–499", "≥ 500"],
         "age": ["< 50", "50–64", "65–79", "≥ 80"],
         "sex": ["Female", "Male"],
+        "predominant_region": ["Hovedstaden", "Sjælland", "Syddanmark", "Midtjylland",
+                               "Nordjylland"],
         "ipi": ["Score available", "Score not available"],
     }.items():
         for index, group in enumerate(groups):
@@ -365,6 +369,80 @@ def synthetic_embedding_comparison(seed=23):
     return pd.concat(frames, ignore_index=True)
 
 
+def synthetic_model_cells(cells, rng):
+    """Absolute one-year AUCs consistent with the synthetic gains."""
+    keys = ["cohort", "outcome", "horizon_days"]
+    gains = (cells.loc[cells.metric == "auc"].pivot_table(index=keys, columns="contrast",
+                                                          values="gain").reset_index())
+    info = cells.drop_duplicates(keys).set_index(keys)
+    index = pd.MultiIndex.from_frame(gains[keys])
+    # Outcomes differ in how predictable they are; diseases shift that a little.
+    level = {o: rng.uniform(0.6, 0.86) for o in gains.outcome.unique()}
+    shift = {c: rng.normal(0, 0.025) for c in gains.cohort.unique()}
+    xgb = np.clip([level[o] + shift[c] + rng.normal(0, 0.02)
+                   for o, c in zip(gains.outcome, gains.cohort)], 0.5, 0.95)
+    return pd.DataFrame({**{k: gains[k] for k in keys}, "X": xgb, "J": xgb + gains["J-X"],
+                         "n_events_train": info.n_events_train.reindex(index).to_numpy(),
+                         "cohort_group": info.cohort_group.reindex(index).to_numpy(),
+                         "endpoint_group": info.endpoint_group.reindex(index).to_numpy(),
+                         }).dropna(subset=["J"])
+
+
+def synthetic_efficiency(models, cells, rng):
+    """Joint models on a share of training patients: national loses less."""
+    models = models.copy()
+    models["J_EA"] = models.J + 0.012 + rng.normal(0, 0.006, len(models))
+    rows = []
+    for fraction, loss_local, loss_national in ((10, 0.07, 0.03), (25, 0.04, 0.017),
+                                                (50, 0.018, 0.008)):
+        models[f"J_L_F{fraction}"] = models.J - loss_local + rng.normal(0, 0.01, len(models))
+        models[f"J_EA_F{fraction}"] = (models.J_EA - loss_national
+                                       + rng.normal(0, 0.01, len(models)))
+        gain = models[f"J_EA_F{fraction}"] - models[f"J_L_F{fraction}"]
+        rows.append(models[["cohort", "outcome", "horizon_days"]].assign(
+            contrast=f"EA-L:F{fraction}", metric="auc", gain=gain))
+    return models, pd.concat([cells, *rows], ignore_index=True)
+
+
+def synthetic_regions(rng):
+    """Per-region effects, absolute metrics and data coverage."""
+    regions = ["Hovedstaden", "Sjælland", "Syddanmark", "Midtjylland", "Nordjylland"]
+    effects, models, coverage = [], [], []
+    for region in regions:
+        for contrast, base in (("J-S", 0.022), ("J-X", 0.025)):
+            gain = base + rng.normal(0, 0.006)
+            effects.append({"region": region, "contrast": contrast, "metric": "auc",
+                            "horizon_days": 365, "gain": gain, "lower": gain - 0.012,
+                            "upper": gain + 0.012})
+        joint = 0.79 + rng.normal(0, 0.01)
+        for model, value, bias in (("J", joint, rng.normal(0, 0.004)),
+                                   ("X", joint - 0.025, rng.normal(0.004, 0.004))):
+            models.append({"region": region, "model": model, "metric": "auc",
+                           "horizon_days": 365, "estimate": value,
+                           "lower": value - 0.015, "upper": value + 0.015})
+            models.append({"region": region, "model": model, "metric": "calibration_bias",
+                           "horizon_days": 365, "estimate": bias,
+                           "lower": bias - 0.006, "upper": bias + 0.006})
+        history = rng.uniform(300, 900)
+        labs = history * rng.uniform(0.25, 0.5)
+        coverage.append({"region": region, "history_event_count_median": history,
+                         "history_event_count_q1": history * 0.5,
+                         "history_event_count_q3": history * 1.8,
+                         "laboratory_event_count_median": labs,
+                         "laboratory_event_count_q1": labs * 0.4,
+                         "laboratory_event_count_q3": labs * 2})
+    return pd.DataFrame(effects), pd.DataFrame(models), pd.DataFrame(coverage)
+
+
+def synthetic_headline_scores(rng):
+    labels = ["IPI · DLBCL", "NCCN-IPI · DLBCL", "IPI · all lymphomas", "CLL-IPI · CLL/SLL",
+              "R-ISS · Myeloma", "FLIPI · Follicular", "MIPI · Mantle cell", "IPS · Hodgkin"]
+    index = rng.uniform(0.42, 0.6, len(labels))
+    return pd.DataFrame({"label": labels, "index_sensitivity": index,
+                         "model_sensitivity": index + rng.uniform(0.05, 0.16, len(labels)),
+                         "specificity": rng.uniform(0.65, 0.8, len(labels))})
+
+
 def synthetic_gallery(rng, n=2500):
     """Patients in six regions; each outcome's risk concentrates in one."""
     import yaml
@@ -385,8 +463,13 @@ def synthetic_gallery(rng, n=2500):
         censor = rng.uniform(200, 1500, n)
         rows.append(pd.DataFrame({"subject_id": range(n), "outcome": outcome,
                                   "time_days": np.minimum(event_time, censor),
-                                  "event": (event_time <= censor).astype(int)}))
-    return embedding_gallery_inputs(coords, pd.concat(rows))
+                                  "event": (event_time <= censor).astype(int),
+                                  "cif_365d": np.clip(risk * rng.lognormal(0, 0.25, n),
+                                                      0, 0.99)}))
+    coords, outcomes = embedding_gallery_inputs(coords, pd.concat(rows))
+    names = np.array(["DLBCL-like", "CLL/SLL", "Myeloma", "Indolent B-NHL", "Hodgkin",
+                      "T-cell NHL"])
+    return coords.assign(disease=names[region]), outcomes
 
 
 def main():
@@ -411,18 +494,29 @@ def main():
             event_free=True, mark=mark),
         "supp_embedding_comparison": figures.figure_embedding_comparison(
             synthetic_embedding_comparison(), mark=mark),
-        "fig_atlas": figures.figure_atlas(synthetic_atlas(cells, rng), mark=mark),
+        "fig_atlas": figures.figure_atlas(
+            synthetic_atlas(cells, rng), synthetic_model_cells(cells, np.random.default_rng(4)),
+            mark=mark),
+        "supp_atlas_matrix": figures.figure_atlas_matrix(
+            synthetic_atlas(cells, np.random.default_rng(9)),
+            synthetic_model_cells(cells, np.random.default_rng(4)), mark=mark),
         "fig_pooling": figures.figure_pooling(cells, curve, mark=mark),
         "supp_pooling_cells": figures.figure_pooling_cells(cells, mark=mark),
         "fig_tabular": figures.figure_tabular(cells, curve, mark=mark),
         "fig_external": figures.figure_external(
-            estimates, pd.concat([external, cells.loc[cells.contrast == "EA-L:J"]]),
+            estimates, *(lambda m, c: (c, None, m))(*synthetic_efficiency(
+                synthetic_model_cells(cells, np.random.default_rng(4)),
+                pd.concat([external, cells.loc[cells.contrast == "EA-L:J"]]),
+                np.random.default_rng(6))),
             mark=mark),
         "supp_routing": figures.figure_routing(cells, synthetic_gate(), mark=mark),
         "supp_router_usage": figures.figure_router_usage(*synthetic_routes(rng), mark=mark),
         "supp_horizons": figures.figure_horizons(cells, mark=mark),
         "fig_calibration": figures.figure_calibration(*synthetic_calibration(cells, rng),
                                                       mark=mark),
+        "fig_benchmarks": figures.figure_benchmarks(
+            cells.assign(gain=np.where(cells.contrast == "J-XR", cells.gain, cells.gain)),
+            curve, *synthetic_calibration(cells, np.random.default_rng(3)), mark=mark),
         "fig_risk_groups": figures.figure_risk_groups(
             risk_patients, outcome_label="Treatment failure",
             ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS, mark=mark, event_free=True),
@@ -450,10 +544,16 @@ def main():
             *synthetic_maps(rng), mark=mark),
     }
     gallery = synthetic_gallery(np.random.default_rng(23))
+    renders["fig_patient_map"] = figures.figure_patient_map(*gallery, mark=mark)
     for page in range(1, 7):
         renders[f"supp_embedding_gallery_{page}"] = figures.figure_embedding_gallery(
             *gallery, page=page, mark=mark)
     who, national = synthetic_subgroups(rng)
+    renders["supp_regions"] = figures.figure_regions(
+        *synthetic_regions(np.random.default_rng(12)), mark=mark)
+    renders["fig_headline"] = figures.figure_headline(
+        cells, synthetic_model_cells(cells, np.random.default_rng(4)), who,
+        synthetic_headline_scores(np.random.default_rng(5)), mark=mark)
     renders["fig_who_benefits"] = figures.figure_subgroup_effects(
         who, contrast_styles={"J-S": (figures.MODEL_STYLE["J"][0], "Joint vs specialist"),
                               "J-X": (figures.MODEL_STYLE["X"][0], "Joint vs XGBoost")},

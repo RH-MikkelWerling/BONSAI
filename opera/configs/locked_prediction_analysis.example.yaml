@@ -56,6 +56,8 @@ patient_groups:
     bins: [-1, 99, 999, 9999, .inf]
   index_year:
     provenance: pre_index
+  predominant_region:  # region of most pre-index contacts; the model is trained nationwide
+    provenance: pre_index
   IPI:  # recorded prognostic-index category (low/medium/high); missing = not recorded
     provenance: pre_index
   national_vocabulary_coverage:  # share of pre-index history tokens in the national vocabulary
@@ -63,6 +65,12 @@ patient_groups:
     bins: [0, 0.8, 0.95, 1.0]
   # Add train-defined/pre-index token coverage, source mix and atypicality
   # columns with prespecified bins; never choose cutpoints on held-out gains.
+# Same fits re-evaluated within each region where patients were treated
+# (models trained nationwide): panel effects and absolute metrics per region.
+stratified_reanalysis:
+  predominant_region:
+    contrasts: [P5, T2]
+    models: [J_L, X]
 strategy_candidates: [S_L, D_L, O_L]
 rescue:
   pooling: P5
@@ -79,3 +87,11 @@ extra_contrasts:
   router_vs_specialist: gain(R_L,S_L)
 # Source-removal inference exports can be entered as e.g. R_REMOVED_DLBCL;
 # add gain(R_L,R_REMOVED_DLBCL) here. No learned-route causal claim follows.
+
+# Decision points fixed on tuning data (opera.evaluation.operating_points).
+operating_points:
+  rules: [tuning_event_rate, tuning_youden, tuning_max_mcc,
+          "tuning_specificity:0.80", "tuning_specificity:0.90", "tuning_specificity:0.95"]
+  pairs: [[J_L, X], [J_L, S_L], [R_L, J_L]]
+  minimum_tuning_events: 5
+  minimum_cell_count: 5   # exported confusion counts below this are suppressed

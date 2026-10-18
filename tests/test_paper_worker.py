@@ -27,6 +27,7 @@ def options(tmp_path, directory, **overrides):
         minimum_local_pretraining_epochs=20,
         minimum_dapt_epochs=20,
         external_hidden_size=256,
+        local_hidden_size=256,
     )
     values.update(overrides)
     return Namespace(**values)
@@ -207,3 +208,19 @@ def test_worker_rejects_missing_bundles_before_creating_runs(tmp_path):
     with pytest.raises(FileNotFoundError, match="Prepare a paper bundle"):
         worker.work(args)
     assert not args.runs_dir.exists()
+
+
+def test_hold_file_parks_only_the_specialists(tmp_path):
+    import json
+
+    from opera.run.paper_worker import HOLD_SPECIALISTS, todo
+
+    bundle = tmp_path / "paper" / "bundles" / "stage1"
+    bundle.mkdir(parents=True)
+    runs = [{"name": n, "phase": "supervision", "regime": r, "seed": 42,
+             "scientific_hash": n, "condition": {}} for n, r in (("j", "J"), ("s", "S"))]
+    (bundle / "bundle.json").write_text(json.dumps({"runs": runs}))
+    assert all(gate is None for _, _, gate in todo([bundle], {}))
+    (tmp_path / "paper" / HOLD_SPECIALISTS).touch()
+    gates = {row["regime"]: gate for row, _, gate in todo([bundle], {})}
+    assert gates == {"J": None, "S": "blocked_held:specialists"}

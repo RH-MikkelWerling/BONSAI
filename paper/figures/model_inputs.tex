@@ -1,0 +1,127 @@
+% What the sequence model reads: one card per source (A) and how a patient's
+% history becomes one token sequence cut at the start of treatment (B).
+% Requires \usepackage{fontawesome5} and opera_style.tex.
+\begin{tikzpicture}[opera,x=1cm,y=1cm,
+    src/.style={rounded corners=0.8mm, draw=#1!45, fill=#1!6, line width=.5pt,
+      minimum width=10.1cm, minimum height=1.36cm},
+    icon/.style={circle, fill=#1, text=white, minimum size=7.6mm, inner sep=0pt,
+      font=\normalsize},
+    srctitle/.style={font=\sffamily\fontsize{8}{9}\selectfont\bfseries, text=OperaInk,
+      anchor=north west},
+    srcbody/.style={font=\sffamily\fontsize{6.6}{7.8}\selectfont, text=OperaInkSecondary,
+      anchor=north west, align=left, text width=5.35cm},
+    srctok/.style={token, draw=#1!55, fill=white, font=\ttfamily\fontsize{5.4}{6}\selectfont,
+      minimum height=4.2mm, inner xsep=1mm},
+    srctime/.style={font=\sffamily\fontsize{6}{7}\selectfont, text=OperaInkMuted,
+      anchor=north east, align=right},
+    seqtok/.style={rounded corners=.5mm, fill=#1, minimum width=3.3mm, minimum height=5.2mm,
+      inner sep=0pt},
+  ]
+  % ---------------------------------------------------------------- A
+  \node[panelletter,anchor=north west] at (0,0) {A};
+  \node[eyebrow,anchor=north west] at (.45,-.03) {DATA SOURCES};
+  \node[heading,anchor=north west] at (.45,-.36) {Registers and example tokens};
+
+  % One card per source: y, colour, icon, title, contents and timing, two example tokens.
+  \def\sourcecard#1#2#3#4#5#6#7{%
+    \node[src=#2] at (5.05,#1) {};
+    \node[icon=#2] at (.62,#1) {\faIcon{#3}};
+    \node[srctitle] at (1.2,#1+.55) {#4};
+    \node[srcbody] at (1.2,#1+.23) {#5};
+    \node[srctok=#2,anchor=west] at (6.75,#1+.22) {#6};
+    \node[srctok=#2,anchor=west] at (6.75,#1-.25) {#7};}
+  \sourcecard{-1.55}{OperaSlate}{user}{Demographics}
+    {Sex, and age at the start of treatment.}
+    {SEX//F}{AGE//71}
+  \sourcecard{-3.0}{OperaIndigo}{hospital}{National patient register}
+    {Every hospital contact: diagnoses (ICD-10) at discharge; procedures and the
+     contact's type, reason, priority, specialty and region at admission.}
+    {DIAGNOSIS//DC833}{CONTACT\_SPECIALTY//HAEM}
+  \sourcecard{-4.45}{OperaLavender}{microscope}{Pathology register}
+    {Diagnoses from tissue and cell samples (SNOMED) and the requesting
+     department, at requisition.}
+    {PATHOLOGY//M96803}{REGION//HOVEDSTADEN}
+  \sourcecard{-5.9}{OperaTeal}{prescription-bottle-alt}{Prescription register}
+    {Every prescription redeemed at a community pharmacy (ATC), at
+     dispensing.}
+    {MEDICATION//J01CA04}{MEDICATION//N02BE01}
+  \sourcecard{-7.35}{OperaOchre}{syringe}{Hospital medication register}
+    {Drugs given in hospital, including chemotherapy (ATC), and the treating
+     department, at the start of the order.}
+    {MEDICATION//L01XC02}{CONTACT\_SPECIALTY//ONC}
+  \sourcecard{-8.8}{OperaSienna}{vial}{Laboratory database}
+    {Laboratory results (NPU codes) at sampling: the test with its value bin,
+     or the text result.}
+    {LABTEST//NPU02319//BIN\_7}{LABTEST//NPU19748//NEG}
+  \draw[divider] (10.55,.05)--(10.55,-9.5);
+
+  % ---------------------------------------------------------------- B
+  \node[panelletter,anchor=north west] at (10.9,0) {B};
+  \node[eyebrow,anchor=north west] at (11.35,-.03) {INPUT AND OUTPUT};
+  \node[heading,anchor=north west] at (11.35,-.36) {Patient sequence and predictions};
+
+  % Timeline with tokens coloured by source; the cut at treatment start.
+  \draw[-{Latex[length=1.6mm]},draw=OperaInkMuted,line width=.55pt] (11.1,-2.25)--(16.75,-2.25);
+  \node[labelsmall,anchor=north east] at (16.75,-2.32) {time};
+  \foreach \x/\col in {11.25/OperaSlate,11.62/OperaSlate}
+    \node[seqtok=\col] at (\x,-1.85) {};
+  \foreach \x/\col in {12.15/OperaIndigo,12.5/OperaTeal,12.85/OperaSienna,
+      13.2/OperaSienna,13.55/OperaIndigo,13.9/OperaTeal,14.25/OperaLavender,
+      14.6/OperaIndigo,14.95/OperaSienna,15.3/OperaSienna,15.65/OperaOchre,
+      16.0/OperaSienna}
+    \node[seqtok=\col] at (\x,-1.85) {};
+  \draw[OperaSienna,line width=1.1pt] (16.32,-1.35)--(16.32,-2.55);
+  \node[font=\sffamily\fontsize{6.4}{7}\selectfont\bfseries,text=OperaSienna,anchor=south]
+    at (16.32,-1.33) {treatment starts};
+  \node[labelsmall,anchor=south] at (11.44,-1.55) {sex, age};
+  \draw[decorate,decoration={brace,amplitude=3pt,mirror},draw=OperaInkMuted]
+    (12.0,-2.62)--(16.05,-2.62);
+  \node[labelsmall,anchor=north,text width=4.3cm] at (14.08,-2.78)
+    {everything recorded before treatment, in time order (up to 8,192 tokens)};
+
+  \node[stageblue,minimum width=5.2cm] (enc) at (13.95,-4.4)
+    {\textbf{Causal transformer encoder}\\[-1pt]
+     {\fontsize{6.6}{7.6}\selectfont pretrained to predict the next event}};
+  \draw[flowblue] (13.95,-3.45)--(enc.north);
+  \node[softpanel,draw=OperaIndigo!42,fill=OperaIndigo!4,
+    minimum width=3.6cm,minimum height=6mm,font=\sffamily\fontsize{6.6}{7.6}\selectfont]
+    (z) at (13.95,-5.6) {shared representation $z$};
+  \draw[flowblue,shorten >=1pt] (enc.south)--(z.north);
+
+  % Outcomes as in Figure 1C: one probability per outcome and horizon.
+  \node[labelsmall] (c1) at (11.75,-6.75) {$P($failure by $t)$};
+  \node[labelsmall] (c2) at (13.5,-6.75) {$P($infection by $t)$};
+  \node[font=\sffamily\scriptsize,text=OperaInkMuted] at (14.78,-6.75) {$\cdots$};
+  \node[labelsmall] (cn) at (16.05,-6.75) {$P($outcome$_{69}$ by $t)$};
+  \foreach \c in {c1,c2,cn}
+    \draw[flowblue,shorten >=1pt] (z)--(\c.north);
+  \begin{scope}[shift={(11.27,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-7.27) rectangle (\xb,-6.99);
+    }
+  \end{scope}
+  \begin{scope}[shift={(13.02,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-7.27) rectangle (\xb,-6.99);
+    }
+  \end{scope}
+  \begin{scope}[shift={(15.57,0)}]
+    \foreach \i in {0,...,11}{
+      \pgfmathsetmacro{\xa}{0.08*\i}
+      \pgfmathsetmacro{\xb}{0.08*(\i+1)}
+      \pgfmathtruncatemacro{\tone}{6+7*\i}
+      \fill[OperaIndigo!\tone] (\xa,-7.27) rectangle (\xb,-6.99);
+    }
+  \end{scope}
+  \node[labelsmall,anchor=north] at (13.95,-7.55)
+    {$t$ = 30, 60, 90, 180, 365 and 730 days};
+  \node[captionnote,anchor=north,text width=5.4cm] at (13.95,-8.35)
+    {The same encoder serves every disease and outcome; only the labels each model is
+     trained on differ.};
+\end{tikzpicture}

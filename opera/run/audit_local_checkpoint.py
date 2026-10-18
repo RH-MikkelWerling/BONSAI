@@ -46,6 +46,7 @@ def main():
                         help="Directory with best.ckpt, checkpoint_metadata.json, metrics.csv")
     parser.add_argument("--vocabulary", type=Path, required=True)
     parser.add_argument("--minimum-epochs", type=int, default=20)
+    parser.add_argument("--width", type=int, default=256)
     args = parser.parse_args()
     import torch
 
@@ -67,7 +68,8 @@ def main():
     config = {"dapt_ckpt": str(args.run_dir / "best.ckpt"),
               "paths": {"vocabulary": str(args.vocabulary)}}
     try:
-        audit = audit_encoder(config, "L", minimum_local_epochs=args.minimum_epochs)
+        audit = audit_encoder(config, "L", expected_width=args.width,
+                              minimum_local_epochs=args.minimum_epochs)
         report["encoder_audit"] = {k: audit[k] for k in ("status", "architecture")}
     except (ValueError, KeyError, RuntimeError) as error:
         report["encoder_audit"] = f"FAILED: {error}"

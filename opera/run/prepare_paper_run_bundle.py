@@ -90,10 +90,16 @@ def external_sequences(config, sequence_dir):
     return config
 
 
+# Data efficiency: the joint model trained on nested shares of the training
+# patients, from the local and from the adapted national encoder.
+DATA_EFFICIENCY_FRACTIONS = (0.1, 0.25, 0.5)
+
+
 def build_bundle(
     base, reference, checkpoints, *, seeds=(42,), epochs=30, selected_router=None,
     router_controls=True,
     external_sequence_dir=None,
+    data_efficiency=True,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -281,6 +287,24 @@ def build_bundle(
                             "config": config,
                         }
                     )
+    if data_efficiency and checkpoints.get("EA") and selected_router is not None:
+        seed = seeds[0]
+        local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
+        national = next(e for e in entries if e["name"] == f"seed{seed}/EA/J")
+        for origin, source in (("L", local), ("EA", national)):
+            for fraction in DATA_EFFICIENCY_FRACTIONS:
+                config = copy.deepcopy(source["config"])
+                config.pop("paper_run", None)
+                config["training"]["train_patient_fraction"] = fraction
+                config["training"]["train_fraction_seed"] = seed
+                entries.append({
+                    "name": f"seed{seed}/{origin}/J_frac{round(fraction * 100)}",
+                    "phase": "data_efficiency",
+                    "origin": origin,
+                    "seed": seed,
+                    "condition": {},
+                    "config": config,
+                })
     for entry in entries:
         entry["config"]["paper_run"] = {key: entry[key] for key in ("origin", "seed")}
         if entry["origin"] == "EA":
@@ -398,6 +422,8 @@ def main():
     parser.add_argument("--external-sequence-dir", type=Path,
                         help="Our patients tokenised in the national encoder's own format "
                         "(prepare_external_sequences); used by the national arms.")
+    parser.add_argument("--no-data-efficiency", action="store_true",
+                        help="Omit the training-fraction runs (local and national joint).")
     parser.add_argument("--no-router-controls", action="store_true",
                         help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--seeds", default="42")
@@ -446,6 +472,7 @@ def main():
         selected_router=selected,
         router_controls=not args.no_router_controls,
         external_sequence_dir=args.external_sequence_dir,
+        data_efficiency=not args.no_data_efficiency,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

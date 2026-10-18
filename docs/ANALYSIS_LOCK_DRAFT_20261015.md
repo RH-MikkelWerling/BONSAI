@@ -57,6 +57,16 @@ Fixed before any held-out evaluation. When agreed, these values are written into
 Prior-only run checked before fitting; the priors cover effects several times
 larger than any plausible gain, so the data dominate.
 
+## Decision points (secondary, descriptive)
+Thresholds are fixed per model, disease, outcome and horizon on that model's
+tuning predictions and applied unchanged to test patients with known status:
+tuning event rate (equal alert rate across models), Youden, maximum MCC, and
+specificity 0.80, 0.90 and 0.95. Reported: threshold, TP/FP/FN/TN, sensitivity,
+specificity, PPV, NPV, MCC and flagged share, with 95% intervals from the shared
+patient bootstrap, and paired differences J_L-X, J_L-S_L and R_L-J_L.
+Exported confusion counts below 5 are suppressed; full counts stay internal.
+No decision-point metric is a primary or key secondary endpoint.
+
 ## Clinical scores
 Two-year treatment failure (death included); every index with ≥50 patients
 per subtype, each index pooled across subtypes, NCCN-IPI and computed IPI;

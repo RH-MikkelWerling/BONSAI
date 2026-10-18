@@ -509,6 +509,8 @@ def main(cfg: DictConfig) -> None:
         fine_names=competing_risk_config.get("fine_names") if model.source_adapter_readout is not None else None,
         fine_column=str(competing_risk_config.get("fine_column", "cohort_fine")),
         outcome_label_cache_dir=cfg.paths.get("outcome_label_cache_dir"),
+        train_patient_fraction=float(cfg.training.get("train_patient_fraction", 1.0)),
+        train_fraction_seed=int(cfg.training.get("train_fraction_seed", 0)),
     )
     data_module.setup("fit")
 

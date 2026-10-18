@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
+    parser.add_argument("--local-hidden-size", type=int, default=256)
     args = parser.parse_args()
     _, rows = bundle_runs(args.bundle_dir)
     row, path, base = next(
@@ -54,7 +55,7 @@ def main():
         return
     if output.exists():
         raise FileExistsError("Use a fresh smoke directory")
-    audit = audit_encoder(config, "L",
+    audit = audit_encoder(config, "L", expected_width=args.local_hidden_size,
                           minimum_local_epochs=args.minimum_local_pretraining_epochs)
     output.mkdir(parents=True)
     config_path = output / "smoke.yaml"

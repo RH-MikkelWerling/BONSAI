@@ -64,6 +64,10 @@ essential_contrasts:
     C3: gain(RD_L,RDH_L)   # borrowing from other diseases
     C4: gain(ROH_L,N_L)    # own-outcome adapter capacity
     C5: gain(RO_L,ROH_L)   # borrowing from other outcomes
+  data_efficiency:   # national + local vs local joint model on a share of training patients
+    N10: gain(J_EA_F10,J_L_F10)
+    N25: gain(J_EA_F25,J_L_F25)
+    N50: gain(J_EA_F50,J_L_F50)
   pretraining_control:
     P0: gain(J_L,J_RI) # local pretraining vs no pretraining (random initialisation)
   external_pretraining_and_adaptation:

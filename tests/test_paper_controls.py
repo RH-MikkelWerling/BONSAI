@@ -135,3 +135,16 @@ def test_width_probe_changes_only_the_encoder(tmp_path):
     assert config["dapt_ckpt"] == str((tmp_path / "512" / "best.ckpt").resolve())
     assert {k: v for k, v in config.items() if k != "dapt_ckpt"} == {
         k: v for k, v in joint.items() if k != "dapt_ckpt"}
+
+
+def test_data_efficiency_runs_are_nested_fractions_of_both_encoders():
+    from opera.modules.datamodules.MultiCohortContrastiveDataModule import keep_training_patient
+    from opera.run.paper_prediction_queue import canonical_models
+
+    kept = {f: {i for i in range(5000) if keep_training_patient(i, f, 42)}
+            for f in (0.1, 0.25, 0.5)}
+    assert kept[0.1] <= kept[0.25] <= kept[0.5]
+    assert abs(len(kept[0.25]) / 5000 - 0.25) < 0.03
+    row = {"phase": "data_efficiency", "origin": "EA", "regime": "J"}
+    config = {"training": {"train_patient_fraction": 0.25}}
+    assert canonical_models(row, config, {}) == ["J_EA_F25"]

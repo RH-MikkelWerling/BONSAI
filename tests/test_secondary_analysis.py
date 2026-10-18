@@ -462,6 +462,9 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 {
                     "subject_id": frame.subject_id.unique(),
                     "age": 60,
+                    "predominant_region": ["Hovedstaden", "Sjælland"] * (
+                        frame.subject_id.nunique() // 2) + ["Hovedstaden"] * (
+                        frame.subject_id.nunique() % 2),
                     "index_date": "2023-01-01",
                     "cohort_identity_evidence_date": "2022-12-01",
                 }
@@ -473,6 +476,7 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 "cell_metadata": str(root / "cells.csv"),
                 "patient_metadata": str(root / "patients.csv"),
                 "patient_groups": {"age": {"provenance": "pre_index"}},
+                "stratified_reanalysis": {"predominant_region": {}},
                 "bootstrap_replicates": 3,
             }
             manifest = run(config, root / "output")
@@ -486,6 +490,7 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 "strategy_selection",
                 "patient_subgroups",
                 "contrast_coverage",
+                "stratified_predominant_region_effects",
             ]:
                 self.assertGreater(manifest["tables"][name], 0)
                 self.assertTrue((root / "output" / f"{name}.csv").is_file())

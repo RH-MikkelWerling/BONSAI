@@ -96,3 +96,29 @@ scores:  # explicit entries (scores not in the `index` column)
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
     applicability_review: null
+
+# Native endpoints: each index is also compared on the endpoint it was
+# developed for, using the closest panel outcome. Keys must match the exact
+# `index` values in the registry (or a score's score_label). The horizon is the
+# longest of horizons_days within the test population's median follow-up
+# (reverse Kaplan-Meier on overall survival), chosen without outcomes. The
+# original horizons are longer than ours (usually 5 years), so these are
+# shorter-horizon evaluations of the native endpoint, not reproductions.
+native_endpoints:
+  IPI:       {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+  NCCN-IPI:  {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+  CLL-IPI:   {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+  R-ISS:     {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall and progression-free survival, 5 years", horizons_days: [730, 365]}
+  FLIPI:     {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 and 10 years", horizons_days: [730, 365]}
+  MIPI:      {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+  IPS:       {outcome: null, outcome_label: Treatment failure, death_in_endpoint: true,
+              original_endpoint: "freedom from progression, 5 years (closest panel outcome: treatment failure)",
+              horizons_days: [730, 365]}
+  IPI (computed): {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}

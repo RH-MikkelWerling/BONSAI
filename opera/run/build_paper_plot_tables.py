@@ -37,6 +37,7 @@ CONTRAST_CODES = {
     "P1": "D-S", "P2": "O-S", "P3": "J-O", "P4": "J-D", "P5": "J-S", "P6": "interaction",
     "T1": "R-X", "T2": "J-X", "T3": "S-X", "T4": "X-LR",
     "T6": "J-XP", "T7": "XP-X", "T8": "D-XP", "T9": "J-XR", "T10": "XR-X", "P0": "L-RI",
+    "N10": "EA-L:F10", "N25": "EA-L:F25", "N50": "EA-L:F50",
     **{f"C{i}": f"C{i}" for i in range(1, 6)},
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
@@ -60,7 +61,12 @@ def _read(path: Path, sources: dict) -> pd.DataFrame:
     return read_table(path)
 
 
-def _select(frame: pd.DataFrame, *, split="held_out", seed=None) -> pd.DataFrame:
+# Split the figures describe: held_out for the paper, tuning for a preview.
+EVALUATION_SPLIT = "held_out"
+
+
+def _select(frame: pd.DataFrame, *, split=None, seed=None) -> pd.DataFrame:
+    split = split or EVALUATION_SPLIT
     if "split" in frame:
         frame = frame.loc[frame.split == split]
     if seed is not None and "seed" in frame:
@@ -72,15 +78,15 @@ def _select(frame: pd.DataFrame, *, split="held_out", seed=None) -> pd.DataFrame
 
 def _cell_groups(metadata: pd.DataFrame) -> pd.DataFrame:
     keys = ["cohort", "outcome", "horizon_days"]
-    columns = [c for c in ("cohort_group", "endpoint_group", "n_events_train")
-               if c in metadata]
+    columns = [c for c in ("cohort_group", "endpoint_group", "n_events_train",
+                           "n_patients_train") if c in metadata]
     return metadata[keys + columns].drop_duplicates(keys)
 
 
 def _with_cells(frame: pd.DataFrame, metadata: pd.DataFrame) -> pd.DataFrame:
     """Attach train-only cell metadata unless the analysis already did."""
-    missing = [c for c in ("cohort_group", "endpoint_group", "n_events_train")
-               if c not in frame and c in metadata]
+    missing = [c for c in ("cohort_group", "endpoint_group", "n_events_train",
+                           "n_patients_train") if c not in frame and c in metadata]
     if not missing:
         return frame
     keys = ["cohort", "outcome", "horizon_days"]
@@ -94,7 +100,8 @@ def paired_cells(contrasts, metadata, *, seed=None):
     data["contrast"] = data.contrast.map(CONTRAST_CODES)
     data = _with_cells(data, metadata)
     columns = ["cohort", "cohort_group", "outcome", "endpoint_group", "horizon_days",
-               "contrast", "metric", "gain", "lower", "upper", "n_events_train"]
+               "contrast", "metric", "gain", "lower", "upper", "n_events_train",
+               "n_patients_train"]
     return to_display(data[[c for c in columns if c in data]])
 
 
@@ -133,6 +140,24 @@ def calibration_tables(summary, reliability, metadata, *, seed=None):
     return out
 
 
+# Model codes in estimates.csv -> short figure names.
+MODEL_NAMES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R",
+               "X": "X", "XR": "XR", "XP": "XP", "LR": "LR", "J_EA": "J_EA",
+               "J_E": "J_E",
+               **{f"J_{o}_F{f}": f"J_{o}_F{f}" for o in ("L", "EA") for f in (10, 25, 50)}}
+
+
+def model_cells(estimates, metadata, *, seed=None, metric="auc"):
+    """One row per cell with each model's held-out estimate (absolute, not a gain)."""
+    data = _select(estimates, seed=seed)
+    data = data.loc[(data.metric == metric) & data.model.isin(MODEL_NAMES)]
+    wide = (data.pivot_table(index=["cohort", "outcome", "horizon_days"], columns="model",
+                             values="estimate", aggfunc="first")
+            .rename(columns=MODEL_NAMES).reset_index())
+    wide.columns.name = None
+    return to_display(_with_cells(wide, metadata))
+
+
 def strategy_tables(estimates, selection, metadata, *, seed=None, metric="auc"):
     data = _select(estimates, seed=seed)
     data = data.loc[(data.metric == metric)
@@ -156,8 +181,8 @@ def rescue_cells(contrasts, metadata, *, seed=None):
     keys = ["cohort", "outcome", "horizon_days", "metric"]
     parts = {
         "tuning_joint_vs_specialist": ("tuning", "P5"),
-        "joint_vs_specialist": ("held_out", "P5"),
-        "routed_vs_specialist": ("held_out", "router_vs_specialist"),
+        "joint_vs_specialist": (EVALUATION_SPLIT, "P5"),
+        "routed_vs_specialist": (EVALUATION_SPLIT, "router_vs_specialist"),
     }
     wide = None
     for column, (split, code) in parts.items():
@@ -238,6 +263,7 @@ SUBGROUP_FIGURES = {
                       "T2": ("#408579", "Joint vs XGBoost")},
         "covariates": {"history_event_count": "Recorded history before treatment",
                        "age_at_index": "Age", "sex": "Sex",
+                       "predominant_region": "Region",
                        "IPI": "Clinical risk score"},
     },
     "national_subgroups": {
@@ -307,9 +333,29 @@ def calibration_examples(choices):
             for item in choices.get("calibration_examples", [])}
 
 
+def region_tables(effects, models, patients=None, *, seed=None):
+    """Per-region panel effects, absolute metrics and pre-index data coverage."""
+    effects = _select(effects, seed=seed).copy()
+    effects["contrast"] = effects.contrast.map(lambda c: CONTRAST_CODES.get(c, c))
+    models = _select(models, seed=seed).copy()
+    models["model"] = models.model.map(lambda m: MODEL_NAMES.get(m, m))
+    coverage = None
+    if patients is not None and "predominant_region" in patients:
+        columns = [c for c in ("history_event_count", "laboratory_event_count") if c in patients]
+        coverage = (patients.dropna(subset=["predominant_region"])
+                    .groupby("predominant_region")[columns]
+                    .agg(["median", lambda x: x.quantile(0.25), lambda x: x.quantile(0.75)]))
+        coverage.columns = [f"{c}_{s}" for c in columns for s in ("median", "q1", "q3")]
+        coverage = coverage.reset_index().rename(columns={"predominant_region": "region"})
+        coverage["n_patients"] = (patients.predominant_region.value_counts()
+                                  .reindex(coverage.region).to_numpy())
+    return effects, models, coverage
+
+
 def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=None,
           atlas_metrics: Path | None = None, choices: Path = DEFAULT_CHOICES,
-          bayes_variant="support_spline", registry_outcomes=None):
+          bayes_variant="support_spline", registry_outcomes=None,
+          patient_metadata: Path | None = None):
     analysis = analysis_root / "prediction_analysis"
     bayes = analysis_root / "bayesian"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -364,6 +410,8 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         return cells
 
     table("strategy_cells.csv", strategy)
+    table("model_cells.csv", lambda: model_cells(
+        _read(analysis / "estimates.csv", sources), metadata, seed=seed))
     table("rescue_cells.csv", lambda: rescue_cells(contrasts(), metadata, seed=seed))
 
     def coverage():
@@ -397,6 +445,20 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
 
     for name, spec in SUBGROUP_FIGURES.items():
         table(f"{name}.csv", subgroups(name, spec))
+
+    def regions():
+        effects, models, coverage = region_tables(
+            _read(analysis / "stratified_predominant_region_effects.csv", sources),
+            _read(analysis / "stratified_predominant_region_models.csv", sources),
+            _read(patient_metadata, sources) if patient_metadata else None, seed=seed)
+        models.to_csv(output_dir / "region_models.csv", index=False)
+        report["region_models.csv"] = {"status": "written", "rows": len(models)}
+        if coverage is not None:
+            coverage.to_csv(output_dir / "region_coverage.csv", index=False)
+            report["region_coverage.csv"] = {"status": "written", "rows": len(coverage)}
+        return effects
+
+    table("region_effects.csv", regions)
     diseases, outcomes = group_maps()
     table("disease_groups.json", lambda: diseases)
     table("outcome_groups.json", lambda: outcomes)
@@ -420,10 +482,17 @@ def main():
                         help="direct_cr_pooled_metrics.csv of the selected joint run")
     parser.add_argument("--choices", type=Path, default=DEFAULT_CHOICES)
     parser.add_argument("--bayes-variant", default="support_spline")
+    parser.add_argument("--patient-metadata", type=Path,
+                        help="Pre-index patient metadata (regional data coverage).")
+    parser.add_argument("--split", choices=("held_out", "tuning"), default="held_out",
+                        help="tuning: a preview of the figures before the test set is opened.")
     args = parser.parse_args()
+    global EVALUATION_SPLIT
+    EVALUATION_SPLIT = args.split
     manifest = build(args.analysis_root, args.cell_metadata, args.output_dir,
                      seed=args.seed, atlas_metrics=args.atlas_metrics,
-                     choices=args.choices, bayes_variant=args.bayes_variant)
+                     choices=args.choices, bayes_variant=args.bayes_variant,
+                     patient_metadata=args.patient_metadata)
     print(json.dumps({name: item["status"] for name, item in manifest["tables"].items()},
                      indent=2))
 

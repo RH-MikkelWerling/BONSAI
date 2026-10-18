@@ -26,6 +26,7 @@ PHASES = (
     "external",
     "pretraining_control",
     "router_controls",
+    "data_efficiency",
 )
 
 
@@ -155,6 +156,8 @@ def build_commands(args, env):
                 root / "smoke_runs",
                 "--minimum-local-pretraining-epochs",
                 value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"),
+                "--local-hidden-size",
+                value(env, "OPERA_PAPER_LOCAL_WIDTH", "256"),
             )
             + (["--execute"] if args.execute else [])
         ]
@@ -202,6 +205,8 @@ def build_commands(args, env):
             value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20"),
             "--external-hidden-size",
             value(env, "OPERA_PAPER_EXTERNAL_WIDTH", "256"),
+            "--local-hidden-size",
+            value(env, "OPERA_PAPER_LOCAL_WIDTH", "256"),
         )
         if args.phase in ("rank_screen", "query_screen"):
             command += ["--decisions", str(path_value(env, "OPERA_PAPER_DECISIONS"))]
@@ -419,9 +424,13 @@ def build_commands(args, env):
                          "--analysis-root", analysis_root,
                          "--cell-metadata", path_value(env, "OPERA_PAPER_CELL_METADATA"),
                          "--output-dir", analysis_root / "figure_inputs" / "plot_tables",
-                         "--seed", value(env, "OPERA_PAPER_SEEDS", "42").split(",")[0])
+                         "--seed", value(env, "OPERA_PAPER_SEEDS", "42").split(",")[0],
+                         "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"))
         if env.get("OPERA_PAPER_ATLAS_METRICS"):
             command += ["--atlas-metrics", str(path_value(env, "OPERA_PAPER_ATLAS_METRICS"))]
+        if env.get("OPERA_PAPER_PATIENT_METADATA"):
+            command += ["--patient-metadata",
+                        str(path_value(env, "OPERA_PAPER_PATIENT_METADATA"))]
         return [command]
     if args.action == "init-figures":
         return [module("opera.run.prepare_paper_figure_inputs",
@@ -432,6 +441,7 @@ def build_commands(args, env):
                        "--config", path_value(env, "OPERA_PAPER_FIGURE_CONFIG",
                                               str(analysis_root / "figure_inputs" / "figures.yaml")),
                        "--output-dir", analysis_root / "figures")
+                + (["--available-only"] if env.get("OPERA_PAPER_FIGURES_AVAILABLE_ONLY") else [])
                 + (["--validate-render"] if getattr(args, "validate_render", False)
                    else (["--execute"] if args.execute else []))]
     if args.action == "clinical-scores":
@@ -519,6 +529,8 @@ def build_commands(args, env):
             value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20"),
             "--external-hidden-size",
             value(env, "OPERA_PAPER_EXTERNAL_WIDTH", "256"),
+            "--local-hidden-size",
+            value(env, "OPERA_PAPER_LOCAL_WIDTH", "256"),
         )
         if env.get("OPERA_PAPER_DECISIONS"):
             command += ["--decisions", str(path_value(env, "OPERA_PAPER_DECISIONS"))]

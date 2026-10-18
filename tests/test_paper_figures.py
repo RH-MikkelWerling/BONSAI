@@ -35,7 +35,8 @@ def test_every_manuscript_figure_renders_and_keeps_unestimable_cells_grey(tmp_pa
         routes.loc[routes.cohort.isin(keep) & (routes.bank != "disease")
                    | routes.cohort.isin(keep) & routes.source.isin(keep)],
         {d: disease_groups[d] for d in keep}, outcome_groups))
-    assert all(len(fig.axes) >= 2 for fig in rendered)
+    assert len(rendered[0].axes) >= 1  # the atlas is a single panel
+    assert all(len(fig.axes) >= 2 for fig in rendered[1:])
     matrix_axis = rendered[7].axes[0]  # cell-level pooling supplement
     data = matrix_axis.images[0].get_array()
     # NaN gains (not estimable) are masked, so they render as the "bad" grey.
@@ -93,3 +94,32 @@ def test_event_free_risk_groups_use_fixed_groups_and_km_complement():
     with pytest.raises(ValueError, match="death included"):
         figures.figure_risk_groups(patients, outcome_label="Treatment failure",
                                   event_free=True)
+
+
+def test_headline_atlas_benchmarks_and_patient_map_render():
+    rng = np.random.default_rng(3)
+    cells = proto.synthetic_cells(rng)
+    curve = proto.synthetic_curve(cells)
+    models = proto.synthetic_model_cells(cells, rng)
+    who, _ = proto.synthetic_subgroups(rng)
+    atlas = proto.synthetic_atlas(cells, rng)
+    gallery = proto.synthetic_gallery(rng, n=600)
+    rendered = [
+        figures.figure_headline(cells, models, who, proto.synthetic_headline_scores(rng)),
+        figures.figure_atlas(atlas, models),
+        figures.figure_atlas_matrix(atlas, models),
+        figures.figure_benchmarks(cells, curve, *proto.synthetic_calibration(cells, rng)),
+        figures.figure_patient_map(*gallery, grid_size=40),
+        figures.figure_embedding_gallery(*gallery, page=1, grid_size=30),
+    ]
+    assert all(fig.axes for fig in rendered)
+    for fig in rendered:
+        plt.close(fig)
+
+
+def test_region_map_uses_packaged_boundaries_and_tiles_fallback():
+    effects, models, coverage = proto.synthetic_regions(np.random.default_rng(4))
+    for geometry in (None, False):
+        fig = figures.figure_regions(effects, models, coverage, geometry)
+        assert fig.axes[0].patches  # regions drawn
+        plt.close(fig)

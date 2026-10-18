@@ -1,9 +1,9 @@
 \begin{tikzpicture}[opera,x=1cm,y=1cm]
   \draw[divider] (7.25,.05)--(7.25,-9.45);
 
-  \node[panelletter,anchor=north west] at (0,0) {A};
+  \node[panelletter,anchor=north west] at (0,0) {D};
   \node[eyebrow,anchor=north west] at (.48,-.03) {SOURCES OF PREDICTIVE INFORMATION};
-  \node[heading,anchor=north west] at (.48,-.38) {Broaden the learning problem along five axes};
+  \node[heading,anchor=north west] at (.48,-.38) {More information for one prediction problem};
   \node[labelsmall,anchor=north west,align=left,text width=5.9cm] at (.48,-.82)
     {Moving right adds information to the learning problem.};
 
@@ -59,9 +59,9 @@
   \node[captionnote,text width=5.7cm] at (3.35,-8.45)
     {Illustrative rather than unbounded: gains can plateau and irrelevant information can add noise.};
 
-  \node[panelletter,anchor=north west] at (7.60,0) {B};
-  \node[eyebrow,anchor=north west] at (8.08,-.03) {THE SAME SCALING PRINCIPLE};
-  \node[heading,anchor=north west] at (8.08,-.38) {Broaden supervision across cohorts and tasks};
+  \node[panelletter,anchor=north west] at (7.60,0) {E};
+  \node[eyebrow,anchor=north west] at (8.08,-.03) {LEARNING ACROSS COHORTS AND TASKS};
+  \node[heading,anchor=north west] at (8.08,-.38) {Related diseases and outcomes};
   \node[labelsmall,anchor=north west,align=left,text width=7.6cm] at (8.08,-.82)
     {More disease cohorts and more outcome tasks add structured information around a low-support target.};
 
@@ -116,24 +116,27 @@
   % same-outcome and same-disease borrowing paths.
   \begin{scope}[on background layer]
     \foreach \r in {0,...,4}{\foreach \col in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (m\r\col)--(target);
+      \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (m\r\col)--(target);
     }}
     \foreach \r in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mn\r)--(target);
+      \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (mn\r)--(target);
     }
     \foreach \col in {0,...,4}{
-      \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mm\col)--(target);
+      \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (mm\col)--(target);
     }
-    \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (mmn)--(target);
+    \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (mmn)--(target);
     \foreach \r in {0,...,3}{
-      \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (m\r1)--(target);
+      \draw[draw=OperaTeal!85!black,opacity=1,line width=1.6pt] (m\r1)--(target);
     }
     \foreach \col in {0,2,3,4}{
-      \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (m4\col)--(target);
+      \draw[draw=OperaTeal!85!black,opacity=1,line width=1.6pt] (m4\col)--(target);
     }
+    % The last disease (same outcome) and last outcome (same disease) borrow too.
+    \draw[draw=OperaTeal!85!black,opacity=1,line width=1.6pt] (mm1)--(target);
+    \draw[draw=OperaTeal!85!black,opacity=1,line width=1.6pt] (mn4)--(target);
   \end{scope}
   \node[labelsmall,text=OperaTeal] at (13.20,-7.86)
-    {thin: all cells connected; bold: illustrative stronger borrowing};
+    {Thin lines: every training cell. Bold lines: illustrative stronger borrowing.};
   \node[captionnote,text width=8.5cm] at (13.20,-8.59)
     {A task can borrow from the same outcome in other diseases and from related outcomes in the same disease.};
   \end{scope}

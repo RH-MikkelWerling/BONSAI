@@ -25,10 +25,14 @@ import pandas as pd
 from opera.functional.tabular_features import _age_at_index, _read_population, _sex
 
 SPECIAL_PREFIXES = ("[", "BG_")
+REGION_PREFIX = "REGION//"
 
 
 def history_summary(subjects, index_abspos, vocabulary, national_vocabulary=None):
-    """Pre-index clinical token count and national-vocabulary coverage.
+    """Pre-index clinical token count, national-vocabulary coverage and region.
+
+    ``predominant_region`` is the region of most pre-index contacts (missing
+    when there are none or the most frequent regions tie).
 
     ``subjects`` iterates BONSAI subject dicts (``subject_id``, ``code``,
     ``abspos``); ``index_abspos`` maps subject to the index time on the same
@@ -37,6 +41,17 @@ def history_summary(subjects, index_abspos, vocabulary, national_vocabulary=None
     names = {int(i): str(name) for name, i in vocabulary.items()}
     clinical = np.array([not names.get(i, "").startswith(SPECIAL_PREFIXES)
                          for i in range(max(names) + 1)])
+    labs = np.array([int(i) for name, i in vocabulary.items()
+                     if str(name).startswith("LABTEST//")], dtype=int)
+    regions = {int(i): str(name)[len(REGION_PREFIX):] for name, i in vocabulary.items()
+               if str(name).startswith(REGION_PREFIX)}
+    # Vectorised lookups: one array index per token instead of Python loops.
+    is_lab = np.zeros(max(names) + 1, bool)
+    is_lab[labs] = True
+    region_names = sorted(set(regions.values()))
+    region_of = np.full(max(names) + 1, -1, int)
+    for code, name in regions.items():
+        region_of[code] = region_names.index(name)
     covered = None
     if national_vocabulary is not None:
         known = set(map(str, national_vocabulary))
@@ -50,7 +65,19 @@ def history_summary(subjects, index_abspos, vocabulary, national_vocabulary=None
         codes = np.asarray(subject["code"], int)
         before = codes[: np.searchsorted(abspos, index_abspos[subject_id], side="left")]
         history = before[clinical[before]]
-        row = {"subject_id": subject_id, "history_event_count": int(len(history))}
+        row = {"subject_id": subject_id, "history_event_count": int(len(history)),
+               # Laboratory results before treatment (coverage differs by region
+               # and period, which may explain regional differences).
+               "laboratory_event_count": int(is_lab[history].sum())}
+        if regions:
+            found = region_of[before]
+            counts = np.bincount(found[found >= 0], minlength=len(region_names))
+            order = np.argsort(-counts, kind="stable")
+            top = counts[order[0]] if len(counts) else 0
+            # The most frequent region; missing when there is none or a tie.
+            row["predominant_region"] = (
+                region_names[order[0]]
+                if top > 0 and (len(counts) == 1 or top > counts[order[1]]) else None)
         if covered is not None:
             row["national_vocabulary_coverage"] = (
                 float(covered[history].mean()) if len(history) else np.nan)

@@ -51,6 +51,7 @@ PHASE_ORDER = (
     ("final_sources", None),
     ("router_controls", None),
     ("external", None),
+    ("data_efficiency", None),
     ("supervision", "S"),
 )
 DECISIONS_REQUIRED = {
@@ -84,6 +85,9 @@ def raw_config(bundle_dir, row):
     return _RAW[path]
 
 
+HOLD_SPECIALISTS = "HOLD_SPECIALISTS"
+
+
 def priority(row):
     for rank, (phase, regime) in enumerate(PHASE_ORDER):
         if row["phase"] == phase and (regime is None or row["regime"] == regime):
@@ -103,7 +107,13 @@ def todo(bundle_dirs, decisions):
             if row["scientific_hash"] in seen:
                 continue
             missing = DECISIONS_REQUIRED.get(row["phase"], set()) - set(decisions)
-            if missing:
+            # `touch <paper root>/HOLD_SPECIALISTS` parks the specialists while
+            # everything else runs; removing the file releases them (no restart).
+            held = ((bundle_dir.parent.parent / HOLD_SPECIALISTS).exists()
+                    and row["phase"] == "supervision" and row["regime"] == "S")
+            if held:
+                gate = "blocked_held:specialists"
+            elif missing:
                 gate = "blocked_needs_decision:" + ",".join(sorted(missing))
             elif any(
                 decisions.get(k) != v for k, v in row.get("condition", {}).items()
@@ -306,8 +316,8 @@ def next_runnable(args, decisions, audited, blocked_encoders):
                 audited[key] = audit_encoder(
                     resolved,
                     row["origin"],
-                    expected_width=256
-                    if row["origin"] == "L"
+                    expected_width=args.local_hidden_size
+                    if row["origin"] in {"L", "RI"}
                     else args.external_hidden_size,
                     minimum_local_epochs=args.minimum_local_pretraining_epochs,
                     minimum_dapt_epochs=args.minimum_dapt_epochs,
@@ -422,6 +432,7 @@ def main():
     parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
     parser.add_argument("--minimum-dapt-epochs", type=int, default=20)
     parser.add_argument("--external-hidden-size", type=int, default=256)
+    parser.add_argument("--local-hidden-size", type=int, default=256)
     args = parser.parse_args()
     if args.stale_minutes * 60 <= 3 * args.heartbeat_seconds:
         parser.error("stale-minutes must comfortably exceed the heartbeat interval")

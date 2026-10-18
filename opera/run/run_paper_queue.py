@@ -142,11 +142,12 @@ def audit_encoder(
     architecture = get_saved_encoder_config(checkpoint["hyper_parameters"])
     if architecture["hidden_size"] != expected_width:
         raise ValueError("Paper run refuses an encoder with the wrong hidden width")
-    # RI takes its architecture and vocabulary from the local encoder.
-    if origin in {"L", "RI"} and expected_width == 256:
+    # RI takes its architecture and vocabulary from the local encoder. Local
+    # encoders: 4 layers, 64-dimensional heads (4 at width 256, 8 at 512).
+    if origin in {"L", "RI"}:
         expected = {
             "num_layers": 4,
-            "num_attention_heads": 4,
+            "num_attention_heads": expected_width // 64,
             "abspos_encoding": "scaled_time2vec",
         }
         if any(architecture.get(key) != value for key, value in expected.items()):
@@ -237,6 +238,7 @@ def main():
             "external",
             "pretraining_control",
             "router_controls",
+            "data_efficiency",
         ],
         required=True,
     )
@@ -249,6 +251,7 @@ def main():
     parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
     parser.add_argument("--minimum-dapt-epochs", type=int, default=20)
     parser.add_argument("--external-hidden-size", type=int, default=256)
+    parser.add_argument("--local-hidden-size", type=int, default=256)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     bundle = json.loads((args.bundle_dir / "bundle.json").read_text())
@@ -280,7 +283,8 @@ def main():
             audited[key] = audit_encoder(
                 resolved,
                 row["origin"],
-                expected_width=256 if row["origin"] in {"L", "RI"} else args.external_hidden_size,
+                expected_width=(args.local_hidden_size if row["origin"] in {"L", "RI"}
+                                else args.external_hidden_size),
                 minimum_local_epochs=args.minimum_local_pretraining_epochs,
                 minimum_dapt_epochs=args.minimum_dapt_epochs,
             )

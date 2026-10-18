@@ -68,6 +68,20 @@ from opera.functional.stratified_sampling import (
 from opera.functional.outcome_label_cache import cache_contract, load_or_build_labels
 
 
+def keep_training_patient(subject_id, fraction: float, seed: int = 0) -> bool:
+    """Whether a training patient is in the ``fraction`` subset.
+
+    A hash of (seed, patient) gives each patient a fixed uniform draw, so the
+    selection is the same for every outcome, reproducible across runs and
+    nested: the 10% subset lies inside the 25% subset, which lies inside 50%.
+    Within each disease the expected share is ``fraction``.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(f"{seed}:{subject_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "little") / 2**64 < fraction
+
+
 def _eligibility_path(data_dir: str, outcome_config: dict):
     raw = outcome_config.get("eligibility_path") or outcome_config.get(
         "eligibility_file"
@@ -437,8 +451,16 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
         fine_names: Optional[list[str]] = None,
         fine_column: str = "cohort_fine",
         outcome_label_cache_dir: Optional[str] = None,
+        train_patient_fraction: float = 1.0,
+        train_fraction_seed: int = 0,
     ):
         super().__init__()
+        if not 0 < float(train_patient_fraction) <= 1:
+            raise ValueError("train_patient_fraction must be in (0, 1]")
+        # Data-efficiency runs keep a fixed share of training patients; tuning
+        # and held-out patients are never subsampled.
+        self.train_patient_fraction = float(train_patient_fraction)
+        self.train_fraction_seed = int(train_fraction_seed)
         self.cohort_configs = cohort_configs
         # Sorting makes the mapping deterministic across Hydra/YAML ordering and
         # checkpoint reconstruction. These names are the configured
@@ -646,6 +668,13 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
             valid_sids.update(od.keys())
 
         subjects = [s for s in subjects if s["subject_id"] in valid_sids]
+        if split == "train" and self.train_patient_fraction < 1:
+            before = len(subjects)
+            subjects = [s for s in subjects
+                        if keep_training_patient(s["subject_id"], self.train_patient_fraction,
+                                                 self.train_fraction_seed)]
+            print(f"  [{cohort_name}] training fraction {self.train_patient_fraction:g}: "
+                  f"{len(subjects)} of {before} patients")
         if not subjects:
             print(
                 f"  [{cohort_name}] No subjects with outcomes for split={split}, skipping."

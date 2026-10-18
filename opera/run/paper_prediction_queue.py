@@ -56,6 +56,9 @@ def canonical_models(row, config, bundle):
         return [f"{row['regime']}_{origin}"]
     if row["phase"] == "router_controls":
         return [row["name"].rsplit("control_", 1)[-1] + f"_{origin}"]  # JDE_L, RDH_L, ROH_L
+    if row["phase"] == "data_efficiency":
+        fraction = round(config["training"]["train_patient_fraction"] * 100)
+        return [f"J_{origin}_F{fraction}"]  # J_L_F10, J_EA_F25, ...
     if row["phase"] == "pretraining_control":
         return [f"J_{origin}"]  # joint model without pretraining: J_RI
     if row["phase"] == "external":
