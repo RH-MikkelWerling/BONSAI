@@ -97,7 +97,10 @@ scores:  # explicit entries (scores not in the `index` column)
     lock_provenance: null       # as in all_indices.template
     applicability_review: null
 
-# Native endpoints: each index is also compared on the endpoint it was
+# index_endpoint: native (default) judges every index only on the endpoint it
+# was developed for, below; "shared" adds them to the shared-endpoint comparison.
+index_endpoint: native
+# Native endpoints: each index is compared on the endpoint it was
 # developed for, using the closest panel outcome. Keys must match the exact
 # `index` values in the registry (or a score's score_label). The horizon is the
 # longest of horizons_days within the test population's median follow-up

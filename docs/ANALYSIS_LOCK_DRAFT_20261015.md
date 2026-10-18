@@ -68,7 +68,7 @@ Exported confusion counts below 5 are suppressed; full counts stay internal.
 No decision-point metric is a primary or key secondary endpoint.
 
 ## Clinical scores
-Two-year treatment failure (death included); every index with ≥50 patients
+Each index on its own endpoint (mostly overall survival, 2 years or the longest horizon within median follow-up); every index with ≥50 patients
 per subtype, each index pooled across subtypes, NCCN-IPI and computed IPI;
 cutoffs `risk_matched_low` on tuning data; top 5%/10% observed risk reported.
 

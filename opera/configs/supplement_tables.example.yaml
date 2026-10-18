@@ -1,24 +1,41 @@
 # Reviewed aggregate summaries; retain complete cell-level CSVs separately.
-# Relative paths resolve against this copied server recipe.
+# Relative paths resolve against this copied server recipe. Sources are built by
+# `plot-tables`, except those marked optional, which come from later steps and
+# are skipped (and listed) while missing.
 tables:
+  - id: panel_effects
+    source: plot_tables/panel_effects.csv
+    caption: Panel-level comparisons at one year (Table 2), pooled paired differences with 95% intervals.
+    columns: [comparison, cells, auc_gain, auc_interval, ipa_gain, cells_better]
+    labels: {comparison: Comparison, cells: Cells, auc_gain: AUC difference, auc_interval: 95% interval, ipa_gain: IPA difference, cells_better: Cells better}
+  - id: paired_effects
+    source: plot_tables/paired_domain_summary.csv
+    caption: Paired differences by comparison and clinical domain at one year, median and interquartile range across cells.
+    columns: [contrast, endpoint_group, metric, gain, interval, common_cells]
+    labels: {contrast: Comparison, endpoint_group: Domain, metric: Metric, gain: Median, interval: Interquartile range, common_cells: Cells}
+  - id: calibration
+    source: plot_tables/calibration_domain_summary.csv
+    caption: Calibration by model and clinical domain at one year, median across cells.
+    columns: [model, endpoint_group, calibration_in_the_large, calibration_slope, status]
+    labels: {model: Model, endpoint_group: Domain, calibration_in_the_large: Calibration in the large, calibration_slope: Slope, status: Cells}
+  - id: outcome_support
+    source: plot_tables/outcome_support_summary.csv
+    caption: Evaluated cells, events and non-events in the test period by clinical domain and horizon.
+    columns: [endpoint_group, horizon_days, cells, events, non_events]
+    labels: {endpoint_group: Domain, horizon_days: Horizon (days), cells: Cells, events: Events, non_events: Non-events}
+  - id: decision_points
+    source: plot_tables/operating_point_summary.csv
+    caption: Threshold metrics at decision points fixed on tuning data, median across cells at one year.
+    columns: [model, rule, sensitivity, specificity, ppv, mcc]
+    labels: {model: Model, rule: Decision point, sensitivity: Sensitivity, specificity: Specificity, ppv: PPV, mcc: MCC}
   - id: intended_endpoint_scores
+    optional: true
     source: plot_tables/clinical_score_endpoint_summary.csv
     caption: Clinical scores, tabular models and sequence models on intended endpoints.
     columns: [score, evaluated_endpoint, model, auc, auc_interval, common_n]
     labels: {evaluated_endpoint: Endpoint, common_n: Patients, auc: AUC}
-  - id: outcome_support
-    source: plot_tables/outcome_support_summary.csv
-    caption: Outcome support and ascertainment by clinical domain.
-    columns: [endpoint_group, horizon_days, eligible_n, primary_events, competing_events, unknown_status_n]
-  - id: calibration
-    source: plot_tables/calibration_domain_summary.csv
-    caption: Probability calibration by model and clinical domain.
-    columns: [model, endpoint_group, horizon_days, calibration_in_the_large, calibration_slope, status]
   - id: resources
+    optional: true
     source: plot_tables/compute_summary.csv
-    caption: Actual model size and computational resources.
+    caption: Model size and computational resources.
     columns: [model, origin, total_parameters, gpu_hours, peak_memory_gb, inference_seconds]
-  - id: paired_effects
-    source: plot_tables/paired_domain_summary.csv
-    caption: Paired effects with uncertainty on declared common target sets.
-    columns: [contrast, endpoint_group, metric, gain, interval, common_cells]

@@ -1,0 +1,27 @@
+# CPU-only rendering from a completed, single-horizon attribution summary and
+# the input-restriction comparison (opera.run.compare_input_restrictions).
+figures:
+  - id: fig_attribution
+    function: figure_attribution_main
+    tables:
+      variance_sources: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_variance_sources.csv
+      concepts: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_concepts.csv
+      restrictions: ${OPERA_PAPER_INPUT_RESTRICTION_DIR}/input_restriction_summary.csv
+      # The illustrative patient stays synthetic (no real timelines are published).
+      episodes: ../../paper/figures/synthetic_patient_episodes_risk.csv
+  - id: supp_attribution_atlas
+    function: figure_attribution_atlas
+    tables:
+      variance_sources: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_variance_sources.csv
+      variance_windows: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_variance_windows.csv
+      concepts: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_concepts.csv
+  - id: supp_attribution_structure
+    function: figure_attribution_structure
+    tables:
+      similarity: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_outcome_similarity.csv
+      restrictions: ${OPERA_PAPER_INPUT_RESTRICTION_DIR}/input_restriction_summary.csv
+  - id: supp_attribution_patient
+    function: figure_patient_tracks
+    tables:
+      # Synthetic illustration (written by render_paper_figure_prototypes).
+      episodes: ../../paper/figures/synthetic_patient_episodes_logodds.csv

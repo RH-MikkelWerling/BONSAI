@@ -320,7 +320,16 @@ def expand_index_scores(config, metadata):
                         manuscript_figures=False)
             generated.append(spec)
     specs = explicit + generated
-    return specs + native_entries(specs, config.get("native_endpoints") or {})
+    native = native_entries(specs, config.get("native_endpoints") or {})
+    if config.get("index_endpoint", "native") == "native":
+        # Indices are judged on the endpoint they were developed for: the native
+        # comparison replaces the shared endpoint and takes over the main figures.
+        replaced = {entry["id"].removesuffix("_native") for entry in native}
+        flags = {spec["id"]: spec.get("manuscript_figures", False) for spec in specs}
+        for entry in native:
+            entry["manuscript_figures"] = flags[entry["id"].removesuffix("_native")]
+        return [spec for spec in specs if spec["id"] not in replaced] + native
+    return specs + native
 
 
 def main():

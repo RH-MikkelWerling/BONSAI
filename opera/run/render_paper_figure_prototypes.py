@@ -472,6 +472,233 @@ def synthetic_gallery(rng, n=2500):
     return coords.assign(disease=names[region]), outcomes
 
 
+FACTOR_CODES = {
+    "frailty": ["DIAGNOSIS//DI50", "DIAGNOSIS//DN18", "CONTACT_TYPE//ACUTE",
+                "MEDICATION//C03CA01", "LABTEST//NPU19673//BIN_1"],
+    "infection": ["DIAGNOSIS//DJ189", "MEDICATION//J01CA04", "MEDICATION//J02AC01",
+                  "LABTEST//NPU19748//BIN_5"],
+    "marrow": ["LABTEST//NPU02902//BIN_1", "LABTEST//NPU03568//BIN_1",
+               "MEDICATION//L01XC02", "LABTEST//NPU02319//BIN_1"],
+    "renal": ["LABTEST//NPU18016//BIN_6", "DIAGNOSIS//DN185"],
+    "disease": ["PATHOLOGY//M96803", "LABTEST//NPU19123//BIN_6", "PROCEDURE//KTSF"],
+    "none": ["CONTACT_SPECIALTY//HAEM", "MEDICATION//N02BE01", "DIAGNOSIS//DZ00",
+             "REGION//HOVEDSTADEN"],
+}
+CONCEPT_LABELS = {
+    "DIAGNOSIS//DI50": "Heart failure", "DIAGNOSIS//DN18": "Chronic kidney disease",
+    "CONTACT_TYPE//ACUTE": "Acute admission", "MEDICATION//C03C": "Loop diuretics",
+    "LABTEST//NPU19673//low": "Low albumin", "DIAGNOSIS//DJ18": "Pneumonia",
+    "MEDICATION//J01C": "Penicillins", "MEDICATION//J02A": "Antimycotics",
+    "LABTEST//NPU19748//high": "High CRP", "LABTEST//NPU02902//low": "Low neutrophils",
+    "LABTEST//NPU03568//low": "Low platelets", "MEDICATION//L01X": "Antineoplastics",
+    "LABTEST//NPU02319//low": "Low haemoglobin", "LABTEST//NPU18016//high": "High creatinine",
+    "PATHOLOGY//M96": "Lymphoma morphology", "LABTEST//NPU19123//high": "High LDH",
+    "PROCEDURE//KTSF": "Biopsy",
+    "LABTEST//NPU19673//BIN": "Albumin", "LABTEST//NPU19748//BIN": "CRP",
+    "LABTEST//NPU02902//BIN": "Neutrophils", "LABTEST//NPU03568//BIN": "Platelets",
+    "LABTEST//NPU02319//BIN": "Haemoglobin", "LABTEST//NPU18016//BIN": "Creatinine",
+    "LABTEST//NPU19123//BIN": "LDH",
+}
+DOMAIN_FACTORS = {
+    "Disease course": {"disease": 1.0, "frailty": 0.6},
+    "Infection": {"infection": 1.0, "marrow": 0.3, "frailty": 0.3},
+    "Erythroid": {"marrow": 0.8, "disease": 0.3},
+    "Neutrophil": {"marrow": 1.0},
+    "Lymphocyte": {"marrow": 0.5, "disease": 0.4},
+    "Liver": {"frailty": 0.3, "disease": 0.5},
+    "Renal": {"renal": 1.0, "frailty": 0.4},
+    "Cardiovascular": {"frailty": 1.0},
+    "Acute care": {"frailty": 0.7, "infection": 0.4},
+}
+
+
+SYNTHETIC_BINS = {npu: {"min": 1, "max": 6} for npu in (
+    "NPU19673", "NPU19748", "NPU02902", "NPU03568", "NPU02319", "NPU18016", "NPU19123")}
+
+
+def synthetic_patient(weights, factors):
+    """A curated synthetic history with a clinical story (no real patient).
+
+    Long-standing heart failure on loop diuretics, a pneumonia admission two
+    months before treatment, the diagnostic work-up and, days before treatment,
+    low neutrophils and albumin. Each event carries one latent tendency, and
+    every outcome reads it with its domain's weights, as in the synthetic
+    population. Returns the wide token table (log-odds per outcome).
+    """
+    events = [("BG_SEX//M", 25000, "none", 0.0)]
+    events += [("DIAGNOSIS//DI50", 1460, "frailty", 1.0),
+               ("CONTACT_TYPE//ACUTE", 1460, "frailty", 0.3)]
+    events += [("MEDICATION//C03CA01", d, "frailty", 0.15) for d in range(1400, 100, -90)]
+    events += [("LABTEST//NPU02319//BIN_4", 420, "marrow", -0.3),
+               ("LABTEST//NPU19673//BIN_4", 420, "frailty", -0.3)]
+    events += [("CONTACT_TYPE//ACUTE", 71, "infection", 0.4),
+               ("DIAGNOSIS//DJ189", 68, "infection", 1.2),
+               ("LABTEST//NPU19748//BIN_5", 71, "infection", 0.6)]
+    events += [("MEDICATION//J01CA04", d, "infection", 0.4) for d in (71, 70, 69)]
+    events += [("PATHOLOGY//M96803", 21, "disease", 0.8), ("PROCEDURE//KTSF", 22, "disease", 0.3),
+               ("LABTEST//NPU19123//BIN_6", 20, "disease", 0.7)]
+    events += [("LABTEST//NPU02902//BIN_1", 5, "marrow", 1.6),
+               ("LABTEST//NPU19673//BIN_1", 5, "frailty", 0.7),
+               ("LABTEST//NPU02319//BIN_4", 5, "marrow", -0.4),
+               ("CONTACT_SPECIALTY//HAEM", 3, "none", 0.0)]
+    tokens = pd.DataFrame(events, columns=["code", "days_before_index", "factor", "size"])
+    tokens = tokens.assign(subject_id=-1, weight=1.0, position=range(len(tokens)))
+    index = tokens.factor.map(factors.index).to_numpy()
+    for outcome, w in weights.items():
+        tokens[f"attr|logit|{outcome}|365"] = 0.25 * w[index] * tokens["size"].to_numpy()
+    return tokens.drop(columns=["factor", "size"])
+
+
+# Direction each synthetic code carries: abnormal findings raise risk,
+# mid-range results and routine contacts barely move it.
+CODE_EFFECT = {"LABTEST//NPU02319//BIN_4": -0.5, "LABTEST//NPU19673//BIN_4": -0.5,
+               "CONTACT_SPECIALTY//HAEM": 0.0, "MEDICATION//N02BE01": 0.0,
+               "DIAGNOSIS//DZ00": 0.0, "REGION//HOVEDSTADEN": 0.0}
+
+
+def synthetic_attribution_patterns(seed=41, n=500):
+    """Structured synthetic histories run through the real summaries.
+
+    Latent patient tendencies (frailty, infection, marrow, renal, disease
+    activity) generate events, abnormal findings raise risk, and each clinical
+    domain reads the tendencies with different weights. Every table is made by
+    the pipeline's own functions, so the figures show what the analysis
+    produces, not drawn-on patterns.
+    """
+    import yaml
+
+    from opera.interpretability.attribution_patterns import (
+        episode_contributions, explanation_table, outcome_similarity, variance_decomposition)
+    from opera.interpretability.attribution_summaries import (
+        concept_effects, label_tokens, long_tokens)
+    from opera.visualization.paper_taxonomy import outcome_endpoint_groups
+
+    rng = np.random.default_rng(seed)
+    domains = outcome_endpoint_groups()
+    outcomes = list(domains)
+    factors = list(FACTOR_CODES)
+    weights = {}
+    for outcome, domain in domains.items():
+        spec = next((v for k, v in DOMAIN_FACTORS.items() if domain.startswith(k)),
+                    {"disease": 0.5, "renal": 0.3})
+        weights[outcome] = np.array([spec.get(f, 0.0) for f in factors]) \
+            * rng.uniform(0.7, 1.3, len(factors))
+    rows, columns = [], {o: f"attr|logit|{o}|365" for o in outcomes}
+    latent = rng.normal(0.3, 1, (n, len(factors)))
+    latent[:, factors.index("none")] = 0
+    for subject in range(n):
+        k = rng.integers(25, 90)
+        factor = rng.choice(len(factors), size=k, p=[0.2, 0.15, 0.15, 0.08, 0.12, 0.3])
+        recent = rng.random(k) < 0.4
+        days = np.where(recent, rng.exponential(12, k), rng.uniform(30, 1500, k))
+        recency = np.where(days <= 30, 2.0, 1.0)
+        row = {"subject_id": subject, "weight": 1.0}
+        for j in range(k):
+            codes = FACTOR_CODES[factors[factor[j]]]
+            code = codes[rng.integers(len(codes))]
+            rows.append({**row, "code": code, "days_before_index": float(days[j]),
+                         "position": j, "_f": factor[j], "_r": recency[j],
+                         "_e": CODE_EFFECT.get(code, 1.0),
+                         "_noise": rng.normal(0, 1, len(outcomes))})
+        rows.append({**row, "code": "BG_SEX//F", "days_before_index": 25000.0,
+                     "position": -1, "_f": factors.index("none"), "_r": 1.0, "_e": 0.0,
+                     "_noise": rng.normal(0, 1, len(outcomes))})
+    frame = pd.DataFrame(rows)
+    f_index, r, effect = frame._f.to_numpy(), frame._r.to_numpy(), frame._e.to_numpy()
+    noise = np.stack(frame._noise)
+    lat = latent[frame.subject_id.to_numpy(), f_index]
+    for i, outcome in enumerate(outcomes):
+        loading = weights[outcome][f_index]
+        frame[columns[outcome]] = 0.05 * loading * (effect * (0.6 + 0.4 * lat)
+                                                    + 0.2 * noise[:, i]) * r
+    wide = frame.drop(columns=["_f", "_r", "_e", "_noise"])
+    patient_rows = []
+    for outcome in outcomes:
+        sums = wide.groupby("subject_id")[columns[outcome]].sum()
+        base = np.log(0.08 / 0.92) + rng.normal(0, 0.25, n)
+        prediction = base + sums.to_numpy()
+        event = rng.random(n) < 1 / (1 + np.exp(-prediction))
+        patient_rows.append(pd.DataFrame({
+            "subject_id": sums.index, "outcome": outcome, "column": columns[outcome],
+            "prediction": prediction, "baseline_prediction": base, "weight": 1.0,
+            "time_days": np.where(event, rng.uniform(10, 360, n), 400.0),
+            "event": event.astype(int)}))
+    patients = pd.concat(patient_rows, ignore_index=True)
+
+    config = yaml.safe_load((REPO / "opera/configs/attribution_analysis.example.yaml").read_text())
+    variance = {"source": [], "window": []}
+    concepts = []
+    for outcome in outcomes:
+        long = label_tokens(long_tokens(wide, columns[outcome], outcome=outcome))
+        rows_o = patients.loc[patients.outcome == outcome]
+        for by in variance:
+            variance[by].append(variance_decomposition(long, rows_o, by=by, draws=60)
+                                .assign(outcome=outcome))
+        specs = [{**c, "outcome": outcome, "expected": (c.get("expected") or {}).get(outcome)}
+                 for c in config["concepts"]]
+        table = concept_effects(long, specs, SYNTHETIC_BINS, draws=60, min_count=20)
+        for name in ("mean_pp", "lower_pp", "upper_pp", "median_pp"):
+            table[name] = table[name] / 100  # log-odds, as the summariser reports them
+        concepts.append(table)
+    similarity = outcome_similarity(wide, list(columns.values()), min_count=30)
+    reverse = {v: k for k, v in columns.items()}
+    similarity = similarity.assign(outcome_a=similarity.column_a.map(reverse),
+                                   outcome_b=similarity.column_b.map(reverse))
+    restrictions = []
+    effects = {item["label"]: value for item, value in zip(
+        config["restrictions"], (-0.06, -0.025, -0.012, -0.015, -0.008))}
+    lab_heavy = ("Neutrophil", "Renal", "Erythroid", "Liver", "Sodium", "Calcium", "Metabolic")
+    for name, effect in effects.items():
+        for group in ["All outcomes", *dict.fromkeys(domains.values())]:
+            scale = 1.0 if group == "All outcomes" else rng.uniform(0.5, 1.5)
+            if name == "Without laboratory results" and group.startswith(lab_heavy):
+                scale *= 2.5
+            if name == "Without medication" and group.startswith("Infection"):
+                scale *= 2.5
+            if name == "Without diagnoses" and group.startswith(("Cardiovascular", "Disease")):
+                scale *= 2.0
+            mean = effect * scale
+            half = 0.004 if group == "All outcomes" else 0.01
+            restrictions.append({"restriction": name, "group": group, "mean_delta": mean,
+                                 "lower": mean - half, "upper": mean + half})
+
+    # One curated patient, on the absolute-risk scale, for the clinical figure.
+    curated = synthetic_patient(weights, factors)
+    check = ["overall_survival", "serious_infection_composite", "neutropenia_g3plus"]
+    risk_columns = {o: f"attr|risk|{o}|365" for o in check}
+    rows = []
+    for outcome in check:
+        base = float(patients.loc[patients.outcome == outcome, "baseline_prediction"].median())
+        logit = curated[columns[outcome]]
+        p, p0 = 1 / (1 + np.exp(-(base + logit.sum()))), 1 / (1 + np.exp(-base))
+        curated[risk_columns[outcome]] = logit * (p - p0) / logit.sum()
+        rows.append({"subject_id": -1, "column": risk_columns[outcome], "outcome": outcome,
+                     "prediction": p, "baseline_prediction": p0})
+    patient_rows = pd.DataFrame(rows)
+    explanation = explanation_table(curated, patient_rows, columns=risk_columns,
+                                    labels=CONCEPT_LABELS, counts=SYNTHETIC_BINS, n=3)
+    episodes_risk = episode_contributions(curated, patient_rows, -1, columns=risk_columns,
+                                          labels=CONCEPT_LABELS, counts=SYNTHETIC_BINS)
+    # Six complications across domains, on log-odds, for the supplementary tracks.
+    across = ["overall_survival", "serious_infection_composite", "neutropenia_g3plus",
+              "any_transfusion", "heart_failure", "aki_first_documented"]
+    logit_columns = {o: columns[o] for o in across if o in columns}
+    logit_rows = []
+    for outcome, column in logit_columns.items():
+        base = float(patients.loc[patients.column == column, "baseline_prediction"].median())
+        logit_rows.append({"subject_id": -1, "column": column, "outcome": outcome,
+                           "prediction": base + curated[column].sum(), "baseline_prediction": base})
+    episodes_logit = episode_contributions(curated, pd.DataFrame(logit_rows), -1,
+                                           columns=logit_columns, labels=CONCEPT_LABELS,
+                                           counts=SYNTHETIC_BINS, scale=1.0)
+    return dict(variance_sources=pd.concat(variance["source"], ignore_index=True),
+                variance_windows=pd.concat(variance["window"], ignore_index=True),
+                concepts=pd.concat(concepts, ignore_index=True), similarity=similarity,
+                restrictions=pd.DataFrame(restrictions), explanation=explanation,
+                episodes_risk=episodes_risk, episodes_logit=episodes_logit,
+                wide=wide, patients=patients)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path("paper/render/prototypes"))
@@ -490,7 +717,7 @@ def main():
     locked_threshold = float(np.quantile(known.loc[labels == 0, "model_risk"], specificity))
     renders = {
         "supp_clinical_score_age": figures.figure_clinical_score_age(
-            risk_patients, outcome_label="Treatment failure", ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS,
+            risk_patients, outcome_label="Overall survival", ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS,
             event_free=True, mark=mark),
         "supp_embedding_comparison": figures.figure_embedding_comparison(
             synthetic_embedding_comparison(), mark=mark),
@@ -518,11 +745,11 @@ def main():
             cells.assign(gain=np.where(cells.contrast == "J-XR", cells.gain, cells.gain)),
             curve, *synthetic_calibration(cells, np.random.default_rng(3)), mark=mark),
         "fig_risk_groups": figures.figure_risk_groups(
-            risk_patients, outcome_label="Treatment failure",
+            risk_patients, outcome_label="Overall survival",
             ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS, mark=mark, event_free=True),
         "fig_clinical_score": figures.figure_clinical_score(
             risk_patients,
-            outcome_label="Treatment failure", ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS, mark=mark,
+            outcome_label="Overall survival", ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS, mark=mark,
             event_free=True, model_threshold=locked_threshold, ipi_high=len(IPI_ORDER)),
         "supp_score_overview": figures.figure_score_overview([
             {"title": title, "endpoint": endpoint, "horizon_days": 730,
@@ -543,7 +770,25 @@ def main():
         "supp_calibration_maps": figures.figure_calibration_maps(
             *synthetic_maps(rng), mark=mark),
     }
+    from opera.visualization.attribution_overview import figure_patient_tracks
+    patterns = synthetic_attribution_patterns()
     gallery = synthetic_gallery(np.random.default_rng(23))
+    renders["supp_attribution_atlas"] = figures.figure_attribution_atlas(
+        patterns["variance_sources"], patterns["variance_windows"], patterns["concepts"],
+        mark=mark)
+    renders["supp_attribution_structure"] = figures.figure_attribution_structure(
+        patterns["similarity"], patterns["restrictions"], mark=mark)
+    renders["supp_attribution_patient"] = figure_patient_tracks(
+        patterns["episodes_logit"], mark=mark)
+    renders["fig_attribution"] = figures.figure_attribution_main(
+        patterns["variance_sources"], patterns["concepts"], patterns["restrictions"],
+        patterns["episodes_risk"], mark=mark)
+    # The illustrative patient is synthetic in the paper as well: keep its record
+    # so the real main figure (aggregates from the locked run) can reuse it.
+    patterns["episodes_risk"].to_csv(REPO / "paper/figures/synthetic_patient_episodes_risk.csv",
+                                     index=False)
+    patterns["episodes_logit"].to_csv(
+        REPO / "paper/figures/synthetic_patient_episodes_logodds.csv", index=False)
     renders["fig_patient_map"] = figures.figure_patient_map(*gallery, mark=mark)
     for page in range(1, 7):
         renders[f"supp_embedding_gallery_{page}"] = figures.figure_embedding_gallery(

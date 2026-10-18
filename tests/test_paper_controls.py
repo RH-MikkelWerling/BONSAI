@@ -22,16 +22,22 @@ def test_pooled_xgboost_covers_every_disease_of_each_outcome(tmp_path):
         assert command[command.index("--models") + 1] == "xgboost"
 
 
-def test_random_initialisation_control_is_one_joint_fit(tmp_path):
+def test_pretraining_controls_are_one_random_and_one_frozen_joint_fit(tmp_path):
     directory = bundle(tmp_path)
     manifest = json.loads((directory / "bundle.json").read_text())
     controls = [row for row in manifest["runs"] if row["phase"] == "pretraining_control"]
-    assert len(controls) == 1 and controls[0]["origin"] == "RI"
+    assert sorted(row["origin"] for row in controls) == ["FZ", "RI"]
     _, rows = bundle_runs(directory)
+    seen = {}
     for row, _, config in rows:
         if row["phase"] == "pretraining_control":
-            assert config["encoder_initialization"] == "random"
-            assert canonical_models(row, config, manifest) == ["J_RI"]
+            seen[row["origin"]] = canonical_models(row, config, manifest)
+            if row["origin"] == "RI":
+                assert config["encoder_initialization"] == "random"
+            else:  # frozen local encoder: only the readout is trained
+                assert config["model"]["freeze_encoder"] is True
+                assert config.get("encoder_initialization", "pretrained") != "random"
+    assert seen == {"RI": ["J_RI"], "FZ": ["J_FZ"]}
 
 
 def test_population_filter_accepts_several_fine_cohorts(tmp_path):

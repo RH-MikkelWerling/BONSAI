@@ -8,11 +8,11 @@ synthetic panels look most favourable. All prototype results are invented.
 | --- | --- | --- |
 | Modelling paradigms and original information axes | Main, retained | Explain the clinical and learning framework; preserve both original figures. Consider one combined conceptual plate later. |
 | S/D/O/J schematic (formerly Figure 3) | Supplement | Makes the pooling counterfactuals explicit; can become a design panel in the pooling figure. |
-| Cohort flow and current Table 1 | Main | Establish the population, index and split; counts require sign-off. |
+| Cohort flow and current Table 1 | Flow supplementary; Table 1 main | Current assembly puts detailed exclusions in the supplement and introduces counts in main Results. Table 1 requires sign-off. |
 | Predictability atlas | Main | Gives clinical breadth and absolute performance. Detailed cell/horizon coverage stays supplementary. |
 | Pooling effects and interactions | Main | Answers the first headline question. Pair maps with uncertainty and support. |
-| Routing effects (`supp_routing` asset) | Promote to main | Tests the router's incremental contribution. Retain even if null; it prevents confusing source banks with supervision scope. Can ultimately join the pooling plate. |
-| Joint versus tuning-selected cell strategy (`supp_strategy` asset) | Promote to main | Directly tests the practical case for one model across the panel. Selection must remain tuning-only and comparison use common support. |
+| Routing effects (`supp_routing` asset) | Supplement, described in main | An architectural modifier of shared learning. Retain null results; promotion is not required for the central borrowing argument. |
+| Joint versus tuning-selected cell strategy (`supp_strategy` asset) | Supplement, described in main | Tests the practical case for one shared model; tuning-only selection and common support remain essential. |
 | Neural versus tabular | Main | Answers the second headline question. Include a compact calibration panel in the final plate. |
 | Detailed calibration | Supplement, referenced in main text | Important validation, but redundant as a separate full main figure. The final tabular plate still needs a calibration summary; that composite is not yet rendered. |
 | Nation-scale direct / domain-adapted comparisons | Main | Answers the third headline question. Preserve the direct and adaptation increments separately. |

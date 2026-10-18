@@ -1,0 +1,158 @@
+# What the model relies on: integrated gradients and input restriction.
+#
+# Lock this file (with the analysis lock) BEFORE running the attributions. The
+# expected directions are prespecified plausibility checks, not tests of causal
+# effects. Intervals describe the explained patients given the fitted model.
+#
+# Codes: ICD-10 as recorded in DALY-CARE (D-prefixed), ATC, NPU. Every NPU code
+# is TO CONFIRM against the vocabulary (the summary warns when a finding matches
+# no code). Set concept_mapping_reviewed: true once codes and names are checked.
+
+concept_mapping_reviewed: false
+
+# Names for codes (opera/resources/code_systems/README.md). Official tables are
+# public classifications copied into the secure environment; codes are
+# normalised, so SKS and WHO forms both match. Without tables, codes are named
+# from the built-in structure (ICD-10 chapters, ATC levels 1-2, clinical
+# groups) or shown as codes. `vocabulary-audit` reports what is still unnamed.
+code_tables: []
+#  - {system: icd10, path: /project/resources/icd10_en.csv, code: code, label: name}
+#  - {system: atc, path: /project/resources/atc.csv, code: code, label: name}
+#  - {system: npu, path: /project/resources/npu.xlsx, code: NPU code, label: Short definition}
+#  - {system: sks_procedure, path: /project/resources/sks.csv, code: code, label: text}
+# clinical_groups: opera/resources/code_systems/clinical_groups.yaml  # default
+
+run:
+  # One run on the locked best model, computed once. Every outcome is explained
+  # on the log-odds scale for the atlas (comparable across outcomes); the check
+  # outcomes are also explained in absolute risk, for the laboratory curves,
+  # the removal checks and the per-patient explanation records. Pilot first
+  # (--attribution-max-new-patients 50), then --resume completes the sample.
+  split: held_out
+  outcomes: all
+  horizons: [365]
+  borrowed_outcomes: ""
+  check_outcomes: [overall_survival, serious_infection_composite, neutropenia_g3plus]
+  max_patients: 1500          # stratified: up to per_subtype from every subtype, rest uniform
+  per_subtype: 40             # sampling weights restore the population mix
+  steps: 8                    # Gauss-Legendre nodes; patients above tolerance rerun at 32
+  precision: fp32             # bf16/fp16 opt-in after a pilot, guarded by completeness
+  tolerance: 0.05             # completeness gap relative to |prediction - reference|
+  baseline: mean              # average training event (content embedding)
+  alternative_baseline: source_mean
+  k: [1, 5, 10]
+  random_repeats: 5
+  faithfulness_patients: 200
+  sanity_patients: 100
+
+# The same model on restricted input, whole test set, every outcome (the
+# input-restrictions action). "Only the timing of care" replaces every event by
+# the IG reference, so run the attributions first.
+restrictions:
+  - {id: timeline, label: "Only the timing of care", content_reference: true}
+  - {id: no_labs, label: "Without laboratory results", hide_prefixes: [LABTEST]}
+  - {id: no_medication, label: "Without medication", hide_prefixes: [MEDICATION]}
+  - {id: no_diagnoses, label: "Without diagnoses", hide_prefixes: [DIAGNOSIS]}
+  - {id: last_year, label: "Only the last year", keep_last_days: 365}
+
+# Laboratory curves: the latest result before treatment, by value bin.
+lab_tests:
+  - {npu: NPU19123, label: "LDH", outcome: overall_survival}                 # TO CONFIRM
+  - {npu: NPU19673, label: "Albumin", outcome: overall_survival}             # TO CONFIRM
+  - {npu: NPU02902, label: "Neutrophils", outcome: neutropenia_g3plus}       # TO CONFIRM
+  - {npu: NPU19748, label: "CRP", outcome: serious_infection_composite}      # TO CONFIRM
+
+# Findings x outcomes (atlas panel C). Every finding is summarised for every
+# outcome; "expected" gives the prespecified direction where an effect is
+# expected (+ raises, - lowers predicted risk), and only those cells are tests. Laboratory findings
+# use the latest result within 90 days (bin_position: 0 lowest, 1 highest).
+concepts:
+  - {name: ldh_high, label: "High LDH", group: Laboratory, codes: ["LABTEST//NPU19123//BIN_"],
+     bin_position: [0.67, 1.0], latest_only: true, within_days: 90,
+     expected: {overall_survival: "+", treatment_failure: "+"}}
+  - {name: albumin_low, label: "Low albumin", group: Laboratory, codes: ["LABTEST//NPU19673//BIN_"],
+     bin_position: [0.0, 0.33], latest_only: true, within_days: 90,
+     expected: {overall_survival: "+", serious_infection_composite: "+"}}
+  - {name: haemoglobin_low, label: "Low haemoglobin", group: Laboratory,
+     codes: ["LABTEST//NPU02319//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
+     within_days: 90, expected: {any_transfusion: "+", overall_survival: "+"}}
+  - {name: neutrophils_low, label: "Low neutrophils", group: Laboratory,
+     codes: ["LABTEST//NPU02902//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
+     within_days: 90, expected: {neutropenia_g3plus: "+", serious_infection_composite: "+"}}
+  - {name: platelets_low, label: "Low platelets", group: Laboratory,
+     codes: ["LABTEST//NPU03568//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
+     within_days: 90, expected: {any_transfusion: "+", neutropenia_g3plus: "+"}}
+  - {name: creatinine_high, label: "High creatinine", group: Laboratory,
+     codes: ["LABTEST//NPU18016//BIN_"], bin_position: [0.67, 1.0], latest_only: true,
+     within_days: 90, expected: {aki_first_documented: "+", overall_survival: "+"}}
+  - {name: crp_high, label: "High CRP", group: Laboratory, codes: ["LABTEST//NPU19748//BIN_"],
+     bin_position: [0.67, 1.0], latest_only: true, within_days: 90,
+     expected: {serious_infection_composite: "+"}}
+  - {name: heart_failure, label: "Heart failure", group: Diagnoses, codes: ["DIAGNOSIS//DI50"],
+     expected: {heart_failure: "+", overall_survival: "+"}}
+  - {name: kidney_disease, label: "Chronic kidney disease", group: Diagnoses,
+     codes: ["DIAGNOSIS//DN18"], expected: {aki_first_documented: "+"}}
+  - {name: pneumonia, label: "Pneumonia", group: Diagnoses, codes: ["DIAGNOSIS//DJ1"],
+     expected: {serious_infection_composite: "+"}}
+  - {name: antibacterials, label: "Antibacterials, last year", group: Medication,
+     codes: ["MEDICATION//J01"], within_days: 365,
+     expected: {serious_infection_composite: "+"}}
+  - {name: corticosteroids, label: "Corticosteroids, last 90 days", group: Medication,
+     codes: ["MEDICATION//H02AB"], within_days: 90,
+     expected: {serious_infection_composite: "+"}}
+  - {name: antineoplastics, label: "Antineoplastics, last year", group: Medication,
+     codes: ["MEDICATION//L01"], within_days: 365,
+     expected: {neutropenia_g3plus: "+", any_transfusion: "+"}}
+
+summary:
+  horizon_days: 365
+  bootstrap_draws: 1000
+  seed: 2026
+  min_count: 20               # patients per reported cell, bin or curve point
+  time_windows_days: [30, 365]
+  faithfulness_k: 5           # prespecified k for the check (Fig. D)
+  lab_within_days: 90
+  episode_gap_days: 1         # events within a day form one clinical episode
+  top_n: 10                   # data-driven findings per outcome and direction (table)
+  explanation_episodes: 3     # per patient, outcome and direction in the explanation table
+  # Clinical names for rolled-up concepts (ICD-10 3 characters, ATC level 3,
+  # laboratory tests as LABTEST//<NPU>//BIN, shown as "Low/High <name>" or
+  # "<name>, mid-range"). Used only when concept_mapping_reviewed is true.
+  # ICD-10 and ATC names are standard; every NPU name is TO CONFIRM.
+  concept_labels:
+    DIAGNOSIS//DI50: Heart failure
+    DIAGNOSIS//DI48: Atrial fibrillation
+    DIAGNOSIS//DI21: Acute myocardial infarction
+    DIAGNOSIS//DI26: Pulmonary embolism
+    DIAGNOSIS//DN17: Acute kidney failure
+    DIAGNOSIS//DN18: Chronic kidney disease
+    DIAGNOSIS//DE10: Type 1 diabetes
+    DIAGNOSIS//DE11: Type 2 diabetes
+    DIAGNOSIS//DJ18: Pneumonia
+    DIAGNOSIS//DJ15: Bacterial pneumonia
+    DIAGNOSIS//DJ44: COPD
+    DIAGNOSIS//DA41: Sepsis
+    DIAGNOSIS//DB02: Herpes zoster
+    DIAGNOSIS//DD70: Neutropenia
+    MEDICATION//J01C: Penicillins
+    MEDICATION//J01D: Cephalosporins and carbapenems
+    MEDICATION//J01M: Quinolones
+    MEDICATION//J02A: Systemic antimycotics
+    MEDICATION//J05A: Antivirals
+    MEDICATION//L01A: Alkylating agents
+    MEDICATION//L01B: Antimetabolites
+    MEDICATION//L01X: Other antineoplastics
+    MEDICATION//L04A: Immunosuppressants
+    MEDICATION//H02A: Systemic corticosteroids
+    MEDICATION//C03C: Loop diuretics
+    MEDICATION//B01A: Antithrombotics
+    MEDICATION//A10A: Insulins
+    MEDICATION//N02A: Opioids
+    LABTEST//NPU02319//BIN: Haemoglobin
+    LABTEST//NPU19123//BIN: LDH            # TO CONFIRM
+    LABTEST//NPU19673//BIN: Albumin        # TO CONFIRM
+    LABTEST//NPU02902//BIN: Neutrophils    # TO CONFIRM
+    LABTEST//NPU03568//BIN: Platelets      # TO CONFIRM
+    LABTEST//NPU18016//BIN: Creatinine     # TO CONFIRM
+    LABTEST//NPU19748//BIN: CRP            # TO CONFIRM
+  top_n: 10                   # data-driven concepts per outcome and direction

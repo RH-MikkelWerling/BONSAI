@@ -51,15 +51,16 @@ encoding, dimensions and available budget provenance.
 
 \section{Training phases and checkpoint selection}
 Self-supervised fitting learns from pre-cutoff histories before outcome fitting.
-The direct nation-scale arm performs vocabulary alignment without local
-continuation; the adapted arm adds that continuation from the same artifact.
+The direct nation-scale arm uses the delivered encoder without local
+continuation; its tokenisation and any vocabulary alignment require explicit
+provenance rather than assuming they match the local encoder; the adapted arm adds that continuation from the same artifact.
 Supervised checkpoints are selected on the complete tuning set. Actual steps,
 exposure and selected epochs will accompany the planned budgets below.
 \begin{longtable}{L{2.4cm}L{5.5cm}L{6.3cm}}
 \caption{Phase-specific training record.}\\
 \toprule Phase & Starting point / scope & Final reporting fields\\\midrule\endhead
 Local SSL & Local histories before 2022; confirmed 20-epoch running budget & Optimizer/schedule, batch/accumulation, precision, actual epochs/steps/tokens, selected checkpoint and hash\\
-Nation-scale direct & Encoder-only export and vocabulary remapping & Source hash, overlap, local-only row initialization; no local SSL step\\
+Nation-scale direct & Delivered encoder without local continuation & Source hash, data-delivery and tokenisation mode; vocabulary mapping and any new-row initialisation if used; no local SSL step\\
 Local DAPT & Same direct nation-scale export; planned 20 epochs & Actual optimizer/batch/steps/tokens, source/selected hashes and checkpoint selection\\
 Supervised S/D/O/J & Same local initializer; planned 30 epochs, seed 42 & Scope, exposure, natural sampling, full tuning BCE selection, actual epochs and selected epoch\\
 Routed fits & Same supervision as J; tuning-locked policy & Matched training settings, bank/capacity policy and actual parameter counts\\
@@ -104,7 +105,7 @@ Matched evaluation & Identical score-available patients; group N/events, KM surv
 Operating point & Tuning threshold, achieved held-out specificity, recall, precision and count basis\\
 Reclassification & Cross-classification, discordant-group outcomes, uncertainty and sparse-cell status\\\bottomrule
 \end{longtable}
-NCCN-IPI/DLBCL provides the focused main example. Other valid score/population
+IPI/DLBCL provides the focused main example, with NCCN-IPI in complete cases. Other valid score/population
 pairs receive a common summary table and supplementary risk-group panels when
 support permits. Detailed scatter, age and operating-point panels are warranted
 when they answer a prespecified question; they are not obligatory for every

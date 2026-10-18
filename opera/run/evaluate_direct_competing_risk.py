@@ -111,6 +111,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-routed-outcome", default=None,
                         help="Export shared and post-router patient vectors for this one target outcome.")
     parser.add_argument("--remove-source", action="append", default=[], help="Diagnostic route ablation, e.g. disease:DLBCL.")
+    parser.add_argument("--hide-prefixes", default="",
+                        help="Input restriction: hide events whose code starts with these "
+                             "comma-separated prefixes, e.g. LABTEST,MEDICATION.")
+    parser.add_argument("--keep-last-days", type=float, default=None,
+                        help="Input restriction: keep only events within this many days "
+                             "of the last recorded event (background tokens are kept).")
+    parser.add_argument("--content-reference", type=Path, default=None,
+                        help="Timeline-only evaluation: replace every event's content by "
+                             "this reference embedding (the IG baseline_INTERNAL.pt), keeping "
+                             "times, order, age and subtype.")
     parser.add_argument(
         "--parent-cohort",
         default=None,
@@ -230,6 +240,22 @@ def main() -> None:
         else None
     )
 
+    collate = contrastive_collate
+    if args.hide_prefixes or args.keep_last_days is not None:
+        from opera.evaluation.input_restriction import (
+            hidden_code_ids, kept_code_ids, restricting_collate)
+        collate = restricting_collate(
+            contrastive_collate,
+            hidden_ids=hidden_code_ids(vocabulary, args.hide_prefixes.split(",")),
+            protected_ids=kept_code_ids(vocabulary),
+            keep_last_days=args.keep_last_days)
+    reference = None
+    if args.content_reference is not None:
+        from opera.interpretability.token_attribution import (
+            non_attributable_ids, reference_embeddings)
+        saved = torch.load(args.content_reference, map_location="cpu", weights_only=True)
+        reference = (saved["mean"] if isinstance(saved, dict) else saved).to(device)
+        fixed_ids = non_attributable_ids(vocabulary)
     prediction_rows: list[dict] = []
     embedding_ids, embedding_values = [], []
     routed_ids, routed_pre, routed_post = [], [], []
@@ -256,11 +282,15 @@ def main() -> None:
             shuffle=False,
             drop_last=False,
             num_workers=args.num_workers,
-            collate_fn=contrastive_collate,
+            collate_fn=collate,
         )
         with torch.inference_mode():
             for raw_batch in loader:
                 batch = _move(raw_batch, device)
+                if reference is not None:
+                    # Same timeline of care, every event an average event.
+                    batch["token_embeddings"] = reference_embeddings(
+                        model.encoder, batch, reference, fixed_ids)
                 representations = model.get_objective_representations(batch)
                 if args.export_routed_outcome:
                     if representations.ndim != 2:
@@ -442,6 +472,7 @@ def main() -> None:
         "cohort_fine": args.cohort_fine,
         "parent_cohort_grouped": parent_cohort,
         "route_removal_diagnostic": args.remove_source,
+        "content_reference": str(args.content_reference) if args.content_reference else None,
     }
     if not family_summary.empty:
         summary.update(

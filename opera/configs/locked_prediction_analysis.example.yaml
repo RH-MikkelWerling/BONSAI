@@ -45,6 +45,18 @@ cell_groups:
     # Same partition as the Bayesian support bins [0, 20, 100, 500]:
     # 0-19, 20-99, 100-499 and >=500 training events (integer counts).
     bins: [-1, 19, 99, 499, .inf]
+  # Rare subtypes: fewer than 500 training patients (head count of the subtype).
+  subtype_size:
+    column: n_patients_train
+    provenance: train_only
+    bins: [-1, 499, .inf]
+  # The subtypes without a prognostic index in routine use (exact cohort_fine
+  # names to be confirmed against the registry export).
+  no_index_subtype:
+    column: cohort
+    provenance: train_only
+    label: no_index
+    values: [LBL, HCL, ALCL, Transformed FL, PCL, RT, Solitary plasmacytoma, NMZL]
 patient_groups:
   age_at_index:
     provenance: pre_index
@@ -69,6 +81,11 @@ patient_groups:
 # (models trained nationwide): panel effects and absolute metrics per region.
 stratified_reanalysis:
   predominant_region:
+    contrasts: [P5, T2]
+    models: [J_L, X]
+  # Calendar year of treatment in the held-out test set: performance and
+  # calibration as first-line treatment and the registers change.
+  index_year:
     contrasts: [P5, T2]
     models: [J_L, X]
 strategy_candidates: [S_L, D_L, O_L]

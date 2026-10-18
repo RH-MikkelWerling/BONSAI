@@ -13,6 +13,15 @@ import yaml
 from opera.run.analyse_locked_predictions import file_hash, read_table
 
 
+def resolve_input(source, config):
+    """Input path with environment variables expanded; relative to the recipe."""
+    expanded = os.path.expandvars(source)
+    if "$" in expanded:
+        return None
+    path = Path(expanded)
+    return path if path.is_absolute() else (config.resolve().parent / path).resolve()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -54,18 +63,15 @@ def main():
         if args.available_only:
             absent = [key for key, source in {**plate.get("tables", {}),
                                               **plate.get("json_inputs", {})}.items()
-                      if "$" in os.path.expandvars(source)
-                      or not Path(os.path.expandvars(source)).is_file()]
+                      if (path := resolve_input(source, args.config)) is None
+                      or not path.is_file()]
             if absent:
                 skipped[name] = "missing inputs: " + ", ".join(absent)
                 continue
         for key, source in {**plate.get("tables", {}), **plate.get("json_inputs", {})}.items():
-            expanded = os.path.expandvars(source)
-            if "$" in expanded:
+            path = resolve_input(source, args.config)
+            if path is None:
                 raise ValueError(f"Unresolved environment variable in input path for {name}/{key}")
-            path = Path(expanded)
-            if not path.is_absolute():
-                path = args.config.resolve().parent / path
             hashes[str(path)] = file_hash(path)
             inputs[key] = (json.loads(path.read_text()) if key in plate.get("json_inputs", {})
                            else read_table(path))

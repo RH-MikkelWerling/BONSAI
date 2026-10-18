@@ -88,6 +88,9 @@ def test_server_workspace_registers_every_plate_with_absolute_paths(tmp_path, mo
     for plate in recipe["figures"]:
         for section in ("tables", "json_inputs"):
             for source in plate.get(section, {}).values():
-                assert str(root / "plot_tables") in source
+                # Plot tables live in the workspace; outputs of other steps (the
+                # clinical-score headline table) stay where those steps write them.
+                assert (str(root / "plot_tables") in source
+                        or source == str(tmp_path / "clinical_scores" / "headline_scores.csv"))
                 assert "$" not in source
     assert not list((root / "plot_tables").iterdir())

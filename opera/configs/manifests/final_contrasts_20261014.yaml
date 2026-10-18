@@ -70,6 +70,7 @@ essential_contrasts:
     N50: gain(J_EA_F50,J_L_F50)
   pretraining_control:
     P0: gain(J_L,J_RI) # local pretraining vs no pretraining (random initialisation)
+    P7: gain(J_L,J_FZ) # fine-tuning the encoder vs training only the readout on it
   external_pretraining_and_adaptation:
     E1: gain(J_E,J_L)
     E2: gain(R_E,R_L)

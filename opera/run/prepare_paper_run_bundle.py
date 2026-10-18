@@ -156,6 +156,21 @@ def build_bundle(
                     "config": random_init,
                 }
             )
+            # Joint model on the frozen local encoder: only the readout is
+            # trained, separating what fine-tuning adds from what pretraining
+            # already represents.
+            frozen = copy.deepcopy(shared)
+            frozen.setdefault("model", {})["freeze_encoder"] = True
+            entries.append(
+                {
+                    "name": f"seed{seed}/FZ/J_all_diseases_all_outcomes",
+                    "phase": "pretraining_control",
+                    "origin": "FZ",
+                    "seed": seed,
+                    "condition": {},
+                    "config": frozen,
+                }
+            )
         # Only the first seed is used for bounded method selection. All final
         # source controls are replicated once an explicit router lock is given.
         if seed == seeds[0]:

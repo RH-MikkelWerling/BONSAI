@@ -317,7 +317,7 @@ def next_runnable(args, decisions, audited, blocked_encoders):
                     resolved,
                     row["origin"],
                     expected_width=args.local_hidden_size
-                    if row["origin"] in {"L", "RI"}
+                    if row["origin"] in {"L", "RI", "FZ"}
                     else args.external_hidden_size,
                     minimum_local_epochs=args.minimum_local_pretraining_epochs,
                     minimum_dapt_epochs=args.minimum_dapt_epochs,

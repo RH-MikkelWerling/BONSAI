@@ -14,6 +14,8 @@ import shlex
 import subprocess
 import sys
 
+import yaml
+
 from dotenv import dotenv_values
 
 REPO = Path(__file__).resolve().parents[2]
@@ -358,6 +360,13 @@ def build_commands(args, env):
                 analysis_root / "analysis_inventory",
             )
         ]
+    if args.action == "paper-numbers":
+        # Every number reported in the text, and Table 2, from the aggregate outputs.
+        return [module("opera.run.build_paper_numbers",
+                       "--analysis-root", analysis_root,
+                       "--cell-metadata", path_value(env, "OPERA_PAPER_CELL_METADATA"),
+                       "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"),
+                       "--output-dir", analysis_root / "paper_numbers")]
     if args.action == "supplement-tables":
         return [module("opera.run.render_supplement_tables",
                        "--config", path_value(env, "OPERA_PAPER_SUPPLEMENT_TABLE_CONFIG",
@@ -444,6 +453,108 @@ def build_commands(args, env):
                 + (["--available-only"] if env.get("OPERA_PAPER_FIGURES_AVAILABLE_ONLY") else [])
                 + (["--validate-render"] if getattr(args, "validate_render", False)
                    else (["--execute"] if args.execute else []))]
+    if args.action == "figure-readiness":
+        # Which manuscript figures can be rendered now, and what to run for the rest.
+        return [module("opera.run.check_figure_inputs", "--analysis-root", analysis_root)]
+    if args.action == "input-restrictions":
+        # The locked best model on restricted input: what each part adds.
+        config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
+                                 str(REPO / "opera/configs/attribution_analysis.example.yaml"))
+        config = yaml.safe_load(Path(config_path).read_text())
+        out = analysis_root / "input_restrictions"
+        base = module(
+            "opera.run.evaluate_direct_competing_risk",
+            "--checkpoint", path_value(env, "OPERA_PAPER_ATTRIBUTION_CHECKPOINT"),
+            "--config-name", value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_NAME"),
+            "--config-dir", path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_DIR",
+                                       str(REPO / "opera/configs")),
+            "--split", config.get("run", {}).get("split", "held_out"))
+        commands = [base + ["--output-dir", str(out / "full")]]
+        compare = module("opera.run.compare_input_restrictions", "--full", out / "full",
+                         "--output-dir", out)
+        reference = analysis_root / "attributions" / "baseline_INTERNAL.pt"
+        for item in config.get("restrictions", []):
+            name, slug = item["label"], item["id"]
+            flags = []
+            if item.get("content_reference"):
+                flags += ["--content-reference", str(reference)]
+            if item.get("hide_prefixes"):
+                flags += ["--hide-prefixes", ",".join(item["hide_prefixes"])]
+            if item.get("keep_last_days") is not None:
+                flags += ["--keep-last-days", str(item["keep_last_days"])]
+            commands.append(base + flags + ["--output-dir", str(out / slug)])
+            compare += ["--restricted", f"{name}={out / slug}"]
+        return commands + [compare]
+    if args.action == "attribution-figures":
+        config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
+                                 str(REPO / "opera/configs/attribution_analysis.example.yaml"))
+        settings = yaml.safe_load(config_path.read_text())
+        horizon = getattr(args, "attribution_horizon", None) or settings.get("summary", {}).get("horizon_days", 365)
+        summary_dir = analysis_root / "attributions" / f"summary_{float(horizon):g}d"
+        env["OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR"] = str(summary_dir.resolve())
+        env.setdefault("OPERA_PAPER_INPUT_RESTRICTION_DIR",
+                       str((analysis_root / "input_restrictions").resolve()))
+        return [module("opera.run.render_paper_results",
+                       "--config", REPO / "opera/configs/attribution_figures.example.yaml",
+                       "--output-dir", summary_dir / "figures")
+                + (["--execute"] if args.execute else [])]
+    if args.action == "vocabulary-audit":
+        # What the tokens mean: names, groups and chapters for every code of the
+        # locked model's vocabulary, and the unnamed codes that matter most.
+        config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
+                                 str(REPO / "opera/configs/attribution_analysis.example.yaml"))
+        horizon = yaml.safe_load(Path(config_path).read_text()).get("summary", {}).get(
+            "horizon_days", 365)
+        summary = analysis_root / "attributions" / f"summary_{float(horizon):g}d"
+        return [module("opera.run.audit_vocabulary",
+                       "--vocabulary", path_value(env, "OPERA_PAPER_LOCAL_VOCAB"),
+                       "--config", config_path, "--output-dir", analysis_root / "vocabulary_audit")
+                + (["--attribution-summary", summary]
+                   if (summary / "attribution_top_concepts.csv").is_file() else [])]
+    if args.action in {"attributions", "attribution-summary"}:
+        # Integrated gradients on the locked best model: one pass over every
+        # outcome, then aggregated tables (the only part that may be exported).
+        config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
+                                 str(REPO / "opera/configs/attribution_analysis.example.yaml"))
+        config = yaml.safe_load(Path(config_path).read_text())
+        run_dir = analysis_root / "attributions"
+        if args.action == "attribution-summary":
+            horizon = getattr(args, "attribution_horizon", None) or config.get("summary", {}).get("horizon_days", 365)
+            return [module("opera.run.summarise_attributions", "--input-dir", run_dir,
+                           "--config", config_path, "--horizon-days", horizon,
+                           "--output-dir", run_dir / f"summary_{float(horizon):g}d")]
+        run = dict(config.get("run", {}))
+
+        def listed(key, default=""):
+            item = run.get(key, default)
+            return ",".join(str(v) for v in item) if isinstance(item, list) else str(item)
+
+        command = module(
+            "opera.run.explain_direct_competing_risk",
+            "--resume",
+            "--checkpoint", path_value(env, "OPERA_PAPER_ATTRIBUTION_CHECKPOINT"),
+            "--config-name", value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_NAME"),
+            "--config-dir", path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_DIR", str(REPO / "opera/configs")),
+            "--split", run.get("split", "held_out"),
+            "--outcomes", listed("outcomes", "all"),
+            "--horizons", listed("horizons", "365"),
+            "--borrowed-outcomes", listed("borrowed_outcomes", ""),
+            "--check-outcomes", listed("check_outcomes"),
+            "--max-patients", run.get("max_patients", 1500),
+            "--per-subtype", run.get("per_subtype", 40),
+            "--steps", run.get("steps", 8),
+            "--precision", run.get("precision", "fp32"),
+            "--tolerance", run.get("tolerance", 0.05),
+            "--baseline", run.get("baseline", "mean"),
+            "--alternative-baseline", run.get("alternative_baseline", "source_mean"),
+            "--k", listed("k", "1,5,10,20"),
+            "--random-repeats", run.get("random_repeats", 5),
+            "--faithfulness-patients", run.get("faithfulness_patients", 200),
+            "--sanity-patients", run.get("sanity_patients", 100),
+            "--output-dir", run_dir)
+        if getattr(args, "attribution_max_new_patients", None):
+            command += ["--max-new-patients", str(args.attribution_max_new_patients)]
+        return [command]
     if args.action == "clinical-scores":
         return [module("opera.run.render_clinical_score_panels",
                        "--analysis-config", analysis_root / "analysis_inventory" / "analysis.yaml",
@@ -589,6 +700,12 @@ def main():
             "inventory",
             "analyse",
             "clinical-scores",
+            "attributions",
+            "attribution-summary",
+            "attribution-figures",
+            "vocabulary-audit",
+            "input-restrictions",
+            "figure-readiness",
             "figures",
             "init-figures",
             "cell-metadata",
@@ -596,6 +713,7 @@ def main():
             "table1",
             "embedding-tables",
             "plot-tables",
+            "paper-numbers",
             "supplement-tables",
             "bayes",
             "status",
@@ -618,6 +736,8 @@ def main():
     parser.add_argument("--registry", action="store_true",
                         help="tabular: the registry-augmented XGBoost arm (XR).")
     parser.add_argument("--prior-only", action="store_true")
+    parser.add_argument("--attribution-horizon", type=float, help="CPU attribution summary horizon")
+    parser.add_argument("--attribution-max-new-patients", type=int, help="Reusable attribution pilot cap")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--validate-render", action="store_true",
                         help="figures: validate all render schemas without saving outputs")

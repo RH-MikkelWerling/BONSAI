@@ -33,23 +33,23 @@
   \sourcecard{-1.55}{OperaSlate}{user}{Demographics}
     {Sex, and age at the start of treatment.}
     {SEX//F}{AGE//71}
-  \sourcecard{-3.0}{OperaIndigo}{hospital}{National patient register}
+  \sourcecard{-3.0}{OperaSrcDiagnoses}{hospital}{National patient register}
     {Every hospital contact: diagnoses (ICD-10) at discharge; procedures and the
      contact's type, reason, priority, specialty and region at admission.}
     {DIAGNOSIS//DC833}{CONTACT\_SPECIALTY//HAEM}
-  \sourcecard{-4.45}{OperaLavender}{microscope}{Pathology register}
+  \sourcecard{-4.45}{OperaSrcPathology}{microscope}{Pathology register}
     {Diagnoses from tissue and cell samples (SNOMED) and the requesting
      department, at requisition.}
     {PATHOLOGY//M96803}{REGION//HOVEDSTADEN}
-  \sourcecard{-5.9}{OperaTeal}{prescription-bottle-alt}{Prescription register}
+  \sourcecard{-5.9}{OperaSrcMedication}{prescription-bottle-alt}{Prescription register}
     {Every prescription redeemed at a community pharmacy (ATC), at
      dispensing.}
     {MEDICATION//J01CA04}{MEDICATION//N02BE01}
-  \sourcecard{-7.35}{OperaOchre}{syringe}{Hospital medication register}
+  \sourcecard{-7.35}{OperaSrcHospitalMedication}{syringe}{Hospital medication register}
     {Drugs given in hospital, including chemotherapy (ATC), and the treating
      department, at the start of the order.}
     {MEDICATION//L01XC02}{CONTACT\_SPECIALTY//ONC}
-  \sourcecard{-8.8}{OperaSienna}{vial}{Laboratory database}
+  \sourcecard{-8.8}{OperaSrcLaboratory}{vial}{Laboratory database}
     {Laboratory results (NPU codes) at sampling: the test with its value bin,
      or the text result.}
     {LABTEST//NPU02319//BIN\_7}{LABTEST//NPU19748//NEG}
@@ -65,10 +65,10 @@
   \node[labelsmall,anchor=north east] at (16.75,-2.32) {time};
   \foreach \x/\col in {11.25/OperaSlate,11.62/OperaSlate}
     \node[seqtok=\col] at (\x,-1.85) {};
-  \foreach \x/\col in {12.15/OperaIndigo,12.5/OperaTeal,12.85/OperaSienna,
-      13.2/OperaSienna,13.55/OperaIndigo,13.9/OperaTeal,14.25/OperaLavender,
-      14.6/OperaIndigo,14.95/OperaSienna,15.3/OperaSienna,15.65/OperaOchre,
-      16.0/OperaSienna}
+  \foreach \x/\col in {12.15/OperaSrcDiagnoses,12.5/OperaSrcMedication,12.85/OperaSrcLaboratory,
+      13.2/OperaSrcLaboratory,13.55/OperaSrcDiagnoses,13.9/OperaSrcMedication,14.25/OperaSrcPathology,
+      14.6/OperaSrcDiagnoses,14.95/OperaSrcLaboratory,15.3/OperaSrcLaboratory,15.65/OperaSrcHospitalMedication,
+      16.0/OperaSrcLaboratory}
     \node[seqtok=\col] at (\x,-1.85) {};
   \draw[OperaSienna,line width=1.1pt] (16.32,-1.35)--(16.32,-2.55);
   \node[font=\sffamily\fontsize{6.4}{7}\selectfont\bfseries,text=OperaSienna,anchor=south]

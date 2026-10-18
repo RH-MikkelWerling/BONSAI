@@ -36,7 +36,7 @@ from opera.visualization.paper_taxonomy import (
 CONTRAST_CODES = {
     "P1": "D-S", "P2": "O-S", "P3": "J-O", "P4": "J-D", "P5": "J-S", "P6": "interaction",
     "T1": "R-X", "T2": "J-X", "T3": "S-X", "T4": "X-LR",
-    "T6": "J-XP", "T7": "XP-X", "T8": "D-XP", "T9": "J-XR", "T10": "XR-X", "P0": "L-RI",
+    "T6": "J-XP", "T7": "XP-X", "T8": "D-XP", "T9": "J-XR", "T10": "XR-X", "P0": "L-RI", "P7": "L-FZ",
     "N10": "EA-L:F10", "N25": "EA-L:F25", "N50": "EA-L:F50",
     **{f"C{i}": f"C{i}" for i in range(1, 6)},
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
@@ -57,8 +57,14 @@ class Missing(Exception):
 def _read(path: Path, sources: dict) -> pd.DataFrame:
     if not path.exists():
         raise Missing(str(path))
+    try:
+        frame = read_table(path)
+    except pd.errors.EmptyDataError:
+        # The analysis writes an empty file when nothing was estimable (e.g. a
+        # tuning preview without every model arm): report it, do not crash.
+        raise Missing(f"{path} (empty)") from None
     sources[str(path)] = file_hash(path)
-    return read_table(path)
+    return frame
 
 
 # Split the figures describe: held_out for the paper, tuning for a preview.
@@ -352,6 +358,119 @@ def region_tables(effects, models, patients=None, *, seed=None):
     return effects, models, coverage
 
 
+# Rows of Table 2 (panel-level comparisons), in reading order.
+PANEL_TABLE_ROWS = (
+    ("P5", "Joint vs specialist"), ("P1", "Disease-pooled vs specialist"),
+    ("P2", "Outcome-pooled vs specialist"), ("T2", "Joint vs per-task XGBoost"),
+    ("T6", "Joint vs XGBoost pooled across diseases"),
+    ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
+    ("E1", "National vs local encoder (joint)"),
+    ("E3", "Adapted national vs local encoder (joint)"),
+)
+TABLE_MODELS = {"J_L": "Joint", "R_L": "Routed", "S_L": "Specialist", "X": "XGBoost"}
+
+
+def _interval(low, high, digits=3):
+    if pd.isna(low) or pd.isna(high):
+        return None
+    return f"{low:.{digits}f} to {high:.{digits}f}"
+
+
+def panel_effects(summaries, contrasts, *, horizon=365, seed=None):
+    """Table 2: pooled paired differences per comparison, with share of cells better."""
+    summary = _select(summaries, seed=seed)
+    summary = summary.loc[summary.horizon_days == horizon]
+    rare = summary.loc[(summary.get("stratum", "") == "subtype_size")
+                       & summary.get("stratum_value", pd.Series("", index=summary.index))
+                       .astype(str).str.startswith("(-1")]
+    summary = summary.loc[summary.get("stratum", "all_cells") == "all_cells"]
+    cells = _select(contrasts, seed=seed)
+    cells = cells.loc[cells.horizon_days == horizon]
+    rows = []
+    for code, label in PANEL_TABLE_ROWS:
+        row = {"comparison": label, "contrast": code}
+        for metric in ("auc", "ipa"):
+            part = summary.loc[(summary.contrast == code) & (summary.metric == metric)]
+            if len(part):
+                record = part.iloc[0]
+                row[f"{metric}_gain"] = round(float(record.gain), 3)
+                row[f"{metric}_interval"] = _interval(record.lower, record.upper)
+                row["cells"] = int(record.n_cells)
+        part = rare.loc[(rare.contrast == code) & (rare.metric == "auc")]
+        if len(part):
+            record = part.iloc[0]
+            row["rare_auc_gain"] = round(float(record.gain), 3)
+            row["rare_auc_interval"] = _interval(record.lower, record.upper)
+        gains = cells.loc[(cells.contrast == code) & (cells.metric == "auc"), "gain"].dropna()
+        row["cells_better"] = f"{(gains > 0).mean():.0%}" if len(gains) else None
+        if "cells" in row:
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def paired_domain_summary(contrasts, metadata, *, horizon=365, seed=None):
+    """Supplementary table: median paired gain (IQR) by comparison and clinical domain."""
+    data = _with_cells(_select(contrasts, seed=seed), metadata)
+    data = data.loc[(data.horizon_days == horizon) & data.metric.isin(["auc", "ipa"])
+                    & data.contrast.isin([code for code, _ in PANEL_TABLE_ROWS])]
+    labels = dict(PANEL_TABLE_ROWS)
+    rows = []
+    for (code, group, metric), part in data.groupby(["contrast", "endpoint_group", "metric"]):
+        gains = part.gain.dropna()
+        if not len(gains):
+            continue
+        q1, median, q3 = gains.quantile([0.25, 0.5, 0.75])
+        rows.append({"contrast": labels[code], "endpoint_group": group, "metric": metric.upper(),
+                     "gain": round(float(median), 3), "interval": _interval(q1, q3),
+                     "common_cells": len(gains)})
+    return pd.DataFrame(rows)
+
+
+def calibration_domain_summary(calibration, metadata, *, horizon=365, seed=None):
+    """Supplementary table: median calibration by model and clinical domain."""
+    data = _with_cells(_select(calibration, seed=seed), metadata)
+    data = data.loc[(data.horizon_days == horizon) & data.model.isin(TABLE_MODELS)]
+    rows = []
+    for (model, group), part in data.groupby(["model", "endpoint_group"]):
+        estimable = part.dropna(subset=[c for c in ("calibration_slope",) if c in part])
+        rows.append({
+            "model": TABLE_MODELS[model], "endpoint_group": group, "horizon_days": horizon,
+            "calibration_in_the_large": (round(float(estimable.calibration_in_the_large.median()), 3)
+                                         if "calibration_in_the_large" in estimable and len(estimable) else None),
+            "calibration_slope": (round(float(estimable.calibration_slope.median()), 2)
+                                  if "calibration_slope" in estimable and len(estimable) else None),
+            "status": f"{len(estimable)} of {len(part)} cells estimable"})
+    return pd.DataFrame(rows)
+
+
+def outcome_support_summary(estimates, metadata, *, seed=None, model="J_L"):
+    """Supplementary table: patients, events and cells by clinical domain and horizon."""
+    data = _with_cells(_select(estimates, seed=seed), metadata)
+    data = data.loc[(data.model == model) & (data.metric == "auc")]
+    rows = []
+    counts = {"patient_cells": "n", "events": "n_cases", "non_events": "n_controls"}
+    for (group, horizon), part in data.groupby(["endpoint_group", "horizon_days"]):
+        rows.append({"endpoint_group": group, "horizon_days": int(horizon), "cells": len(part),
+                     **{name: int(part[column].sum()) for name, column in counts.items()
+                        if column in part}})
+    return pd.DataFrame(rows)
+
+
+def operating_point_summary(points, *, horizon=365, seed=None):
+    """Supplementary table: median threshold metrics across cells, by model and rule."""
+    data = points.loc[(points.horizon_days == horizon) & (points.status == "estimated")
+                      & points.model.isin(TABLE_MODELS)]
+    if seed is not None and "seed" in data:
+        data = data.loc[data.seed.astype(str) == str(seed)]
+    rows = []
+    for (model, rule), part in data.groupby(["model", "rule"]):
+        rows.append({"model": TABLE_MODELS[model],
+                     "rule": rule.replace("tuning_", "").replace("_", " "),
+                     **{metric: round(float(part[metric].median()), 2)
+                        for metric in ("sensitivity", "specificity", "ppv", "mcc")}})
+    return pd.DataFrame(rows)
+
+
 def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=None,
           atlas_metrics: Path | None = None, choices: Path = DEFAULT_CHOICES,
           bayes_variant="support_spline", registry_outcomes=None,
@@ -410,6 +529,16 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         return cells
 
     table("strategy_cells.csv", strategy)
+    # Printed tables (Table 2 and the supplementary tables).
+    table("panel_effects.csv", lambda: panel_effects(summaries(), contrasts(), seed=seed))
+    table("paired_domain_summary.csv",
+          lambda: paired_domain_summary(contrasts(), metadata, seed=seed))
+    table("calibration_domain_summary.csv", lambda: calibration_domain_summary(
+        _read(analysis / "calibration_summary.csv", sources), metadata, seed=seed))
+    table("outcome_support_summary.csv", lambda: outcome_support_summary(
+        _read(analysis / "estimates.csv", sources), metadata, seed=seed))
+    table("operating_point_summary.csv", lambda: operating_point_summary(
+        _read(analysis / "operating_points.csv", sources), seed=seed))
     table("model_cells.csv", lambda: model_cells(
         _read(analysis / "estimates.csv", sources), metadata, seed=seed))
     table("rescue_cells.csv", lambda: rescue_cells(contrasts(), metadata, seed=seed))

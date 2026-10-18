@@ -519,3 +519,60 @@ The default output is `supplement_tables` under the selected analysis root;
 `OPERA_PAPER_SUPPLEMENT_TABLE_CONFIG` can override the recipe. Existing
 workspaces retain their reviewed recipes; copy the new template into an older
 workspace explicitly rather than reinitialising it over existing files.
+
+## Bounded, reusable integrated gradients (18 October update)
+
+Set `OPERA_PAPER_ATTRIBUTION_CHECKPOINT` to the tuning-selected downstream
+checkpoint, `OPERA_PAPER_ATTRIBUTION_CONFIG_NAME` to its exact configuration
+name, and `OPERA_PAPER_ATTRIBUTION_CONFIG_DIR` to that configuration's directory.
+Set `OPERA_PAPER_ATTRIBUTION_CONFIG` to a reviewed copy of
+`opera/configs/attribution_analysis.example.yaml`. The defaults explain three
+outcomes at two horizons on a planned 300-patient stratified sample. Check the
+exact outcome names against the selected release. One GPU process owns this
+analysis; it is separate from the shared training pool.
+
+```bash
+# Show the planned command without launching it.
+scripts/run_paper_experiments.sh attributions
+# Process five patients of the SAME planned sample, not a new five-person sample.
+scripts/run_paper_experiments.sh attributions --attribution-max-new-patients 5 --execute
+# Continue, reusing hash-verified patient explanations and the baseline.
+scripts/run_paper_experiments.sh attributions --execute
+# CPU-only summaries and plots; reuse attributions at both horizons.
+scripts/run_paper_experiments.sh attribution-summary --attribution-horizon 365 --execute
+scripts/run_paper_experiments.sh attribution-figures --attribution-horizon 365 --execute
+scripts/run_paper_experiments.sh attribution-summary --attribution-horizon 730 --execute
+scripts/run_paper_experiments.sh attribution-figures --attribution-horizon 730 --execute
+```
+
+The pilot is marked incomplete and population summaries reject it until the
+planned sample finishes. Summary directories are horizon-specific. For a revised
+CPU summary (changed clinical labels, code review or suppression), use the lower-
+level `summarise_attributions --input-dir ... --config ... --horizon-days ...
+--output-dir <fresh-directory>`; this does not repeat GPU attribution. Point
+`OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR` to that directory when using the standalone
+`attribution_figures.example.yaml` renderer. Existing summary directories are
+not silently appended to or overwritten.
+
+Initially, unreviewed concept mappings are omitted with a warning. Review code
+identities AND lab-bin meaning before enabling named expectations. Figure
+inputs are already summary tables: no raw-to-plot adapter is needed for these
+three plates. Raw token, patient, perturbation and history-reveal exports stay
+inside the secure environment. Summary/figure manifests carry hashes. See
+`EXPLAINABILITY_PLAN_20261018.md` for interpretation, compute scope and checks.
+
+### Concept-level and individual IG figures (18 October update)
+
+The existing `attribution-summary` action now exports the concept ranking,
+aggregate signed distributions and concept-by-lookback map. The existing
+`attribution-figures` action automatically renders the three default outcome
+overviews in addition to the source/time/reliability plates. No new environment
+variables or extraction jobs are required. Summary and figure destinations must
+be fresh; do not overwrite an earlier reviewed output tree.
+
+The individual patient chart is a separate internal-only command:
+`python -m opera.run.render_individual_attribution --help`.
+It reads the same cached extraction and needs an explicit subject, outcome,
+horizon and fresh output directory. It never runs the encoder. The global
+recipe exports aggregate tables only; individual plots and provenance remain
+INTERNAL. See `EXPLAINABILITY_PLAN_20261018.md` for interpretation and examples.

@@ -281,6 +281,13 @@ def run(config, output_dir):
     for column, definition in config.get("cell_groups", {}).items():
         if definition.get("provenance") != "train_only":
             raise ValueError("Cell heterogeneity groups must be train-only")
+        if "values" in definition:
+            # Membership group, e.g. the subtypes without a prognostic index.
+            members = {str(value) for value in definition["values"]}
+            cell_metadata[column] = np.where(
+                cell_metadata[definition["column"]].astype(str).isin(members),
+                definition.get("label", "yes"), "other")
+            continue
         cell_metadata[column] = pd.cut(
             pd.to_numeric(cell_metadata[definition["column"]]),
             definition["bins"],
@@ -290,7 +297,9 @@ def run(config, output_dir):
         tables["contrasts"],
         tables["bootstrap_draws"],
         cell_metadata,
-        strata=config.get("cell_summary_strata"),
+        strata=config.get("cell_summary_strata") or list(dict.fromkeys(
+            ["support_bin", "outcome_family", "endpoint_group", "cohort",
+             *config.get("cell_groups", {})])),
     )
     tables.update(
         contrasts=annotated,

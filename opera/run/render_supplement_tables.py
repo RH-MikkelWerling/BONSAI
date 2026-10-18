@@ -25,6 +25,7 @@ def main():
     recipe = yaml.safe_load(args.config.read_text())
     prepared = []
     seen = set()
+    skipped = []
     for spec in recipe["tables"]:
         name = spec["id"]
         if name in seen or Path(name).name != name or name in {".", ".."}:
@@ -33,6 +34,9 @@ def main():
         source = Path(spec["source"])
         if not source.is_absolute():
             source = args.config.resolve().parent / source
+        if spec.get("optional") and not source.is_file():
+            skipped.append(name)  # produced by a later step; listed, not fatal
+            continue
         data = read_table(source)
         columns = spec["columns"]
         if not 1 <= len(columns) <= 6:
@@ -53,7 +57,7 @@ def main():
     if not prepared:
         raise ValueError("Register real aggregate tables")
     if not args.execute:
-        print(json.dumps({"tables": sorted(seen), "preview": True}))
+        print(json.dumps({"tables": sorted(seen), "skipped": skipped, "preview": True}))
         return
     args.output_dir.mkdir(parents=True, exist_ok=False)
     manifest = []
@@ -63,7 +67,8 @@ def main():
         combined.append(content)
         manifest.append({"id": name, "source": source, "source_sha": sha})
     (args.output_dir / "supplement_tables.tex").write_text("\n\n".join(combined) + "\n")
-    (args.output_dir / "table_manifest.json").write_text(json.dumps({"recipe_sha": file_hash(args.config), "tables": manifest}, indent=2))
+    (args.output_dir / "table_manifest.json").write_text(json.dumps({"recipe_sha": file_hash(args.config), "tables": manifest,
+                    "skipped": skipped}, indent=2))
 
 
 if __name__ == "__main__":

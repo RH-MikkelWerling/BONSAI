@@ -36,3 +36,19 @@ def test_native_entries_and_followup_horizon():
     assert follow["median_days"] == 500 and horizon == 365
     long = short.assign(time_days=900)
     assert followup_horizon(long, entry)[0] == 730
+
+
+def test_native_endpoint_replaces_the_shared_one_and_keeps_the_main_figure():
+    from opera.run.render_clinical_score_panels import expand_index_scores
+    metadata = pd.DataFrame({"index": ["IPI"] * 60, "IPI": ["low"] * 60,
+                             "cohort_fine": ["DLBCL"] * 60})
+    config = {"all_indices": {"template": {"outcome": "tf", "horizon_days": 730},
+                              "minimum_patients": 50, "pooled": False,
+                              "manuscript": {"index": "IPI", "cohort": "DLBCL"}},
+              "native_endpoints": {"IPI": {"outcome": "overall_survival",
+                                           "horizons_days": [730, 365]}}}
+    specs = expand_index_scores(config, metadata)
+    assert [s["outcome"] for s in specs] == ["overall_survival"]
+    assert specs[0]["manuscript_figures"]
+    shared = expand_index_scores({**config, "index_endpoint": "shared"}, metadata)
+    assert sorted(s["outcome"] for s in shared) == ["overall_survival", "tf"]

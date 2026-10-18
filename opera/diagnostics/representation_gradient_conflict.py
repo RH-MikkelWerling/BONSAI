@@ -116,6 +116,7 @@ def _load_model(
     probability_grids: dict[str, torch.Tensor],
     device: torch.device,
     seed: int = 17,
+    *, execution_attn_type: str | None = None,
 ) -> OperaContrastiveModel:
     checkpoint = torch.load(
         checkpoint_path,
@@ -124,6 +125,10 @@ def _load_model(
     )
     hparams = checkpoint.get("hyper_parameters", {})
     model_config = get_saved_encoder_config(hparams)
+    if execution_attn_type is not None:
+        if execution_attn_type != "sdpa":
+            raise ValueError("Only the layout-preserving SDPA execution override is supported")
+        model_config["attn_type"] = execution_attn_type
     if "hidden_size" not in model_config:
         raise ValueError(
             f"Checkpoint {checkpoint_path} does not contain a saved encoder config."

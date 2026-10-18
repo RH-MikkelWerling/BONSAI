@@ -1,11 +1,29 @@
 % Evaluation methods in reported form; empirical tables are filled from the locked analysis.
+\subsection*{Sample size and precision}
+The cohort was not sized for this study. It comprises every eligible patient in
+Denmark over the study period, so the relevant question is what precision this
+fixed sample allows, not how many patients would be needed. Formal criteria for
+the sample size of a new prediction model \citep{Riley2020} assume one outcome
+and a fixed set of predictors, and do not carry over to a model whose learned
+parameters are shared across 69 outcomes. We therefore report, for every
+disease--outcome cell, the number of training events and of test events and
+non-events (\cref{fig:supp-support}), evaluate a cell only when the test period
+has at least five events and five non-events, and judge each estimate by the
+width of its interval. For validation, about 100 events and 100 non-events are
+commonly recommended for precise estimates of discrimination and calibration
+\citep{collins2016validation}. \placeholder{N} cells reached this at one year,
+and cells below this threshold are interpreted with particular caution.
+Pooling evidence across cells can support a panel-level conclusion but does not
+validate a sparsely observed cell for individual clinical use.
+
 \subsection*{Risk sets and paired comparisons}
 The unit of evaluation was one disease--outcome--horizon combination. Its risk
 set was determined by eligibility and ascertainment of the outcome, not by the
 models compared. For each split we report eligible patients, outcome events,
-competing deaths and patients whose status was unknown at the horizon. Each
-paired comparison used the patients with predictions from both models, so
-different contrasts may rest on different risk sets, and their denominators are reported. Cells in which a model could not be fitted or a metric could not be
+competing deaths and patients whose status was unknown at the horizon. Within a cell, available models were required to have identical patient
+identities, labels and data contracts; a silent intersection was not used to
+repair mismatches. Contrasts can cover different sets of evaluable cells, and
+their cell and patient denominators are reported. Cells in which a model could not be fitted or a metric could not be
 estimated remain in the coverage inventory with the reason
 (\cref{fig:supp-coverage}) and are not treated as zero effects.
 
@@ -17,6 +35,24 @@ definitions and the reconstruction of treatment lines are in the appended
 data-definition supplement.
 
 \subsection*{Clinical prognostic indices}
+The quality registries record which prognostic index was scored at diagnosis
+and its risk category. We compared the joint model and the tabular comparators with each applicable index recorded for at least 50 patients of a subtype, in the patients who had it, and with each index used in several subtypes also across all of them, since the IPI, for instance, is applied to many rare lymphomas for which no specific score exists. In DLBCL we also computed the NCCN-IPI from its recorded components \citep{zhou2014nccnipi}. Overall-survival indices were compared on overall survival. Indices whose
+original endpoint was not available, such as progression-based IPS, were
+reported separately on the closest panel proxy and labelled as endpoint-approximate, at the longest prespecified horizon (two years, otherwise one year) within the median follow-up of its population. The original indices were built for longer horizons, so these are shorter-horizon evaluations of the original endpoint, not reproductions. Follow-up was summarised by the reverse Kaplan--Meier method. The IPI is the main comparator because it is recorded for more patients and
+is used in the Danish guideline \citep{DLG2025DLBCL}. The NCCN-IPI, developed
+for rituximab-treated DLBCL \citep{zhou2014nccnipi}, is reported alongside
+in its complete cases. Model risk groups were defined on the tuning set to mirror the index at both ends: the low-risk group was the
+largest whose observed risk did not exceed that of the index's low-risk
+category, the high-risk group flagged the same proportion of patients without
+the event as the index's high-risk category (equal specificity), and patients
+between them were divided in the proportions of the index's intermediate
+categories. The comparison then measures the achieved test-period sensitivity and
+specificity, the size of the low-risk group and its observed risk. Matching on
+tuning data does not guarantee equal specificity or low-group risk in the test
+period. The observed risk in the model's highest-risk 5\% and 10\% shows what it identifies beyond the index's
+top category. Details and a size-matched sensitivity analysis are in the
+Supplementary Methods.
+
 Each index was evaluated in the population and for the endpoint closest to
 those it was developed for, at the same prediction time. Original and evaluated
 endpoints and horizons are listed side by side, and a shorter available
@@ -74,7 +110,13 @@ Censoring-weighted and known-status estimates answer different questions and
 are reported separately, and the known-status analysis is a prespecified
 sensitivity analysis. For the censoring weights we report the censoring model,
 the censoring survival at each horizon and the distribution of weights. Long
-horizons with little follow-up are flagged where estimates are unstable.
+horizons with little follow-up are flagged where estimates are unstable. The
+locked analysis estimates marginal censoring survival separately by disease,
+outcome and split, treating target and competing events as non-censoring
+terminations. The same estimated weights are reused in its patient-bootstrap
+draws, so these intervals condition on the estimated censoring distribution.
+This approximation and the marginal independent-censoring assumption are
+limitations, especially where monitoring and prognosis are related.
 
 Calibration is reported as calibration-in-the-large, the calibration slope
 where estimable, and reliability curves for outcomes chosen by a fixed rule. No
@@ -83,6 +125,11 @@ year, amount of recorded history and timing of the subtype diagnosis are
 reported on their own risk sets. Raw paired effects are reported with the
 hierarchical summaries, and the support curve, unsmoothed and binned analyses
 are treated as views of the same data rather than independent replications.
+
+Regional performance groups each patient by the region with the most
+pre-treatment contacts. The models were trained nationally, so this describes
+variation within the development health system rather than validation in
+regions excluded from training.
 
 \subsection*{Patient representations}
 The representation figures show the same test patients at five stages: local
@@ -98,12 +145,15 @@ summaries over at least \placeholder{N} patients are shown, following the
 disclosure rules of the secure environment.
 
 \subsection*{Numerical tables}
-The supplementary tables give, for every cell, the risk sets, absolute
-performance, paired effects, index comparisons, calibration, operating points
-and sensitivity analyses, together with training resources. Each model was
-trained once, so intervals describe sampling of test patients only. Readable
-summaries accompany the complete cell-level files.
-\placeholder{Populate from the locked analysis.}
+The printed supplementary tables summarise the comparisons that the figures
+show: the panel-level comparisons behind Table~2, paired differences by
+comparison and clinical domain, calibration by model and domain, the evaluated
+cells, events and non-events by domain and horizon, threshold metrics at the
+six decision points, and, where available, the comparisons with each index on
+its original endpoint and the computational resources of each model. Each model
+was trained once, so intervals describe sampling of test patients only. The
+complete cell-level results, including every confusion matrix, accompany the
+paper as machine-readable files, with counts below five suppressed.
 
 \IfFileExists{tables/generated/supplement_tables.tex}{%
   \subsection*{Reviewed numerical summaries}
@@ -112,3 +162,127 @@ summaries accompany the complete cell-level files.
   \noindent\placeholder{Reviewed aggregate summary tables have not yet been
   exported. Complete cell-level numerical tables will accompany the figures.}
 }
+
+
+\subsection*{What the model relies on: attributions and input restriction}
+This secondary analysis asks what the locked joint model reads in a patient's
+history, so that clinicians can judge whether its predictions rest on sensible
+information. It is computed once on the model selected on tuning data, before
+any attribution is inspected, and every figure and table is a summary of that
+one computation. Outcomes, sampling, the reference, the expectations and the
+checks were specified beforehand.
+
+\paragraph{Attribution.} Let $f_{k}(E;C)$ be the prediction for outcome $k$ at
+one year, where $E$ holds the content embeddings of the recorded events (which
+diagnosis, drug or laboratory result and value bin each event was) and $C$ the
+context held fixed (each event's time, the age at it, its position and the
+patient's subtype). The reference $E^0$ replaces every event's content by the
+mean content embedding of training events, an average event, while keeping the
+timeline. The encoder was pretrained to predict the next event, so the mask
+token was never trained and is not a suitable reference. Integrated gradients
+\citep{sundararajan2017ig} give event $j$ the credit
+\begin{equation}
+ a_{jk}=\sum_d(E_{jd}-E^0_{jd})
+ \int_0^1\frac{\partial f_{k}(E^0+\alpha(E-E^0);C)}
+ {\partial E_{jd}}\,d\alpha ,
+\end{equation}
+and the credits add up to $f_k(E;C)-f_k(E^0;C)$. For every outcome $f_k$ is the
+log-odds of the predicted cumulative incidence, so that contributions are
+comparable across rare and common outcomes and across low- and high-risk
+patients. For death, serious infection and severe neutropenia the absolute risk
+is also attributed, for the removal checks and the explanations of single
+patients. All targets share one forward pass along the
+integration path, and the attribution passes through the router, so it
+explains the prediction the model actually makes. For death the attributed
+quantity is the risk of death, so a positive contribution raises predicted
+mortality.
+
+Midpoint integration uses 32 steps and is repeated with 128 when the absolute
+gap between the summed credits and $f_k(E;C)-f_k(E^0;C)$, divided by
+$\max(|f_k(E;C)-f_k(E^0;C)|,0.001)$, exceeds 0.05. Patient--outcome pairs that
+still fail are reported by outcome and excluded from the summaries. The sample
+is 1,500 held-out test patients, up to 40 from each subtype and the rest at
+random, with inverse inclusion weights restoring the population mixture.
+Patient-level outputs are cached with hashes of the inputs, checkpoint and code,
+and stay in the secure environment.
+
+\paragraph{Episodes and concepts.} The unit of interpretation is the episode of
+care: events within one day of each other, such as one admission or one
+diagnostic work-up, because the diagnoses, results and drugs of one admission
+are recorded at different times. Concepts group codes by structure only: ICD-10
+to three characters, ATC to the pharmacological subgroup, procedures to four
+characters, pathology SNOMED codes to three, and laboratory results to the test
+and the third of its value range (low, middle or high) of the latest result.
+Codes were named from the official classifications (ICD-10 in its Danish SKS
+form, the WHO ATC index, the NPU terminology for laboratory tests, SKS for
+procedures and ICD-O morphology for pathology), at the finest level of the
+code's hierarchy that had a name, and grouped into the chapters of each
+classification and into clinical groups whose diagnosis codes are those of the
+outcome definitions (main-text Outcomes section), so a finding and the
+outcome it resembles are defined by the same codes. \placeholder{The names of
+the concepts shown in the figures were reviewed by [reviewer].}
+
+\paragraph{What makes patients differ.} Because the credits add up, each
+patient's prediction is $f_k(E^0;C)+\sum_g c_{g}+r$, with $c_g$ the summed
+credit of source (or time window) $g$ and $r$ the numerical residual. The
+between-patient variance of the predictions therefore divides exactly into
+$\operatorname{cov}(f_k(E^0;C),f_k)+\sum_g\operatorname{cov}(c_g,f_k)
++\operatorname{cov}(r,f_k)$. Each share, a covariance divided by the variance,
+is signed and the shares sum to one. The share of the reference is the part of
+the differences between patients carried by the timing of care, age and
+subtype rather than by what the events were. Intervals come from 1,000
+weighted patient-bootstrap resamples.
+
+\paragraph{Outcome-specific use of the history.} For each patient and pair of
+outcomes, the episode contributions were ranked within each outcome and
+correlated (Spearman). Patient correlations were averaged on the Fisher-$z$
+scale with the sampling weights, for patients with at least five episodes and
+pairs with at least 20 such patients. A model that had learned only a general
+measure of frailty would give high agreement between all outcomes.
+
+\paragraph{Explanations for one patient.} For death, serious infection and
+severe neutropenia, explained in absolute risk, each patient's episodes of care
+are summed and labelled with their timing and main concepts. Two records are
+extracted. For every patient and outcome, the three episodes that most raise and
+the three that most lower the predicted risk, each with its contribution in
+percentage points, is the format a clinical tool could show beside each
+prediction. For one patient, the five episodes that move any of the three risks
+most are shown with what each adds for every outcome, so that the reference,
+the episodes and the rest of the history add up to the prediction. Concepts are
+named from a reviewed list of codes, with laboratory results named by the value
+third of the result. Both records stay in the secure environment and pairs that
+failed the completeness check are left out. The manuscript shows a synthetic
+patient.
+
+\paragraph{Findings and expected effects.} Thirteen findings (seven
+laboratory, three diagnostic and three medication findings) are summarised for
+every outcome as the mean change in predicted log-odds among the patients who
+have them, with 95\% patient-bootstrap intervals, suppressed below 20 patients.
+For 21 finding--outcome cells a direction was fixed before the analysis (for
+example, high LDH raising predicted death and treatment failure, and low
+neutrophils raising predicted severe neutropenia and serious infection). Each is
+seen or opposite when the interval excludes zero on the expected or other side,
+and unclear otherwise. The other cells are descriptive. Agreement with
+expectations shows plausibility, not faithfulness.
+
+\paragraph{Checks.} For faithfulness, the $k$ events with the largest
+attributions were replaced by the reference (and, separately, deleted) and the
+drop in predicted risk was compared with removing $k$ random events and the $k$
+least attributed events, in 200 patients, with $k=5$ prespecified. Deletion can
+create unfamiliar inputs, which is why replacement is primary. In 100 patients
+the attributions were recomputed with the readout, and with the readout and
+encoder layers, redrawn at their original scale \citep{adebayo2018sanity}
+(agreement should be low), and with a per-source reference (agreement should be
+high). Intervals describe the explanation sample given the fitted model and the
+reference, not training-run uncertainty.
+
+\paragraph{Input restriction.} Separately, the same model was evaluated on the
+whole test set with restricted input and without retraining: the timing of care
+only (every event replaced by the average event, as in the reference), without
+laboratory results, without medication, without diagnoses, and with the last
+year of history only.
+For each outcome the held-out AUC at one year was compared with the full input,
+using paired patient-bootstrap resamples shared across outcomes and
+restrictions, and averaged over outcomes and clinical domains. This measures
+what the fitted model relies on, not what a model trained on less information
+could achieve.

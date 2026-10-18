@@ -1,0 +1,74 @@
+% MOCK for discussion: one compact study-design figure (cohort flow, temporal
+% design, supervision scopes). Not included in the manuscript.
+\begin{tikzpicture}[opera,x=1cm,y=1cm,
+    flowbox/.style={rounded corners=0.8mm, draw=OperaBorder, fill=OperaIndigo!4,
+      align=center, font=\sffamily\fontsize{6.6}{7.8}\selectfont, text width=3.6cm,
+      inner sep=3pt},
+    exclbox/.style={rounded corners=0.8mm, draw=OperaBorder, fill=white, align=left,
+      font=\sffamily\fontsize{5.8}{7}\selectfont, text=OperaInkSecondary,
+      text width=2.9cm, inner sep=2.5pt},
+    period/.style={rounded corners=0.6mm, minimum height=6mm, inner sep=0pt,
+      font=\sffamily\fontsize{6.4}{7.6}\selectfont\bfseries, text=white},
+    cell/.style={minimum size=2.2mm, inner sep=0pt, draw=white, line width=.35pt},
+  ]
+  % ------------------------------------------------------------- A: flow
+  \node[panelletter,anchor=north west] at (0,0) {A};
+  \node[eyebrow,anchor=north west] at (.45,-.03) {COHORT};
+  \node[heading,anchor=north west] at (.45,-.36) {Who was studied};
+  \node[flowbox] (all) at (2.3,-1.45) {\textbf{78,668} adults in DALY-CARE with a lymphoid cancer or related diagnosis};
+  \node[flowbox] (first) at (2.3,-2.85) {\textbf{37,557} started first-line treatment};
+  \node[flowbox] (incl) at (2.3,-4.15) {\textbf{37,531} in 24 subtypes, assigned to a period};
+  \node[exclbox,anchor=west] (ex1) at (4.35,-2.15) {\textbf{41,111} no first-line treatment, or IgM MGUS};
+  \node[exclbox,anchor=west] (ex2) at (4.35,-3.5) {\textbf{26} not assigned to a study period};
+  \draw[flow] (all)--(first);
+  \draw[flow] (first)--(incl);
+  \draw[draw=OperaInkMuted,line width=.5pt] (2.3,-2.15)--(ex1.west);
+  \draw[draw=OperaInkMuted,line width=.5pt] (2.3,-3.5)--(ex2.west);
+  \def\periodbox#1#2#3#4{%
+    \node[period,fill=#4,minimum width=1.32cm] at (#1,-5.35) {};
+    \node[font=\sffamily\fontsize{6}{7}\selectfont\bfseries,text=white] at (#1,-5.27) {#3};
+    \node[font=\sffamily\fontsize{5.4}{6}\selectfont,text=white] at (#1,-5.46) {#2};
+    \draw[flow,draw=OperaInkMuted] (2.3,-4.6)--(#1,-5.02);}
+  \periodbox{0.85}{Training}{29,105}{OperaIndigo}
+  \periodbox{2.3}{Tuning}{1,980}{OperaTeal}
+  \periodbox{3.75}{Held-out test}{6,446}{OperaSienna}
+  \node[captionnote,anchor=north west,text width=7.1cm,align=left] at (.2,-5.85)
+    {Counts from the current draft, pending final reconciliation.};
+
+  \draw[divider] (7.55,.05)--(7.55,-7.4);
+
+  % --------------------------------------------------------- B: timeline
+  \node[panelletter,anchor=north west] at (7.85,0) {B};
+  \node[eyebrow,anchor=north west] at (8.3,-.03) {TEMPORAL DESIGN};
+  \node[heading,anchor=north west] at (8.3,-.36) {Trained on the past, tested once on the future};
+  \draw[-{Latex[length=1.6mm]},draw=OperaInkMuted,line width=.55pt] (8.1,-2.0)--(16.9,-2.0);
+  \foreach \x/\y in {8.3/2002,12.9/2021,14.1/2022,15.3/2023,16.5/2025}
+    \node[labelsmall,anchor=north] at (\x,-2.08) {\y};
+  \node[period,fill=OperaIndigo,minimum width=5.0cm,anchor=west] at (8.3,-1.55) {Training: treated to 2021};
+  \node[period,fill=OperaTeal,minimum width=1.15cm,anchor=west] at (13.35,-1.55) {Tuning};
+  \node[period,fill=OperaSienna,minimum width=2.4cm,anchor=west] at (14.55,-1.55) {Held-out test};
+  \draw[OperaInk,line width=1pt,dash pattern=on 2pt off 1.5pt] (13.35,-1.0)--(13.35,-2.7);
+  \node[labelsmall,anchor=north,text width=3.6cm,align=center] at (13.35,-2.65)
+    {1 January 2022: pretraining, vocabulary and laboratory bins use only events before this date};
+  \node[labelsmall,anchor=north west,text width=8.4cm,align=left] at (8.3,-3.75)
+    {Every model, checkpoint, router setting and clinical cutoff was chosen on the tuning year.
+     The held-out test set was evaluated once, after the analysis plan was locked.};
+
+  % ------------------------------------------------- C: supervision scopes
+  \node[panelletter,anchor=north west] at (7.85,-4.95) {C};
+  \node[eyebrow,anchor=north west] at (8.3,-4.98) {SUPERVISION SCOPES};
+  \node[heading,anchor=north west] at (8.3,-5.31) {Which cells provide labels};
+  \foreach \k/\lab in {0/Specialist,1/Disease-pooled,2/Outcome-pooled,3/Joint}{
+    \begin{scope}[shift={(8.55+2.15*\k,-5.95)}]
+      \foreach \r in {0,...,4}{\foreach \c in {0,...,5}{
+        \pgfmathtruncatemacro{\on}{
+          (\k==0 && \r==2 && \c==1) || (\k==1 && \c==1) || (\k==2 && \r==2) || (\k==3)}
+        \ifnum\on=1
+          \node[cell,fill=OperaIndigo!70] at (.24*\c,-.24*\r) {};
+        \else
+          \node[cell,fill=OperaBorder!60] at (.24*\c,-.24*\r) {};
+        \fi}}
+      \node[cell,draw=OperaSienna,line width=.8pt,fill=none] at (.24,-.48) {};
+      \node[labelsmall,anchor=north] at (.6,-1.2) {\lab};
+    \end{scope}}
+\end{tikzpicture}

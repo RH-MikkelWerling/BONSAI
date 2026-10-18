@@ -14,10 +14,16 @@ def main():
     template = Path(__file__).resolve().parents[1] / "configs/paper_results_figures.full.example.yaml"
     recipe = yaml.safe_load(template.read_text())
     inputs = set()
+    # Plot tables live in this workspace; other analysis outputs (for example
+    # clinical_scores/headline_scores.csv) stay where their own step writes them,
+    # one level up in the analysis root.
     for plate in recipe["figures"]:
         for section in ("tables", "json_inputs"):
             for key, source in plate.get(section, {}).items():
-                path = root / "plot_tables" / Path(source).name
+                if source.startswith("${OPERA_PAPER_ANALYSIS_ROOT}/"):
+                    path = root.parent / source.split("}/", 1)[1]
+                else:
+                    path = root / "plot_tables" / Path(source).name
                 plate[section][key] = str(path)
                 inputs.add(str(path))
     table_template = template.parent / "supplement_tables.example.yaml"

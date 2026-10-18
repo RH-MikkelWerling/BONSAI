@@ -1,0 +1,46 @@
+# Clinical groups of codes, used to name and group what the model relies on.
+# Diagnosis groups use the ICD-10 categories of the outcome definitions
+# (opera/R/calculate_adverse_events_update.R), so a finding and the outcome it
+# resembles are defined by the same codes. Entries are ICD-10 three-character
+# categories or ranges of them (SKS form without the leading D), ATC prefixes,
+# SKS procedure prefixes or NPU codes. The longest matching entry wins.
+# Status: draft for clinical review (mark reviewed in the analysis config).
+diagnoses:
+  Sepsis: [A40, A41]
+  Herpes zoster: [B02]
+  Invasive fungal infection: [B44, B45, B46]
+  Pneumocystis pneumonia: [B59]
+  Pneumonia: [J12-J18]
+  Hodgkin lymphoma: [C81]
+  Non-Hodgkin lymphoma: [C82-C86, C88]
+  Multiple myeloma and plasma cell neoplasms: [C90]
+  Lymphoid leukaemia: [C91]
+  Neutropenia: [D70]
+  Anaemia: [D50-D64]
+  Diabetes: [E10-E14]
+  Atrial fibrillation: [I48]
+  Heart failure: [I50]
+  Myocardial infarction: [I21, I22]
+  Stroke or transient ischaemic attack: [I63, I64, G45]
+  Venous thromboembolism: [I26, I80, I81, I82]
+  Hypertension: [I10-I15]
+  Chronic obstructive pulmonary disease: [J44]
+  Acute kidney injury: [N17]
+  Chronic kidney disease: [N18]
+  Fracture: [S02, S12, S22, S32, S42, S52, S62, S72, S82, S92, T02, M80]
+medication:
+  Antibacterials: [J01]
+  Antimycotics: [J02]
+  Antivirals: [J05]
+  Antineoplastics: [L01]
+  Immunosuppressants: [L04]
+  Colony stimulating factors: [L03AA]
+  Systemic corticosteroids: [H02]
+  Antithrombotics: [B01]
+  Diuretics: [C03]
+  Insulins: [A10A]
+  Opioids: [N02A]
+procedures:
+  Red cell transfusion: [BOQA]
+  Platelet transfusion: [BOQC]
+  Respiratory support: [BGDA0, BGDA1, BGDA2, BGDA7]

@@ -144,7 +144,7 @@ def audit_encoder(
         raise ValueError("Paper run refuses an encoder with the wrong hidden width")
     # RI takes its architecture and vocabulary from the local encoder. Local
     # encoders: 4 layers, 64-dimensional heads (4 at width 256, 8 at 512).
-    if origin in {"L", "RI"}:
+    if origin in {"L", "RI", "FZ"}:
         expected = {
             "num_layers": 4,
             "num_attention_heads": expected_width // 64,
@@ -159,7 +159,7 @@ def audit_encoder(
         raise ValueError("Encoder and local vocabulary sizes differ")
     metadata = checkpoint["hyper_parameters"].get("checkpoint_metadata", {})
     sidecar_path = checkpoint_path.parent / "checkpoint_metadata.json"
-    if origin in {"L", "RI", "EA"}:
+    if origin in {"L", "RI", "FZ", "EA"}:
         if not sidecar_path.is_file():
             raise ValueError(
                 "Wait for completed pretraining/DAPT and its metadata sidecar"
@@ -168,7 +168,7 @@ def audit_encoder(
         completed = sidecar.get(
             "completed_epochs", sidecar.get("extra", {}).get("completed_epochs", 0)
         )
-        minimum = minimum_local_epochs if origin in {"L", "RI"} else minimum_dapt_epochs
+        minimum = minimum_local_epochs if origin in {"L", "RI", "FZ"} else minimum_dapt_epochs
         if int(completed) < minimum:
             raise ValueError(
                 f"Encoder fit is not complete enough: {completed} epochs, require {minimum}"
@@ -283,7 +283,7 @@ def main():
             audited[key] = audit_encoder(
                 resolved,
                 row["origin"],
-                expected_width=(args.local_hidden_size if row["origin"] in {"L", "RI"}
+                expected_width=(args.local_hidden_size if row["origin"] in {"L", "RI", "FZ"}
                                 else args.external_hidden_size),
                 minimum_local_epochs=args.minimum_local_pretraining_epochs,
                 minimum_dapt_epochs=args.minimum_dapt_epochs,
