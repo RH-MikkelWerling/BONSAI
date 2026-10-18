@@ -132,9 +132,10 @@ variation within the development health system rather than validation in
 regions excluded from training.
 
 \subsection*{Patient representations}
-The representation figures show the same test patients at five stages: local
-pretraining, the locally pretrained joint model, national pretraining, national
-pretraining with local adaptation, and the nationally initialised joint model.
+The representation figures show the same test patients at five stages:
+pretraining on the cohort, the joint model from that encoder, national
+pretraining, national pretraining adapted to the cohort, and the nationally
+initialised joint model.
 For each stage, the projection was fitted on tuning patients and applied
 unchanged to test patients, so coordinates are comparable within a stage but
 not between stages. For every stage we record the checkpoint, the layer and

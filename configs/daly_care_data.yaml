@@ -1,5 +1,7 @@
 # @package _global_
-# Production conversion of ehr2meds' ready-to-ingest DALY-CARE output.
+# Continuous-value conversion (FiLM value pathway). NOT the paper's
+# representation: the paper encoders read joined lab tokens, see
+# daly_care_joined_bins_data.yaml.
 defaults:
   - data_creation/default_create_data@
   - _self_

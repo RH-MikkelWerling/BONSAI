@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 BONSAI_CONFIGS = [
     "daly_care_data",
+    "daly_care_joined_bins_data",
     "pretrain",
     "pretrain_event_objective",
     "finetune",
@@ -70,6 +71,11 @@ def test_bonsai_hydra_configs_compose(config_environment, config_name):
         assert cfg.training.event_normalized_code_loss is True
         assert "RC_REASON//" in cfg.training.input_only_target_prefixes
         assert cfg.training.ignore_target_tokens == ["[SEP]"]
+    if config_name == "daly_care_joined_bins_data":
+        # The paper representation: joined lab tokens, no numeric payload.
+        assert cfg.numeric_value_mode == "joined_binning"
+        assert cfg.splits == ["train", "tuning"]
+        assert dict(cfg.vocabulary_cutoff_date) == {"year": 2022, "month": 1, "day": 1}
     if config_name == "daly_care_data":
         assert cfg.splits == ["train", "tuning"]
         assert cfg.numeric_value_mode == "continuous"

@@ -145,9 +145,9 @@ years and placed \result{ipi_low_extra_per1000}{M} more at low risk (two-year
 mortality \result{ipi_low_risk_model}{X\%} against
 \result{ipi_low_risk_index}{Y\%}). \placeholder{Both axes of sharing
 contributed, most where data were scarcest.} \placeholder{Nation-scale
-pretraining changed performance by X, local adaptation added Y, and the adapted
-encoder reached the full-data local model within a prespecified margin using
-X\% of the training patients.} Its predictions rested on findings
+pretraining changed performance by X, adapting it to the cohort added Y, and the
+adapted encoder reached the full-data cohort-pretrained model within a
+prespecified margin using X\% of the training patients.} Its predictions rested on findings
 clinicians recognise, read differently for each complication.
 \placeholder{Draft if the results hold: risk prediction in haematology need not
 be built one disease and one outcome at a time.}
@@ -168,8 +168,9 @@ be built one disease and one outcome at a time.}
   two years and placed \result{ipi_low_extra_per1000}{M} more at low risk with
   an observed risk no higher than the IPI low-risk group.
   \item \placeholder{Nation-scale pretraining improved specialised prediction
-  directly / after local adaptation, and reached the full-data local model
-  within the prespecified margin using X\% of its labelled training patients.}
+  directly / after adaptation to the cohort, and reached the full-data
+  cohort-pretrained model within the prespecified margin using X\% of its
+  labelled training patients.}
   \item It relied on findings clinicians recognise, read differently for each
   complication, and can explain each patient's risks by the episodes of care
   behind them.
@@ -282,9 +283,19 @@ haematological outcomes studied here. Reusing such an encoder would allow the
 investment in learning from population records to support many specialised
 applications. But breadth alone does not establish clinical value: rare
 malignancies, treatment histories and laboratory abnormalities may require
-further learning on the target population. We therefore ask separately whether
-the national encoder transfers directly, whether continued local pretraining
-improves it, and whether it reduces the number of labelled patients needed.
+further learning on the target population. Continued self-supervised
+pretraining on the target population, domain adaptation, is the established way
+to close such gaps. In language models it improves on the general model, most
+where the target domain differs most from the pretraining data
+\citep{gururangan2020dont}. For structured health records, adapting a
+foundation model to another hospital or to children improved on the
+off-the-shelf model and matched a model pretrained locally from scratch with
+far fewer local records \citep{guo2024multicenter,lemmon2023pediatric}. Here
+the national population already contains the cohort, so adaptation adds no
+patients and only refocuses the encoder on them. We therefore ask separately whether
+the national encoder transfers directly, whether adapting it to the cohort by
+continued pretraining improves it, and whether it reduces the number of
+labelled patients needed.
 These are tests of reusable clinical infrastructure, beyond whether one model
 wins an average performance comparison. A benefit would establish useful
 transfer from the broader source, rather than identify which source diseases
@@ -298,8 +309,8 @@ horizons from the start of first-line treatment. Specialist, disease-pooled,
 outcome-pooled and joint models trained under one protocol separate the two
 axes of sharing (\cref{fig:supervision-grid}), a routed model tests whether each
 prediction should choose what to borrow, and the same models initialised from a
-local and a national encoder test the value of nation-scale pretraining,
-local adaptation and reduced training-set size (\cref{fig:encoder-transfer}). The benchmarks connect these questions to current practice: gradient-boosted trees tuned
+cohort-pretrained and a national encoder test the value of nation-scale
+pretraining, adaptation to the cohort and reduced training-set size (\cref{fig:encoder-transfer}). The benchmarks connect these questions to current practice: gradient-boosted trees tuned
 for every prediction, with and without the quality-registry variables, and
 every prognostic index recorded in the registers, each on its own endpoint. All
 comparisons are paired on the same patients and were made once, on patients
@@ -391,9 +402,16 @@ and fine-tuning.
 
 To test transfer beyond the specialist cohort, joint and routed models were
 initialised from the nation-scale PHAIR encoder, either directly or after
-continued pretraining on haematology records. The national encoder used its own
-data extract, vocabulary and preprocessing; cohort membership, outcomes and
-downstream selection protocol were matched. These comparisons evaluate the
+continued pretraining on the cohort's records. The national population contains
+the cohort, so the national encoder was pretrained on the cohort's pre-2022
+records (in its own register deliveries) as well as on those of the rest of the
+population. Continued pretraining on the cohort therefore adds no patients: it
+is domain-adaptive pretraining \citep{gururangan2020dont}, which refocuses the
+encoder on the target population. National against cohort pretraining
+measures what the rest of the population adds, and adaptation what refocusing
+adds. The national encoder used its own data extract, vocabulary and
+preprocessing; cohort membership, outcomes and downstream selection protocol
+were matched. These comparisons evaluate the
 encoders as delivered, rather than isolate population scale from coding or
 training budget. Data-efficiency experiments used matched, nested subsets of
 10\%, 25\%, 50\% and all training patients, retaining the full tuning and test
@@ -537,8 +555,8 @@ Joint vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} 
 Joint vs XGBoost pooled across diseases & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 Joint vs XGBoost with registry variables & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 Routed vs joint & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
-National vs local encoder (joint) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
-Adapted national vs local encoder (joint) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+National vs cohort encoder (joint) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+Adapted national vs cohort encoder (joint) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \bottomrule}
 \end{tabular}}
 \end{table}
@@ -681,47 +699,57 @@ could be trained, with \placeholder{absolute performance}. These are reported wi
 \subsection*{Can nation-scale pretraining improve specialised prediction?}
 We next asked whether an encoder learned from population records could become
 a reusable starting point for haematology. With the joint model and the same
-downstream evaluation, replacing local pretraining with the national encoder
-changed one-year AUC by \result{E1_auc}{X} when transferred directly and by
-\result{E3_auc}{Z} after continued pretraining on the local records
-(\cref{fig:encoder-transfer}A--C). \placeholder{The incremental effect of local
+downstream evaluation, replacing the encoder pretrained on the cohort alone with
+the national encoder, which had also seen the rest of the population, changed
+one-year AUC by \result{E1_auc}{X} when transferred directly and by
+\result{E3_auc}{Z} after adapting it to the cohort by continued pretraining
+(\cref{fig:encoder-transfer}A). \placeholder{The incremental effect of
 adaptation, with uncertainty, and whether it was necessary for successful
 transfer.} \placeholder{The effect by the share of a patient's history covered
-by the national vocabulary, by training events and by year of treatment}
-(\cref{fig:supp-national-where}).
+by the national vocabulary and by year of treatment}
+(\cref{fig:supp-national-where}). \placeholder{The gain by the number of training
+events in the cell and by disease} (\cref{fig:encoder-transfer}C--D).
 
 A reusable encoder could also matter by reducing the need for local labels.
 With 10\%, 25\% and 50\% of the training patients, the adapted national encoder
-differed from the local encoder by \result{N10_auc}{A}, \result{N25_auc}{B} and
-\result{N50_auc}{C} in one-year AUC (\cref{fig:encoder-transfer}D--E).
+differed from the cohort encoder by \result{N10_auc}{A}, \result{N25_auc}{B} and
+\result{N50_auc}{C} in one-year AUC (\cref{fig:encoder-transfer}B).
 \placeholder{The smallest tested training fraction that reached the full-data
-local model within a prespecified practical margin, with uncertainty; otherwise
+cohort-encoder model within a prespecified practical margin, with uncertainty; otherwise
 report that this was not established.} This comparison measures downstream
 label requirements, rather than the total computational cost of pretraining.
 
-For the routed model, the corresponding national-versus-local differences were
+For the routed model, the corresponding national-versus-cohort differences were
 \result{E2_auc}{Y} with direct transfer and \result{E4_auc}{W} after adaptation.
 \placeholder{National pretraining and routing were additive / substitutes /
-neither.} As reference comparisons, local pretraining changed the joint model's
+neither.} As reference comparisons, pretraining on the cohort changed the joint model's
 one-year AUC by \result{P0_auc}{X} over random initialisation, and fine-tuning
 changed it by \result{P7_auc}{Y} over a frozen encoder with a trained readout.
 
 \begin{figure}[H]
-  \resultfigure{fig_external}{National pretraining and local adaptation}
-    {A: performance by encoder origin. B: paired effects. C: by disease group.
-    D--E: performance with fewer training patients.}
-  \caption{\textbf{National pretraining, local adaptation and training-set
-  size.} \textbf{A}, One-year AUC of the joint and routed models initialised
-  from the local encoder, the national encoder used directly, and the national
-  encoder after local adaptation (95\% CI, averaged over the cells evaluated
-  for all six models). \textbf{B}, Paired effects of national versus local
-  pretraining, of local adaptation of the national encoder, and of both
-  together. \textbf{C}, The combined effect for the joint model by disease
-  group. \textbf{D}, One-year AUC of the joint model from the local and from the
-  locally adapted national encoder when trained on 10\%, 25\%, 50\% or all of
-  the training patients (nested random subsets with the same patients for every outcome, median and interquartile range over the same cells). \textbf{E}, The
-  difference between the national and local encoders at each share. The downstream
-  training and selection protocol was matched across encoders, and tuning and test patients were never subsampled.}
+  \resultfigure{fig_external}{National pretraining and adaptation to the cohort}
+    {A: from cohort to national pretraining. B: performance with fewer training
+    patients. C--D: the gain by training events and by disease.}
+  \caption{\textbf{National pretraining, adaptation to the cohort and
+  training-set size.} \textbf{A}, One-year AUC of the joint model (filled) and the routed model
+  (outline) initialised from the encoder pretrained on the cohort alone, from
+  the national encoder (pretrained on the whole population, the cohort
+  included) used directly, and from the national encoder adapted to the cohort
+  by continued pretraining on its records (95\% CI,
+  averaged over the cells evaluated for all six models). Arrows give the paired
+  effect of each step, and the bracket the two together. \textbf{B}, Median
+  one-year AUC over the same cells of the joint model from the cohort encoder
+  and from the adapted national encoder, trained on 10\%, 25\%, 50\% or all of
+  the training patients (nested random subsets with the same patients for every
+  outcome). Numbers give the median paired difference at each share; the dashed
+  line marks the cohort-encoder model trained on all patients, and the open circle the
+  share at which the national model reaches it (interpolated on the log scale).
+  \textbf{C}, Paired effect of the adapted national versus the cohort encoder
+  for each cell, by the number of training events in the cell (line and band:
+  median and interquartile range within bins). \textbf{D}, The same effects by
+  disease (diamond and bar: median and interquartile range). The downstream
+  training and selection protocol was matched across encoders, and tuning and
+  test patients were never subsampled.}
   \label{fig:encoder-transfer}
 \end{figure}
 
@@ -852,7 +880,7 @@ alone, and the prognostic indices in their own populations and on their own
 endpoints. \placeholder{Principal findings with uncertainty: how the joint model
 compared with XGBoost and the IPI, what disease pooling, outcome pooling and
 their combination added and whether the two axes were complementary, where the
-gains were largest, what national pretraining and local adaptation added, and
+gains were largest, what national pretraining and adaptation to the cohort added, and
 the most informative null or harmful result.} These results come from a single
 evaluation of patients treated after every modelling decision had been fixed,
 while first-line treatment and the registers were changing, so they describe
@@ -919,21 +947,21 @@ that reuse from the research workflow to the learned representation itself.
 A second implication concerns the role of nation-scale pretraining. The
 important question is whether a population encoder can be reused for a
 specialist service, including outcomes for which it was never explicitly
-trained. \placeholder{Whether direct transfer worked, how much local adaptation
-added, and whether fewer labelled patients sufficed.} If demonstrated, this
+trained. \placeholder{Whether direct transfer worked, how much adaptation to the
+cohort added, and whether fewer labelled patients sufficed.} If demonstrated, this
 would support a broader approach to clinical prediction in Denmark: a
 foundation model learned from population records could become shared
 infrastructure on which individual specialties build their prediction models.
 The investment in learning a representation of longitudinal health records
-could then support many applications, with local adaptation and labelled
-outcomes supplying the clinical specificity. A reduction in label requirements
+could then support many applications, with adaptation to each specialty's
+patients and labelled outcomes supplying the clinical specificity. A reduction in label requirements
 would make this particularly relevant to rare diseases and complications for
 which a dedicated cohort is difficult to assemble. Haematology provides a
 demanding test of this approach, spanning many malignancies and outcomes and
 comparing the resulting predictions with established indices and tuned tabular
 models. A benefit here would justify evaluating the same strategy in other
 Danish specialties; it would not establish that every clinical task benefits.
-Local adaptation would be part of the transfer strategy. Conversely, a benefit
+Adaptation to the target cohort would be part of the transfer strategy. Conversely, a benefit
 restricted to a few endpoints would limit the case for broad reuse.
 These comparisons evaluate the delivered national encoder and its adaptation;
 they do not isolate population scale from differences in coding, architecture
@@ -983,12 +1011,18 @@ alert rate, a small gain in ranking moves some of the patients who will die
 early or have a serious infection or severe cytopenia into the group that
 receives attention, which is why we report the per-1,000 and decision-point
 numbers. Pretrained representations have reduced the labels needed for benchmark
-tasks \citep{wornow2023ehrshot}. \placeholder{Whether the national encoder helped
-directly, only after local adaptation, or not at all, and the share of training
-patients with which it matched the local encoder.} A benefit with fewer patients
+tasks \citep{wornow2023ehrshot} and have been more robust to temporal shift
+\citep{guo2023robustness}, and domain adaptation of health-record foundation
+models has improved them most when the encoder was then frozen and the target
+population differed from the source \citep{guo2024multicenter,lemmon2023pediatric}.
+With full fine-tuning on tens of thousands of labelled patients and a target
+contained in the source, smaller gains are expected, largest with few labels. \placeholder{Whether the national encoder helped
+directly, only after adaptation to the cohort, or not at all, and the share of
+training patients with which it matched the cohort encoder.} A benefit with fewer patients
 would place the value of population pretraining where cohorts are small: rare
-subtypes, smaller health systems and new outcomes. The national and local
-encoders may differ in population, coding and training budget, so these
+subtypes, smaller health systems and new outcomes. The national and cohort
+encoders differ in population (the national one includes the cohort), coding
+and training budget, so these
 comparisons concern the encoders as delivered, not scale alone.
 
 The test period differed from the training period in more than calendar time.
@@ -1379,9 +1413,9 @@ the probability of every outcome by each of six horizons.}
     {The same test patients under five model stages, from local and national
     pretraining to the fine-tuned joint models.}
   \caption{\textbf{Patient representations at each training stage.}
-  The same test patients under five model stages: local pretraining, the
-  locally pretrained joint model, national pretraining, national pretraining
-  with local adaptation, and the nationally initialised joint model. The first
+  The same test patients under five model stages: pretraining on the cohort,
+  the joint model from that encoder, national pretraining, national pretraining
+  adapted to the cohort, and the nationally initialised joint model. The first
   row outlines where each disease group lies, and the others show the local mean
   (Gaussian kernel) of age at treatment, the number of recorded events before
   treatment (log scale) and the IPI category among patients with a recorded IPI,

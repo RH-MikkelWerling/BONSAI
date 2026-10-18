@@ -40,6 +40,11 @@ def test_names_come_from_the_finest_named_level_reviewed_first():
     assert labels.name("PATHOLOGY//M96803") == "Lymphoma morphology"
     assert labels.name("SEX//F") == "Female"
     assert labels.name("RC_SPEC//HAEM") == "Specialty haem"
+    # ehr2meds formats: untimed codes, procedure types, text lab results.
+    assert labels.name("BACKGROUND//SEX//M") == "Male"
+    assert source_of("PROCEDURE_TYPE//A") == "Procedures"
+    assert source_of("DOB") == "Demographics"
+    assert labels.name("LABTEST//NPU19673//NOT_DETECTED") == "Albumin not detected"
 
 
 def test_groups_follow_the_outcome_definitions_and_chapters_the_classification():

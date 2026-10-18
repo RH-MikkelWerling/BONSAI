@@ -51,9 +51,11 @@ encoding, dimensions and available budget provenance.
 
 \section{Training phases and checkpoint selection}
 Self-supervised fitting learns from pre-cutoff histories before outcome fitting.
-The direct nation-scale arm uses the delivered encoder without local
-continuation; its tokenisation and any vocabulary alignment require explicit
-provenance rather than assuming they match the local encoder; the adapted arm adds that continuation from the same artifact.
+The direct nation-scale arm uses the delivered encoder without continued
+pretraining on the cohort; its tokenisation and any vocabulary alignment require
+explicit provenance rather than assuming they match the cohort encoder. The
+adapted arm continues pretraining of the same artifact on the cohort's records,
+which the national population already contains (domain adaptation).
 Supervised checkpoints are selected on the complete tuning set. Actual steps,
 exposure and selected epochs will accompany the planned budgets below.
 \begin{longtable}{L{2.4cm}L{5.5cm}L{6.3cm}}
@@ -73,9 +75,9 @@ not evidence of completed training or matched compute.
 \section{Encoder origin and adaptation schematic}
 \begin{center}
 \begin{tikzpicture}[opera,node distance=9mm and 12mm]
-\node[stageblue,text width=4cm] (l) {Local pretraining\\Local encoder L};
+\node[stageblue,text width=4cm] (l) {Pretraining on the cohort\\Cohort encoder L};
 \node[stageblue,text width=4cm,right=of l] (e) {Nation-scale encoder export\\Direct encoder E};
-\node[stageteal,text width=4cm,below=of e] (ea) {Local continuation from E\\Adapted encoder EA};
+\node[stageteal,text width=4cm,below=of e] (ea) {Continued pretraining of E on the cohort\\Adapted encoder EA};
 \draw[flowteal] (e)--(ea);
 \node[stage,text width=11cm,below=20mm of l] (fits) {Fixed downstream readouts J and R\\Same target splits, labels, horizons and tuning rules};
 \draw[flowblue] (l)--(fits);

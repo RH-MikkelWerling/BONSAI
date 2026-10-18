@@ -13,7 +13,23 @@ PYTHON_BIN="${OPERA_PYTHON:-python}"
 # BONSAI_EPOCHS shortens it (e.g. 10, to compare with the 256 run's epoch_010.ckpt).
 WIDTH="${BONSAI_WIDTH:-256}"
 case "$WIDTH" in 256|512) ;; *) echo "BONSAI_WIDTH must be 256 or 512" >&2; exit 2 ;; esac
-if [[ "$WIDTH" == 256 ]]; then
+# BONSAI_DATASET=<processed release> starts fresh runs on that release: both
+# widths from their YAML (identical apart from width and heads), in their own
+# run directories under data/models/<release>/. Without it, the historical
+# run directories and the 256 run's saved config are used, as before.
+DATASET="${BONSAI_DATASET:-}"
+if [[ -n "$DATASET" ]]; then
+  [[ -f "${BONSAI_PROCESSED_DATA:?}/$DATASET/vocabulary.pt" ]] || {
+    echo "No processed release at $BONSAI_PROCESSED_DATA/$DATASET (run create_data first)" >&2
+    exit 1
+  }
+  DEFAULT_DIR="$REPO/data/models/$DATASET/pretrain_scaled_time2vec_hidden${WIDTH}"
+  if [[ "$WIDTH" == 256 ]]; then
+    RUN_DIR="${BONSAI_256_RUN_DIR:-$DEFAULT_DIR}"
+  else
+    RUN_DIR="${BONSAI_512_RUN_DIR:-$DEFAULT_DIR}"
+  fi
+elif [[ "$WIDTH" == 256 ]]; then
   RUN_DIR="${BONSAI_256_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden256_20261013_v1}"
 else
   RUN_DIR="${BONSAI_512_RUN_DIR:-$REPO/data/models/pretrain_local_scaled_time2vec_hidden512_20261016_v1}"
@@ -34,13 +50,18 @@ if [[ "$MODE" == resume || "$MODE" == resume-preflight ]]; then
         "hydra.run.dir=$RUN_DIR" "paths.ckpt_path=$CKPT"
         training.epochs=20 training.early_stopping_patience=null)
   [[ "$MODE" == resume-preflight ]] && ARGS+=(--cfg job --resolve)
-  echo "Resuming existing 256 run to 20 total epochs: $RUN_DIR"
+  echo "Resuming existing $WIDTH run to 20 total epochs: $RUN_DIR"
   exec "$PYTHON_BIN" -m bonsai.run.pretrain "${ARGS[@]}"
 fi
 : "${BONSAI_256_HEADS:?Set the confirmed number of attention heads, not dimensions per head}"
 : "${BONSAI_256_LAYERS:?Set the confirmed number of transformer layers}"
 BATCH="${BONSAI_256_BATCH_SIZE:-1}"
-"$PYTHON_BIN" - "$BONSAI_256_HEADS" "$BONSAI_256_LAYERS" "$BATCH" "$WIDTH" <<'PY'
+HEADS="$BONSAI_256_HEADS"
+if [[ "$WIDTH" == 512 ]]; then
+  # Keep the head dimension of the 256 encoder unless set explicitly.
+  HEADS="${BONSAI_512_HEADS:-$((BONSAI_256_HEADS * 2))}"
+fi
+"$PYTHON_BIN" - "$HEADS" "$BONSAI_256_LAYERS" "$BATCH" "$WIDTH" <<'PY'
 import sys
 heads, layers, batch, width = map(int, sys.argv[1:])
 if heads <= 0 or width % heads or layers <= 0 or batch <= 0 or 128 % batch:
@@ -48,12 +69,14 @@ if heads <= 0 or width % heads or layers <= 0 or batch <= 0 or 128 % batch:
 print(f'Width {width}; {heads} heads; head dimension {width // heads}; {layers} layers; effective single-GPU batch 128')
 PY
 ARGS=(--config-name "pretrain_harmonized_scaled_time2vec_hidden${WIDTH}_20ep"
-      "model.num_attention_heads=$BONSAI_256_HEADS"
+      "model.num_attention_heads=$HEADS"
       "model.num_layers=$BONSAI_256_LAYERS"
       "training.batch_size=$BATCH"
       "training.accumulate_grad_batches=$((128 / BATCH))"
       "hydra.run.dir=$RUN_DIR")
-if [[ "$WIDTH" != 256 ]]; then
+if [[ -n "$DATASET" ]]; then
+  ARGS+=("dataset=$DATASET" "paths.dir=$BONSAI_PROCESSED_DATA/$DATASET")
+elif [[ "$WIDTH" != 256 ]]; then
   # Width probe: start from the 256 run's own saved config, so data, vocabulary,
   # time encoding and optimiser are identical; change only width, heads, batch
   # and epochs (and the run directory).
@@ -68,7 +91,7 @@ if [[ "$WIDTH" != 256 ]]; then
   echo "Width probe based on the 256 run's config: $REF_CONFIG/config.yaml"
   ARGS=(--config-path "$REF_CONFIG" --config-name config
         "model.hidden_size=$WIDTH"
-        "model.num_attention_heads=$BONSAI_256_HEADS"
+        "model.num_attention_heads=$HEADS"
         "model.num_layers=$BONSAI_256_LAYERS"
         "training.batch_size=$BATCH"
         "training.accumulate_grad_batches=$((128 / BATCH))"
@@ -82,6 +105,11 @@ if [[ -n "${BONSAI_EPOCHS:-}" ]]; then
 fi
 if [[ "$MODE" == preflight ]]; then
   exec "$PYTHON_BIN" -m bonsai.run.pretrain "${ARGS[@]}" --cfg job --resolve
+fi
+if [[ -f "$RUN_DIR/version_0/last.ckpt" ]]; then
+  # auto_resume would silently continue that run (and its vocabulary).
+  echo "$RUN_DIR already holds a run; use 'resume' or choose another run directory" >&2
+  exit 1
 fi
 [[ "${BONSAI_256_ARCHITECTURE_CONFIRMED:-0}" == 1 ]] || {
   echo 'Compare the complete resolved config with the collaborators; then set BONSAI_256_ARCHITECTURE_CONFIRMED=1.' >&2

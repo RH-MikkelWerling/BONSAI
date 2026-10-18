@@ -249,7 +249,7 @@ def build_commands(args, env):
             module(script, "tokenize", "--output-dir", output,
                    "--external-vocab", path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"),
                    "--data-config", value(env, "OPERA_PAPER_EXTERNAL_DATA_CONFIG",
-                                          "daly_care_data")),
+                                          "daly_care_joined_bins_data")),
             module(script, "audit", "--output-dir", output,
                    "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP")),
         ]

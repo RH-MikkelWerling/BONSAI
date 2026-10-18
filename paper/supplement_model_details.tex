@@ -104,7 +104,8 @@ fitted on events before 2022 from patients in the fitting split and applied to
 every event.
 
 Finally, BONSAI \citep{montgomery2025bonsai} turned each patient's events into the sequence the models read
-(configuration \texttt{daly\_care\_separate\_bins\_data.yaml}). The vocabulary
+(configuration \texttt{daly\_care\_joined\_bins\_data.yaml}), reading each
+joined laboratory code as one token. The vocabulary
 was fitted on events before 1 January 2022 from patients in the fitting split,
 and codes first seen after that date were read as an unknown token, so no code
 that appears only in the test period has a learned embedding. Sex and age opened
@@ -238,9 +239,12 @@ laboratory database. The national extract also includes psychiatric hospital
 contacts. The code vocabulary and laboratory bins were fitted on the national
 data. To use the national encoder, our patients' records were taken from the
 national extract and tokenised with its vocabulary, so that it read them in
-the form it was trained on. Outcomes, cohort membership and splits were unchanged. The national and local encoders therefore differ in population, in
+the form it was trained on. Outcomes, cohort membership and splits were unchanged. The national and cohort encoders therefore differ in population, in
 these register deliveries and in training budget, and the comparisons concern
-the encoders as delivered.
+the encoders as delivered. Because the national population contains the cohort,
+the national encoder had seen the cohort's pre-2022 records (in the national
+deliveries) as well as those of everyone else; continued pretraining on the
+cohort adds no patients and is domain adaptation.
 
 In the conversion, codes with fewer than 100 events were merged into their
 parent codes. These counts were taken over a random 90\% of all patients in the
@@ -255,7 +259,8 @@ vocabulary was built from events before 2022 (codes first seen later became
 an unknown token), and pretraining used only events before 2022.
 
 The national encoder was pretrained for 10 epochs with a 1 January 2022
-cutoff. Continued local pretraining and local pretraining from scratch were
+cutoff. Continued pretraining on the cohort (adaptation) and pretraining on the
+cohort from scratch were
 planned for 20 epochs, with validation-based checkpoint selection. Actual
 patients, tokens and optimisation steps are reported separately, because equal
 epochs do not guarantee equal exposure. \placeholder{Verified national training
@@ -264,13 +269,13 @@ provenance/reference.}
 
 \subsection*{Data efficiency of national pretraining}
 To test whether population-scale pretraining is most useful when local labels
-are scarce, the joint model was retrained from the local encoder and from the
-locally adapted national encoder on 10\%, 25\% and 50\% of the training
+are scarce, the joint model was retrained from the cohort encoder and from the
+national encoder adapted to the cohort on 10\%, 25\% and 50\% of the training
 patients, with otherwise identical training. Patients were selected by a fixed
 hash of their identifier, so the subsets are nested (10\% within 25\% within
 50\%), identical for every outcome and reproducible, and each disease keeps
 its expected share. Tuning and test patients were never subsampled, model
-selection used the full tuning set, and every model was evaluated on the same test cells. National versus local was compared at each share with the same
+selection used the full tuning set, and every model was evaluated on the same test cells. National versus cohort encoders were compared at each share with the same
 paired bootstrap as the main analysis.
 
 \subsection*{Comparison with clinical prognostic indices}

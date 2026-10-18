@@ -144,7 +144,7 @@ def main():
     parser.add_argument("--external-meds", type=Path)
     parser.add_argument("--local-meds", type=Path)
     parser.add_argument("--external-vocab", type=Path)
-    parser.add_argument("--data-config", default="daly_care_data",
+    parser.add_argument("--data-config", default="daly_care_joined_bins_data",
                         help="create_data config with the national tokenisation settings")
     parser.add_argument("--membership", type=Path)
     args = parser.parse_args()

@@ -42,8 +42,10 @@ FAMILIES = (
     ("SEX//", "Demographics", "demographics"),
     ("GENDER//", "Demographics", "demographics"),
     ("AGE//", "Demographics", "demographics"),
+    ("DOB", "Demographics", "demographics"),  # ehr2meds birth event (bare code)
     ("DIAGNOSIS_TYPE//", "Diagnoses", "diagnosis_type"),
     ("DIAGNOSIS//", "Diagnoses", "icd10"),
+    ("PROCEDURE_TYPE//", "Procedures", "procedure_type"),
     ("PROCEDURE//", "Procedures", "sks_procedure"),
     ("CONTACT_", "Hospital contacts", "contact"),
     ("PATIENT_TYPE", "Hospital contacts", "contact"),
@@ -66,12 +68,14 @@ ATC_PATTERN = re.compile(r"^[A-Z](\d{2}([A-Z]([A-Z](\d{2})?)?)?)?$")
 NPU_DEFINITION = re.compile(r"^\s*(?P<system>[A-Za-z()]+)\s*[—–-]\s*(?P<component>[^;]+);")
 NPU_SYSTEMS = {"U": "urine", "Csf": "CSF", "Fc": "faeces", "Pt": "patient",
                "Asc": "ascites", "Plr": "pleural fluid", "Sem": "semen"}
-LAB_TEXT = {"NEG": "negative", "POS": "positive"}
+LAB_TEXT = {"NEG": "negative", "POS": "positive"}  # other text results: lower case
 # Words for the attribute namespaces of contacts and demographics.
 ATTRIBUTES = {"RC_ADM_TY": "Admission type", "RC_PRIO": "Priority",
               "RC_REASON": "Contact reason", "RC_REG": "Region", "RC_SPEC": "Specialty",
               "RC_TYPE": "Contact type", "RMA_PAT_TY": "Patient type",
               "CONTACT_TYPE": "Contact type", "CONTACT_SPECIALTY": "Specialty",
+              "CONTACT_REASON": "Contact reason", "CONTACT_PRIORITY": "Priority",
+              "DIAGNOSIS_TYPE": "Diagnosis type", "PROCEDURE_TYPE": "Procedure type",
               "PATIENT_TYPE": "Patient type", "REGION": "Region"}
 SEX = {"F": "Female", "M": "Male", "K": "Female"}
 # SKS main groups and SNOMED axes used in Danish pathology.
@@ -278,8 +282,12 @@ class CodeDictionary:
             return f"SNOMED {code}"
         if system == "npu":
             return code
-        if source == "Hospital contacts" or system in {"demographics", "diagnosis_type"}:
-            head, _, rest = str(token).partition("//")
+        if source == "Hospital contacts" or system in {"demographics", "diagnosis_type",
+                                                       "procedure_type"}:
+            token = str(token).removeprefix("BACKGROUND//")  # untimed codes of BONSAI
+            if token == "DOB":
+                return "Date of birth"
+            head, _, rest = token.partition("//")
             head = head.replace("BG_", "").replace("BACKGROUND", "").strip("_/")
             if head.upper() in {"SEX", "GENDER"} and rest.upper() in SEX:
                 return SEX[rest.upper()]
@@ -315,7 +323,8 @@ class CodeDictionary:
         source, system, code, value = self._parts(token)
         if system == "npu":
             name, origin = self._lab_name(code)
-            text = LAB_TEXT.get(value.upper(), value.lower()) if value else ""
+            text = (LAB_TEXT.get(value.upper(), value.lower().replace("_", " "))
+                    if value else "")
             if text and not value.upper().startswith("BIN"):
                 return f"{name} {text}", origin
             return name, origin

@@ -430,7 +430,14 @@ first-line treatment start). `ContrastiveDataset` validates the derived
 prediction positions and fails before training when they disagree.
 # Numeric representations
 
-The primary production path uses continuous normalized values. ehr2meds fits
+The paper's representation is the joined categorical token
+(`numeric_value_mode: joined_binning`, `configs/daly_care_joined_bins_data.yaml`):
+ehr2meds joins each laboratory result with its bin (`LABTEST//<NPU>//BIN_<k>`,
+upper case, 0-based) or its text value, and BONSAI reads the joined code as an
+ordinary token with no numeric payload. The continuous path below is an
+alternative model.
+
+The continuous path uses continuous normalized values. ehr2meds fits
 per-code transforms on SSL-training subjects and, for the prospective run,
 events before the exclusive 2022-01-01 cutoff. It emits the original,
 unsuffixed code plus `numeric_value_normalized` in `[0, 1]` (or null).

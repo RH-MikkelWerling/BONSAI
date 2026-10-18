@@ -59,9 +59,9 @@ MODEL_STYLE = {
     "LR": ("#9E9E9E", "Logistic regression"),
 }
 ORIGIN_STYLE = {
-    "L": ("#737D8C", "Local"),
+    "L": ("#737D8C", "Cohort"),
     "E": ("#5C7AEA", "National"),
-    "EA": ("#2D3A8C", "National + local"),
+    "EA": ("#2D3A8C", "National, adapted"),
 }
 GAIN_CMAP = LinearSegmentedColormap.from_list(
     "opera_gain", ["#B5451B", "#E7B9A5", "#F7F7F5", "#AEB8DA", "#2D3A8C"]
@@ -488,7 +488,7 @@ HEADLINE_MODELS = (
     ("Outcome-pooled", CONTRAST_STYLE["O-S"][0], ("O-S", "S-X")),
     ("Joint", MODEL_STYLE["J"][0], ("J-X",)),
     ("Routed", MODEL_STYLE["R"][0], ("R-X",)),
-    ("Joint, national + local", ORIGIN_STYLE["E"][0], ("EA-L:J", "J-X")),
+    ("Joint, adapted national", ORIGIN_STYLE["E"][0], ("EA-L:J", "J-X")),
 )
 
 
@@ -737,132 +737,210 @@ def figure_tabular(cells, curve=None, *, horizon=365, mark=None):
 EFFICIENCY_FRACTIONS = (10, 25, 50, 100)
 
 
+def _signed(value, digits=3):
+    return f"{value:+.{digits}f}".replace("-", "−")
+
+
+def _crossing(fractions, values, target):
+    """Share of patients (log-interpolated) at which ``values`` first reach ``target``."""
+    for k, (f, v) in enumerate(zip(fractions, values)):
+        if v >= target:
+            if k == 0:
+                return f, True  # already there at the smallest share
+            f0, v0 = fractions[k - 1], values[k - 1]
+            t = (target - v0) / (v - v0) if v != v0 else 0.0
+            return float(np.exp(np.log(f0) + t * (np.log(f) - np.log(f0)))), False
+    return None, False
+
+
 def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, metric="auc",
                     mark=None):
-    """Q3: nationwide pretraining and local adaptation under fixed readouts.
+    """Q3: can a national encoder become a reusable starting point?
 
-    ``panel`` holds one panel-level row per paired contrast (B); ``cells`` the
-    cell-level adapted-national effects (C, E). Without ``panel``, B reads the
-    first matching row of ``cells``, as in the synthetic proofs. ``models``
-    (``model_cells.csv``) adds the data-efficiency row: D, median AUC of the
-    local and adapted national joint models trained on 10-100% of the
-    training patients (same cells); E, the national advantage at each share.
+    The national population contains the cohort, so "adapted" is domain
+    adaptation (continued pretraining on the cohort), not added data.
+
+    B (with ``models``, ``model_cells.csv``): median one-year AUC of the joint
+    model from the cohort encoder and from the adapted national encoder trained
+    on 10-100% of the training patients (same cells), with the national
+    advantage at each share and the share at which the national model reaches
+    the cohort-encoder model trained on everyone. A: panel AUC from the cohort
+    encoder, the national encoder used directly and after adaptation, with the paired
+    effects of each step (``panel``: one panel-level row per paired contrast;
+    without it, the first matching row of ``cells``, as in the synthetic
+    proofs); the routed model in outline. C-D: the adapted national versus
+    cohort effect per cell (``cells``), by training events and by disease.
     """
     panel_rows = cells if panel is None else panel
     efficiency = models is not None and {"J_L_F10", "J_EA_F10"} <= set(models)
-    fig = plt.figure(figsize=(7.2, 6.3 if efficiency else 3.4))
-    top, bottom = (0.93, 0.56) if efficiency else (0.87, 0.16)
-    grid = fig.add_gridspec(1, 3, width_ratios=[0.85, 1.0, 1.15], wspace=0.85,
-                            left=0.09, right=0.98, top=top, bottom=bottom)
-    ax = fig.add_subplot(grid[0])
-    panel = estimates.loc[(estimates.metric == metric)
-                          & (estimates.horizon_days == horizon)]
-    for x, origin in enumerate(("L", "E", "EA")):
-        for y, readout in enumerate(("J", "R")):
-            row = panel.loc[(panel.origin == origin) & (panel.readout == readout)]
-            if row.empty:
-                continue
-            row = row.iloc[0]
-            color = MODEL_STYLE[readout][0]
-            offset = -0.12 if readout == "J" else 0.12
-            ax.plot([x + offset] * 2, [row.lower, row.upper], color=color, lw=1.3,
-                    alpha=0.5)
-            ax.scatter(x + offset, row.estimate, marker="D" if readout == "J" else "o",
-                       s=26, color=color, zorder=3)
-    ax.set_xticks(range(3), ["Local", "National", "National\n+ local"], fontsize=7.2)
-    ax.set_xlim(-0.5, 2.5)
-    ax.set_ylabel("Panel one-year AUC")
-    _panel_title(ax, "A", "Encoder origin")
-    despine(ax, "y")
-    ax.yaxis.set_major_locator(MaxNLocator(4))
-    _legend(ax, [Line2D([], [], ls="none", marker="D", color=MODEL_STYLE["J"][0],
-                        label="Joint"),
-                 Line2D([], [], ls="none", marker="o", color=MODEL_STYLE["R"][0],
-                        label="Routed")], loc="lower right")
+    national, local = ORIGIN_STYLE["EA"][0], ORIGIN_STYLE["L"][0]
+    fig = plt.figure(figsize=(7.2, 6.9))
+    outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.95], hspace=0.42, left=0.09,
+                             right=0.975, top=0.94, bottom=0.12)
+    top = outer[0].subgridspec(1, 2, width_ratios=[1.0, 1.3], wspace=0.3)
+    bottom = outer[1].subgridspec(1, 2, width_ratios=[1.0, 1.25], wspace=0.08)
 
-    ax = fig.add_subplot(grid[1])
-    contrasts = [("E-L", "National\nvs local"), ("EA-E", "Local\nadaptation"),
-                 ("EA-L", "Adapted national\nvs local")]
-    for y, (contrast, label) in enumerate(contrasts):
-        for readout, offset, marker in (("J", -0.14, "D"), ("R", 0.14, "o")):
-            row = panel_rows.loc[(panel_rows.contrast == f"{contrast}:{readout}")
-                                 & (panel_rows.metric == metric)
-                                 & (panel_rows.horizon_days == horizon)]
-            if row.empty:
-                continue
-            row = row.iloc[0]
-            color = MODEL_STYLE[readout][0]
-            ax.plot([row.lower, row.upper], [y + offset] * 2, color=color, lw=1.3,
-                    alpha=0.5)
-            ax.scatter(row.gain, y + offset, marker=marker, s=26, color=color, zorder=3)
-    ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
-    ax.set_yticks(range(3), [label for _, label in contrasts], fontsize=7)
-    ax.set_ylim(-0.6, 2.6)
-    ax.invert_yaxis()
-    ax.set_xlabel(f"Panel {METRIC_LABEL[metric]} (95% CI)")
-    ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "B", "Paired contrasts")
-    despine(ax, "x")
+    def contrast(name):
+        row = panel_rows.loc[(panel_rows.contrast == name) & (panel_rows.metric == metric)
+                             & (panel_rows.horizon_days == horizon)]
+        return None if row.empty else row.iloc[0]
 
-    ax = fig.add_subplot(grid[2])
-    data = cells.loc[(cells.contrast == "EA-L:J") & (cells.metric == metric)
-                     & (cells.horizon_days == horizon)]
-    order = data.groupby("cohort_group").gain.median().sort_values(ascending=False).index
-    summary = _summary_rows(data.assign(series="EA-L"), ["cohort_group", "series"])
-    _diamond_forest(ax, summary, row_key="cohort_group", row_order=list(order),
-                    series_key="series",
-                    series_style={"EA-L": (ORIGIN_STYLE["EA"][0], "")},
-                    xlabel=f"{METRIC_LABEL[metric]} (median, IQR)", show_counts=False)
-    ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "C", "By disease group")
-
+    # B: the same accuracy with fewer training patients.
+    ax = fig.add_subplot(top[1])
     if efficiency:
-        lower = fig.add_gridspec(1, 2, width_ratios=[1.2, 1], wspace=0.45, left=0.09,
-                                 right=0.98, top=0.42, bottom=0.09)
         year = models.loc[models.horizon_days == horizon]
-        # Full-data models: the local joint model is "J" in model_cells.csv.
-        full = {"L": "J", "EA": "J_EA"}
+        full = {"L": "J", "EA": "J_EA"}  # full-data models in model_cells.csv
         columns = {o: [f"J_{o}_F{f}" if f < 100 else full[o] for f in EFFICIENCY_FRACTIONS]
                    for o in ("L", "EA")}
-        common = year.dropna(subset=[c for cols in columns.values() for c in cols
-                                     if c in year])
-        ax = fig.add_subplot(lower[0])
-        for origin, label in (("L", "Local encoder"), ("EA", "National + local encoder")):
+        common = year.dropna(subset=[c for cols in columns.values() for c in cols if c in year])
+        curves = {}
+        for origin in ("L", "EA"):
             present = [(f, c) for f, c in zip(EFFICIENCY_FRACTIONS, columns[origin])
                        if c in common]
-            fractions = [f for f, _ in present]
             q = np.array([np.nanquantile(common[c], [0.25, 0.5, 0.75]) for _, c in present])
-            color = ORIGIN_STYLE[origin][0]
-            ax.fill_between(fractions, q[:, 0], q[:, 2], color=color, alpha=0.1, lw=0)
-            ax.plot(fractions, q[:, 1], color=color, lw=1.7, marker="D", markersize=4,
-                    label=label)
+            curves[origin] = ([f for f, _ in present], q)
+        (fl, ql), (fn, qn) = curves["L"], curves["EA"]
+        if fl == fn:
+            ax.fill_between(fn, ql[:, 1], qn[:, 1], color=national, alpha=0.16, lw=0)
+        for (fractions, q), color in ((curves["L"], local), (curves["EA"], national)):
+            ax.plot(fractions, q[:, 1], color=color, lw=2.0, marker="o", markersize=4.5,
+                    markeredgecolor="white", markeredgewidth=0.8, zorder=4)
+        target = float(ql[-1, 1])
+        ax.axhline(target, color=local, lw=0.8, ls=(0, (3, 2)), zorder=1)
+        share, already = _crossing(fn, qn[:, 1], target)
+        if share is not None:
+            ax.scatter([share], [target], s=50, color="white", edgecolor=national, lw=1.5,
+                       zorder=5)
+            text = (f"Reaches the cohort-encoder model\ntrained on all patients with "
+                    f"{'≤' if already else '≈'}{share:.0f}% of them")
+            ax.annotate(text, xy=(share, target), xytext=(0.98, 0.05),
+                        textcoords="axes fraction", fontsize=6.6, color=national,
+                        fontweight="bold", ha="right", va="bottom", linespacing=1.15,
+                        arrowprops=dict(arrowstyle="-", color=national, lw=0.6,
+                                        connectionstyle="angle,angleA=180,angleB=90"))
+        part = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)]
+        codes = [f"EA-L:F{f}" for f in EFFICIENCY_FRACTIONS[:-1]] + ["EA-L:J"]
+        for f, code, low, high in list(zip(fn, codes, ql[:, 1], qn[:, 1]))[:-1]:
+            gains = part.loc[part.contrast == code, "gain"].dropna()
+            gap = float(gains.median()) if len(gains) else high - low
+            if high - low > 0.008:  # inside the shaded gap, where there is room
+                ax.text(f * 1.07, (low + high) / 2, _signed(gap), ha="left", va="center",
+                        fontsize=6, color=national, fontweight="bold")
+        ax.text(fn[-1] * 1.08, qn[-1, 1], "National,\nadapted", color=national,
+                fontsize=6.6, va="bottom", ha="left", fontweight="bold", linespacing=1.0)
+        ax.text(fl[-1] * 1.08, ql[-1, 1], "Cohort", color=local, fontsize=6.6, va="top",
+                ha="left", fontweight="bold")
+        ax.text(EFFICIENCY_FRACTIONS[0] * 0.9, target, "cohort encoder, all patients", fontsize=5.8,
+                color=local, va="bottom", ha="left")
         ax.set_xscale("log")
         ax.set_xticks(EFFICIENCY_FRACTIONS, [f"{f}%" for f in EFFICIENCY_FRACTIONS])
         ax.minorticks_off()
+        ax.set_xlim(EFFICIENCY_FRACTIONS[0] * 0.85, EFFICIENCY_FRACTIONS[-1] * 1.6)
         ax.set_xlabel("Share of training patients")
-        ax.set_ylabel("One-year AUC (median, IQR over cells)")
-        ax.legend(frameon=False, fontsize=6.8, loc="lower right")
-        _panel_title(ax, "D", "Training-set size")
-        despine(ax, "y")
-
-        ax = fig.add_subplot(lower[1])
-        codes = [f"EA-L:F{f}" for f in EFFICIENCY_FRACTIONS[:-1]] + ["EA-L:J"]
-        part = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)]
-        for x, (fraction, code) in enumerate(zip(EFFICIENCY_FRACTIONS, codes)):
-            gains = part.loc[part.contrast == code, "gain"].dropna()
-            if gains.empty:
-                continue
-            q1, median, q3 = np.quantile(gains, [0.25, 0.5, 0.75])
-            ax.plot([x, x], [q1, q3], color=ORIGIN_STYLE["EA"][0], lw=1.6, alpha=0.55)
-            ax.scatter(x, median, marker="D", s=30, color=ORIGIN_STYLE["EA"][0], zorder=3)
-        ax.axhline(0, color=PALETTE["zero_line"], lw=0.7)
-        ax.set_xticks(range(len(EFFICIENCY_FRACTIONS)),
-                      [f"{f}%" for f in EFFICIENCY_FRACTIONS])
-        ax.set_xlabel("Share of training patients")
-        ax.set_ylabel(f"{METRIC_LABEL[metric]}, national + local vs local")
+        ax.set_ylabel("One-year AUC (median over cells)")
+        low, high = min(ql[:, 1].min(), qn[:, 1].min()), max(ql[:, 1].max(), qn[:, 1].max())
+        ax.set_ylim(low - 0.45 * (high - low), high + 0.25 * (high - low))
         ax.yaxis.set_major_locator(MaxNLocator(4))
-        _panel_title(ax, "E", "National minus local")
         despine(ax, "y")
+    else:
+        ax.set_axis_off()
+    _panel_title(ax, "B", "Fewer patients for the same accuracy")
+
+    # A: from local to national pretraining, step by step.
+    ax = fig.add_subplot(top[0])
+    level = estimates.loc[(estimates.metric == metric) & (estimates.horizon_days == horizon)]
+    stages = ("L", "E", "EA")
+    for readout, filled in (("R", False), ("J", True)):
+        points = []
+        for x, origin in enumerate(stages):
+            row = level.loc[(level.origin == origin) & (level.readout == readout)]
+            if row.empty:
+                continue
+            row = row.iloc[0]
+            color = (ORIGIN_STYLE[origin][0] if filled else MODEL_STYLE["R"][0])
+            shift = 0 if filled else -0.17
+            if filled:
+                ax.plot([x] * 2, [row.lower, row.upper], color=color, lw=1.3, alpha=0.45)
+            ax.scatter(x + shift, row.estimate, s=58 if filled else 30, zorder=4,
+                       color=color if filled else "white", edgecolor=color,
+                       lw=0 if filled else 1.1, marker="D" if filled else "o")
+            points.append((x + shift, row.estimate))
+        if not filled and len(points) > 1:
+            ax.plot(*zip(*points), color=MODEL_STYLE["R"][0], lw=0.7, alpha=0.5, zorder=2)
+        if filled:
+            for (x0, y0), (x1, y1), name in zip(points, points[1:], ("E-L:J", "EA-E:J")):
+                ax.annotate("", xy=(x1 - 0.1, y1), xytext=(x0 + 0.1, y0),
+                            arrowprops=dict(arrowstyle="-|>", color=national, lw=1.2,
+                                            shrinkA=0, shrinkB=0, mutation_scale=8))
+                row = contrast(name)
+                if row is not None:
+                    ax.text((x0 + x1) / 2 + 0.13, (y0 + y1) / 2 - 0.001,
+                            f"{_signed(row.gain)}\n({row.lower:.3f} to {row.upper:.3f})"
+                            .replace("-", "−"), ha="center", va="top", fontsize=5.9,
+                            color=PALETTE["ink"], linespacing=1.1, zorder=6,
+                            bbox=dict(fc="white", ec="none", pad=0.6, alpha=0.9))
+            total = contrast("EA-L:J")
+            if total is not None and len(points) == 3:
+                x = 2.42
+                ax.plot([x - 0.05, x, x, x - 0.05], [points[0][1], points[0][1], points[2][1],
+                                                      points[2][1]], color=national, lw=0.8)
+                ax.text(x + 0.06, (points[0][1] + points[2][1]) / 2,
+                        f"{_signed(total.gain)}\nin all", ha="left", va="center",
+                        fontsize=6.4, color=national, fontweight="bold", linespacing=1.1)
+    ax.set_xticks(range(3), ["Cohort", "National", "National,\nadapted"], fontsize=7)
+    ax.set_xlim(-0.45, 2.95)
+    ax.set_ylabel("Panel one-year AUC (95% CI)")
+    ax.yaxis.set_major_locator(MaxNLocator(4))
+    despine(ax, "y")
+    ax.legend(handles=[Line2D([], [], ls="none", marker="D", color=national, label="Joint"),
+                       Line2D([], [], ls="none", marker="o", markerfacecolor="white",
+                              color=MODEL_STYLE["R"][0], label="Routed")],
+              loc="upper left", frameon=False, fontsize=6.5, handletextpad=0.3)
+    _panel_title(ax, "A", "From cohort to national pretraining")
+
+    # C-D: where the adapted national encoder helps (cells; shared gain axis).
+    data = cells.loc[(cells.contrast == "EA-L:J") & (cells.metric == metric)
+                     & (cells.horizon_days == horizon)].dropna(subset=["gain"])
+    cx = fig.add_subplot(bottom[0])
+    dx = fig.add_subplot(bottom[1], sharey=cx)
+    if "n_events_train" in data and data.n_events_train.gt(0).any():
+        part = data.loc[data.n_events_train > 0]
+        x = part.n_events_train.astype(float)
+        cx.scatter(x, part.gain, s=7, color=national, alpha=0.22, lw=0, zorder=2)
+        bins = pd.qcut(np.log10(x), q=min(6, max(2, len(part) // 20)), duplicates="drop")
+        trend = part.groupby(bins, observed=True).agg(
+            x=("n_events_train", "median"), q1=("gain", lambda v: v.quantile(0.25)),
+            m=("gain", "median"), q3=("gain", lambda v: v.quantile(0.75)))
+        cx.fill_between(trend.x, trend.q1, trend.q3, color=national, alpha=0.15, lw=0)
+        cx.plot(trend.x, trend.m, color=national, lw=2.0, zorder=3)
+        cx.set_xscale("log")
+        cx.minorticks_off()
+        cx.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
+        cx.set_xlabel("Training events in the cell")
+    cx.axhline(0, color=PALETTE["zero_line"], lw=0.7)
+    cx.set_ylabel(f"{METRIC_LABEL[metric]}, adapted national vs cohort")
+    cx.yaxis.set_major_locator(MaxNLocator(5))
+    despine(cx, "y")
+    _panel_title(cx, "C", "By training events")
+
+    order = data.groupby("cohort_group").gain.median().sort_values(ascending=False).index
+    rng = np.random.default_rng(0)
+    for k, group in enumerate(order):
+        gains = data.loc[data.cohort_group == group, "gain"].to_numpy()
+        dx.scatter(k + rng.uniform(-0.22, 0.22, len(gains)), gains, s=6, color=national,
+                   alpha=0.22, lw=0, zorder=2)
+        q1, median, q3 = np.quantile(gains, [0.25, 0.5, 0.75])
+        dx.plot([k, k], [q1, q3], color=national, lw=2.4, alpha=0.6, zorder=3,
+                solid_capstyle="round")
+        dx.scatter(k, median, marker="D", s=30, color=national, edgecolor="white", lw=0.7,
+                   zorder=4)
+    dx.axhline(0, color=PALETTE["zero_line"], lw=0.7)
+    dx.set_xticks(range(len(order)), list(order), rotation=40, ha="right", fontsize=6.6,
+                  rotation_mode="anchor")
+    dx.set_xlim(-0.6, len(order) - 0.4)
+    dx.tick_params(axis="y", labelleft=False)
+    despine(dx, "y")
+    _panel_title(dx, "D", "By disease")
     watermark(fig, mark)
     return fig
 
@@ -1863,7 +1941,7 @@ def _cell_borders(ax, shape, colour="white", width=1.6):
 
 
 def _count_grid(ax, counts, *, xlabels, xlabel=None, show_y=True, height=0.3,
-                gap=0.1, fontsize=5.6):
+                gap=0.1, fontsize=5.6, label_size=5.4):
     """A compact grid of patient counts below a survival grid, HemaSphere style.
 
     Columns line up with the grid above and the rows are much shorter, so the
@@ -1881,16 +1959,16 @@ def _count_grid(ax, counts, *, xlabels, xlabel=None, show_y=True, height=0.3,
     for (i, j), value in np.ndenumerate(counts):
         grid.text(j, i, _count_text(value) if value else "0", ha="center", va="center",
                   fontsize=fontsize, color=PALETTE["ink_secondary"])
-    grid.set_xticks(range(counts.shape[1]), xlabels, fontsize=6.6)
+    grid.set_xticks(range(counts.shape[1]), xlabels, fontsize=max(6.6, label_size))
     labels = [t.get_text() for t in ax.get_yticklabels()]
     grid.set_yticks(range(counts.shape[0]), labels if show_y else [""] * counts.shape[0])
-    grid.tick_params(axis="y", labelsize=5.4, length=0, pad=2,
+    grid.tick_params(axis="y", labelsize=label_size, length=0, pad=2,
                      labelcolor=PALETTE["ink_secondary"])
     grid.tick_params(axis="x", length=0, pad=3)
     if xlabel:
         grid.set_xlabel(xlabel)
     grid.text(0, 1.04, "Number of patients", transform=grid.transAxes, ha="left",
-              va="bottom", fontsize=5.8, color=PALETTE["ink_secondary"])
+              va="bottom", fontsize=max(5.8, label_size), color=PALETTE["ink_secondary"])
     _cell_borders(grid, counts.shape, width=1.2)
     for spine in grid.spines.values():
         spine.set_visible(False)
@@ -1939,9 +2017,9 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
     data["model_group"] = pd.cut(data.model_risk, [-np.inf, *thresholds, np.inf],
                                  labels=names, right=False).astype(str)
     grid = np.unique(np.r_[np.linspace(0, horizon_days * 1.25, 120), horizon_days])
-    fig = plt.figure(figsize=(7.2, 6.2))
-    top = fig.add_gridspec(1, 2, wspace=0.12, left=0.08, right=0.98, top=0.93,
-                           bottom=0.60)
+    fig = plt.figure(figsize=(7.2, 7.0))
+    top = fig.add_gridspec(1, 2, wspace=0.12, left=0.08, right=0.98, top=0.94,
+                           bottom=0.63)
     estimates = []
     for column, (key, order, title, letter) in enumerate((
             ("model_group", names, "Model risk group", "A"),
@@ -1980,16 +2058,24 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         risk_counts = [[_count_text((data.loc[data[key] == group, "time_days"] >= t).sum())
                         for t in risk_times] for group in order]
         table = ax.table(cellText=risk_counts, rowLabels=order,
-                         colLabels=["At risk: baseline", f"{horizon_days / 2 / 365.25:.1f} y",
+                         colLabels=["Start", f"{horizon_days / 2 / 365.25:.1f} y",
                                     f"{horizon_days / 365.25:.1f} y"],
-                         bbox=[0.05, -0.43, 0.95, 0.20], cellLoc="center")
+                         bbox=[0.18, -0.52, 0.82, 0.27], cellLoc="center")
         table.auto_set_font_size(False)
-        table.set_fontsize(5)
-        for cell in table.get_celld().values():
+        table.set_fontsize(7)
+        colors = dict(zip(order, _risk_colors(len(order))))
+        for (row, col), cell in table.get_celld().items():
             cell.set_edgecolor("white")
+            if col == -1 and row > 0:  # group names in their curve colours
+                cell.get_text().set_color(colors[order[row - 1]])
+                cell.get_text().set_fontweight("bold")
+            if row == 0:
+                cell.get_text().set_color(PALETTE["ink_secondary"])
+        ax.text(0.0, -0.25, "Number at risk", transform=ax.transAxes, fontsize=7,
+                color=PALETTE["ink_secondary"], va="bottom")
         despine(ax, "y")
-    bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.55, left=0.2,
-                              right=0.97, top=0.40, bottom=0.17)
+    bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.6, left=0.22,
+                              right=0.97, top=0.37, bottom=0.17)
     ax = fig.add_subplot(bottom[0])
     estimates = pd.DataFrame(estimates)
     labels = []
@@ -1997,13 +2083,14 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         ax.plot([row.lower, row.upper], [y, y], color=row.color, lw=1.4, alpha=0.55)
         ax.scatter(row.estimate, y, marker="D", s=26, color=row.color, zorder=3)
         labels.append(f"{row.group} ({_count_text(row.events)}/{_count_text(row.n)})")
-    ax.set_yticks(range(len(labels)), labels, fontsize=6.8)
+    ax.set_yticks(range(len(labels)), labels, fontsize=7.4)
     split = int((estimates.system == "Model risk group").sum())
     ax.axhline(split - 0.5, color=PALETTE["grid"], lw=1)
     for label, centre in (("Model", (split - 1) / 2),
                           (ipi_label, split + (len(estimates) - split - 1) / 2)):
-        ax.text(-0.72, centre, label, transform=ax.get_yaxis_transform(), ha="center",
-                va="center", fontsize=7, color=PALETTE["ink_muted"], rotation=90)
+        ax.text(-0.78, centre, label, transform=ax.get_yaxis_transform(), ha="center",
+                va="center", fontsize=7.6, color=PALETTE["ink_secondary"], rotation=90,
+                fontweight="bold")
     ax.invert_yaxis()
     ax.set_xlim(0, 1)
     ax.set_xlabel(f"{horizon_days // 365}-year "
@@ -2032,13 +2119,13 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         for j, (value, low, high, count) in enumerate(row):
             if count:
                 text = _estimate_text(value, low, high)
-                ax.text(j, i, text, ha="center", va="center", fontsize=5.8, linespacing=1.1,
+                ax.text(j, i, text, ha="center", va="center", fontsize=7.2, linespacing=1.1,
                         color="white" if np.isfinite(value) and
                         (value < 0.45 if event_free else value > 0.55)
                         else PALETTE["ink"])
     ax.set_xticks(range(len(names)), names,
-                  fontsize=6.8)
-    ax.set_yticks(range(len(ipi_order)), list(ipi_order), fontsize=6.8)
+                  fontsize=7.4)
+    ax.set_yticks(range(len(ipi_order)), list(ipi_order), fontsize=7.4)
     ax.set_xlabel("Model risk group")
     ax.set_ylabel(ipi_label)
     ax.grid(False)
@@ -2053,7 +2140,7 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         ax.add_patch(Rectangle((k - 0.5, k - 0.5), 1, 1, fill=False, lw=1.3,
                                edgecolor=PALETTE["ink"], zorder=4))
     _count_grid(ax, [[cell[3] for cell in row] for row in table], xlabels=names,
-                xlabel="Model risk group")
+                xlabel="Model risk group", fontsize=7, label_size=6.8)
     del image
     watermark(fig, mark)
     return fig

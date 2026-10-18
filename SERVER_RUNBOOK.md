@@ -39,7 +39,8 @@ Before launching ehr2meds, inspect its fully resolved pipeline and require:
 - `aggregate_numeric_metadata` fits only physical `train`;
 - its exclusive event-time cutoff is `2022-01-01`;
 - `annotate_numeric_values` reuses that fitted metadata for every partition;
-- `join_numeric_bins` runs after annotation and produces `CODE//bin_k`;
+- `join_numeric_bins` runs after annotation and produces `CODE//BIN_k`
+  (upper case, 0-based), followed by `join_lab_text_values`;
 - finalized shards remain ordered by subject, time, and `row_idx`;
 - numeric metadata, resolved config, split manifest, and commit SHA are
   archived beside the MEDS output.
@@ -182,32 +183,44 @@ Never place patient data, checkpoints, or results inside the Git worktree.
 
 ## 4. Create model-ready subject data
 
-Inspect the locked configuration:
+The paper's encoders read joined laboratory tokens (`LABTEST//<NPU>//BIN_<k>`,
+`LABTEST//<NPU>//<text>`) as ordinary codes: ehr2meds runs
+`annotate_numeric_values`, `join_numeric_bins` and `join_lab_text_values`, and
+BONSAI uses `numeric_value_mode: joined_binning`
+(`configs/daly_care_joined_bins_data.yaml`), which drops the numeric columns.
+`daly_care_data.yaml` (continuous values, FiLM) is a different model.
+
+First run the release preflight (counts only; exit 1 on any failure):
 
 ```bash
-python -m bonsai.run.create_data \
-  --config-name daly_care_data \
-  --cfg job
+python -m opera.run.check_meds_release --meds-dir "$EHR2MEDS_OUTPUT" \
+  --membership "$BONSAI_COHORT_MEMBERSHIP" --outcomes-dir "$BONSAI_OUTCOMES_DIR" \
+  --old-vocab "$OPERA_PAPER_LOCAL_VOCAB" \
+  --output "$EHR2MEDS_OUTPUT/meds_release_check.json"
 ```
 
-Confirm that it shows:
+The production preMEDS config uses the pseudonymised identifiers as
+`subject_id` directly (no `subject_id_mapping`), so identifiers are stable
+across ehr2meds runs; the membership and outcome coverage checks confirm that
+they match. Pass `--old-mapping`/`--new-mapping` only if a run renumbers
+subjects.
 
-```yaml
-splits: [train, tuning]
-numeric_value_mode: legacy
-vocabulary_cutoff_date: {year: 2022, month: 1, day: 1}
-```
-
-Then run:
+Inspect the locked configuration, then run it under a new dataset name:
 
 ```bash
-python -m bonsai.run.create_data --config-name daly_care_data
+python -m bonsai.run.create_data --config-name daly_care_joined_bins_data \
+  dataset=daly_care_t100_joined_bins_<release> --cfg job
+python -m bonsai.run.create_data --config-name daly_care_joined_bins_data \
+  dataset=daly_care_t100_joined_bins_<release>
 ```
+
+Confirm `numeric_value_mode: joined_binning`, `splits: [train, tuning]` and
+`vocabulary_cutoff_date: {year: 2022, month: 1, day: 1}`.
 
 This writes:
 
 ```text
-$BONSAI_PROCESSED_DATA/daly_care/
+$BONSAI_PROCESSED_DATA/daly_care_t100_joined_bins_<release>/
 ├── subject_data_train.pt
 ├── subject_data_tuning.pt
 ├── vocabulary.pt
@@ -220,8 +233,8 @@ population table and copy in the outcome directory:
 
 ```bash
 cp \
-  "$BONSAI_PROCESSED_DATA/daly_care/population_full.csv" \
-  "$BONSAI_PROCESSED_DATA/daly_care/tokenized_subjects.csv"
+  "$BONSAI_PROCESSED_DATA/daly_care_t100_joined_bins_<release>/population_full.csv" \
+  "$BONSAI_PROCESSED_DATA/daly_care_t100_joined_bins_<release>/tokenized_subjects.csv"
 
 cp /source/validated/population_full.csv "$BONSAI_COHORT_MEMBERSHIP"
 mkdir -p "$BONSAI_OUTCOMES_DIR"
