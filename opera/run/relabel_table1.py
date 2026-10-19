@@ -18,7 +18,7 @@ import argparse
 import re
 from pathlib import Path
 
-from opera.run.format_table1_release import REGION_NAMES
+from opera.run.format_table1_release import REGION_NAMES, _note, indent_hierarchy
 from opera.visualization.paper_taxonomy import FINE_IN_GROUP, FINE_LONG, GROUP_LONG
 
 # Labels of the formatter before 2026-10-19 (the reviewed export used these).
@@ -36,7 +36,14 @@ SUFFIXES = (", median (IQR)", r", $n$ (\%)")
 DROPPED_BLOCKS = ("Subtype assignment", "First-line treatment")
 HEADER = re.compile(r"^\\multicolumn\{\d+\}\{@\{\}l\}\{(?P<name>[^{}]*)\}\\\\\s*$")
 OLD_LABELS = {"Median follow-up (reverse Kaplan-Meier), years":
-              "Reverse Kaplan--Meier follow-up, years"}
+              "Follow-up (reverse Kaplan--Meier), years",
+              "Reverse Kaplan--Meier follow-up, years":
+              "Follow-up (reverse Kaplan--Meier), years"}
+# Rows and lines left out so Table 1 fits one page (format_table1_release).
+DROPPED_HEADERS = ("Disease group and subtype",)
+DROPPED_ROWS = ("Follow-up, years", "Year of treatment")
+# Registry blocks shown without "Not recorded" (the remainder; see the note).
+REMAINDER_BLOCKS = ("Performance status", "Risk group", "NCCN-IPI")
 CAPTION_END = "by temporal split.}"
 REVIEW_SENTENCE = ("Review version pending supervisor sign-off; values are the disclosure-"
                    "processed aggregate export. ")
@@ -70,7 +77,7 @@ def relabel_label(label):
 
 def drop_rows(lines):
     """Remove the dropped blocks; show sex as one row (Female), as the formatter now does."""
-    out, skipping, pending_sex = [], False, False
+    out, skipping, pending_sex, block = [], False, False, ""
     for line in lines:
         header = HEADER.match(line)
         name = header["name"] if header else None
@@ -92,6 +99,15 @@ def drop_rows(lines):
                 out.append("Female &" + rest)
             continue  # the other level is the complement
         pending_sex = False
+        if name is not None:
+            block = name
+        if name in DROPPED_HEADERS:
+            continue
+        if (block.startswith(REMAINDER_BLOCKS) and "&" in line
+                and line.split("&", 1)[0].strip() == r"\quad Not recorded"):
+            continue
+        if "&" in line and line.split("&", 1)[0].strip() in DROPPED_ROWS:
+            continue
         if name == r"\sffamily\bfseries Other characteristics":
             # Its one row (reverse Kaplan--Meier follow-up) joins Follow-up.
             if out and out[-1].strip() == r"\addlinespace":
@@ -113,16 +129,39 @@ def relabel(tex):
         elif line.startswith(r"\caption{") and line.endswith(CAPTION_END):
             line = line[: -len(CAPTION_END)] + CAPTION_NEW
         if line.startswith(r"\caption{"):
-            line = line.replace(REVIEW_SENTENCE, "")
+            line = line.replace(REVIEW_SENTENCE, "").replace(
+                r"One record per patient at the shared first-line index, by temporal split. "
+                r"Values are $n$ (\%) or median (IQR).}",
+                r"One record per patient, by temporal split; $n$ (\%) or median (IQR).}")
         elif line.strip() == r"\setlength{\tabcolsep}{5pt}":
             line = r"\setlength{\tabcolsep}{4pt}"
+        elif line.strip() == r"\footnotesize":
+            line = r"\scriptsize"
+        elif line.strip() == r"\renewcommand{\arraystretch}{1.0}":
+            line = r"\renewcommand{\arraystretch}{0.92}"
+        elif line.strip() == r"\addlinespace":
+            line = r"\addlinespace[2pt]"
+        elif line.startswith((r"\par\vspace{1mm}{\scriptsize Counts of 1--4",
+                              r"\par\vspace{1mm}\begingroup\raggedright\scriptsize Counts")):
+            line = _note("primary-only")  # the notes, merged into one paragraph
+        elif line.startswith(r"\par{\scriptsize $^{\dagger}$"):
+            continue
+        line = line.replace(r"{\footnotesize\itshape", r"{\scriptsize\itshape").replace(
+            r"{\footnotesize $n$", r"{\scriptsize $n$")
         out.append(line)
+    # Body only (between the header rule and the closing rule).
+    top = next((i for i, l in enumerate(out) if l.strip() == r"\midrule"), -1)
+    bottom = max((i for i, l in enumerate(out) if l.strip() == r"\bottomrule"),
+                 default=len(out))
+    out[top + 1:bottom] = indent_hierarchy(out[top + 1:bottom])
     return "\n".join(out) + ("\n" if tex.endswith("\n") else "")
 
 
 def value_cells(tex):
-    return [line.split("&", 1)[1] for line in tex.splitlines()
-            if "&" in line and not line.startswith("%")]
+    """Value columns of every row; the header's font size is not a value."""
+    return [line.split("&", 1)[1].replace(r"{\footnotesize ", r"{\scriptsize ")
+            .replace(r"{\footnotesize\itshape", r"{\scriptsize\itshape")
+            for line in tex.splitlines() if "&" in line and not line.startswith("%")]
 
 
 def is_subsequence(kept, original):

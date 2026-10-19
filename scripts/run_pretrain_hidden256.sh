@@ -9,9 +9,11 @@ if [[ -f "$REPO/setup_v100.sh" ]]; then
   source "$REPO/setup_v100.sh"
 fi
 PYTHON_BIN="${OPERA_PYTHON:-python}"
-# BONSAI_WIDTH=512 runs the width probe (configs/..._hidden512_20ep.yaml);
-# BONSAI_EPOCHS shortens it (e.g. 10, to compare with the 256 run's epoch_010.ckpt).
+# BONSAI_WIDTH=512 runs the width probe (configs/..._hidden512_20ep.yaml).
+# Every encoder is pretrained for 10 epochs (decided 2026-10-19, as the national
+# encoder); BONSAI_EPOCHS overrides it.
 WIDTH="${BONSAI_WIDTH:-256}"
+EPOCHS="${BONSAI_EPOCHS:-10}"
 case "$WIDTH" in 256|512) ;; *) echo "BONSAI_WIDTH must be 256 or 512" >&2; exit 2 ;; esac
 # BONSAI_DATASET=<processed release> starts fresh runs on that release: both
 # widths from their YAML (identical apart from width and heads), in their own
@@ -48,9 +50,9 @@ if [[ "$MODE" == resume || "$MODE" == resume-preflight ]]; then
   # No need to repeat architecture-confirmation environment variables.
   ARGS=(--config-path "$CONFIG_DIR" --config-name config
         "hydra.run.dir=$RUN_DIR" "paths.ckpt_path=$CKPT"
-        training.epochs=20 training.early_stopping_patience=null)
+        "training.epochs=$EPOCHS" training.early_stopping_patience=null)
   [[ "$MODE" == resume-preflight ]] && ARGS+=(--cfg job --resolve)
-  echo "Resuming existing $WIDTH run to 20 total epochs: $RUN_DIR"
+  echo "Resuming existing $WIDTH run to $EPOCHS total epochs: $RUN_DIR"
   exec "$PYTHON_BIN" -m bonsai.run.pretrain "${ARGS[@]}"
 fi
 : "${BONSAI_256_HEADS:?Set the confirmed number of attention heads, not dimensions per head}"
@@ -98,11 +100,9 @@ elif [[ "$WIDTH" != 256 ]]; then
         "paths.ckpt_path=null"
         "hydra.run.dir=$RUN_DIR")
 fi
-if [[ -n "${BONSAI_EPOCHS:-}" ]]; then
-  ARGS+=("training.epochs=$BONSAI_EPOCHS")
-  # The inherited epoch-10 milestone checkpoint only applies to longer runs.
-  (( BONSAI_EPOCHS <= 10 )) && ARGS+=("training.checkpoint_milestone_epochs=[]")
-fi
+ARGS+=("training.epochs=$EPOCHS")
+# The inherited epoch-10 milestone checkpoint only applies to longer runs.
+(( EPOCHS <= 10 )) && ARGS+=("training.checkpoint_milestone_epochs=[]")
 if [[ "$MODE" == preflight ]]; then
   exec "$PYTHON_BIN" -m bonsai.run.pretrain "${ARGS[@]}" --cfg job --resolve
 fi

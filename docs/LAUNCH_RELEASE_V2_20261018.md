@@ -124,6 +124,10 @@ bash scripts/run_paper_experiments.sh tabular --registry --shard-count 4 --shard
 
 ## 5. Width decision (as soon as the 512 run has its 10 epochs)
 
+> **Decided 2026-10-19: keep 256.** The 512 probe gained 0.003 tuning macro AUC
+> over the 256 probe at equal (10-epoch) pretraining, below the 0.01 rule. Paper
+> encoder: the 256 run's `epoch_010.ckpt` (`OPERA_PAPER_LOCAL_WIDTH=256`).
+
 The 256 run is still training then, so the probe uses its named epoch-10
 milestone (accepted by the width probe only; its epoch is checked against its
 name). `prepare` only records the encoder path, so the stage-1 bundle can be

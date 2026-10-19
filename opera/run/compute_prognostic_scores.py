@@ -139,7 +139,8 @@ def main():
     scores = compute_scores(registry, column_map)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     scores.to_parquet(args.output, index=False)
-    summary = {column: scores[column].value_counts(dropna=False).to_dict()
+    summary = {column: {("missing" if pd.isna(k) else str(k)): int(v)
+                        for k, v in scores[column].value_counts(dropna=False).items()}
                for column in scores if column.endswith("_group")}
     print(json.dumps({"output": str(args.output), "patients": len(scores),
                       "groups": summary}, indent=2, default=str))

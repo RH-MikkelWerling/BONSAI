@@ -59,3 +59,23 @@ def test_nccn_ipi_is_collapsed_and_kept_for_dlbcl_only():
         "Low", "Intermediate", "Intermediate", "High", "Not recorded"]
     assert pd.isna(nccn_risk(groups, cohorts).iloc[5])
     assert risk_category("very high") == "High" and risk_category("medium") == "Intermediate"
+
+
+def test_dlbcl_risk_group_comes_from_the_computed_nccn_ipi(tmp_path):
+    import subprocess, sys
+    metadata = pd.DataFrame({
+        "subject_id": [1, 2, 3], "cohort_fine": ["DLBCL", "DLBCL", "FL"],
+        "ipi_records_json": [_records(("IPI", "low", "0", "DLBCL")),
+                             _records(("IPI", "high", "1", "DLBCL")),
+                             _records(("FLIPI", "high", "1", "FL"))]})
+    metadata.to_parquet(tmp_path / "meta.parquet")
+    pd.DataFrame({"subject_id": [1, 2, 3], "nccn_ipi_group": ["high-intermediate", None, "low"]}
+                 ).to_parquet(tmp_path / "scores.parquet")
+    out = tmp_path / "clinical.parquet"
+    subprocess.run([sys.executable, "-m", "opera.run.flatten_ipi_records", "--metadata",
+                    str(tmp_path / "meta.parquet"), "--scores", str(tmp_path / "scores.parquet"),
+                    "--output", str(out)], check=True, capture_output=True)
+    t = pd.read_parquet(out).set_index("subject_id")
+    assert (t.loc[1, "risk_category"], t.loc[1, "risk_source"]) == ("Intermediate", "NCCN-IPI (computed)")
+    assert (t.loc[2, "risk_category"], t.loc[2, "risk_source"]) == ("High", "IPI")  # not computable
+    assert (t.loc[3, "risk_category"], t.loc[3, "risk_source"]) == ("High", "FLIPI")  # not DLBCL

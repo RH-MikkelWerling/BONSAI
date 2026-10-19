@@ -8,7 +8,9 @@ index), because a patient can have several. This writes one row per patient:
   the source (used by the clinical-score comparison);
 - ``PS``: recorded performance status;
 - ``risk_category``: Low / Intermediate / High, the recorded category of the
-  disease's own index;
+  disease's own index; for DLBCL the NCCN-IPI computed from registry
+  components where it can be (its two intermediate groups merged), otherwise
+  the recorded index; ``risk_source`` names which;
 - ``performance_status``: 0–1 / 2–4;
 - ``ipi_resolution``: how the row was obtained (none, single, agreeing,
   conflicting).
@@ -137,12 +139,19 @@ def main():
         table = table.merge(scores, on="subject_id", how="left", validate="one_to_one")
         print(f"joined {path.name}: {int(table[scores.columns[1]].notna().sum()):,} "
               "patients with a value")
+    table["risk_source"] = table["index"].where(table.risk_category != NOT_RECORDED)
     if "nccn_ipi_group" in table:
         if "cohort_fine" not in metadata:
             raise SystemExit("NCCN-IPI for Table 1 needs cohort_fine in the metadata (DLBCL only)")
         cohorts = metadata.set_index("subject_id").cohort_fine.reindex(table.subject_id)
         table["nccn_ipi_risk"] = nccn_risk(table.nccn_ipi_group, cohorts.reset_index(drop=True))
+        # DLBCL: the NCCN-IPI computed from components decides the risk group
+        # where it can be computed; otherwise the recorded index is kept.
+        computed = table.nccn_ipi_risk.notna() & (table.nccn_ipi_risk != NOT_RECORDED)
+        table.loc[computed, "risk_category"] = table.loc[computed, "nccn_ipi_risk"]
+        table.loc[computed, "risk_source"] = "NCCN-IPI (computed)"
         print("nccn_ipi_risk (DLBCL):", table.nccn_ipi_risk.value_counts().to_dict())
+        print("risk group source:", table.risk_source.fillna(NOT_RECORDED).value_counts().to_dict())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     table.to_parquet(args.output, index=False)
     print(f"{len(table):,} patients -> {args.output}")

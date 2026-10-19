@@ -5,6 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import re
+
 import pandas as pd
 
 from opera.functional.table1_release import release_table
@@ -33,14 +35,12 @@ LAYOUT = [
         ("age", "Age at treatment, years", 0),
         ("age_ge70", "Age $\\geq$70 years", None),
         ("sex", "Sex", None),
-        ("index_year", "Year of treatment", "year"),
     ]),
     ("Disease", [
         ("cohort_grouped", "Disease group and subtype", None),
         ("cohort_source", "Subtype assignment", None),
         ("performance_status", "Performance status (ECOG)", None),
-        ("risk_category", "Risk group by disease-specific index$^{\ddagger}$", None),
-        ("nccn_ipi_risk", "NCCN-IPI risk group, DLBCL$^{\S}$", None),
+        ("risk_category", r"Risk group by disease-specific index$^{\ddagger}$", None),
         ("prognostic_score_by_system", "Prognostic index recorded at diagnosis", None),
         ("nccn_ipi_group", "NCCN-IPI risk group (DLBCL)", None),
         *[(name, "First-line treatment", None) for name in (
@@ -60,14 +60,21 @@ LAYOUT = [
         (SPECIALTY_PREFIX, "Contact with specialty", None),
     ]),
     ("Follow-up", [
-        ("followup_days", "Follow-up, years", 1),
-        ("followup_reverse_km", "Reverse Kaplan--Meier follow-up, years", 1),
+        # One follow-up row: reverse Kaplan--Meier (deaths do not shorten it).
+        ("followup_reverse_km", "Follow-up (reverse Kaplan--Meier), years", 1),
         ("death_event", "Died during follow-up", None),
     ]),
 ]
 # Shown elsewhere or internal: never listed under "Other characteristics".
-NOT_IN_TABLE = {"patients", "cohort_fine", "index", "ipi", "IPI", "nccn_ipi_score",
-                "predominant_region_status", "female", "PS", "ps"}
+# Left out so Table 1 fits one page: the split periods are in the header.
+NOT_IN_TABLE = {"index_year",
+                "patients", "cohort_fine", "index", "ipi", "IPI", "nccn_ipi_score",
+                "predominant_region_status", "female", "PS", "ps",
+                "followup_days",  # observed follow-up: the reverse KM row is shown
+                "nccn_ipi_risk"}  # part of the risk group (DLBCL), not its own block
+# Registry blocks shown without their "Not recorded" row: percentages are of all
+# patients, the remainder were not recorded (stated in the note).
+REMAINDER_NOT_RECORDED = frozenset({"performance_status", "risk_category"})
 # Shown only in the supplementary table by disease.
 # Also kept out of Table 1: the subtype-assignment pass (an internal pipeline
 # field) and the detailed first-line regimens (too many small categories for
@@ -157,7 +164,7 @@ def _disease_rows(result, cells, informative, width, label):
         name = disease_long_name(fine) if standalone else disease_in_group_name(fine)
         return _tex(name) + dagger
 
-    lines = [r"\multicolumn{%d}{@{}l}{%s}\\" % (width, label)]
+    lines = []  # the "Disease" heading names the block; no extra subheading
     for group in names:
         members = sorted((str(f) for f in fines.category.dropna().unique()
                           if mapping.get(str(f), "Other") == group),
@@ -236,6 +243,8 @@ def _body(result, columns, key, exclude=()):
                     continue
             category_rows = []
             for category in sorted(rows.category.dropna().unique(), key=_category_key):
+                if variable in REMAINDER_NOT_RECORDED and str(category) == "Not recorded":
+                    continue  # the remainder; stated in the note
                 values = cells(rows.loc[rows.category == category], None)
                 if informative(values):
                     category_rows.append(rf"\quad {_tex(_category_label(variable, category))} & "
@@ -244,27 +253,62 @@ def _body(result, columns, key, exclude=()):
                 block.append(r"\multicolumn{%d}{@{}l}{%s%s}\\" % (width, label, suffix))
                 block += category_rows
         if block:
-            lines += [r"\addlinespace", r"\multicolumn{%d}{@{}l}{\sffamily\bfseries %s}\\"
+            lines += [r"\addlinespace[2pt]", r"\multicolumn{%d}{@{}l}{\sffamily\bfseries %s}\\"
                       % (width, section), *block]
     return lines
 
 
+SECTION = re.compile(r"^\\multicolumn\{\d+\}\{@\{\}l\}\{\\sffamily\\bfseries ")
+GROUP_HEADER = re.compile(r"^(\\multicolumn\{\d+\}\{@\{\}l\}\{)(?!\\quad)(?P<name>.*)\}\\\\\s*$")
+
+
+def indent_hierarchy(lines):
+    """One hierarchy for Table 1 rows under a section heading.
+
+    Rows of a section are indented once; a heading with rows under it is bold
+    and its rows are indented twice (disease groups and their subtypes already
+    follow this). Section headings and spacing lines are left as they are.
+    """
+    out, in_group = [], False
+    for line in lines:
+        header = GROUP_HEADER.match(line)
+        if SECTION.match(line) or line.startswith(r"\addlinespace"):
+            in_group = False
+        elif header:
+            line = rf"{header[1]}\quad\textbf{{{header['name']}}}}}\\"
+            in_group = True
+        elif line.startswith(r"\quad \textbf{"):
+            in_group = True  # a disease group; its subtypes are already \qquad
+        elif line.startswith(r"\qquad "):
+            pass
+        elif line.startswith(r"\quad ") and "&" in line:
+            if in_group:
+                line = r"\qquad " + line[len(r"\quad "):]
+        elif "&" in line:
+            line = r"\quad " + line
+            in_group = False
+        out.append(line)
+    return out
+
+
 def _note(policy):
-    return (r"\par\vspace{1mm}{\scriptsize Counts of 1--4 are shown as $<$5. "
-            r"Percentages use patients with a recorded value; history summaries use "
-            r"records before the index date.}") if policy == "primary-only" else ""
+    """One small paragraph under Table 1: disclosure rule and the marked rows."""
+    small_cells = (r"Counts of 1--4 are shown as $<$5; " if policy == "primary-only" else "")
+    return (r"\par\vspace{1mm}\begingroup\raggedright\scriptsize " + small_cells
+            + r"history summaries use records before the index date. "
+            r"$^{\dagger}$No dedicated, externally validated prognostic index "
+            r"(Supplementary \cref{tab:index-availability}). "
+            r"$^{\ddagger}$Category recorded with each disease's registry index (e.g.\ "
+            r"FLIPI, CLL-IPI, ISS), collapsed to low, intermediate and high; for DLBCL the "
+            r"NCCN-IPI computed from registry components (low 0--1; intermediate 2--5, "
+            r"its low- and high-intermediate groups; high $\geq$6), or the recorded index "
+            r"where it could not be computed. Performance status and risk group: "
+            r"percentages of all patients; the remainder were not recorded or had "
+            r"conflicting records.\par\endgroup")
 
 
 def _disease_note():
-    return (r"\par{\scriptsize $^{\dagger}$No dedicated, externally validated prognostic "
-            r"index; the prespecified stratum of subtypes without an index "
-            r"(Supplementary \cref{tab:index-availability}). "
-            r"$^{\ddagger}$The low, intermediate or high category recorded at diagnosis "
-            r"with the index of each disease's quality registry (e.g.\ IPI, FLIPI, "
-            r"CLL-IPI, ISS), collapsed to three groups (e.g.\ CLL-IPI very high as high); "
-            r"not recorded includes conflicting records. "
-            r"$^{\S}$Computed from registry components at diagnosis (low 0--1, "
-            r"intermediate 2--5, high $\geq$6); percentages of patients with DLBCL.}")
+    return ""  # merged into _note so Table 1 fits one page
 
 
 def pooled_table_latex(result, *, source_sha256, status="review", policy="targeted"):
@@ -291,23 +335,22 @@ def pooled_table_latex(result, *, source_sha256, status="review", policy="target
         r"\centering",
         # Written as the final table; review status lives in provenance, not the caption.
         r"\caption{\textbf{Baseline characteristics at first-line treatment.} "
-        r"One record per patient at the shared first-line index, by temporal split. "
-        r"Values are $n$ (\%) or median (IQR).}",
+        r"One record per patient, by temporal split; $n$ (\%) or median (IQR).}",
         r"\label{tab:characteristics}",
-        r"\footnotesize",
+        r"\scriptsize",  # 8 pt, as journal tables, so Table 1 fits one page
         r"\setlength{\tabcolsep}{4pt}",
-        r"\renewcommand{\arraystretch}{1.0}",
+        r"\renewcommand{\arraystretch}{0.98}",
         r"\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}",  # noqa
         r"\toprule",
         "Characteristic & " + " & ".join(label for _, label in SPLIT_COLUMNS) + r" \\",
         " & " + " & ".join(
-            rf"{{\footnotesize\itshape {period}}}" for period in SPLIT_PERIODS) + r" \\",
-        r"& " + " & ".join(rf"{{\footnotesize $n$ = {_tex(patients.get(c, ''))}}}"
+            rf"{{\scriptsize\itshape {period}}}" for period in SPLIT_PERIODS) + r" \\",
+        r"& " + " & ".join(rf"{{\scriptsize $n$ = {_tex(patients.get(c, ''))}}}"
                            for c in columns) + r" \\",
         r"\midrule",
         # Contact specialties and the categories of every recorded index are
         # listed in the by-disease supplementary table, so Table 1 fits a page.
-        *_body(pooled, columns, key, exclude=MAIN_TABLE_EXCLUDE),
+        *indent_hierarchy(_body(pooled, columns, key, exclude=MAIN_TABLE_EXCLUDE)),
         r"\bottomrule",
         r"\end{tabularx}",
         _note(policy),
@@ -398,7 +441,7 @@ def layout_table_latex():
     add("predominant_region", "Region", "categorical",
         [f"REGION//{r}" for r in ("Hovedstaden", "Sjælland", "Syddanmark", "Midtjylland",
                                    "Nordjylland")])
-    add("followup_days", "Follow-up", "continuous")
+    add("followup_reverse_km", "Follow-up", "continuous")
     add("death_event", "Died", "binary")
     result = pd.DataFrame(rows)
     result["median"] = float("nan")

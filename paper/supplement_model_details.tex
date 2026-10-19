@@ -140,8 +140,13 @@ tokens plus the most recent events, up to 8,192 tokens in total.
 \paragraph{Encoder and pretraining.} The encoder builds on CORE-BEHRT \citep{odgaard2024core}, a bidirectional model, adapted here to a causal transformer \citep{vaswani2017attention} with
 a hidden size of 256, four layers and four attention heads of 64 dimensions,
 pretrained to predict each next event from the events before it. Pretraining
-used every DALY-CARE patient's history up to 1 January 2022, ran for 20
-epochs, and kept the checkpoint with the lowest validation loss.
+used every DALY-CARE patient's history up to 1 January 2022 and ran for 10
+epochs, as for the national encoder; the encoder after the tenth epoch was
+used. An encoder twice as wide (hidden size 512, eight heads of 64
+dimensions), pretrained in the same way for the same 10 epochs, was compared
+before the analysis was locked: fine-tuned as the joint model, it improved
+the tuning macro AUC by 0.003, below the prespecified 0.01 required to adopt
+it, so the 256-wide encoder was kept.
 \placeholder{Number of individuals and events, training time and selected
 epoch.} This encoder initialised every supervised model in the main
 comparisons.

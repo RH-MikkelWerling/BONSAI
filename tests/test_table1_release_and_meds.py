@@ -216,7 +216,7 @@ def test_manuscript_table_renders_released_display_values_verbatim():
     release, _ = release_table(build_tables(pop))
     tex = pooled_table_latex(release, source_sha256="abc123")
     assert "export sha256 abc123" in tex and "Review version" not in tex
-    assert r"\quad Common\_arm" in tex  # escaped, indented category row
+    assert r"\qquad Common\_arm" in tex  # escaped category row, under its bold heading
     assert "$<$5" in tex  # suppressed small cell kept as released
     pooled = release.loc[(release.cohort_level == "all") & (release.kind != "continuous")]
     for value in pooled.display.dropna().astype(str):
@@ -392,9 +392,9 @@ def test_relabel_brings_an_old_reviewed_table_to_the_new_labels_without_touching
     ])
     new = relabel(old)
     assert value_cells(new) == value_cells(old)
-    assert "Values are $n$ (\\%) or median (IQR).}" in new and "{4pt}" in new
+    assert "$n$ (\\%) or median (IQR).}" in new and "{4pt}" in new
     assert r"Age at treatment, years & 68" in new and r"Female & 1" in new
-    assert r"{Disease group and subtype}\\" in new
+    assert "Disease group and subtype" not in new  # the Disease heading names the block
     assert r"\textbf{Large B-cell lymphomas}" in new and r"\textbf{T-cell lymphomas}" in new
     assert r"\qquad Diffuse large B-cell (DLBCL) &" in new
     assert r"\qquad Angioimmunoblastic (AITL) &" in new
@@ -440,7 +440,8 @@ def test_relabel_names_regions_and_merges_reverse_km_into_follow_up():
         r"Median follow-up (reverse Kaplan-Meier), years & 9.1 & 1 & 2 & 3 \\",
     ])
     new = relabel(old)
-    assert r"\quad Capital Region & 9" in new
+    assert r"\qquad Capital Region & 9" in new
     assert "Other characteristics" not in new and new.count(r"\addlinespace") == 1
-    assert r"Reverse Kaplan--Meier follow-up, years & 9.1" in new
+    assert r"Follow-up (reverse Kaplan--Meier), years & 9.1" in new
     assert is_subsequence(value_cells(new), value_cells(old))
+

@@ -1,4 +1,5 @@
-\begin{tikzpicture}[opera,node distance=10mm and 12mm]
+\begin{tikzpicture}[opera,node distance=10mm and 12mm,
+    every node/.append style={execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}}]
   \node[stageblue,text width=6.1cm] (pretrainbox)
     {78,668 diagnosis-linked patients\\{\scriptsize register histories before 2022 used for encoder pretraining}};
   \node[eyebrow,above=3mm of pretrainbox] (pretrainlabel) {PRETRAINING POPULATION};
@@ -15,7 +16,7 @@
   \node[stageblue,text width=6.1cm,below=of classified] (firstline)
     {First-line cohort after IgM MGUS exclusion\\37,557 patients};
   \node[stageblue,text width=6.1cm,below=of firstline] (supervised)
-    {37,531 patients for fine-tuning, validation and evaluation};
+    {37,531 patients for training, tuning and testing};
 
   \foreach \a/\b in {index/pass1,pass1/pass2,
                        pass2/classified,classified/firstline,firstline/supervised}
@@ -27,24 +28,24 @@
 
   % Mutually distinct exits from the central first-line flow.
   \node[softpanel,text width=4.45cm,align=left,right=of pretrainbox] (noindex)
-    {\bfseries Excluded: $n=40{,}033$\\No qualifying first-line treatment index};
+    {\bfseries Excluded: \textit{n}\,=\,40{,}033\\No qualifying first-line treatment index};
   \node[softpanel,text width=4.45cm,align=left,right=of pass2] (unresolved)
-    {\bfseries Excluded: $n=1{,}069$\\Disease remained unresolved after reassessment};
+    {\bfseries Excluded: \textit{n}\,=\,1{,}069\\Disease unresolved after both passes};
   \node[softpanel,text width=4.45cm,align=left,right=of classified] (secondary)
-    {\bfseries Excluded: $n=9$\\IgM monoclonal gammopathy of undetermined significance (MGUS)};
+    {\bfseries Excluded: \textit{n}\,=\,9\\IgM MGUS, untreated by definition};
   \node[softpanel,text width=4.45cm,align=left,right=of firstline] (nosurvival)
-    {\bfseries Excluded: $n=26$\\No released post-treatment survival/follow-up record; recorded death or follow-up timing requires audit};
+    {\bfseries Excluded: \textit{n}\,=\,26\\Died (\textit{n}\,=\,17) or follow-up ended (\textit{n}\,=\,9) before treatment};
   \draw[relation,draw=OperaSienna,shorten >=1pt] (pretrainbox.east) -- (noindex.west);
   \draw[relation,draw=OperaSienna,shorten >=1pt] (pass2.east) -- (unresolved.west);
   \draw[relation,draw=OperaSienna,shorten >=1pt] (classified.east) -- (secondary.west);
   \draw[relation,draw=OperaSienna,shorten >=1pt] (firstline.east) -- (nosurvival.west);
 
   \node[stage,text width=3.55cm,below left=14mm and 14mm of supervised] (train)
-    {Training\\index through 2021\\$n=29{,}105$};
+    {Training\\index through 2021\\\textit{n}\,=\,29{,}105};
   \node[stage,text width=3.55cm,below=14mm of supervised] (tune)
-    {Validation/tuning\\index in 2022\\$n=1{,}980$};
+    {Tuning\\index in 2022\\\textit{n}\,=\,1{,}980};
   \node[stage,text width=3.55cm,below right=14mm and 14mm of supervised] (held)
-    {Held-out evaluation\\index from 2023\\$n=6{,}446$};
+    {Test (held out)\\index from 2023\\\textit{n}\,=\,6{,}446};
   \coordinate (split) at ($(supervised.south)+(0,-7mm)$);
   \draw[flowblue] (supervised.south) -- (split);
   \draw[draw=OperaIndigo,line width=0.75pt]
@@ -52,7 +53,4 @@
   \foreach \dest in {train,tune,held}
     \draw[flowblue,shorten >=1pt] (\dest.north |- split) -- (\dest.north);
 
-  \node[captionnote,text width=12.2cm,below=7mm of tune] (risksets)
-    {Outcome-specific eligibility, competing events and follow-up are applied
-     separately within each split; \placeholder{final risk-set counts}.};
 \end{tikzpicture}

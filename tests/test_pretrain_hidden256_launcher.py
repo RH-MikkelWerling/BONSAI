@@ -24,7 +24,7 @@ def test_resume_reuses_saved_run_without_architecture_environment(tmp_path):
     assert args[:2] == ["-m", "bonsai.run.pretrain"]
     assert str(run / "hydra") in args
     assert f"paths.ckpt_path={run}/version_0/last.ckpt" in args
-    assert "training.epochs=20" in args
+    assert "training.epochs=10" in args  # every encoder: 10 epochs
     assert not any("model.hidden_size" in arg for arg in args)
 
 

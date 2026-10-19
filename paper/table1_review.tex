@@ -1,4 +1,4 @@
-% Table 1 alone, for supervisor sign-off.
+% Table 1 and the CONSORT diagram.
 % Copy the disclosure-reviewed table1_current_review.tex into paper/tables/
 % (bring it to the current labels with: python -m opera.run.relabel_table1
 % paper/tables/table1_current_review.tex), then build with: pdflatex table1_review (x2)
@@ -14,8 +14,12 @@
 \usepackage{graphicx}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,calc,decorations.pathreplacing,fit,matrix,positioning,shapes.geometric}
 \usepackage[hidelinks]{hyperref}
 \usepackage[nameinlink,capitalise]{cleveref}
+\input{opera_style}
+\newcommand{\placeholder}[1]{\textcolor{OperaSienna}{\textbf{[#1]}}}
 \pagestyle{empty}
 % The footnote points to the paper's supplementary index table, not part of this sheet.
 \newcommand{\indextableref}{table of prognostic indices}
@@ -25,4 +29,14 @@
 \IfFileExists{tables/table1_current_review.tex}
   {\input{tables/table1_current_review}}
   {\input{tables/table1_current_layout}}
+\clearpage
+\begin{figure}[p]
+\centering
+\resizebox{0.94\textwidth}{!}{\input{figures/cohort_flow}}
+\caption{\textbf{CONSORT diagram.} From all diagnosis-linked DALY-CARE patients to
+the first-line cohort and its temporal split. Not every patient contributes to
+every endpoint: outcome-specific eligibility, competing events and follow-up are
+applied within each split.}
+\label{fig:consort}
+\end{figure}
 \end{document}
