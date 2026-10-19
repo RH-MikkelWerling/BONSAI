@@ -266,10 +266,11 @@ def test_small_cells_shown_as_less_than_five_in_both_manuscript_tables():
     release, _ = release_table(table, policy="primary-only")
     tex = pooled_table_latex(release, source_sha256="abc", policy="primary-only")
     assert "$<$5" in tex and "Counts of 1--4 are shown as $<$5" in tex
-    assert "Contact with specialty" in tex and r"\quad Cardiology" in tex
+    assert "Contact with specialty" not in tex  # kept to the supplementary table
     assert r"\quad 1 &" not in tex  # binary rows are single rows
     supplement = disease_table_latex(release, source_sha256="abc", policy="primary-only")
     assert "DLBCL-like" in supplement and "Myeloma" in supplement
+    assert "Contact with specialty" in supplement and r"\quad Cardiology" in supplement
 
 
 
@@ -278,11 +279,60 @@ def test_subtypes_are_nested_under_their_disease_group():
 
     pop = pd.DataFrame({
         "subject_id": range(60), "split": "train", "sex": ["Female", "Male"] * 30,
-        "cohort_fine": ["DLBCL"] * 20 + ["RT"] * 10 + ["HL"] * 30,
+        "cohort_fine": ["RT"] * 10 + ["DLBCL"] * 20 + ["HL"] * 30,
         "cohort_grouped": ["DLBCL_like"] * 30 + ["HL"] * 30})
     release, _ = release_table(build_tables(pop), policy="primary-only")
     tex = pooled_table_latex(release, source_sha256="x", policy="primary-only")
     lines = tex.splitlines()
-    group = next(i for i, line in enumerate(lines) if line.startswith(r"\quad DLBCL-like"))
-    assert lines[group + 1].startswith(r"\qquad DLBCL") and lines[group + 2].startswith(r"\qquad RT")
-    assert not any(line.startswith(r"\qquad HL") for line in lines)  # single-subtype group
+    group = next(i for i, line in enumerate(lines)
+                 if line.startswith(r"\quad \textbf{DLBCL and related"))
+    # Subtypes by size, full names; RT has no index in routine use.
+    assert lines[group + 1].startswith(r"\qquad Diffuse large B-cell lymphoma (DLBCL) &")
+    assert lines[group + 2].startswith(r"\qquad Richter transformation (RT)$^{\dagger}$")
+    # A single-subtype group is one bold row under the subtype's name, after the
+    # aggressive B-cell group (clinical, not alphabetical, order).
+    hodgkin = next(i for i, line in enumerate(lines)
+                   if line.startswith(r"\quad \textbf{Hodgkin lymphoma (HL)}"))
+    assert hodgkin > group and not any(line.startswith(r"\qquad Hodgkin") for line in lines)
+    assert "No dedicated, externally validated prognostic" in tex
+
+
+def test_layout_preview_shows_every_subtype_without_data():
+    from opera.run.format_table1_release import layout_table_latex
+    from opera.visualization.paper_taxonomy import FINE_LONG, fine_cohort_groups
+
+    tex = layout_table_latex()
+    for fine in fine_cohort_groups():
+        assert FINE_LONG[fine].replace("_", r"\_") in tex
+    assert "Layout preview" in tex and "Review version" not in tex
+    assert not any(ch.isdigit() for line in tex.splitlines()
+                   if line.startswith(r"\q") for ch in line.split("&", 1)[1])
+
+
+def test_no_index_stratum_is_one_list_of_registry_identifiers():
+    """The analysis stratum, the Table 1 dagger and the paper's list agree."""
+    from pathlib import Path
+
+    import yaml
+
+    from opera.visualization.paper_taxonomy import NO_ROUTINE_INDEX, fine_cohort_groups
+
+    repo = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load((repo / "opera/configs/locked_prediction_analysis.example.yaml")
+                            .read_text())
+    strata = config["cohort_strata"] if "cohort_strata" in config else config
+    found = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key.startswith("no_index") and isinstance(value, dict) and "values" in value:
+                    found[key] = set(value["values"])
+                walk(value)
+    walk(strata)
+    registry = set(fine_cohort_groups())
+    assert found["no_index_subtype"] == NO_ROUTINE_INDEX
+    for values in found.values():
+        assert values <= registry  # registry identifiers, not display names
+    assert found["no_index_family_level"] == NO_ROUTINE_INDEX - {"NMZL"}
+    assert found["no_index_guideline_use"] == NO_ROUTINE_INDEX | {"AITL", "BL"}

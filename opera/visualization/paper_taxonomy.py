@@ -26,6 +26,68 @@ FINE_NAMES = {"AMYLOIDOSIS": "Amyloidosis", "TRANSFORMED_FL": "Transformed FL",
               "SolM": "Solitary plasmacytoma"}
 
 
+# Full clinical names for tables (abbreviation as used in the figures).
+GROUP_LONG = {
+    "DLBCL_like": "DLBCL and related aggressive B-cell lymphomas",
+    "BL_LBL": "Burkitt and lymphoblastic lymphoma",
+    "MCL": "Mantle-cell lymphoma",
+    "Indolent_B_NHL": "Indolent B-cell non-Hodgkin lymphoma",
+    "CLL_SLL": "CLL and small lymphocytic lymphoma",
+    "HCL": "Hairy-cell leukaemia",
+    "HL": "Hodgkin lymphoma",
+    "T_NHL": "T-cell non-Hodgkin lymphoma",
+    "MM": "Myeloma and other plasma-cell neoplasms",
+    "AMYLOIDOSIS": "Amyloidosis",
+}
+# Clinical order for tables: aggressive B-cell, indolent B-cell, Hodgkin, T-cell,
+# plasma-cell (not alphabetical, so related groups sit together).
+GROUP_ORDER = ("DLBCL_like", "BL_LBL", "MCL", "Indolent_B_NHL", "CLL_SLL", "HCL", "HL",
+               "T_NHL", "MM", "AMYLOIDOSIS")
+FINE_LONG = {
+    "DLBCL": "Diffuse large B-cell lymphoma (DLBCL)",
+    "RT": "Richter transformation (RT)",
+    "TRANSFORMED_FL": "Transformed follicular lymphoma (tFL)",
+    "BL": "Burkitt lymphoma (BL)",
+    "LBL": "Lymphoblastic lymphoma (LBL)",
+    "MCL": "Mantle-cell lymphoma (MCL)",
+    "FL": "Follicular lymphoma (FL)",
+    "LPL": "Lymphoplasmacytic lymphoma (LPL)",
+    "EMZL": "Extranodal marginal-zone lymphoma (EMZL)",
+    "SMZL": "Splenic marginal-zone lymphoma (SMZL)",
+    "NMZL": "Nodal marginal-zone lymphoma (NMZL)",
+    "BCL": "B-cell lymphoma, unspecified (BCL)",
+    "CLL": "Chronic lymphocytic leukaemia (CLL)",
+    "SLL": "Small lymphocytic lymphoma (SLL)",
+    "HCL": "Hairy-cell leukaemia (HCL)",
+    "HL": "Hodgkin lymphoma (HL)",
+    "PTCL": "Peripheral T-cell lymphoma, NOS (PTCL)",
+    "AITL": "Angioimmunoblastic T-cell lymphoma (AITL)",
+    "ALCL": "Anaplastic large-cell lymphoma (ALCL)",
+    "TCL": "T-cell lymphoma, unspecified (TCL)",
+    "MM": "Multiple myeloma (MM)",
+    "PCL": "Plasma-cell leukaemia (PCL)",
+    "SolM": "Solitary plasmacytoma",
+    "AMYLOIDOSIS": "Amyloidosis",
+}
+# Subtypes without a dedicated prognostic index (prespecified stratum): no
+# multivariable index derived for the entity and externally validated in an
+# independent cohort; indices borrowed from other entities (the IPI applied to
+# RT, tFL, ALCL) or broader families (MZL-IPI) do not count. The unspecified
+# categories have none by construction. Evidence per subtype: supplementary
+# table "Prognostic indices by lymphoid subtype" (tab:index-availability).
+# Sensitivity analyses: without NMZL; with AITL and BL added.
+NO_ROUTINE_INDEX = frozenset({"LBL", "HCL", "ALCL", "TRANSFORMED_FL", "PCL", "RT", "SolM",
+                              "NMZL", "BCL", "TCL"})
+
+
+def disease_long_name(fine: str) -> str:
+    return FINE_LONG.get(fine, disease_name(fine))
+
+
+def disease_group_long_name(group: str) -> str:
+    return GROUP_LONG.get(group, disease_group_name(group))
+
+
 def disease_name(fine: str) -> str:
     return FINE_NAMES.get(fine, fine)
 

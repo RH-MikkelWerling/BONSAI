@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -127,8 +128,15 @@ def audit_encoder(
     expected_width=256,
     minimum_local_epochs=20,
     minimum_dapt_epochs=20,
+    allow_milestone=False,
 ):
-    """Strict CPU reconstruction plus completion/provenance gates."""
+    """Strict CPU reconstruction plus completion/provenance gates.
+
+    ``allow_milestone`` (width probe only) accepts a named milestone checkpoint
+    (``epoch_010.ckpt``) of a run that is still training: its completed epochs
+    come from the checkpoint itself and must match its name. Paper runs always
+    require the completed run's metadata sidecar.
+    """
     import torch
     from bonsai.functional.checkpointing import (
         extract_encoder_state_dict,
@@ -159,7 +167,18 @@ def audit_encoder(
         raise ValueError("Encoder and local vocabulary sizes differ")
     metadata = checkpoint["hyper_parameters"].get("checkpoint_metadata", {})
     sidecar_path = checkpoint_path.parent / "checkpoint_metadata.json"
-    if origin in {"L", "RI", "FZ", "EA"}:
+    milestone = re.fullmatch(r"epoch_(\d+)\.ckpt", checkpoint_path.name)
+    if allow_milestone and milestone and origin == "L":
+        completed = int(checkpoint.get("epoch", -1)) + 1
+        if completed != int(milestone.group(1)):
+            raise ValueError(
+                f"Milestone checkpoint {checkpoint_path.name} records {completed} completed epochs"
+            )
+        if completed < minimum_local_epochs:
+            raise ValueError(
+                f"Encoder fit is not complete enough: {completed} epochs, require {minimum_local_epochs}"
+            )
+    elif origin in {"L", "RI", "FZ", "EA"}:
         if not sidecar_path.is_file():
             raise ValueError(
                 "Wait for completed pretraining/DAPT and its metadata sidecar"

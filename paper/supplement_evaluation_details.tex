@@ -1,5 +1,5 @@
 % Evaluation methods in reported form; empirical tables are filled from the locked analysis.
-\subsection*{Sample size and precision}
+\operasubsection{Sample size and precision}
 The cohort was not sized for this study. It comprises every eligible patient in
 Denmark over the study period, so the relevant question is what precision this
 fixed sample allows, not how many patients would be needed. Formal criteria for
@@ -16,7 +16,7 @@ and cells below this threshold are interpreted with particular caution.
 Pooling evidence across cells can support a panel-level conclusion but does not
 validate a sparsely observed cell for individual clinical use.
 
-\subsection*{Risk sets and paired comparisons}
+\operasubsection{Risk sets and paired comparisons}
 The unit of evaluation was one disease--outcome--horizon combination. Its risk
 set was determined by eligibility and ascertainment of the outcome, not by the
 models compared. For each split we report eligible patients, outcome events,
@@ -34,7 +34,78 @@ specialist comparison, and were not imputed into pooled averages. Outcome
 definitions and the reconstruction of treatment lines are in the appended
 data-definition supplement.
 
-\subsection*{Clinical prognostic indices}
+\operasubsection{Clinical prognostic indices}
+\paragraph{Which index each subtype has.} \Cref{tab:index-availability} lists,
+for every subtype, the prognostic index derived for it, how far that index is
+established, and what is used in practice. A subtype was classed as having no
+dedicated prognostic index if no multivariable index had been derived for that
+entity and externally validated in an independent cohort; indices developed for
+other entities (such as the IPI, built for aggressive lymphoma in 1993 and
+applied to Richter transformation, transformed follicular lymphoma and
+anaplastic large-cell lymphoma) or for broader families (the MZL-IPI for all
+marginal-zone lymphomas) did not count. This literature criterion was preferred
+to guideline adoption, which differs between guidelines. Two sensitivity
+analyses vary it: counting family-level indices removes nodal marginal-zone
+lymphoma from the stratum, and requiring routine, guideline-recommended use adds
+angioimmunoblastic T-cell lymphoma, whose dedicated scores have limited external
+validation, and Burkitt lymphoma, whose validated index does not yet assign
+treatment.
+
+\begin{table}[p]
+\centering
+\caption{\textbf{Prognostic indices by lymphoid subtype.} Dedicated index: a
+multivariable index derived for that entity. Status: \emph{routine}, externally
+validated and recommended in international guidelines; \emph{validated},
+externally validated but not the basis of routine decisions; \emph{proposed},
+derived without independent validation; --, none. In practice: what is applied
+when there is no dedicated index (borrowed indices in italics).
+$^{\dagger}$Prespecified stratum without a dedicated index.
+\placeholder{Check the guideline column against the current Danish (DLG, DMSG,
+DCLLSG) guidelines.}}
+\label{tab:index-availability}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.27\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.11\textwidth}>{\raggedright\arraybackslash}X@{}}
+\toprule
+Subtype & Dedicated index & Status & In practice \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{DLBCL and related aggressive B-cell lymphomas}}\\
+Diffuse large B-cell lymphoma & IPI, NCCN-IPI, CNS-IPI \citep{IPI1993,zhou2014nccnipi,Schmitz2016CNSIPI} & Routine & IPI (Danish guideline) \\
+Richter transformation$^{\dagger}$ & Richter score \citep{Tsimberidou2006Richter} & Proposed & \emph{IPI}; clonal relatedness, TP53 \\
+Transformed follicular lymphoma$^{\dagger}$ & -- & -- & \emph{IPI}; managed as DLBCL \\
+\multicolumn{4}{@{}l}{\textbf{Burkitt and lymphoblastic lymphoma}}\\
+Burkitt lymphoma & BL-IPI \citep{Olszewski2021BLIPI} & Validated & Low/high-risk criteria \\
+Lymphoblastic lymphoma$^{\dagger}$ & -- & -- & ALL-type risk and response \\
+\multicolumn{4}{@{}l}{\textbf{Mantle-cell lymphoma}}\\
+Mantle-cell lymphoma & MIPI \citep{hoster2008mipi} & Routine & MIPI \\
+\multicolumn{4}{@{}l}{\textbf{Indolent B-cell non-Hodgkin lymphoma}}\\
+Follicular lymphoma & FLIPI \citep{solalceligny2004flipi} & Routine & FLIPI \\
+Lymphoplasmacytic lymphoma & IPSSWM \citep{morel2009ipsswm} & Routine & IPSSWM \\
+Extranodal marginal-zone lymphoma & MALT-IPI \citep{thieblemont2017maltipi} & Routine & MALT-IPI \\
+Splenic marginal-zone lymphoma & HPLL/ABC score \citep{montalban2012hpll} & Validated & HPLL/ABC score \\
+Nodal marginal-zone lymphoma$^{\dagger}$ & -- (MZL-IPI covers all MZL \citep{Arcaini2024MZLIPI}) & -- & \emph{FLIPI} or \emph{IPI} \\
+B-cell lymphoma, unspecified$^{\dagger}$ & -- (category) & -- & \emph{IPI} \\
+\multicolumn{4}{@{}l}{\textbf{CLL and small lymphocytic lymphoma}}\\
+Chronic lymphocytic leukaemia & CLL-IPI \citep{cllipi2016}; Rai/Binet stage & Routine & CLL-IPI, stage \\
+Small lymphocytic lymphoma & CLL-IPI (same disease) & Routine & CLL-IPI, stage \\
+\multicolumn{4}{@{}l}{\textbf{Hairy-cell leukaemia, Hodgkin lymphoma}}\\
+Hairy-cell leukaemia$^{\dagger}$ & -- & -- & Treatment criteria \citep{Grever2017HCL} \\
+Hodgkin lymphoma & IPS \citep{hasenclever1998ips}; early-stage risk groups & Routine & IPS, risk groups \\
+\multicolumn{4}{@{}l}{\textbf{T-cell non-Hodgkin lymphoma}}\\
+Peripheral T-cell lymphoma, NOS & PIT \citep{gallamini2004pit} & Validated & \emph{IPI} most often; PIT \\
+Angioimmunoblastic T-cell lymphoma & AITL score \citep{Advani2021AITL} & Proposed & \emph{IPI} or PIT \\
+Anaplastic large-cell lymphoma$^{\dagger}$ & -- \citep{Sibon2012ALCL} & -- & \emph{IPI}; ALK status \\
+T-cell lymphoma, unspecified$^{\dagger}$ & -- (category) & -- & \emph{IPI} or \emph{PIT} \\
+\multicolumn{4}{@{}l}{\textbf{Myeloma and other plasma-cell neoplasms; amyloidosis}}\\
+Multiple myeloma & ISS, R-ISS \citep{greipp2005iss,palumbo2015riss} & Routine & ISS, R-ISS \\
+Plasma-cell leukaemia$^{\dagger}$ & PCL score \citep{Jurczyszyn2018PCL} & Proposed & \emph{ISS, R-ISS}; treated as high-risk myeloma \\
+Solitary plasmacytoma$^{\dagger}$ & Risk factors only \citep{Dingli2006plasmacytoma} & -- & Light-chain ratio, marrow involvement \\
+AL amyloidosis & Mayo stage \citep{kumar2012mayo} & Routine & Mayo stage \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
 The quality registries record which prognostic index was scored at diagnosis
 and its risk category. We compared the joint model and the tabular comparators with each applicable index recorded for at least 50 patients of a subtype, in the patients who had it, and with each index used in several subtypes also across all of them, since the IPI, for instance, is applied to many rare lymphomas for which no specific score exists. In DLBCL we also computed the NCCN-IPI from its recorded components \citep{zhou2014nccnipi}. Overall-survival indices were compared on overall survival. Indices whose
 original endpoint was not available, such as progression-based IPS, were
@@ -70,7 +141,7 @@ probability mapping fitted on development data, which we did not use.
 \placeholder{Index, version, population and availability inventory from the
 secure analysis.}
 
-\subsection*{Risk groups, age and operating points}
+\operasubsection{Risk groups, age and operating points}
 Continuous model risks were converted to groups fixed at baseline with cutoffs
 selected on tuning data, while index groups kept their original definitions.
 Kaplan--Meier estimates describe endpoints that include death, and
@@ -105,7 +176,7 @@ counts below five are suppressed in exported tables, as required by the secure
 environment. Cells with fewer than five tuning events or non-events have no
 decision point.
 
-\subsection*{Censoring, calibration and robustness}
+\operasubsection{Censoring, calibration and robustness}
 Censoring-weighted and known-status estimates answer different questions and
 are reported separately, and the known-status analysis is a prespecified
 sensitivity analysis. For the censoring weights we report the censoring model,
@@ -131,7 +202,7 @@ pre-treatment contacts. The models were trained nationally, so this describes
 variation within the development health system rather than validation in
 regions excluded from training.
 
-\subsection*{Patient representations}
+\operasubsection{Patient representations}
 The representation figures show the same test patients at five stages:
 pretraining on the cohort, the joint model from that encoder, national
 pretraining, national pretraining adapted to the cohort, and the nationally
@@ -145,7 +216,7 @@ biological mechanisms or the effect of transfer. Only kernel-smoothed
 summaries over at least \placeholder{N} patients are shown, following the
 disclosure rules of the secure environment.
 
-\subsection*{Numerical tables}
+\operasubsection{Numerical tables}
 The printed supplementary tables summarise the comparisons that the figures
 show: the panel-level comparisons behind Table~2, paired differences by
 comparison and clinical domain, calibration by model and domain, the evaluated
@@ -157,7 +228,7 @@ complete cell-level results, including every confusion matrix, accompany the
 paper as machine-readable files, with counts below five suppressed.
 
 \IfFileExists{tables/generated/supplement_tables.tex}{%
-  \subsection*{Reviewed numerical summaries}
+  \operasubsection{Reviewed numerical summaries}
   \input{tables/generated/supplement_tables}
 }{%
   \noindent\placeholder{Reviewed aggregate summary tables have not yet been
@@ -165,7 +236,7 @@ paper as machine-readable files, with counts below five suppressed.
 }
 
 
-\subsection*{What the model relies on: attributions and input restriction}
+\operasubsection{What the model relies on: attributions and input restriction}
 This secondary analysis asks what the locked joint model reads in a patient's
 history, so that clinicians can judge whether its predictions rest on sensible
 information. It is computed once on the model selected on tuning data, before
@@ -198,12 +269,11 @@ explains the prediction the model actually makes. For death the attributed
 quantity is the risk of death, so a positive contribution raises predicted
 mortality.
 
-Midpoint integration uses 32 steps and is repeated with 128 when the absolute
-gap between the summed credits and $f_k(E;C)-f_k(E^0;C)$, divided by
-$\max(|f_k(E;C)-f_k(E^0;C)|,0.001)$, exceeds 0.05. Patient--outcome pairs that
-still fail are reported by outcome and excluded from the summaries. The sample
-is 1,500 held-out test patients, up to 40 from each subtype and the rest at
-random, with inverse inclusion weights restoring the population mixture.
+The path integral is evaluated by Gauss--Legendre quadrature with 8 nodes and
+repeated with 32 when the absolute gap between the summed credits and
+$f_k(E;C)-f_k(E^0;C)$, divided by $\max(|f_k(E;C)-f_k(E^0;C)|,0.001)$, exceeds
+0.05. Patient--outcome pairs that still fail are reported by outcome and
+excluded from the summaries. Every held-out test patient was explained.
 Patient-level outputs are cached with hashes of the inputs, checkpoint and code,
 and stay in the secure environment.
 
@@ -280,8 +350,10 @@ reference, not training-run uncertainty.
 \paragraph{Input restriction.} Separately, the same model was evaluated on the
 whole test set with restricted input and without retraining: the timing of care
 only (every event replaced by the average event, as in the reference), without
-laboratory results, without medication, without diagnoses, and with the last
-year of history only.
+laboratory results, without medication, without diagnoses, without the region
+and specialty of care (two regions contribute richer hospital-record data, so
+region partly marks which data a patient has), and with the last year of
+history only.
 For each outcome the held-out AUC at one year was compared with the full input,
 using paired patient-bootstrap resamples shared across outcomes and
 restrictions, and averaged over outcomes and clinical domains. This measures

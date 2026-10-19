@@ -42,7 +42,7 @@ def _title(ax, letter, text, **kwargs):
 
 WINDOW_COLORS = {"Last 30 days": "#1A237E", "31 days to 1 year": "#5C7AEA",
                  "Over 1 year": "#AEB8DA", "No time": "#737D8C"}
-REFERENCE_COLOR = "#E3E6EA"  # the timing of care alone: neutral, not a source
+REFERENCE_COLOR = "#ECEEF1"  # the timing of care alone: neutral, not a source
 
 
 def _domain_rows(outcomes, domains):
@@ -95,8 +95,8 @@ def _stacked_shares(ax, table, rows, order, colors):
         heights = np.array([100 * column.get(r, 0.0) if r is not None else 0.0 for r in rows])
         heights = np.nan_to_num(heights)
         pos, neg = heights.clip(min=0), heights.clip(max=0)
-        ax.barh(range(len(rows)), pos, left=right, color=colors[name], height=0.78, lw=0)
-        ax.barh(range(len(rows)), neg, left=left, color=colors[name], height=0.78, lw=0)
+        ax.barh(range(len(rows)), pos, left=right, color=colors[name], height=0.78, lw=0.5, edgecolor="white")
+        ax.barh(range(len(rows)), neg, left=left, color=colors[name], height=0.78, lw=0.5, edgecolor="white")
         right, left = right + pos, left + neg
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.6)
     ax.set_xlim(min(0, left.min()) - 2, 100)
@@ -206,8 +206,9 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         cax = fig.add_axes([position.x0 + 0.1 * position.width, 0.42 / height,
                             0.8 * position.width, 0.08 / height])
         bar = fig.colorbar(image, cax=cax, orientation="horizontal")
-        bar.set_label("Change in log-odds among patients with the finding", fontsize=5.6)
+        bar.set_label("Odds ratio among patients with the finding (model)", fontsize=5.6)
         bar.ax.tick_params(labelsize=5.4)
+        bar.ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"×{np.exp(v):.2f}"))
         bar.outline.set_visible(False)
     watermark(fig, mark)
     return fig
@@ -263,7 +264,7 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     bar.ax.tick_params(labelsize=5.8)
     bar.ax.yaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
     bar.ax.yaxis.set_major_formatter(plt.FuncFormatter(
-        lambda v, _: f"{v:+.2f}".replace("-", "−") if v else "0"))
+        lambda v, _: f"×{np.exp(v):.2f}"))
     bar.outline.set_visible(False)
     _title(ax, "A", "Outcomes of one domain rest on the same history", pad=16)
     ax.text(0, 1.02, f"Median agreement within domains {within:.2f}, between domains "
@@ -463,7 +464,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     fig = plt.figure(figsize=(7.2, 9.8))
     outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.62], hspace=0.3, left=0.135,
                              right=0.885, top=0.815, bottom=0.085)
-    top = outer[0].subgridspec(1, 3, width_ratios=[0.9, 0.95, 2.4], wspace=0.06)
+    top = outer[0].subgridspec(1, 3, width_ratios=[0.85, 1.2, 2.3], wspace=0.06)
     title_y = 0.99
 
     # A: sources of the differences between patients.
@@ -476,7 +477,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     for name, color in colors.items():
         if name in shares:
             values = shares[name].fillna(0).clip(lower=0).to_numpy()
-            ax.barh(rows, values, left=left, color=color, height=0.8, lw=0)
+            ax.barh(rows, values, left=left, color=color, height=0.8, lw=0.5, edgecolor="white")
             left += values
     ax.set_yticks(rows, names, fontsize=7)
     ax.set_ylim(len(order) - 0.5, -0.5)
@@ -504,12 +505,13 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
                     fontsize=5.8, color="white" if abs(value) > 0.6 * limit_b else PALETTE["ink"])
     short = {"Only the timing of care": "Timing\nonly", "Without laboratory results": "No\nlabs",
              "Without medication": "No\nmeds", "Without diagnoses": "No\ndiagn.",
+             "Without region and specialty": "No\nregion",
              "Only the last year": "Last\nyear"}
     overall = (restrictions.loc[restrictions.group == "All outcomes"]
                .set_index("restriction").mean_delta * 100)
     heads = [f"{short.get(n, textwrap.fill(n, 8))}\n{overall.get(n, np.nan):.1f}"
              .replace("-", "−") for n in names_b]
-    bx.set_xticks(range(len(names_b)), heads, fontsize=6)
+    bx.set_xticks(range(len(names_b)), heads, fontsize=5.6)
     bx.xaxis.tick_top()
     bx.set_yticks([])
     _cell_grid(bx, grid_b.shape)
@@ -517,7 +519,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
 
     # C: findings and the risks they raise, columns grouped by source.
     cx = fig.add_subplot(top[2])
-    group_order = ["Laboratory", "Diagnoses", "Medication"]
+    group_order = ["Laboratory", "Pathology", "Diagnoses", "Medication"]
     labels = (concepts.drop_duplicates("label")
               .assign(rank=lambda d: d.group.map({g: i for i, g in enumerate(group_order)}))
               .sort_values("rank", kind="stable"))
@@ -567,11 +569,13 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     cax = fig.add_axes([position.x1 + 0.012, position.y0 + 0.15 * position.height,
                         0.012, 0.7 * position.height])
     bar = fig.colorbar(image, cax=cax)
-    bar.set_label("Change in log-odds with the finding", fontsize=6.4)
+    # Values are mean changes in log-odds (comparable across outcomes with
+    # different base rates); labelled as the odds ratios they correspond to.
+    bar.set_label("Odds ratio with the finding (model)", fontsize=6.4)
     bar.ax.tick_params(labelsize=5.8)
     bar.ax.yaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
     bar.ax.yaxis.set_major_formatter(plt.FuncFormatter(
-        lambda v, _: f"{v:+.2f}".replace("-", "−") if v else "0"))
+        lambda v, _: f"×{np.exp(v):.2f}"))
     bar.outline.set_visible(False)
     cx.set_xlabel(f"Boxes: prespecified expected effects, solid where seen "
                   f"({supported} of {len(tested)})", fontsize=6.6)

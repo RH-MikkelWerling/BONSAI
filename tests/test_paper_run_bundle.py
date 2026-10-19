@@ -188,3 +188,45 @@ def test_dapt_requires_complete_training_and_the_exact_direct_export(tmp_path):
     torch.save(payload, adapted / "best.ckpt")
     with pytest.raises(ValueError, match="exact direct external export"):
         audit_encoder(config, "EA", expected_width=8)
+
+
+def test_width_probe_accepts_a_named_milestone_of_a_running_fit(tmp_path):
+    """The 256 run is still training when the 512 probe ends: its epoch-10
+    milestone is accepted by the probe only, and its epoch must match its name."""
+    from test_pretrain_transfer import BonsaiPretrain
+
+    vocab = {"[PAD]": 0, "[CLS]": 1, "[SEP]": 2, "[UNK]": 3, "[MASK]": 4, "DIAGNOSIS//A": 5}
+    vocab_path = tmp_path / "vocabulary.pt"
+    torch.save(vocab, vocab_path)
+    model = BonsaiPretrain(vocab_size=len(vocab), max_seqlen=16, hidden_size=64, num_layers=4,
+                           num_attention_heads=1, bias=False, dropout=0.0,
+                           attention_dropout=0.0, causal=True, attn_type="sdpa",
+                           abspos_encoding="scaled_time2vec")
+    payload = {"hyper_parameters": {"model_config": model.hparams},
+               "state_dict": {f"model.{k}": v for k, v in model.state_dict().items()},
+               "epoch": 9}  # Lightning stores the zero-based epoch: ten completed
+    milestone = tmp_path / "version_0" / "epoch_010.ckpt"
+    milestone.parent.mkdir()
+    torch.save(payload, milestone)
+    config = {"dapt_ckpt": str(milestone), "paths": {"vocabulary": str(vocab_path)}}
+    assert audit_encoder(config, "L", expected_width=64, minimum_local_epochs=10,
+                         allow_milestone=True)["status"] == "strict_load_and_forward_passed"
+    with pytest.raises(ValueError, match="sidecar"):  # paper runs still need the sidecar
+        audit_encoder(config, "L", expected_width=64, minimum_local_epochs=10)
+    with pytest.raises(ValueError, match="require 20"):
+        audit_encoder(config, "L", expected_width=64, minimum_local_epochs=20,
+                      allow_milestone=True)
+    renamed = milestone.with_name("epoch_011.ckpt")
+    milestone.rename(renamed)
+    with pytest.raises(ValueError, match="records 10"):
+        audit_encoder({**config, "dapt_ckpt": str(renamed)}, "L", expected_width=64,
+                      minimum_local_epochs=10, allow_milestone=True)
+
+
+def test_width_decision_waits_for_the_reference_probe(tmp_path):
+    from opera.run.width_probe import compare
+
+    (tmp_path / "w512_e10").mkdir()
+    decision = compare(tmp_path)
+    assert decision["decision"].startswith("pending")
+    assert (tmp_path / "width_decision.json").is_file()

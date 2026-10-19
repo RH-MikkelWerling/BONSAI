@@ -50,13 +50,26 @@ cell_groups:
     column: n_patients_train
     provenance: train_only
     bins: [-1, 499, .inf]
-  # The subtypes without a prognostic index in routine use (exact cohort_fine
-  # names to be confirmed against the registry export).
+  # Subtypes without a dedicated prognostic index: no multivariable index derived
+  # for the entity and externally validated (paper supplement,
+  # tab:index-availability). Registry cohort_fine identifiers; must equal
+  # opera.visualization.paper_taxonomy.NO_ROUTINE_INDEX (tested).
   no_index_subtype:
     column: cohort
     provenance: train_only
     label: no_index
-    values: [LBL, HCL, ALCL, Transformed FL, PCL, RT, Solitary plasmacytoma, NMZL]
+    values: [LBL, HCL, ALCL, TRANSFORMED_FL, PCL, RT, SolM, NMZL, BCL, TCL]
+  # Prespecified sensitivity analyses of that definition.
+  no_index_family_level:  # the MZL-IPI counts for nodal MZL
+    column: cohort
+    provenance: train_only
+    label: no_index
+    values: [LBL, HCL, ALCL, TRANSFORMED_FL, PCL, RT, SolM, BCL, TCL]
+  no_index_guideline_use:  # only routine, guideline-recommended indices count
+    column: cohort
+    provenance: train_only
+    label: no_index
+    values: [LBL, HCL, ALCL, TRANSFORMED_FL, PCL, RT, SolM, NMZL, BCL, TCL, AITL, BL]
 patient_groups:
   age_at_index:
     provenance: pre_index

@@ -486,7 +486,13 @@ def rollup(code: str) -> str:
         ("PATHOLOGY//", 3),
     ):
         if code.startswith(prefix):
-            return prefix + code[len(prefix) : len(prefix) + width]
+            value = code[len(prefix):]
+            # Pathology: morphology and topography codes form families (M96:
+            # lymphomas); other axes, such as molecular findings (TP53), are
+            # specific and kept whole.
+            if prefix == "PATHOLOGY//" and not value[:1] in {"M", "T"}:
+                return code
+            return prefix + value[:width]
     return code
 
 

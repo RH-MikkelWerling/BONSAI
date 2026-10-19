@@ -63,10 +63,16 @@ def shards(root: Path, split: str) -> list[Path]:
 
 
 def check_layout(root: Path, report: Report):
+    print(f"MEDS release: {root.resolve()}")
     for split in ("train", "tuning"):
         files = shards(root, split)
+        hint = ""
+        if not files and list((root / split).glob("*.parquet")):
+            hint = f"; found {split}/*.parquet at the root: an older flat release, not ehr2meds' data/ layout"
+        elif not files:
+            hint = " (is --meds-dir / EHR2MEDS_OUTPUT the new release?)"
         report.add(f"layout:{split}", "PASS" if files else "FAIL",
-                   f"{len(files)} shards in data/{split}", shards=len(files))
+                   f"{len(files)} shards in data/{split}{hint}", shards=len(files))
     held = root / "data" / "held_out"
     report.add("layout:no_held_out", "FAIL" if held.exists() else "PASS",
                "data/held_out exists: the default 80/10/10 split was used; rerun with "
@@ -87,12 +93,23 @@ def scan(root: Path):
     subjects = frame.select(pl.col("subject_id").unique()).collect()["subject_id"]
     numeric = [c for c in ("numeric_value", "numeric_value_bin", "numeric_value_normalized")
                if c in columns]
-    bare = 0
+    # Numeric laboratory events left without a bin suffix, split by why:
+    # a bin exists but was not joined (a pipeline error), or no bin was fitted
+    # for the test (e.g. first seen after the cutoff: harmless, read as the
+    # bare test code). Categorical results carry no numeric value.
+    bare = {"unjoined": 0, "no_bin": 0, "lab_events": 0}
     if "numeric_value" in columns:
-        bare = int(frame.filter(pl.col("code").str.starts_with("LABTEST//")
-                                & ~pl.col("code").str.contains(r"//BIN_\d+$")
-                                & pl.col("numeric_value").is_not_null())
-                   .select(pl.len()).collect().item())
+        unsuffixed = (pl.col("code").str.starts_with("LABTEST//")
+                      & ~pl.col("code").str.contains(r"//BIN_\d+$")
+                      & pl.col("numeric_value").is_not_null())
+        has_bin = (pl.col("numeric_value_bin").is_not_null() if "numeric_value_bin" in columns
+                   else pl.lit(False))
+        counts = frame.select(
+            (unsuffixed & has_bin).sum().alias("unjoined"),
+            (unsuffixed & ~has_bin).sum().alias("no_bin"),
+            pl.col("code").str.starts_with("LABTEST//").sum().alias("lab_events"),
+        ).collect().row(0, named=True)
+        bare = {k: int(v) for k, v in counts.items()}
     return files, columns, codes.to_pandas(), set(subjects.to_list()), numeric, bare
 
 
@@ -109,9 +126,13 @@ def check_representation(columns, codes: pd.DataFrame, numeric, bare, report: Re
                f"{share:.1%} of laboratory events carry //BIN_k, "
                f"{float(lab.loc[text, 'n'].sum()) / events:.1%} a text value",
                binned_codes=int(binned.sum()), text_codes=int(text.sum()))
-    report.add("labs:no_unjoined_numeric", "PASS" if bare == 0 else "FAIL",
-               f"{bare} laboratory events with a numeric value but no bin suffix "
-               "(join_numeric_bins missing or bins null)", events=bare)
+    report.add("labs:bins_joined", "PASS" if bare["unjoined"] == 0 else "FAIL",
+               f"{bare['unjoined']} laboratory events have a bin that was not joined to "
+               "the code (join_numeric_bins missing)", events=bare["unjoined"])
+    share = bare["no_bin"] / max(bare["lab_events"], 1)
+    report.add("labs:numeric_without_bin", "PASS" if share < 0.01 else "WARN",
+               f"{bare['no_bin']} numeric laboratory events ({share:.3%}) have no fitted "
+               "bin and are read as the bare test code", events=bare["no_bin"])
     bins = lab.loc[binned, "code"].str.extract(BIN)[0].astype(int)
     report.add("labs:bins_zero_based", "PASS" if len(bins) and bins.min() == 0 else "WARN",
                f"bin indices {bins.min() if len(bins) else '-'} to "

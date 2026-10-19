@@ -1,0 +1,438 @@
+% Supplementary figures of the OPERA manuscript, shared with the thesis.
+
+\clearpage
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\setcounter{table}{0}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\resultfigureheight}{0.82\textheight}
+
+\operasection{Supplementary Methods: model and analysis details}
+\input{supplement_model_details}
+\clearpage
+\operasection{Supplementary Methods: evaluation and reporting}
+\input{supplement_evaluation_details}
+\clearpage
+\operasection{Supplementary figures}
+
+Supplementary figures group study design, performance, clinical comparisons,
+representations and explanation diagnostics; all are cross-referenced in the text.
+
+\begin{figure}[p]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/supervision_grid}}
+  \caption{\textbf{Supervision scopes on the disease--outcome matrix.} The matrix of \cref{fig:paradigms}E, with one target task
+  (outlined) evaluated identically in every panel. Diseases are rows and
+  outcomes are columns. \textbf{A}, A specialist learns one outcome in one disease. \textbf{B}, A disease-pooled model learns one outcome across all diseases. \textbf{C}, An outcome-pooled model learns all outcomes within one disease. \textbf{D}, The joint model learns all outcomes in all diseases.
+  Filled cells indicate supervision, not performance. The routed model uses
+  the same panel as the joint model and changes only how predictions are read
+  out. Every model predicts all six horizons.}
+  \label{fig:supervision-grid}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\resizebox{\textwidth}{!}{\input{figures/model_inputs}}
+\caption{\textbf{Data sources and input representation of the sequence model.} \textbf{A}, the six sources linked
+through the civil registration number, what each contributes and when its events
+are dated, with two example tokens per source. Codes are illustrative, and laboratory values enter as quantile bins fitted on events before 2022. \textbf{B}, each patient's history becomes one token sequence, coloured by source,
+in time order and ending at the start of first-line treatment. The pretrained
+encoder reads it once into a shared representation, from which the model gives
+the probability of every outcome by each of six horizons.}
+\label{fig:model-inputs}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \resizebox{0.94\textwidth}{!}{\input{figures/cohort_flow}}
+  \caption{\textbf{Study population.} Of 78,668 adults in DALY-CARE with a
+  lymphoid cancer or related diagnosis, whose pre-2022 histories were used for
+  pretraining, 37,557 started first-line treatment and 37,531 were assigned to
+  the training (to 2021), tuning (2022) or test (from 2023) period. Subtypes
+  were assigned from diagnoses up to 14 days after treatment start, with
+  reassessment up to day 90 for late-coded diagnoses. Counts are unique patients. Outcome-specific risk sets and detailed attrition are given in the Supplementary Methods. \placeholder{Counts pending final reconciliation.}}
+  \label{fig:cohort-flow}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_coverage}{Estimability}{Estimability of each
+    disease--outcome cell.}
+  \caption{\textbf{Estimability of disease--outcome cells.} Status of every
+  disease--outcome cell at one year: all models evaluated, too few training
+  events to train a specialist, no events in the test period, fit failed, or
+  not applicable (sex- or disease-specific outcomes). Counts in the legend.}
+  \label{fig:supp-coverage}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_support}{Training support}{Training
+    events per cell and their cumulative distribution.}
+  \caption{\textbf{Training events per disease--outcome cell.}
+  \textbf{A}, Training events by one year in each disease--outcome cell (log scale, grey for none). \textbf{B}, Cumulative distribution across cells, with
+  the support-bin edges used in the analysis marked.}
+  \label{fig:supp-support}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_atlas_matrix}{Every outcome in every disease}
+    {Test-period AUC of the joint model for each outcome in each disease.}
+  \caption{\textbf{Discrimination of the joint model for each outcome in each
+  disease.} \textbf{A}, Test-period
+  one-year AUC of the joint model for each outcome (rows, by clinical domain)
+  in each disease (columns, by disease group). Grey cells had too few events to estimate. \textbf{B}, The same outcomes over all diseases at each horizon.}
+  \label{fig:supp-atlas-matrix}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_pooling_cells}{Cell-level pooling
+    gains}{Disease by outcome maps of each pooling gain.}
+  \caption{\textbf{Pooling gains for each disease--outcome cell.} As
+  \cref{fig:pooling}A--D at the resolution of single cells. Diseases (rows) run from fewest to most training patients and outcomes (columns) from fewest to most training events, with log-scale bars showing both. Dots mark cells whose 95\% interval excludes zero: white for a gain, an open ring for a loss. Most cells are small, so colours alone do not establish benefit or harm. Dots mark unadjusted
+  pointwise intervals, not multiplicity-corrected discoveries. Grey cells could not be estimated.}
+  \label{fig:supp-pooling-cells}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_horizons}{Pooling gains across
+    horizons}{Gains at 30 to 730 days.}
+  \caption{\textbf{Pooling gains across horizons.} Median paired AUC gain
+  over the specialist by clinical domain at each horizon for the
+  disease-pooled, outcome-pooled and joint models.}
+  \label{fig:supp-horizons}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{fig_calibration}{Calibration}
+    {A: calibration slope by clinical domain. B: calibration in the large.
+    C: reliability curves for four example outcomes.}
+  \caption{\textbf{Calibration of the joint, routed, specialist and XGBoost
+  models.} \textbf{A},
+  Calibration slope at one year for the joint, routed, specialist and
+  XGBoost models by clinical domain (median and interquartile range across cells, ideal 1). \textbf{B}, Calibration in the large, observed minus
+  mean predicted risk (ideal 0). \textbf{C}, Reliability curves for four example outcomes. Observed risks are weighted by the inverse probability of censoring and point size reflects the number of patients per bin. No model
+  was recalibrated on test data.}
+  \label{fig:calibration}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_regions}{Performance by region}
+    {Gain of the joint model by the region where patients were treated.}
+  \caption{\textbf{Performance by region.} The models were trained on patients from all five regions, and test patients are grouped by the
+  region of most of their pre-treatment contacts and every comparison is
+  repeated within each region on the same fits. Maps show \textbf{A}, the one-year AUC gain of the joint model over per-task XGBoost, \textbf{B}, the joint model's one-year AUC, and \textbf{C}, its calibration in the large (observed minus predicted risk). Below, the same with 95\% paired bootstrap intervals over
+  equally weighted cells: \textbf{D}, gains over the specialist and XGBoost, \textbf{E}, AUC of the joint model and XGBoost, \textbf{F}, calibration in the large, and \textbf{G}, recorded events and laboratory results before
+  treatment (median and interquartile range), which may explain regional
+  differences. Region boundaries from geoBoundaries (CC BY 4.0)
+  \citep{runfola2020geoboundaries}, with Bornholm as an inset.}
+  \label{fig:supp-regions}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{fig_clinical_score}{Operating points relative to the IPI}
+    {A: precision--recall with matched-specificity operating point. B: model
+    risk within index groups. C--D: incidence by age and risk group.}
+  \caption{\textbf{Operating points and reclassification relative to the IPI
+  in DLBCL.} \textbf{A},
+  Precision--recall curves for death within two years (patients with known status at two years) for the model and for each IPI category
+  threshold. The square marks the IPI high-risk category. Dotted lines project it onto the model's curve: straight up gives the model's precision at the IPI's recall, and straight right its recall at the IPI's precision. The diamond marks the model at a threshold chosen on tuning data to match the IPI's specificity. AP, average
+  precision. \textbf{B}, Predicted two-year risk of each patient within each
+  IPI category, coloured by whether the patient died, with the model risk groups shaded. \textbf{C--D}, Two-year overall survival (95\% bootstrap
+  interval) and number of patients by age band and risk group for the model
+  (\textbf{C}) and the IPI (\textbf{D}). Counts below five are shown as $<$5,
+  and estimates are suppressed for cells with fewer than ten patients.}
+  \label{fig:clinical-score}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_clinical_score_age}{Risk groups by age}{Patient counts, predictions and observed risk separately.}
+  \caption{\textbf{Model and IPI risk groups by age in DLBCL.} Patients with DLBCL and a
+  recorded IPI, grouped by model risk group (left) and IPI category (right).
+  Rows show, by age band, the number of patients, the mean predicted two-year overall survival and the observed Kaplan--Meier estimate, each
+  with its 95\% bootstrap interval. Estimates are suppressed for cells with fewer than ten patients, but counts remain visible.}
+  \label{fig:clinical-score-age}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_score_overview}{Comparison with each recorded prognostic index}
+    {Survival by model risk group and by index category for each index and
+    population.}
+  \caption{\textbf{Model risk groups compared with each recorded prognostic
+  index.} One row
+  per index and the population it applies to, on patients with that index
+  recorded at diagnosis. Left, survival (or freedom from the endpoint) by model risk group. Middle, the same by index category, on the same patients. Right, estimates at two years with 95\% CI (M, model, and I, index). Shaded bands are 95\%
+  bootstrap intervals and the dashed line marks two years. Model cutoffs were
+  fixed on tuning data for each index, matching its low-risk observed risk and
+  high-risk specificity. Every index recorded for at least 50 patients of a
+  subtype is shown, and the NCCN-IPI in DLBCL. Group sizes, observed risk,
+  sensitivity and specificity of both systems are in Supplementary
+  Table~\placeholder{S}. \placeholder{Endpoint per index.}}
+  \label{fig:score-overview}
+\end{figure}
+
+% One plate like the figure above for every recorded index, written by the
+% clinical-scores step; copy its clinical_scores/ folder into the figure directory.
+\IfFileExists{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}{%
+  \input{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}}{}
+
+\begin{figure}[p]
+  \centering
+  \resizebox{0.96\textwidth}{!}{\input{figures/source_router}}
+  \caption{\textbf{Source-anchored disease--outcome routing.} For each patient
+  and target outcome, the router mixes a shared representation with residual
+  adapters indexed by fine disease and outcome. Its weights depend on the
+  patient, disease and target. Sources with no training support are masked and
+  low-event sources are shrunk. An adapter is updated by its own eligible
+  supervision, while borrowed adapter parameters are detached. The mixed
+  representation enters a shared linear head for interval hazards and
+  cumulative incidence. This is a model schematic, not an empirical route-weight
+  or performance plot.}
+  \label{fig:source-router}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[\textwidth]{supp_routing}{Routing}{Routed versus joint
+    and adapter-bank comparison.}
+  \caption{\textbf{Routed versus joint model, and adapter-bank comparisons.}
+  \textbf{A}, Paired
+  one-year AUC gain of the routed over the joint model by clinical domain, with the prespecified margin of practical equivalence shaded. \textbf{B},
+  Panel gains of adapter banks trained under the same protocol: no adapters
+  versus the joint model (a check that the architecture alone changes nothing),
+  disease adapters, outcome adapters, each given the other, both, and their
+  interaction. The router configuration was chosen on the tuning set.}
+  \label{fig:routing}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_rescue}{Routing where joint learning
+    reduced performance}{Cells harmed on tuning and their test-period gains.}
+  \caption{\textbf{Routing in cells where joint learning reduced performance
+  on the tuning set.} Cells were classified on the tuning set by whether the joint model
+  was worse than the specialist. \textbf{A}, Routed-versus-joint test gain
+  against the tuning-set harm. \textbf{B}, Test-period gains of the joint and
+  routed models over the specialist in each stratum.}
+  \label{fig:supp-rescue}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_router_usage}{Router weights}{Router
+    weights by disease and clinical domain.}
+  \caption{\textbf{Router weights by disease and clinical domain.} \textbf{A}, Mean
+  routing weight on each disease adapter by patients' disease (the patient's
+  own disease hatched). \textbf{B}, Outcome-adapter weights by clinical domain.
+  \textbf{C}, Share of the routed correction carried by the disease and
+  outcome banks. \textbf{D}, Routing intensity across patients.}
+  \label{fig:supp-router-usage}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[\textwidth]{supp_strategy}{Joint model versus per-cell
+    selection}{Joint model against the specialist and the tuning-selected best model.}
+  \caption{\textbf{Joint model versus the best model selected for each cell.}
+  \textbf{A}, Test AUC of the joint model against the specialist in each cell, with point size reflecting training events. \textbf{B}, Against the best of
+  the specialist, disease-pooled and outcome-pooled models chosen per cell on
+  the tuning set. \textbf{C}, Which model was chosen, by clinical domain.}
+  \label{fig:strategy}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.6\textwidth]{supp_national_where}{Effect of national
+    pretraining by subgroup}{Effects by vocabulary coverage, support and year.}
+  \caption{\textbf{Effect of national pretraining by vocabulary coverage,
+  training support and year of treatment.} Patient-weighted
+  improvement in one-year Brier score ($\times$100, 95\% CI) of the joint model
+  initialised from the national encoder, used directly or after local
+  adaptation, over the locally pretrained joint model, by the share of a
+  patient's history covered by the national vocabulary, by the number of
+  training events of the predicted combination, and by year of treatment.}
+  \label{fig:supp-national-where}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.6\textwidth]{fig_who_benefits}{Gain by patient subgroup}
+    {Paired Brier improvement of the joint model over the specialist and over
+    XGBoost by patient subgroup.}
+  \caption{\textbf{Gain from joint learning by patient subgroup.} Patient-weighted
+  improvement in one-year Brier score ($\times$100, 95\% bootstrap CI) of the
+  joint model over the specialist and over XGBoost, pooled across cells, by
+  subgroups defined at the start of treatment. Positive values favour the
+  joint model.}
+  \label{fig:who-benefits}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.9\textwidth]{supp_calibration_maps}{Calibration maps}{Local
+    calibration over the patient representation.}
+  \caption{\textbf{Local calibration across the patient representation.} Two-dimensional projection of test patients' representations
+  for example outcomes: event status, routing displacement, kernel-smoothed
+  predicted risk and the IPCW-weighted local residual (observed minus
+  predicted).}
+  \label{fig:supp-calibration-maps}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{fig_patient_map}{Patient representation}
+    {A: disease groups on the joint model's patient map. B--F: observed risk of
+    five outcomes on the same map. G: local calibration.}
+  \caption{\textbf{Observed outcome risk across the joint model's patient
+  representation.} \textbf{A}, Test
+  patients on a two-dimensional projection of the joint model's patient
+  representation (fitted on tuning patients), with the densest half of each
+  disease group outlined. \textbf{B--F}, The same map coloured by the observed
+  one-year risk of five outcomes from different clinical domains, estimated
+  with censoring-weighted kernels and shown relative to each outcome's average. Regions with too few evaluable patients are blank. \textbf{G}, Observed minus
+  predicted risk of the joint model for the outcome in \textbf{B}. All 69
+  outcomes are shown in \cref{fig:supp-embedding-gallery-1}--\cref{fig:supp-embedding-gallery-6}.
+  The map is descriptive and carries no performance claim.}
+  \label{fig:patient-map}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_embedding_comparison}{Patient representations across training stages}
+    {The same test patients under five model stages, from local and national
+    pretraining to the fine-tuned joint models.}
+  \caption{\textbf{Patient representations at each training stage.}
+  The same test patients under five model stages: pretraining on the cohort,
+  the joint model from that encoder, national pretraining, national pretraining
+  adapted to the cohort, and the nationally initialised joint model. The first
+  row outlines where each disease group lies, and the others show the local mean
+  (Gaussian kernel) of age at treatment, the number of recorded events before
+  treatment (log scale) and the IPI category among patients with a recorded IPI,
+  left blank where too few patients are nearby. Each column's projection
+  was fitted on tuning patients and applied unchanged to test patients, so
+  coordinates are comparable within a column but not between columns. The maps
+  are descriptive and carry no performance claim.}
+  \label{fig:supp-embedding-comparison}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_1}{Outcome risk across the representation (1/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (1 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-1}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_2}{Outcome risk across the representation (2/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (2 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-2}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_3}{Outcome risk across the representation (3/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (3 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-3}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_4}{Outcome risk across the representation (4/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (4 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-4}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_5}{Outcome risk across the representation (5/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (5 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-5}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[0.95\textwidth]{supp_embedding_gallery_6}{Outcome risk across the representation (6/6)}
+    {Observed one-year risk of each outcome on the joint model's patient map.}
+  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (6 of 6).}
+  Every panel shows the same two-dimensional projection of the joint model's
+  patient embedding (fitted on tuning patients) for test patients. Colour is
+  the censoring-weighted kernel estimate of the observed one-year risk of one
+  outcome, relative to that outcome's average (shown under its name): bright
+  regions carry up to four times the average risk and dark regions a quarter.
+  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  clinical domain, named above each group.}
+  \label{fig:supp-embedding-gallery-6}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_attribution_atlas}{What the model relies on}{Differences between patients by source and time, and findings across every outcome.}
+  \caption{\textbf{What the model relies on, for every outcome.} Rows are
+  outcomes grouped by clinical domain. Integrated gradients split each held-out
+  patient's predicted log-odds at one year into a reference, which keeps the
+  timing of care, age and subtype but replaces every recorded event by an
+  average event, and the contribution of each event. \textbf{A}, The variance of
+  the predictions between patients, divided into the part carried by the timing
+  of care alone (grey) and the parts carried by what was recorded, by source.
+  Shares are signed and add up to 100\% per outcome. \textbf{B}, The same
+  division by time before treatment. \textbf{C}, Mean change in predicted
+  log-odds among the patients who have each finding, shown as the corresponding
+  odds ratio. Boxed cells are the
+  prespecified expected effects, dots mark 95\% patient-bootstrap intervals that
+  exclude zero, and grey cells had fewer than 20 patients with the finding.}
+  \label{fig:attribution-atlas}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_attribution_structure}{Outcome-specific use of the history}{Agreement between outcomes and what each part of the record adds.}
+  \caption{\textbf{The model uses the same history differently for different
+  outcomes.} \textbf{A}, For every pair of outcomes, how much they agree on which
+  episodes of a patient's history raise or lower risk (Spearman correlation of
+  episode contributions within patients, averaged over patients). Episodes are
+  events within one day of each other, and each clinical domain is outlined.
+  \textbf{B}, Change in held-out AUC ($\times$100) when the same fitted model
+  reads only part of the record, averaged over all outcomes and over the
+  outcomes of each domain. The model is not retrained, so this measures what it
+  relies on, not what a model trained without that input could achieve.}
+  \label{fig:attribution-structure}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_attribution_patient}{One patient's history, read six ways}{For a synthetic patient, the episodes that move each of six risks, at their time.}
+  \caption{\textbf{One synthetic patient's history read for six
+  complications.} Each track is one outcome from a different clinical domain.
+  Circles are the episodes of care (events within one day of each other) that
+  move its predicted risk, at their time before treatment, sized by the change
+  in predicted log-odds and coloured by direction (sienna raises, indigo
+  lowers). The episodes that matter most for any outcome are labelled with
+  their main findings and timing. The predicted one-year risk is given at the
+  right, with the risk for the same timing of care and average findings. For
+  every patient, the episodes that most raise and lower each risk can be
+  extracted in the same way and shown beside the prediction. The patient and
+  its contributions are invented, and records of real patients stay in the
+  secure environment.}
+  \label{fig:attribution-patient}
+\end{figure}

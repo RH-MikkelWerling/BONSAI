@@ -480,11 +480,19 @@ FACTOR_CODES = {
     "marrow": ["LABTEST//NPU02902//BIN_1", "LABTEST//NPU03568//BIN_1",
                "MEDICATION//L01XC02", "LABTEST//NPU02319//BIN_1"],
     "renal": ["LABTEST//NPU18016//BIN_6", "DIAGNOSIS//DN185"],
-    "disease": ["PATHOLOGY//M96803", "LABTEST//NPU19123//BIN_6", "PROCEDURE//KTSF"],
+    "disease": ["PATHOLOGY//M96803", "LABTEST//NPU19123//BIN_6", "PROCEDURE//KTSF",
+                "PATHOLOGY//SYNTH_TP53", "PATHOLOGY//SYNTH_MYC", "PATHOLOGY//SYNTH_IGHV"],
     "none": ["CONTACT_SPECIALTY//HAEM", "MEDICATION//N02BE01", "DIAGNOSIS//DZ00",
              "REGION//HOVEDSTADEN"],
 }
+# Stand-ins for configured findings whose real codes are not yet known
+# (molecular pathology codes, found on the server by the vocabulary audit).
+SYNTHETIC_CONCEPT_CODES = {"tp53_aberration": ["PATHOLOGY//SYNTH_TP53"],
+                           "myc_rearrangement": ["PATHOLOGY//SYNTH_MYC"],
+                           "ighv_unmutated": ["PATHOLOGY//SYNTH_IGHV"]}
 CONCEPT_LABELS = {
+    "PATHOLOGY//SYNTH_TP53": "TP53 aberration", "PATHOLOGY//SYNTH_MYC": "MYC rearrangement",
+    "PATHOLOGY//SYNTH_IGHV": "Unmutated IGHV",
     "DIAGNOSIS//DI50": "Heart failure", "DIAGNOSIS//DN18": "Chronic kidney disease",
     "CONTACT_TYPE//ACUTE": "Acute admission", "MEDICATION//C03C": "Loop diuretics",
     "LABTEST//NPU19673//low": "Low albumin", "DIAGNOSIS//DJ18": "Pneumonia",
@@ -634,7 +642,8 @@ def synthetic_attribution_patterns(seed=41, n=500):
         for by in variance:
             variance[by].append(variance_decomposition(long, rows_o, by=by, draws=60)
                                 .assign(outcome=outcome))
-        specs = [{**c, "outcome": outcome, "expected": (c.get("expected") or {}).get(outcome)}
+        specs = [{**c, "codes": c["codes"] or SYNTHETIC_CONCEPT_CODES.get(c["name"], []),
+                  "outcome": outcome, "expected": (c.get("expected") or {}).get(outcome)}
                  for c in config["concepts"]]
         table = concept_effects(long, specs, SYNTHETIC_BINS, draws=60, min_count=20)
         for name in ("mean_pp", "lower_pp", "upper_pp", "median_pp"):
@@ -646,7 +655,7 @@ def synthetic_attribution_patterns(seed=41, n=500):
                                    outcome_b=similarity.column_b.map(reverse))
     restrictions = []
     effects = {item["label"]: value for item, value in zip(
-        config["restrictions"], (-0.06, -0.025, -0.012, -0.015, -0.008))}
+        config["restrictions"], (-0.06, -0.025, -0.012, -0.015, -0.003, -0.008))}
     lab_heavy = ("Neutrophil", "Renal", "Erythroid", "Liver", "Sodium", "Calcium", "Metabolic")
     for name, effect in effects.items():
         for group in ["All outcomes", *dict.fromkeys(domains.values())]:

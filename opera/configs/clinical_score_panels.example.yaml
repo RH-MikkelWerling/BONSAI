@@ -70,6 +70,35 @@ scores:  # explicit entries (scores not in the `index` column)
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
     applicability_review: null
+  - id: ipi_computed_no_index
+    # Lymphomas without a prognostic index of their own: the IPI (computed from
+    # registry components) is what these patients are assessed with today, so it
+    # is the comparator that matters. Pooled over the cohorts, each too small for
+    # its own comparison; same patients for model and score. Cohort list to be
+    # confirmed by a haematologist (cohorts without an index in routine use).
+    score_label: IPI (computed), lymphomas without an index
+    model: J_L
+    seed: 42
+    cohorts: [ALCL, TRANSFORMED_FL, LBL, RT, NMZL, BCL, TCL]
+    outcome: null  # Same endpoint as all_indices.template.
+    outcome_label: Treatment failure
+    horizon_days: 730
+    death_in_endpoint: true
+    score_column: ipi_computed_score
+    score_high_threshold: 4
+    group_column: ipi_computed_group
+    group_map: {low: Low, low-intermediate: Low-intermediate,
+                high-intermediate: High-intermediate, high: High}
+    group_order: [Low, Low-intermediate, High-intermediate, High]
+    score_high_group: High
+    age_column: age_at_index
+    score_date_column: null
+    score_timing: computed from components recorded at diagnosis, before treatment start
+    cutoff_rule: risk_matched_low
+    minimum_patients: 50
+    manuscript_figures: false
+    lock_provenance: null       # as in all_indices.template
+    applicability_review: null
   - id: nccn_ipi_dlbcl
     # NCCN-IPI computed from the registry components (comparability with the
     # earlier DLBCL study). Flat columns in the clinical metadata table.
@@ -123,5 +152,7 @@ native_endpoints:
   IPS:       {outcome: null, outcome_label: Treatment failure, death_in_endpoint: true,
               original_endpoint: "freedom from progression, 5 years (closest panel outcome: treatment failure)",
               horizons_days: [730, 365]}
+  IPI (computed), lymphomas without an index: {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              original_endpoint: "overall survival, 5 years (IPI applied outside the diseases it was built for)", horizons_days: [730, 365]}
   IPI (computed): {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}

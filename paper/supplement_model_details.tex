@@ -1,5 +1,5 @@
 % Detailed methods moved from the main Methods.
-\subsection*{Data sources and processing}
+\operasubsection{Data sources and processing}
 All data were held and processed in the DALY-CARE environment at the Danish
 National Genome Center \citep{brieghel2025dalycare}. Registers were linked
 through the civil registration number and converted to the Medical Event Data
@@ -25,7 +25,7 @@ Source & Events (code prefix) & Time of the event & Coverage \\
 \midrule
 Civil registration & sex (\texttt{SEX}), date of birth, date of death & fixed per patient & \placeholder{years} \\
 National patient register, LPR2 (to 2019) and LPR3 (from 2019) & diagnoses and diagnosis type (\texttt{DIAGNOSIS}), procedures (\texttt{PROCEDURE}), contact reason, priority, type and patient type, specialty and region (\texttt{CONTACT\_*}, \texttt{PATIENT\_TYPE}, \texttt{REGION}) & diagnoses at contact end, contact attributes at contact start, procedures when performed & \placeholder{years} \\
-Danish National Pathology Register (PATOBANK) & SNOMED codes (\texttt{PATHOLOGY}), requesting department's specialty and region & receipt of the requisition & \placeholder{years} \\
+Danish National Pathology Register (PATOBANK) & SNOMED codes (\texttt{PATHOLOGY}), including molecular findings such as TP53 aberrations \placeholder{confirm}; requesting department's specialty and region & receipt of the requisition & \placeholder{years} \\
 Register of Pharmaceutical Sales (LSR) & redeemed prescriptions by ATC code (\texttt{MEDICATION}) & dispensing date & \placeholder{years} \\
 National Hospital Medication Register (SMR) & hospital-administered medication by ATC code (\texttt{MEDICATION}), patient type, specialty and region & start of the order & \placeholder{years} \\
 Laboratory database (LABKA) & results by NPU code (\texttt{LABTEST}), as value bin or text result & sampling time & \placeholder{years, varies by region} \\
@@ -122,7 +122,7 @@ inside the DALY-CARE environment. The paper's own code for training, evaluation
 and figures is listed under Code availability.
 
 
-\subsection*{Model development}
+\operasubsection{Model development}
 
 \paragraph{What the model reads.} Each patient was represented as one
 chronological sequence of events from the sources in \cref{tab:meds-sources} and \cref{fig:model-inputs}:
@@ -181,7 +181,7 @@ model's scope; the contrast therefore evaluates adding supervision under this
 common selection rule, including its effect on optimisation and checkpoint
 selection, rather than holding every optimisation trajectory fixed.
 
-\subsection*{Outcome panel}
+\operasubsection{Outcome panel}
 We predicted 69 outcomes covering disease course (second-line treatment,
 treatment failure, transformation, new malignancy and death), infection,
 haematological toxicity and transfusion, kidney, liver and coagulation
@@ -195,7 +195,7 @@ rather than negative. Death was a competing event for every non-fatal outcome.
 Definitions, code lists and risk-set sizes are
 given in Supplementary Methods S5--S9.
 
-\subsection*{Tabular comparators: features and tuning}
+\operasubsection{Tabular comparators: features and tuning}
 For each disease--outcome cell and horizon, we trained gradient-boosted trees (XGBoost) \citep{chen2016xgboost} and ridge-penalised logistic regression on the
 same patients, labels and competing-event handling as the neural models. Their
 features came from the pipeline of our earlier DLBCL study
@@ -230,7 +230,7 @@ where not recorded and handled by the same missingness indicators, and hyperpara
 The sequence models never saw these variables, so this arm estimates what the
 curated registry adds, not a like-for-like comparison.
 
-\subsection*{National encoder: data and representation}
+\operasubsection{National encoder: data and representation}
 The national (PHAIR) encoder was pretrained on the registers of the whole
 Danish population, converted to MEDS with the same pipeline and the same
 processing steps as our cohort. The registers are the same entities, but the
@@ -258,6 +258,16 @@ training period: laboratory bins were fitted on events before 2022, the token
 vocabulary was built from events before 2022 (codes first seen later became
 an unknown token), and pretraining used only events before 2022.
 
+The merging threshold and the binning depend on the size of the dataset they
+are applied to, so the two vocabularies differ in resolution as well as in
+coverage. With the same threshold of 100 events, the national extract keeps
+specific codes, such as particular molecular findings or rare diagnoses, that
+the cohort's conversion merged into their parents; and because the number of
+bins grows with the number of distinct values, laboratory results are binned
+more finely. Finer resolution is one route by which the national encoder, and
+any larger dataset, could improve prediction, separate from the knowledge
+learned from other patients.
+
 The national encoder was pretrained for 10 epochs with a 1 January 2022
 cutoff. Continued pretraining on the cohort (adaptation) and pretraining on the
 cohort from scratch were
@@ -267,7 +277,7 @@ epochs do not guarantee equal exposure. \placeholder{Verified national training
 population, observation years, events/tokens, encoder version and PHAIR
 provenance/reference.}
 
-\subsection*{Data efficiency of national pretraining}
+\operasubsection{Data efficiency of national pretraining}
 To test whether population-scale pretraining is most useful when local labels
 are scarce, the joint model was retrained from the cohort encoder and from the
 national encoder adapted to the cohort on 10\%, 25\% and 50\% of the training
@@ -278,7 +288,7 @@ its expected share. Tuning and test patients were never subsampled, model
 selection used the full tuning set, and every model was evaluated on the same test cells. National versus cohort encoders were compared at each share with the same
 paired bootstrap as the main analysis.
 
-\subsection*{Comparison with clinical prognostic indices}
+\operasubsection{Comparison with clinical prognostic indices}
 The quality registries record, for each patient, the prognostic index scored at
 diagnosis (for example the IPI, FLIPI, MIPI, CLL-IPI or ISS)
 \citep{IPI1993,solalceligny2004flipi,hoster2008mipi,cllipi2016,greipp2005iss}
@@ -317,7 +327,7 @@ and is not combined with endpoint-matched overall-survival comparisons. The hori
 reproductions of the original analyses. Discrimination used the index category (or
 NCCN-IPI points) as an ordinal score.
 
-\subsection*{Routing formulation and selection}
+\operasubsection{Routing formulation and selection}
 To test whether a joint model benefits from conditioning its predictions on
 disease and outcome beyond ordinary shared learning, we compared the joint
 model with a routed model trained on the same panel. In the routed model, the
@@ -355,7 +365,7 @@ and are not interpreted as evidence of relationships between diseases.
 
 
 
-\subsection*{Hierarchy for effect heterogeneity}
+\operasubsection{Hierarchy for effect heterogeneity}
 The primary evidence is the paired effect in each disease--outcome cell with
 its patient-bootstrap interval. Many cells are small, so their raw estimates
 are noisy and rankings of individual cells are unreliable. We therefore also

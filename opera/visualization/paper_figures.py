@@ -777,7 +777,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     fig = plt.figure(figsize=(7.2, 6.9))
     outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.95], hspace=0.42, left=0.09,
                              right=0.975, top=0.94, bottom=0.12)
-    top = outer[0].subgridspec(1, 2, width_ratios=[1.0, 1.3], wspace=0.3)
+    top = outer[0].subgridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.55)
     bottom = outer[1].subgridspec(1, 2, width_ratios=[1.0, 1.25], wspace=0.08)
 
     def contrast(name):
@@ -801,7 +801,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
             curves[origin] = ([f for f, _ in present], q)
         (fl, ql), (fn, qn) = curves["L"], curves["EA"]
         if fl == fn:
-            ax.fill_between(fn, ql[:, 1], qn[:, 1], color=national, alpha=0.16, lw=0)
+            ax.fill_between(fn, ql[:, 1], qn[:, 1], color=national, alpha=0.10, lw=0)
         for (fractions, q), color in ((curves["L"], local), (curves["EA"], national)):
             ax.plot(fractions, q[:, 1], color=color, lw=2.0, marker="o", markersize=4.5,
                     markeredgecolor="white", markeredgewidth=0.8, zorder=4)
@@ -823,12 +823,15 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
         for f, code, low, high in list(zip(fn, codes, ql[:, 1], qn[:, 1]))[:-1]:
             gains = part.loc[part.contrast == code, "gain"].dropna()
             gap = float(gains.median()) if len(gains) else high - low
-            if high - low > 0.008:  # inside the shaded gap, where there is room
-                ax.text(f * 1.07, (low + high) / 2, _signed(gap), ha="left", va="center",
-                        fontsize=6, color=national, fontweight="bold")
+            # A bar joins the two models at this share; its difference beside it.
+            ax.plot([f, f], [low, high], color=national, lw=0.9, alpha=0.6, zorder=3,
+                    solid_capstyle="butt")
+            ax.text(f * 1.05, (low + high) / 2, _signed(gap), ha="left", va="center",
+                    fontsize=6, color=national, fontweight="bold",
+                    bbox=dict(fc="white", ec="none", pad=0.4, alpha=0.85), zorder=5)
         ax.text(fn[-1] * 1.08, qn[-1, 1], "National,\nadapted", color=national,
                 fontsize=6.6, va="bottom", ha="left", fontweight="bold", linespacing=1.0)
-        ax.text(fl[-1] * 1.08, ql[-1, 1], "Cohort", color=local, fontsize=6.6, va="top",
+        ax.text(fl[-1] * 1.08, ql[-1, 1] - 0.004, "Cohort", color=local, fontsize=6.6, va="top",
                 ha="left", fontweight="bold")
         ax.text(EFFICIENCY_FRACTIONS[0] * 0.9, target, "cohort encoder, all patients", fontsize=5.8,
                 color=local, va="bottom", ha="left")
@@ -846,56 +849,67 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
         ax.set_axis_off()
     _panel_title(ax, "B", "Fewer patients for the same accuracy")
 
-    # A: from local to national pretraining, step by step.
+    # A: from cohort to national pretraining: one row per encoder, the joint
+    # model filled and the routed model in outline, effects against the cohort.
     ax = fig.add_subplot(top[0])
     level = estimates.loc[(estimates.metric == metric) & (estimates.horizon_days == horizon)]
-    stages = ("L", "E", "EA")
-    for readout, filled in (("R", False), ("J", True)):
-        points = []
-        for x, origin in enumerate(stages):
+    stages = (("L", "Cohort"), ("E", "National"), ("EA", "National,\nadapted"))
+    effects = {"E": contrast("E-L:J"), "EA": contrast("EA-L:J")}
+    step = contrast("EA-E:J")
+    reference = level.loc[(level.origin == "L") & (level.readout == "J")]
+    if len(reference):
+        ax.axvline(float(reference.estimate.iloc[0]), color=ORIGIN_STYLE["L"][0], lw=0.8,
+                   ls=(0, (2, 2)), zorder=1)
+    for y, (origin, _) in enumerate(stages):
+        for readout, offset in (("J", -0.12), ("R", 0.16)):
             row = level.loc[(level.origin == origin) & (level.readout == readout)]
             if row.empty:
                 continue
             row = row.iloc[0]
-            color = (ORIGIN_STYLE[origin][0] if filled else MODEL_STYLE["R"][0])
-            shift = 0 if filled else -0.17
-            if filled:
-                ax.plot([x] * 2, [row.lower, row.upper], color=color, lw=1.3, alpha=0.45)
-            ax.scatter(x + shift, row.estimate, s=58 if filled else 30, zorder=4,
-                       color=color if filled else "white", edgecolor=color,
-                       lw=0 if filled else 1.1, marker="D" if filled else "o")
-            points.append((x + shift, row.estimate))
-        if not filled and len(points) > 1:
-            ax.plot(*zip(*points), color=MODEL_STYLE["R"][0], lw=0.7, alpha=0.5, zorder=2)
-        if filled:
-            for (x0, y0), (x1, y1), name in zip(points, points[1:], ("E-L:J", "EA-E:J")):
-                ax.annotate("", xy=(x1 - 0.1, y1), xytext=(x0 + 0.1, y0),
-                            arrowprops=dict(arrowstyle="-|>", color=national, lw=1.2,
-                                            shrinkA=0, shrinkB=0, mutation_scale=8))
-                row = contrast(name)
-                if row is not None:
-                    ax.text((x0 + x1) / 2 + 0.13, (y0 + y1) / 2 - 0.001,
-                            f"{_signed(row.gain)}\n({row.lower:.3f} to {row.upper:.3f})"
-                            .replace("-", "−"), ha="center", va="top", fontsize=5.9,
-                            color=PALETTE["ink"], linespacing=1.1, zorder=6,
-                            bbox=dict(fc="white", ec="none", pad=0.6, alpha=0.9))
-            total = contrast("EA-L:J")
-            if total is not None and len(points) == 3:
-                x = 2.42
-                ax.plot([x - 0.05, x, x, x - 0.05], [points[0][1], points[0][1], points[2][1],
-                                                      points[2][1]], color=national, lw=0.8)
-                ax.text(x + 0.06, (points[0][1] + points[2][1]) / 2,
-                        f"{_signed(total.gain)}\nin all", ha="left", va="center",
-                        fontsize=6.4, color=national, fontweight="bold", linespacing=1.1)
-    ax.set_xticks(range(3), ["Cohort", "National", "National,\nadapted"], fontsize=7)
-    ax.set_xlim(-0.45, 2.95)
-    ax.set_ylabel("Panel one-year AUC (95% CI)")
-    ax.yaxis.set_major_locator(MaxNLocator(4))
-    despine(ax, "y")
+            filled = readout == "J"
+            color = ORIGIN_STYLE[origin][0] if filled else MODEL_STYLE["R"][0]
+            ax.plot([row.lower, row.upper], [y + offset] * 2, color=color,
+                    lw=1.8 if filled else 1.1, alpha=0.5 if filled else 0.4,
+                    solid_capstyle="round", zorder=2)
+            ax.scatter(row.estimate, y + offset, s=62 if filled else 30, zorder=4,
+                       marker="D" if filled else "o", color=color if filled else "white",
+                       edgecolor="white" if filled else color, lw=0.8 if filled else 1.1)
+    # Each effect sits at the end of its own interval, in that row's colour.
+    rights = []
+    for y, (origin, _) in enumerate(stages):
+        row = level.loc[(level.origin == origin) & (level.readout == "J")]
+        if row.empty:
+            continue
+        upper = float(row.upper.iloc[0])
+        rights.append(upper)
+        effect = effects.get(origin)
+        if origin == "L":
+            text = "reference"
+        elif effect is not None:
+            text = (f"{_signed(effect.gain)} vs cohort\n({effect.lower:.3f} to "
+                    f"{effect.upper:.3f})").replace("-", "−")
+            if origin == "EA" and step is not None:
+                text += f"\n{_signed(step.gain)} vs national".replace("-", "−")
+        else:
+            continue
+        ax.annotate(text, xy=(upper, y - 0.12), xytext=(5, 0), textcoords="offset points",
+                    fontsize=5.9, ha="left", va="center", linespacing=1.05,
+                    color=ORIGIN_STYLE[origin][0] if origin != "L" else PALETTE["ink_muted"],
+                    fontweight="bold" if origin == "EA" else "normal")
+    if rights:
+        low, high = ax.get_xlim()
+        ax.set_xlim(low, max(rights) + 0.85 * (max(rights) - low))
+    ax.set_yticks(range(len(stages)), [label for _, label in stages], fontsize=7)
+    ax.set_ylim(len(stages) - 0.4, -0.95)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("Panel one-year AUC (95% CI)")
+    ax.xaxis.set_major_locator(MaxNLocator(4))
+    despine(ax, "x")
     ax.legend(handles=[Line2D([], [], ls="none", marker="D", color=national, label="Joint"),
                        Line2D([], [], ls="none", marker="o", markerfacecolor="white",
                               color=MODEL_STYLE["R"][0], label="Routed")],
-              loc="upper left", frameon=False, fontsize=6.5, handletextpad=0.3)
+              loc="lower right", ncol=2, frameon=False,
+              fontsize=6.3, handletextpad=0.3, columnspacing=1.0)
     _panel_title(ax, "A", "From cohort to national pretraining")
 
     # C-D: where the adapted national encoder helps (cells; shared gain axis).
@@ -3192,9 +3206,11 @@ SOURCE_COLORS = {
     # Identity of a source of records. Kept clear of the sienna-indigo pair that
     # the paper uses for signed effects (raises/lowers, gains/losses), so a
     # colour never means both "laboratory" and "raises risk". The patient
-    # register is one purple family (diagnoses, procedures, contacts).
-    "Demographics": "#737D8C", "Diagnoses": "#5E4B8B", "Procedures": "#9886C2",
-    "Hospital contacts": "#C9BEDF", "Pathology": "#8C6D4F", "Medication": "#408579",
+    # register is one purple family (diagnoses, procedures, contacts). Chosen so
+    # every pair differs by CIE76 dE >= 18 for normal vision and simulated
+    # deuteranopia, protanopia and tritanopia (Machado et al. 2009).
+    "Demographics": "#2E3440", "Diagnoses": "#6A4C93", "Procedures": "#9886C2",
+    "Hospital contacts": "#D4B9DA", "Pathology": "#8C6D4F", "Medication": "#3E9C8A",
     "Laboratory": "#C08A1E", "Other": "#DDE1E6",
 }
 RISK_CMAP = LinearSegmentedColormap.from_list(

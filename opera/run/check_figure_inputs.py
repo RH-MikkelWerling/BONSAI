@@ -32,9 +32,22 @@ EMBEDDING_TABLES = ("gallery_coordinates.csv", "embedding_gallery.parquet",
                     "calibration_map_outcomes.json")
 
 
+def manuscript_text(path: Path) -> str:
+    """The manuscript with every ``\\input{...}`` expanded (body files are shared
+    with the thesis)."""
+    path = Path(path)
+
+    def expand(match):
+        name = match.group(1)
+        child = path.parent / (name if name.endswith(".tex") else f"{name}.tex")
+        return manuscript_text(child) if child.is_file() else match.group(0)
+
+    return re.sub(r"\\input\{([^}]+)\}", expand, path.read_text())
+
+
 def manuscript_figures(path: Path) -> list[str]:
     return list(dict.fromkeys(re.findall(r"\\resultfigure(?:\[[^\]]*\])?\{([A-Za-z0-9_]+)\}",
-                                         path.read_text())))
+                                         manuscript_text(path))))
 
 
 def producer(path: Path, analysis_root: Path) -> str:

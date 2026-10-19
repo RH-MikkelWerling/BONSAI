@@ -105,3 +105,42 @@ def test_audit_reports_formats_coverage_and_what_to_review():
     assert token_format("LABTEST//NPU19673//BIN_1") == "LABTEST//<A9>//BIN_<9>"
     assert review.concept.iloc[0] == "DIAGNOSIS//DZ00"
     assert "Laboratory" in set(coverage.source)
+
+
+def test_concept_coverage_flags_findings_that_match_nothing():
+    from opera.run.audit_vocabulary import concept_coverage
+
+    vocabulary = {t: i for i, t in enumerate([
+        "LABTEST//NPU19673//BIN_0", "LABTEST//NPU19673//BIN_7", "DIAGNOSIS//DI509"])}
+    config = {"concepts": [{"name": "hf", "label": "Heart failure", "codes": ["DIAGNOSIS//DI50"]},
+                           {"name": "crp", "label": "High CRP",
+                            "codes": ["LABTEST//NPU19748//BIN_"]}],
+              "lab_tests": [{"npu": "NPU19673", "label": "Albumin"}]}
+    table = concept_coverage(vocabulary, config, CodeDictionary(REVIEWED)).set_index("name")
+    assert table.loc["hf", "status"] == "OK" and table.loc["crp", "status"] == "NO MATCH"
+    assert table.loc["NPU19673", "bins"] == "0-7"
+    assert table.loc["NPU19673", "dictionary_names"] == "Albumin"
+
+
+def test_molecular_pathology_codes_are_not_merged_into_families():
+    from opera.interpretability.attribution_summaries import rollup
+
+    assert rollup("PATHOLOGY//M96803") == "PATHOLOGY//M96"  # morphology family
+    assert rollup("PATHOLOGY//T06000") == "PATHOLOGY//T06"  # topography family
+    assert rollup("PATHOLOGY//F29890") == "PATHOLOGY//F29890"  # e.g. a molecular finding
+
+
+def test_findings_without_codes_yet_match_nothing_and_are_flagged():
+    import pandas as pd
+
+    from opera.interpretability.attribution_summaries import concept_effects
+    from opera.run.audit_vocabulary import concept_coverage
+
+    tokens = pd.DataFrame({"subject_id": [1, 2], "code": ["PATHOLOGY//F1", "PATHOLOGY//F2"],
+                           "attribution": [0.1, 0.2], "outcome": "death",
+                           "days_before_index": [3.0, 4.0], "position": [0, 0]})
+    table = concept_effects(tokens, [{"name": "tp53", "codes": []}], {}, draws=10, min_count=1)
+    assert table.verdict.iloc[0] == "too few patients"
+    coverage = concept_coverage({"PATHOLOGY//F1": 0}, {"concepts": [
+        {"name": "tp53", "label": "TP53 aberration", "codes": []}]}, CodeDictionary())
+    assert coverage.status.iloc[0] == "NO MATCH"

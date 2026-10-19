@@ -126,8 +126,13 @@ def stratified_sample(pool, *, per_subtype, total, seed):
     subtype ``s``; stage 2 samples a fraction ``f`` of all remaining patients
     uniformly, up to ``total``. A patient of subtype ``s`` is included with
     probability ``(m_s + (N_s - m_s) f) / N_s`` and weighted by its inverse.
+    ``total=0`` (or at least the population size) explains everyone, weight 1.
     """
-    if total < 1 or per_subtype < 0 or not pool:
+    if not pool:
+        raise ValueError("Need a nonempty population")
+    if total == 0 or total >= len(pool):
+        return list(range(len(pool))), [1.0] * len(pool)
+    if total < 1 or per_subtype < 0:
         raise ValueError(
             "Need a nonempty population, positive cap and nonnegative subtype quota"
         )
@@ -580,7 +585,9 @@ def build_parser():
         default=DEFAULT_CHECK_OUTCOMES,
         help="Outcomes for faithfulness and randomisation checks.",
     )
-    parser.add_argument("--max-patients", type=int, default=1500)
+    parser.add_argument("--max-patients", type=int, default=0,
+                        help="0 (default): every patient of the split; otherwise a "
+                             "stratified sample of this size with sampling weights")
     parser.add_argument("--per-subtype", type=int, default=40)
     parser.add_argument("--steps", type=int, default=8,
                         help="Gauss-Legendre nodes; patients failing completeness are "
@@ -1121,7 +1128,7 @@ def main():
 
     args = build_parser().parse_args()
     if (
-        args.max_patients < 1
+        args.max_patients < 0
         or args.per_subtype < 0
         or args.baseline_patients < 1
         or args.shard_size < 1

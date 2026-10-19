@@ -47,12 +47,14 @@ def test_a_joined_release_passes(tmp_path):
 
 
 @pytest.mark.parametrize("codes,failing", [
-    (["LABTEST//NPU19673"], "labs:no_unjoined_numeric"),       # join_numeric_bins missing
+    (["LABTEST//NPU19673"], "labs:numeric_without_bin"),       # numeric, no bin fitted
     (["LABTEST//NPU19673//bin_2"], "labs:suffix_case"),
 ])
 def test_unjoined_or_lower_case_bins_fail(tmp_path, codes, failing):
     root = release(tmp_path, codes, numeric={codes[0]: 31.0})
-    assert run(root)[failing] == "FAIL"
+    assert run(root)[failing] in {"FAIL", "WARN"}
+    if failing == "labs:numeric_without_bin":  # a whole release unbinned is not "minor"
+        assert run(root)["labs:bins_joined"] == "PASS"
 
 
 def test_default_split_and_missing_patients_fail(tmp_path):
@@ -72,3 +74,17 @@ def test_changed_subject_ids_between_runs_fail(tmp_path):
     report = check.Report()
     check.check_mapping(old, new, report)
     assert report.rows[0]["status"] == "FAIL" and report.rows[0]["changed"] == 2
+
+
+def test_a_bin_that_was_not_joined_fails(tmp_path):
+    rows = [{"subject_id": 1, "time": datetime(2020, 1, 1), "code": "LABTEST//NPU1",
+             "numeric_value": 3.0, "numeric_value_bin": 2},
+            {"subject_id": 1, "time": None, "code": "SEX//F", "numeric_value": None,
+             "numeric_value_bin": None}]
+    for split in ("train", "tuning"):
+        (tmp_path / "data" / split).mkdir(parents=True)
+        pl.DataFrame(rows, schema={"subject_id": pl.Int64, "time": pl.Datetime,
+                                   "code": pl.String, "numeric_value": pl.Float64,
+                                   "numeric_value_bin": pl.Int64}
+                     ).write_parquet(tmp_path / "data" / split / "0.parquet")
+    assert run(tmp_path)["labs:bins_joined"] == "FAIL"

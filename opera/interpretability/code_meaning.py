@@ -43,6 +43,7 @@ FAMILIES = (
     ("GENDER//", "Demographics", "demographics"),
     ("AGE//", "Demographics", "demographics"),
     ("DOB", "Demographics", "demographics"),  # ehr2meds birth event (bare code)
+    ("DOD", "Demographics", "demographics"),  # ehr2meds death event; never before index
     ("DIAGNOSIS_TYPE//", "Diagnoses", "diagnosis_type"),
     ("DIAGNOSIS//", "Diagnoses", "icd10"),
     ("PROCEDURE_TYPE//", "Procedures", "procedure_type"),
@@ -285,8 +286,8 @@ class CodeDictionary:
         if source == "Hospital contacts" or system in {"demographics", "diagnosis_type",
                                                        "procedure_type"}:
             token = str(token).removeprefix("BACKGROUND//")  # untimed codes of BONSAI
-            if token == "DOB":
-                return "Date of birth"
+            if token in {"DOB", "DOD"}:
+                return {"DOB": "Date of birth", "DOD": "Date of death"}[token]
             head, _, rest = token.partition("//")
             head = head.replace("BG_", "").replace("BACKGROUND", "").strip("_/")
             if head.upper() in {"SEX", "GENDER"} and rest.upper() in SEX:

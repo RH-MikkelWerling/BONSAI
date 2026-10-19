@@ -28,8 +28,9 @@ What stands between the current manuscript and submission, in order.
 5. Table S1: coverage years for each register.
 6. First-line treatment changes in Denmark and when (Discussion, Results).
 7. Register coverage changes over time (laboratory data by region and year).
-8. The exact `cohort_fine` names of the eight subtypes without an index
-   (locked analysis config).
+8. Done: the ten subtypes without a dedicated index are registry identifiers in
+   the locked analysis config, tested against the taxonomy. Still to do: check
+   the guideline column of the index table against the Danish guidelines.
 9. Feature export check for the tabular models (Supplementary Methods).
 10. The selected router configuration; locked priors, tolerances and
     support-bin edges.
@@ -38,6 +39,14 @@ What stands between the current manuscript and submission, in order.
 12. Repository URL, archival DOI and licence for the code; licence of
     ehr2meds.
 13. Funding, acknowledgements, CRediT contributions and competing interests.
+14. **Code names and code lists (open, decide how).** A way to give the
+    analysis the meaning of the model's codes without patient data leaving the
+    server: ICD-10, ATC, NPU, SKS and PATOBANK SNOMED name tables (public
+    classifications), and the codes of the molecular pathology findings (TP53,
+    MYC, IGHV) in both the cohort and the national vocabulary. Options: export
+    the vocabulary audit's `code_meanings.csv`/`search_hits.csv` (codes and
+    names only, no counts) after disclosure review; or copy the official
+    tables into the secure environment and list them under `code_tables:`.
 
 ## D. Journal requirements to check (HemaSphere and top-tier alternatives)
 - Display items: currently 7 main figures and 2 tables. The HemaSphere DLBCL

@@ -73,6 +73,13 @@ def test_sample_cap_is_not_silently_exceeded():
         )
 
 
+def test_whole_population_is_the_default_with_unit_weights():
+    pool = [{"subtype": s} for s in "aabbbc"]
+    for total in (0, 6, 100):
+        chosen, weights = stratified_sample(pool, per_subtype=1, total=total, seed=1)
+        assert sorted(chosen) == list(range(6)) and weights == [1.0] * 6
+
+
 def test_resume_intent_rejects_data_or_configuration_changes(tmp_path):
     from argparse import Namespace
     from omegaconf import OmegaConf

@@ -33,8 +33,11 @@ run:
   horizons: [365]
   borrowed_outcomes: ""
   check_outcomes: [overall_survival, serious_infection_composite, neutropenia_g3plus]
-  max_patients: 1500          # stratified: up to per_subtype from every subtype, rest uniform
-  per_subtype: 40             # sampling weights restore the population mix
+  # Every test patient (weight 1). A number instead gives a stratified sample:
+  # up to per_subtype from every subtype, the rest uniform, with sampling
+  # weights restoring the population mix (fallback if compute is short).
+  max_patients: all
+  per_subtype: 40
   steps: 8                    # Gauss-Legendre nodes; patients above tolerance rerun at 32
   precision: fp32             # bf16/fp16 opt-in after a pilot, guarded by completeness
   tolerance: 0.05             # completeness gap relative to |prediction - reference|
@@ -53,6 +56,10 @@ restrictions:
   - {id: no_labs, label: "Without laboratory results", hide_prefixes: [LABTEST]}
   - {id: no_medication, label: "Without medication", hide_prefixes: [MEDICATION]}
   - {id: no_diagnoses, label: "Without diagnoses", hide_prefixes: [DIAGNOSIS]}
+  # Region and specialty of care: two regions add richer hospital-record data,
+  # so region partly marks which data a patient has (a possible shortcut).
+  - {id: no_region_specialty, label: "Without region and specialty",
+     hide_prefixes: [REGION, CONTACT_SPECIALTY, RC_REG, RC_SPEC]}
   - {id: last_year, label: "Only the last year", keep_last_days: 365}
 
 # Laboratory curves: the latest result before treatment, by value bin.
@@ -88,11 +95,22 @@ concepts:
   - {name: crp_high, label: "High CRP", group: Laboratory, codes: ["LABTEST//NPU19748//BIN_"],
      bin_position: [0.67, 1.0], latest_only: true, within_days: 90,
      expected: {serious_infection_composite: "+"}}
+  # Molecular findings recorded as pathology (PATOBANK SNOMED) codes. Codes TO
+  # FIND on the server: python -m opera.run.audit_vocabulary ... --search
+  # "TP53|MYC|IGHV|17p" with the PATOBANK code table under code_tables. Until
+  # filled, these match nothing and are reported as NO MATCH (concept_coverage).
+  - {name: tp53_aberration, label: "TP53 aberration", group: Pathology, codes: [],
+     expected: {treatment_failure: "+", overall_survival: "+"}}
+  - {name: myc_rearrangement, label: "MYC rearrangement", group: Pathology, codes: [],
+     expected: {treatment_failure: "+", overall_survival: "+"}}
+  - {name: ighv_unmutated, label: "Unmutated IGHV", group: Pathology, codes: [],
+     expected: {treatment_failure: "+"}}
   - {name: heart_failure, label: "Heart failure", group: Diagnoses, codes: ["DIAGNOSIS//DI50"],
      expected: {heart_failure: "+", overall_survival: "+"}}
   - {name: kidney_disease, label: "Chronic kidney disease", group: Diagnoses,
      codes: ["DIAGNOSIS//DN18"], expected: {aki_first_documented: "+"}}
-  - {name: pneumonia, label: "Pneumonia", group: Diagnoses, codes: ["DIAGNOSIS//DJ1"],
+  - {name: pneumonia, label: "Pneumonia", group: Diagnoses, codes: ["DIAGNOSIS//DJ12", "DIAGNOSIS//DJ13", "DIAGNOSIS//DJ14",
+     "DIAGNOSIS//DJ15", "DIAGNOSIS//DJ16", "DIAGNOSIS//DJ17", "DIAGNOSIS//DJ18"],
      expected: {serious_infection_composite: "+"}}
   - {name: antibacterials, label: "Antibacterials, last year", group: Medication,
      codes: ["MEDICATION//J01"], within_days: 365,

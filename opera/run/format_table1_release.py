@@ -10,7 +10,9 @@ import pandas as pd
 from opera.functional.table1_release import release_table
 
 
-SPLIT_COLUMNS = (("Overall", "Overall"), ("train", "Training"), ("tuning", "Tuning"), ("held_out", "Held-out"))
+SPLIT_COLUMNS = (("Overall", "Overall"), ("train", "Training"), ("tuning", "Tuning"),
+                 ("held_out", "Test"))
+SPLIT_PERIODS = ("All years", "Through 2021", "2022", "From 2023")
 
 
 def _tex(value):
@@ -62,6 +64,10 @@ LAYOUT = [
 # Shown elsewhere or internal: never listed under "Other characteristics".
 NOT_IN_TABLE = {"patients", "cohort_fine", "index", "ipi", "IPI", "nccn_ipi_score",
                 "predominant_region_status", "female"}
+# Shown only in the supplementary table by disease.
+MAIN_TABLE_EXCLUDE = frozenset({SPECIALTY_PREFIX, "prognostic_score_by_system", "nccn_ipi_group"})
+# Two-level characteristics shown as one row (the other level is the complement).
+SINGLE_LEVEL = {"sex": ("Female", "Female")}
 CATEGORY_ORDER = ["low", "low-intermediate", "medium", "intermediate",
                   "high-intermediate", "high", "very high"]
 
@@ -105,9 +111,15 @@ def _category_label(variable, category):
 
 
 def _disease_rows(result, cells, informative, width, label):
-    """Disease groups with their subtypes indented beneath them."""
+    """Disease groups in clinical order (bold), subtypes indented beneath them.
+
+    Subtypes are listed by size and named in full with their abbreviation; a
+    group with one subtype is a single row under the subtype's name. Subtypes
+    without a prognostic index in routine use carry a dagger.
+    """
     from opera.visualization.paper_taxonomy import (
-        disease_group_name, disease_name, fine_cohort_groups)
+        GROUP_ORDER, NO_ROUTINE_INDEX, disease_group_long_name, disease_long_name,
+        fine_cohort_groups)
 
     groups = result.loc[result.variable == "cohort_grouped"]
     fines = result.loc[result.variable == "cohort_fine"]
@@ -116,26 +128,40 @@ def _disease_rows(result, cells, informative, width, label):
     mapping = fine_cohort_groups()
     names = sorted(set(groups.category.dropna().astype(str))
                    | {mapping.get(str(f), "Other") for f in fines.category.dropna()},
-                   key=lambda g: disease_group_name(g))
+                   key=lambda g: (GROUP_ORDER.index(g) if g in GROUP_ORDER else len(GROUP_ORDER),
+                                  disease_group_long_name(g)))
+    overall = fines.loc[fines.split == "Overall"] if "split" in fines else fines
+    size = (pd.to_numeric(overall.get("count"), errors="coerce")
+            .groupby(overall.category.astype(str)).max() if "count" in overall else pd.Series(dtype=float))
+
+    def named(fine):
+        dagger = r"$^{\dagger}$" if fine in NO_ROUTINE_INDEX else ""
+        return _tex(disease_long_name(fine)) + dagger
+
     lines = [r"\multicolumn{%d}{@{}l}{%s, $n$ (\%%)}\\" % (width, label)]
     for group in names:
-        values = cells(groups.loc[groups.category.astype(str) == group], None)
-        lines.append(rf"\quad {_tex(disease_group_name(group))} & "
-                     + " & ".join(map(_tex, values)) + r" \\")
         members = sorted((str(f) for f in fines.category.dropna().unique()
-                          if mapping.get(str(f), "Other") == group), key=disease_name)
-        if len(members) == 1:
+                          if mapping.get(str(f), "Other") == group),
+                         key=lambda f: (-size.get(f, 0) if pd.notna(size.get(f, 0)) else 0,
+                                        disease_long_name(f)))
+        title = (named(members[0]) if len(members) == 1
+                 else _tex(disease_group_long_name(group)))
+        values = cells(groups.loc[groups.category.astype(str) == group], None)
+        lines.append(rf"\quad \textbf{{{title}}} & " + " & ".join(map(_tex, values)) + r" \\")
+        if len(members) <= 1:
             continue  # a group with one subtype is already its own row
         for fine in members:
             values = cells(fines.loc[fines.category.astype(str) == fine], None)
             if informative(values):
-                lines.append(rf"\qquad {_tex(disease_name(fine))} & "
+                lines.append(rf"\qquad {named(fine)} & "
                              + " & ".join(map(_tex, values)) + r" \\")
     return lines
 
 
-def _body(result, columns, key):
-    """Sectioned table rows; ``key(rows, column, decimals)`` gives one cell."""
+def _body(result, columns, key, exclude=()):
+    """Sectioned table rows; ``key(rows, column, decimals)`` gives one cell.
+
+    ``exclude`` drops layout entries (by variable) from this table."""
     width = len(columns) + 1
     lines = []
 
@@ -155,6 +181,8 @@ def _body(result, columns, key):
     for section, entries in layout:
         block = []
         for variable, label, decimals in entries:
+            if variable in exclude:
+                continue
             if variable == "cohort_grouped":
                 block += _disease_rows(result, cells, informative, width, label)
                 continue
@@ -181,6 +209,12 @@ def _body(result, columns, key):
                 if informative(values):
                     block.append(f"{label}{suffix} & " + " & ".join(map(_tex, values)) + r" \\")
                 continue
+            if variable in SINGLE_LEVEL:
+                level, name = SINGLE_LEVEL[variable]
+                values = cells(rows.loc[rows.category.astype(str) == level], None)
+                if informative(values):
+                    block.append(f"{name}, $n$ (\\%) & " + " & ".join(map(_tex, values)) + r" \\")
+                    continue
             category_rows = []
             for category in sorted(rows.category.dropna().unique(), key=_category_key):
                 values = cells(rows.loc[rows.category == category], None)
@@ -200,6 +234,12 @@ def _note(policy):
     return (r"\par\vspace{1mm}{\scriptsize Counts of 1--4 are shown as $<$5. "
             r"Percentages use patients with a recorded value; history summaries use "
             r"records before the index date.}") if policy == "primary-only" else ""
+
+
+def _disease_note():
+    return (r"\par{\scriptsize $^{\dagger}$No dedicated, externally validated prognostic "
+            r"index; the prespecified stratum of subtypes without an index "
+            r"(Supplementary \cref{tab:index-availability}).}")
 
 
 def pooled_table_latex(result, *, source_sha256, status="review", policy="targeted"):
@@ -233,17 +273,24 @@ def pooled_table_latex(result, *, source_sha256, status="review", policy="target
         )
         + r"One record per patient at the shared first-line index, by temporal split.}",
         r"\label{tab:characteristics}",
-        r"\small",
+        r"\footnotesize",
         r"\setlength{\tabcolsep}{5pt}",
+        r"\renewcommand{\arraystretch}{1.05}",
         r"\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}",  # noqa
         r"\toprule",
         "Characteristic & " + " & ".join(label for _, label in SPLIT_COLUMNS) + r" \\",
+        " & " + " & ".join(
+            rf"{{\footnotesize\itshape {period}}}" for period in SPLIT_PERIODS) + r" \\",
+        r"& " + " & ".join(rf"{{\footnotesize $n$ = {_tex(patients.get(c, ''))}}}"
+                           for c in columns) + r" \\",
         r"\midrule",
-        r"Patients, $n$ & " + " & ".join(_tex(patients.get(c, "")) for c in columns) + r" \\",
-        *_body(pooled, columns, key),
+        # Contact specialties and the categories of every recorded index are
+        # listed in the by-disease supplementary table, so Table 1 fits a page.
+        *_body(pooled, columns, key, exclude=MAIN_TABLE_EXCLUDE),
         r"\bottomrule",
         r"\end{tabularx}",
         _note(policy),
+        _disease_note(),
         r"\end{table*}",
         "",
     ]
@@ -295,14 +342,59 @@ def disease_table_latex(result, *, source_sha256, policy="targeted"):
     ])
 
 
+def layout_table_latex():
+    """Table 1 as it will look, with every value pending: the layout preview.
+
+    Built from the same layout and disease taxonomy as the real table, so the
+    manuscript shows the final structure (all 24 subtypes under their groups)
+    until the reviewed export replaces it.
+    """
+    from opera.visualization.paper_taxonomy import fine_cohort_groups
+
+    rows = []
+    splits = [split for split, _ in SPLIT_COLUMNS]
+
+    def add(variable, characteristic, kind, categories=(None,)):
+        for category in categories:
+            for split in splits:
+                rows.append({"variable": variable, "characteristic": characteristic,
+                             "category": category, "kind": kind, "split": split,
+                             "cohort_level": "all", "display": "·"})
+
+    add("patients", "Patients", "count")
+    add("age", "Age", "continuous")
+    add("age_ge70", "Age >=70", "binary")
+    add("sex", "Sex", "categorical", ["Female", "Male"])
+    add("index_year", "Year of treatment", "continuous")
+    mapping = fine_cohort_groups()
+    add("cohort_grouped", "Disease group", "categorical", sorted(set(mapping.values())))
+    add("cohort_fine", "Disease subtype", "categorical", sorted(mapping))
+    add("prognostic_score_by_system", "Prognostic index", "categorical",
+        ["IPI: low", "IPI: intermediate", "IPI: high"])
+    for variable in ("observable_history_years", "recorded_events", "distinct_diagnoses",
+                     "distinct_medications", "laboratory_measurements", "hospital_encounters"):
+        add(variable, variable, "continuous")
+    add("predominant_region", "Region", "categorical",
+        [f"REGION//{r}" for r in ("Hovedstaden", "Sjælland", "Syddanmark", "Midtjylland",
+                                   "Nordjylland")])
+    add("followup_days", "Follow-up", "continuous")
+    add("death_event", "Died", "binary")
+    result = pd.DataFrame(rows)
+    result["median"] = float("nan")
+    tex = pooled_table_latex(result, source_sha256="layout (no data)", status="layout")
+    return tex.replace(
+        r"\caption{\textbf{Baseline characteristics at first-line treatment.} ",
+        r"\caption{\textbf{Baseline characteristics at first-line treatment.} "
+        r"Layout preview: every value (·) awaits the reviewed server export. ", 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--input", type=Path)
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument(
         "--disclosure-policy",
         choices=["primary-only", "targeted", "conservative"],
-        required=True,
     )
     parser.add_argument("--suppression-threshold", type=int, default=5)
     parser.add_argument(
@@ -311,11 +403,20 @@ def main():
         help="Also write the manuscript table, e.g. paper/tables/table1_current_review.tex",
     )
     parser.add_argument(
+        "--layout", type=Path,
+        help="Write only the layout preview (no data) to this path and exit")
+    parser.add_argument(
         "--approved",
         action="store_true",
         help="Caption without the review notice; record reviewer/date separately",
     )
     args = parser.parse_args()
+    if args.layout:
+        args.layout.write_text(layout_table_latex(), encoding="utf-8")
+        print(f"Wrote layout preview {args.layout}")
+        return
+    if not (args.input and args.output_dir and args.disclosure_policy):
+        parser.error("--input, --output-dir and --disclosure-policy are required")
     table = pd.read_csv(args.input)
     # Older aggregate files may still contain the now-excluded treatment field.
     table = table.loc[table.variable != "arm_day1_primary"].copy()

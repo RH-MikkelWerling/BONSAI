@@ -37,7 +37,7 @@ SHAP-style concept rankings, absolute attribution shares, history-reveal traces.
 - Locked best model; every outcome on log-odds (atlas, structure); death,
   serious infection and severe neutropenia also in absolute risk (patient
   explanations, removal checks).
-- 1,500 held-out patients (up to 40 per subtype, weights restore the mix);
+- every held-out test patient (weight 1); a stratified sample of 1,500 (up to 40 per subtype, weights restore the mix) is the fallback if compute is short;
   checks on 200 / 100 patients. Pilot 50 patients first to measure cost.
 - Reference: average training event, timing kept. `[MASK]` is untrained.
 - Input restriction on the whole test set, every outcome, no IG needed.

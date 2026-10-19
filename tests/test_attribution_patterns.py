@@ -111,7 +111,9 @@ def test_every_attribution_number_in_the_manuscript_is_produced_and_formatted(tm
     from opera.run.build_paper_numbers import attribution_numbers, restriction_numbers
 
     root = Path(__file__).resolve().parents[1]
-    text = (root / "paper/opera_manuscript.tex").read_text()
+    from opera.run.check_figure_inputs import manuscript_text
+
+    text = manuscript_text(root / "paper/opera_manuscript.tex")
     keys = set(re.findall(r"\\result\{((?:ig|restrict)_[a-z0-9_]+)\}", text))
     code = "".join((root / p).read_text() for p in (
         "opera/interpretability/attribution_summaries.py",
@@ -130,6 +132,7 @@ def test_every_attribution_number_in_the_manuscript_is_produced_and_formatted(tm
                    "lower": -0.03, "upper": -0.01}
                   for r in ("Only the timing of care", "Without laboratory results",
                             "Without medication", "Without diagnoses",
+                            "Without region and specialty",
                             "Only the last year")]).to_csv(restrictions)
     sources = {}
     formatted = attribution_numbers(path, sources) | restriction_numbers(restrictions, sources)

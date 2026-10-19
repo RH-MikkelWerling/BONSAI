@@ -12,6 +12,12 @@ Fixed before any held-out evaluation. When agreed, these values are written into
   every choice. Training through 2021.
 - Sensitivity: known-status unweighted estimand; excluding late-assigned
   subtypes; size-matched clinical cutoffs.
+- Stratum without a dedicated prognostic index (no multivariable index derived
+  for the entity and externally validated; borrowed or family-level indices do
+  not count): RT, tFL, LBL, NMZL, HCL, ALCL, PCL, solitary plasmacytoma, BCL and
+  TCL unspecified (paper supplement, `tab:index-availability`). Sensitivity:
+  without NMZL (counting the MZL-IPI); with AITL and BL added (requiring routine,
+  guideline-recommended use).
 
 ## Metrics
 - **Primary: IPCW AUC** at each horizon (cumulative cases vs controls at the

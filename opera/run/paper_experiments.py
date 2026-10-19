@@ -540,7 +540,9 @@ def build_commands(args, env):
             "--horizons", listed("horizons", "365"),
             "--borrowed-outcomes", listed("borrowed_outcomes", ""),
             "--check-outcomes", listed("check_outcomes"),
-            "--max-patients", run.get("max_patients", 1500),
+            # "all" (default): every test patient; a number: stratified sample.
+            "--max-patients", (0 if str(run.get("max_patients", "all")).lower() == "all"
+                               else run.get("max_patients")),
             "--per-subtype", run.get("per_subtype", 40),
             "--steps", run.get("steps", 8),
             "--precision", run.get("precision", "fp32"),

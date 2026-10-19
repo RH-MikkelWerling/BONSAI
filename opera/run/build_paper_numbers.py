@@ -227,6 +227,7 @@ RESTRICTION_KEYS = {"Only the timing of care": "restrict_timeline",
                     "Without laboratory results": "restrict_no_labs",
                     "Without medication": "restrict_no_medication",
                     "Without diagnoses": "restrict_no_diagnoses",
+                    "Without region and specialty": "restrict_no_region",
                     "Only the last year": "restrict_last_year"}
 
 
