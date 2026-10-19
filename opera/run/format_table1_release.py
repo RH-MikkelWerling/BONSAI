@@ -72,9 +72,8 @@ NOT_IN_TABLE = {"index_year",
                 "predominant_region_status", "female", "PS", "ps",
                 "followup_days",  # observed follow-up: the reverse KM row is shown
                 "nccn_ipi_risk"}  # part of the risk group (DLBCL), not its own block
-# Registry blocks shown without their "Not recorded" row: percentages are of all
-# patients, the remainder were not recorded (stated in the note).
-REMAINDER_NOT_RECORDED = frozenset({"performance_status", "risk_category"})
+# Registry blocks: "Not recorded" (incl. conflicting records) is shown as Missing.
+MISSING_SHOWN = frozenset({"performance_status", "risk_category"})
 # Shown only in the supplementary table by disease.
 # Also kept out of Table 1: the subtype-assignment pass (an internal pipeline
 # field) and the detailed first-line regimens (too many small categories for
@@ -88,7 +87,8 @@ MAIN_TABLE_EXCLUDE = frozenset({SPECIALTY_PREFIX, "prognostic_score_by_system",
 # The patient table codes sex as F/M; older exports wrote Female/Male.
 SINGLE_LEVEL = {"sex": (("Female", "F"), "Female")}
 CATEGORY_ORDER = ["low", "low-intermediate", "medium", "intermediate",
-                  "high-intermediate", "high", "very high", "0–1", "2–4", "not recorded"]
+                  "high-intermediate", "high", "very high", "0–1", "2–4", "not recorded",
+                  "missing"]
 
 
 # Danish region codes (Statistics Denmark) as recorded with each contact.
@@ -126,6 +126,8 @@ def _category_label(variable, category):
     if variable == "cohort_grouped":
         from opera.visualization.paper_taxonomy import disease_group_name
         return disease_group_name(text)
+    if variable in MISSING_SHOWN and text == "Not recorded":
+        return "Missing"
     if variable == "predominant_region":
         code = text.split("//", 1)[-1]
         return REGION_NAMES.get(code, code)
@@ -243,8 +245,6 @@ def _body(result, columns, key, exclude=()):
                     continue
             category_rows = []
             for category in sorted(rows.category.dropna().unique(), key=_category_key):
-                if variable in REMAINDER_NOT_RECORDED and str(category) == "Not recorded":
-                    continue  # the remainder; stated in the note
                 values = cells(rows.loc[rows.category == category], None)
                 if informative(values):
                     category_rows.append(rf"\quad {_tex(_category_label(variable, category))} & "
@@ -302,9 +302,8 @@ def _note(policy):
             r"FLIPI, CLL-IPI, ISS), collapsed to low, intermediate and high; for DLBCL the "
             r"NCCN-IPI computed from registry components (low 0--1; intermediate 2--5, "
             r"its low- and high-intermediate groups; high $\geq$6), or the recorded index "
-            r"where it could not be computed. Performance status and risk group: "
-            r"percentages of all patients; the remainder were not recorded or had "
-            r"conflicting records.\par\endgroup")
+            r"where it could not be computed. Missing includes conflicting records."
+            r"\par\endgroup")
 
 
 def _disease_note():
@@ -339,7 +338,7 @@ def pooled_table_latex(result, *, source_sha256, status="review", policy="target
         r"\label{tab:characteristics}",
         r"\scriptsize",  # 8 pt, as journal tables, so Table 1 fits one page
         r"\setlength{\tabcolsep}{4pt}",
-        r"\renewcommand{\arraystretch}{0.98}",
+        r"\renewcommand{\arraystretch}{0.96}",
         r"\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}",  # noqa
         r"\toprule",
         "Characteristic & " + " & ".join(label for _, label in SPLIT_COLUMNS) + r" \\",
