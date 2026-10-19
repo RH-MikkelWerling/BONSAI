@@ -356,3 +356,15 @@ def test_supervised_population_keeps_indexed_split_patients_and_counts_the_rest(
     duplicated = pd.concat([population, population.iloc[[0]]])
     with pytest.raises(ValueError, match="more than one row"):
         supervised_population(duplicated)
+
+
+def test_supervised_scope_uses_index_and_split_from_the_joined_sources():
+    import pandas as pd
+    from opera.run.export_table1 import join_metadata, supervised_population
+
+    population = pd.DataFrame({"subject_id": [1, 2, 3], "diagnosis": ["DLBCL", "FL", "CLL"]})
+    survival = pd.DataFrame({"subject_id": [1, 3], "index_date": ["2020-01-01", "2023-02-01"],
+                             "split": ["train", "held_out"]})
+    kept, audit = supervised_population(join_metadata(population, [survival]))
+    assert kept.subject_id.tolist() == [1, 3]
+    assert audit["excluded_without_index_date"] == 1

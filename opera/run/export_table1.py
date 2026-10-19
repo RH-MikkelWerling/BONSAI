@@ -212,7 +212,8 @@ def supervised_population(population):
     describes the supervised cohort only. Exclusions are counted, never silent.
     """
     if {"subject_id", "index_date", "split"} - set(population):
-        raise ValueError("--supervised-only needs subject_id, index_date and split columns")
+        raise ValueError("--supervised-only needs subject_id, index_date and split after "
+                         f"joining the inputs; available: {sorted(population)}")
     index = pd.to_datetime(population["index_date"], errors="coerce")
     split = population["split"].astype("string")
     has_split = split.isin(SPLITS)
@@ -504,7 +505,12 @@ def main():
     if args.inspect_inputs:
         population = read_table(args.population)
         if args.supervised_only:
-            population, audit = supervised_population(population)
+            joined = join_metadata(population, [
+                *(read_table(path) for path in args.metadata),
+                *([prepare_survival_table(read_table(args.overall_survival))]
+                  if args.overall_survival else []),
+            ])
+            _, audit = supervised_population(joined)
             print("Population scope:", json.dumps(audit))
         for path in dict.fromkeys(
             [
@@ -561,9 +567,6 @@ def main():
         for source in [population, *sources]:
             if "split" in source:
                 source["split"] = source["split"].replace(split_mapping)
-    if args.supervised_only:
-        population, scope_audit = supervised_population(population)
-        print("Population scope:", json.dumps(scope_audit))
     frame = join_metadata(population, sources)
     mapping = json.loads(args.column_map.read_text()) if args.column_map else {}
     for canonical, source in mapping.items():
@@ -580,6 +583,11 @@ def main():
         if "split" not in frame:
             raise ValueError("No split column to map.")
         frame["split"] = frame["split"].replace(split_mapping)
+    if args.supervised_only:
+        # index_date and split may come from the survival file or metadata,
+        # so the supervised scope is taken after the join.
+        frame, scope_audit = supervised_population(frame)
+        print("Population scope:", json.dumps(scope_audit))
     frame = derive_baseline_fields(frame)
     if "sex" in frame:
         print(
