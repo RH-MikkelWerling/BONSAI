@@ -270,8 +270,9 @@ learned from other patients.
 
 The national encoder was pretrained for 10 epochs with a 1 January 2022
 cutoff. Continued pretraining on the cohort (adaptation) and pretraining on the
-cohort from scratch were
-planned for 20 epochs, with validation-based checkpoint selection. Actual
+cohort from scratch ran for the same 10 epochs, with validation-based
+checkpoint selection; on tuning data, encoders pretrained for 10 and 20
+epochs gave the same fine-tuned performance. Actual
 patients, tokens and optimisation steps are reported separately, because equal
 epochs do not guarantee equal exposure. \placeholder{Verified national training
 population, observation years, events/tokens, encoder version and PHAIR

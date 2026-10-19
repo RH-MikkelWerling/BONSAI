@@ -201,6 +201,38 @@ def restrict_to_survival_population(population, survival):
     return population.loc[included].copy(), audit
 
 
+SPLITS = ("train", "tuning", "held_out")
+
+
+def supervised_population(population):
+    """Patients with a first-line index date and a supervised split, one row each.
+
+    The diagnosis-indexed population metadata also holds patients who never
+    started first-line treatment (no index date) or carry no split; Table 1
+    describes the supervised cohort only. Exclusions are counted, never silent.
+    """
+    if {"subject_id", "index_date", "split"} - set(population):
+        raise ValueError("--supervised-only needs subject_id, index_date and split columns")
+    index = pd.to_datetime(population["index_date"], errors="coerce")
+    split = population["split"].astype("string")
+    has_split = split.isin(SPLITS)
+    keep = index.notna() & has_split
+    included = population.loc[keep].copy()
+    duplicated = int(included.subject_id.duplicated().sum())
+    audit = {
+        "scope": "supervised first-line population (index date and split)",
+        "input_population_rows": len(population),
+        "excluded_without_index_date": int(index.isna().sum()),
+        "excluded_with_index_but_no_split": int((index.notna() & ~has_split).sum()),
+        "supervised_patients": int(len(included)),
+        "by_split": {k: int(v) for k, v in included.split.value_counts().items()},
+    }
+    if duplicated:
+        raise ValueError(f"{duplicated} supervised patients have more than one row; "
+                         f"Table 1 needs one row per patient (audit: {audit})")
+    return included, audit
+
+
 def derive_baseline_fields(frame):
     frame = frame.copy()
     if "age" not in frame and {"birth_date", "index_date"} <= set(frame):
@@ -456,6 +488,12 @@ def main():
         default="targeted",
     )
     parser.add_argument(
+        "--supervised-only",
+        action="store_true",
+        help="Keep patients with an index date and a train/tuning/held_out split "
+        "(the supervised cohort), counting exclusions.",
+    )
+    parser.add_argument(
         "--restrict-to-overall-survival",
         action="store_true",
         help="Explicitly restrict population to survival-file IDs and record exclusions. Use only if this defines the analysis cohort.",
@@ -465,6 +503,9 @@ def main():
     print(f"Population input: {args.population.resolve()}")
     if args.inspect_inputs:
         population = read_table(args.population)
+        if args.supervised_only:
+            population, audit = supervised_population(population)
+            print("Population scope:", json.dumps(audit))
         for path in dict.fromkeys(
             [
                 args.population,
@@ -520,6 +561,9 @@ def main():
         for source in [population, *sources]:
             if "split" in source:
                 source["split"] = source["split"].replace(split_mapping)
+    if args.supervised_only:
+        population, scope_audit = supervised_population(population)
+        print("Population scope:", json.dumps(scope_audit))
     frame = join_metadata(population, sources)
     mapping = json.loads(args.column_map.read_text()) if args.column_map else {}
     for canonical, source in mapping.items():

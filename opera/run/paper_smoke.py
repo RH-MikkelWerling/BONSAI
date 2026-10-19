@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--bundle-dir", type=Path, required=True)
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
+    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=10)
     parser.add_argument("--local-hidden-size", type=int, default=256)
     args = parser.parse_args()
     _, rows = bundle_runs(args.bundle_dir)

@@ -124,6 +124,8 @@ def build_commands(args, env):
             value(env, "OPERA_PAPER_SEEDS", "42"),
             "--epochs",
             value(env, "OPERA_PAPER_EPOCHS", "30"),
+            "--early-stopping-patience",
+            value(env, "OPERA_PAPER_PATIENCE", "5"),
             "--batch-size",
             value(env, "OPERA_PAPER_BATCH_SIZE", "1"),
             *(("--num-workers", env["OPERA_PAPER_NUM_WORKERS"])
@@ -157,7 +159,7 @@ def build_commands(args, env):
                 "--runs-dir",
                 root / "smoke_runs",
                 "--minimum-local-pretraining-epochs",
-                value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"),
+                value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "10"),
                 "--local-hidden-size",
                 value(env, "OPERA_PAPER_LOCAL_WIDTH", "256"),
             )
@@ -202,9 +204,9 @@ def build_commands(args, env):
             "--phase",
             args.phase,
             "--minimum-local-pretraining-epochs",
-            value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"),
+            value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "10"),
             "--minimum-dapt-epochs",
-            value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20"),
+            value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "10"),
             "--external-hidden-size",
             value(env, "OPERA_PAPER_EXTERNAL_WIDTH", "256"),
             "--local-hidden-size",
@@ -264,9 +266,9 @@ def build_commands(args, env):
                 f"paths.initialization_ckpt={root / 'external_direct' / 'encoder.ckpt'}",
                 f"paths.initialization_vocab={root / 'external_direct' / 'vocabulary.pt'}",
                 f"paths.dir={external_sequence_dir(env, root)}",
-                f"training.epochs={value(env, 'OPERA_PAPER_MIN_DAPT_EPOCHS', '20')}",
+                f"training.epochs={value(env, 'OPERA_PAPER_MIN_DAPT_EPOCHS', '10')}",
                 # The inherited epoch-10 milestone is only valid for longer runs.
-                *(() if int(value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20")) > 10
+                *(() if int(value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "10")) > 10
                   else ("training.checkpoint_milestone_epochs=[]",)),
                 f"training.batch_size={value(env, 'OPERA_PAPER_DAPT_BATCH_SIZE', '1')}",
                 f"training.accumulate_grad_batches={value(env, 'OPERA_PAPER_DAPT_ACCUMULATION', '128')}",
@@ -401,13 +403,24 @@ def build_commands(args, env):
         # Supervised population with its splits, clinical metadata, overall
         # survival and pre-index MEDS history; small cells suppressed for release.
         outcomes = Path(value(env, "BONSAI_OUTCOMES_DIR"))
+        survival = path_value(env, "OPERA_PAPER_OVERALL_SURVIVAL",
+                              str(outcomes / "overall_survival.parquet"))
+        if not env.get("OPERA_PAPER_DEMOGRAPHICS"):
+            raise ValueError(
+                "Table 1 needs sex and birth date from the DALY-CARE patient table. Run once:\n"
+                f"  Rscript opera/R/export_table1_patient_demographics.R {survival} "
+                "<new path>/table1_demographics.parquet\n"
+                "then set OPERA_PAPER_DEMOGRAPHICS=<that path> in .env")
         command = module(
             "opera.run.export_table1",
             "--population", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+            # The membership file is diagnosis-indexed; Table 1 is the
+            # supervised first-line cohort (index date and split), counted.
+            "--supervised-only",
+            "--metadata", path_value(env, "OPERA_PAPER_DEMOGRAPHICS"),
             *(("--metadata", path_value(env, "OPERA_PAPER_CLINICAL_METADATA"))
               if env.get("OPERA_PAPER_CLINICAL_METADATA") else ()),
-            "--overall-survival", path_value(env, "OPERA_PAPER_OVERALL_SURVIVAL",
-                                             str(outcomes / "overall_survival.parquet")),
+            "--overall-survival", survival,
             "--meds-dir", path_value(env, "OPERA_PAPER_MEDS_DIR"),
             "--meds-code-prefixes", REPO / "opera/configs/table1_meds_prefixes.json",
             "--disclosure-policy", "targeted",
@@ -637,9 +650,9 @@ def build_commands(args, env):
             "--runs-dir",
             runs,
             "--minimum-local-pretraining-epochs",
-            value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"),
+            value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "10"),
             "--minimum-dapt-epochs",
-            value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "20"),
+            value(env, "OPERA_PAPER_MIN_DAPT_EPOCHS", "10"),
             "--external-hidden-size",
             value(env, "OPERA_PAPER_EXTERNAL_WIDTH", "256"),
             "--local-hidden-size",
@@ -666,7 +679,7 @@ def build_commands(args, env):
                 "--regime",
                 regime,
                 "--minimum-local-pretraining-epochs",
-                value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"),
+                value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "10"),
             )
             if args.max_runs:
                 command += ["--max-runs", str(args.max_runs)]
@@ -674,7 +687,7 @@ def build_commands(args, env):
         commands.append(
             module("opera.run.run_paper_queue", *shared, "--phase", "source_screen",
                    "--minimum-local-pretraining-epochs",
-                   value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "20"))
+                   value(env, "OPERA_PAPER_MIN_LOCAL_EPOCHS", "10"))
             + (["--execute"] if args.execute else [])
         )
         return commands

@@ -21,6 +21,26 @@ Names come from, in order:
 token formats occur, how many tokens each step names, and which unnamed codes
 matter most for the attributions, so that review effort goes where it counts.
 
+## Tables from DALY-CARE itself (simplest)
+
+Most source tables carry the text next to the code (laboratory: NPU code and
+analysis name; prescriptions and administrations: ATC code and drug name;
+pathology: SNOMED code and text). `python -m opera.run.build_code_table`
+reads those two columns and writes one `code,label` row per code (its most
+frequent name; codes seen fewer than 5 times are dropped, so one-off free text
+never reaches the table):
+
+```bash
+python -m opera.run.build_code_table --system npu --input <lab table> \
+  --code-column <NPU column> --label-column <analysis name column> \
+  --output resources/npu_daly_care.csv
+```
+
+and list it under `code_tables` with `code: code, label: label`. Diagnoses
+(ICD-10) and procedures (SKS) have no text in the national patient register;
+use the official SKS file below for those, or rely on the built-in chapters
+and the reviewed `concept_labels`.
+
 ## Official tables
 
 Classifications are public and may be copied into the secure environment. Any

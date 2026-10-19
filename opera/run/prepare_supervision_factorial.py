@@ -21,7 +21,8 @@ SELECTION_METRIC = "val/cr_horizon_bce_endpoint_group_macro"
 
 
 def factorial_configs(
-    base: dict, *, encoder_checkpoint: str, epochs: int = 30, seed: int = 42
+    base: dict, *, encoder_checkpoint: str, epochs: int = 30, seed: int = 42,
+    patience: int = 5,
 ) -> dict[str, dict]:
     """Build S, D, O and J with identical architecture and selection policy."""
     risk = base["competing_risk"]
@@ -33,7 +34,7 @@ def factorial_configs(
         or base.get("source_opera_ckpt") not in (None, "")
     ):
         raise ValueError("Use the approved trainable shared linear horizon-BCE base")
-    if not encoder_checkpoint or epochs < 1:
+    if not encoder_checkpoint or epochs < 1 or patience < 1:
         raise ValueError(
             "An audited encoder checkpoint and positive epoch budget are required"
         )
@@ -49,10 +50,10 @@ def factorial_configs(
         {
             "epochs": epochs,
             "eval_monitor_metric": SELECTION_METRIC,
-            # Stop after 5 epochs without improvement on the selection metric;
+            # Stop after `patience` epochs without improvement on the selection metric;
             # the same rule for every scope, and best.ckpt is still the
             # tuning-best epoch.
-            "early_stopping_patience": 5,
+            "early_stopping_patience": patience,
             "enable_validation_probe": False,
             "limit_val_batches": 1.0,
             "limit_train_batches": 1.0,

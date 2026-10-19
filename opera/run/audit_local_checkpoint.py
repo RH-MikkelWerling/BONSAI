@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True,
                         help="Directory with best.ckpt, checkpoint_metadata.json, metrics.csv")
     parser.add_argument("--vocabulary", type=Path, required=True)
-    parser.add_argument("--minimum-epochs", type=int, default=20)
+    parser.add_argument("--minimum-epochs", type=int, default=10)
     parser.add_argument("--width", type=int, default=256)
     args = parser.parse_args()
     import torch

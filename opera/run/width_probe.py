@@ -33,12 +33,63 @@ def probe_config(bundle_dir, encoder_checkpoint, seed=42):
     return config
 
 
-def compare(output_dir, threshold=0.01, reference="w256_e10"):
-    """Tuning score of every probe in ``output_dir`` and the prespecified call.
+AUC_METRIC = "val/cr_cif_auc_macro"
+GROUP_AUC_METRIC = "val/cr_cif_auc_endpoint_group_macro"
+SELECTION_LOSS = "val/cr_horizon_bce_endpoint_group_macro"
 
-    The score is the one each completed fit used to select its checkpoint
-    (tuning macro IPCW AUC for the paper configs). Rule fixed in advance: keep
-    the 256-wide encoder unless a wider one gains at least ``threshold``.
+
+def tuning_metric_at(run_dir, epoch, metric):
+    """A metric logged at ``epoch`` in the run's CSV logs (last record wins)."""
+    import csv
+
+    value = None
+    for path in sorted(Path(run_dir).rglob("metrics.csv")):
+        with path.open() as handle:
+            for record in csv.DictReader(handle):
+                if record.get(metric) in (None, "") or record.get("epoch") in (None, ""):
+                    continue
+                if int(float(record["epoch"])) == int(epoch):
+                    value = float(record[metric])
+    return value
+
+
+def curves(output_dir):
+    """Per probe and epoch: tuning loss (selection), macro AUC; read-only.
+
+    Safe while the probes train. Shows where each fit's tuning loss bottomed
+    out, which is the evidence for the epoch budget and patience.
+    """
+    import csv
+
+    report = {}
+    for run in sorted(p for p in Path(output_dir).iterdir() if p.is_dir()):
+        epochs = {}
+        for path in sorted(run.rglob("metrics.csv")):
+            with path.open() as handle:
+                for record in csv.DictReader(handle):
+                    if record.get("epoch") in (None, ""):
+                        continue
+                    row = epochs.setdefault(int(float(record["epoch"])), {})
+                    for key, name in (("loss", SELECTION_LOSS), ("auc_macro", AUC_METRIC)):
+                        if record.get(name) not in (None, ""):
+                            row[key] = round(float(record[name]), 4)
+        rows = [{"epoch": e + 1, **v} for e, v in sorted(epochs.items()) if "loss" in v]
+        if rows:
+            best = min(rows, key=lambda r: r["loss"])
+            report[run.name] = {"epochs_validated": len(rows),
+                                "best_epoch_by_loss": best["epoch"],
+                                "auc_at_best": best.get("auc_macro"), "curve": rows}
+    return report
+
+
+def compare(output_dir, threshold=0.01, reference="w256_e10"):
+    """Tuning macro AUC of every probe in ``output_dir`` and the prespecified call.
+
+    Each fit keeps the checkpoint its own selection metric chose (the tuning
+    loss in the paper configs); the decision compares tuning macro AUC
+    (``val/cr_cif_auc_macro``) at that selected epoch. Rule fixed in advance:
+    keep the 256-wide encoder unless a wider one gains at least ``threshold``.
+    The endpoint-group macro AUC and the selection score are reported beside it.
     """
     from bonsai.functional.checkpointing import verified_training_selection
 
@@ -49,22 +100,31 @@ def compare(output_dir, threshold=0.01, reference="w256_e10"):
         except (ValueError, FileNotFoundError) as error:
             rows.append({"label": run.name, "status": str(error)})
             continue
+        epoch = selection["best_epoch"]
+        auc = tuning_metric_at(run, epoch, AUC_METRIC)
+        if auc is None:
+            rows.append({"label": run.name,
+                         "status": f"no {AUC_METRIC} logged at selected epoch {epoch}"})
+            continue
         audit = json.loads((run / "encoder_audit.json").read_text())
         rows.append({"label": run.name, "status": "complete",
-                     "monitor": selection["monitor"], "mode": selection["mode"],
-                     "score": float(selection["best_model_score"]),
-                     "best_epoch": selection["best_epoch"],
+                     "selected_epoch": epoch,
+                     "tuning_auc_macro": auc,
+                     "tuning_auc_endpoint_group_macro": tuning_metric_at(
+                         run, epoch, GROUP_AUC_METRIC),
+                     "selection_monitor": selection["monitor"],
+                     "selection_score": float(selection["best_model_score"]),
                      "encoder": audit.get("checkpoint") or audit.get("dapt_ckpt")})
     scores = {r["label"]: r for r in rows if r.get("status") == "complete"}
-    decision = {"rule": f"keep 256 unless a wider encoder gains >= {threshold} "
-                        "(tuning, joint model, equal pretraining length)",
+    decision = {"rule": f"keep 256 unless a wider encoder gains >= {threshold} tuning "
+                        "macro AUC at its selected epoch (joint model, equal "
+                        "pretraining length)",
                 "probes": rows}
     if reference in scores:
         base = scores[reference]
-        sign = 1 if base["mode"] == "max" else -1
         for label, row in scores.items():
             if label != reference:
-                gain = sign * (row["score"] - base["score"])
+                gain = row["tuning_auc_macro"] - base["tuning_auc_macro"]
                 decision[f"gain_{label}_vs_{reference}"] = round(gain, 4)
                 decision["decision"] = ("switch to " + label if gain >= threshold
                                         else "keep 256")
@@ -79,6 +139,8 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--compare", action="store_true",
                         help="Compare the completed probes in --output-dir and record the call")
+    parser.add_argument("--curves", action="store_true",
+                        help="Print each probe's tuning curve so far (read-only, safe while training)")
     parser.add_argument("--bundle-dir", type=Path)
     parser.add_argument("--encoder-checkpoint", type=Path)
     parser.add_argument("--width", type=int)
@@ -90,6 +152,9 @@ def main():
                         help="Cap fine-tuning epochs (use the same value for every probe)")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
+    if args.curves:
+        print(json.dumps(curves(args.output_dir), indent=2))
+        return
     if args.compare:
         print(json.dumps(compare(args.output_dir, args.threshold), indent=2))
         return

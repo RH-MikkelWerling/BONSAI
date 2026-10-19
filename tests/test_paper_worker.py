@@ -224,3 +224,23 @@ def test_hold_file_parks_only_the_specialists(tmp_path):
     (tmp_path / "paper" / HOLD_SPECIALISTS).touch()
     gates = {row["regime"]: gate for row, _, gate in todo([bundle], {})}
     assert gates == {"J": None, "S": "blocked_held:specialists"}
+
+
+def test_throughput_prices_remaining_fits_at_the_phase_median(tmp_path):
+    from collections import Counter
+    from opera.run.paper_worker import ATTEMPTS, completed_wall_seconds, throughput
+
+    run = tmp_path / "fit"
+    run.mkdir()
+    (run / ATTEMPTS).write_text(
+        '{"status": "failed", "wall_seconds": 60}\n{"status": "completed", "wall_seconds": 540}\n'
+    )
+    assert completed_wall_seconds(run) == 600  # retries count toward the fit
+    assert completed_wall_seconds(tmp_path / "missing") is None
+    counts = Counter({("supervision/S", "complete"): 3, ("supervision/S", "pending"): 6,
+                      ("supervision/J", "pending"): 1})
+    report = throughput({"supervision/S": [300, 600, 900]}, counts)
+    assert report["supervision/S"] == {"finished": 3, "left": 6,
+                                       "median_gpu_minutes": 10.0, "gpu_hours_left": 1.0}
+    assert "gpu_hours_left" not in report["supervision/J"]
+    assert report["total_gpu_hours_left_priced"] == 1.0

@@ -61,9 +61,9 @@ exposure and selected epochs will accompany the planned budgets below.
 \begin{longtable}{L{2.4cm}L{5.5cm}L{6.3cm}}
 \caption{Phase-specific training record.}\\
 \toprule Phase & Starting point / scope & Final reporting fields\\\midrule\endhead
-Local SSL & Local histories before 2022; confirmed 20-epoch running budget & Optimizer/schedule, batch/accumulation, precision, actual epochs/steps/tokens, selected checkpoint and hash\\
+Local SSL & Local histories before 2022; 10 epochs, as the national encoder & Optimizer/schedule, batch/accumulation, precision, actual epochs/steps/tokens, selected checkpoint and hash\\
 Nation-scale direct & Delivered encoder without local continuation & Source hash, data-delivery and tokenisation mode; vocabulary mapping and any new-row initialisation if used; no local SSL step\\
-Local DAPT & Same direct nation-scale export; planned 20 epochs & Actual optimizer/batch/steps/tokens, source/selected hashes and checkpoint selection\\
+Local DAPT & Same direct nation-scale export; 10 epochs & Actual optimizer/batch/steps/tokens, source/selected hashes and checkpoint selection\\
 Supervised S/D/O/J & Same local initializer; planned 30 epochs, seed 42 & Scope, exposure, natural sampling, full tuning BCE selection, actual epochs and selected epoch\\
 Routed fits & Same supervision as J; tuning-locked policy & Matched training settings, bank/capacity policy and actual parameter counts\\
 Tabular fits & Per disease/outcome/horizon & Feature recipe, search space/budget, log-loss tuning, final parameters and seeds\\\bottomrule

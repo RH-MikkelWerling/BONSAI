@@ -8,6 +8,7 @@
 #   bash scripts/run_width_probe.sh 512 preview
 #   bash scripts/run_width_probe.sh 512           # fine-tune (GPU)
 #   bash scripts/run_width_probe.sh compare       # tuning scores and the call
+#   bash scripts/run_width_probe.sh curves        # tuning curves so far (read-only, safe while training)
 #
 # PROBE_EPOCHS=N caps fine-tuning epochs (use the same N for both probes).
 set -euo pipefail
@@ -19,8 +20,11 @@ REL="${BONSAI_DATASET:-daly_care_t100_joined_bins_with_sor_final_v2}"
 MODELS="${PROBE_MODELS_DIR:-$PWD/data/models/$REL}"
 BUNDLE="$OPERA_PAPER_ROOT/bundles/stage1"
 OUT="$OPERA_PAPER_ROOT/width_probe"
-WHAT="${1:?Usage: run_width_probe.sh 256|512|compare [preview]}"
+WHAT="${1:?Usage: run_width_probe.sh 256|512|compare|curves [preview]}"
 
+if [[ "$WHAT" == curves ]]; then
+  exec "$PY" -m opera.run.width_probe --curves --output-dir "$OUT"
+fi
 if [[ "$WHAT" == compare ]]; then
   exec "$PY" -m opera.run.width_probe --compare --output-dir "$OUT"
 fi
@@ -29,7 +33,7 @@ case "$WHAT" in
   512) CKPT="$MODELS/pretrain_scaled_time2vec_hidden512/version_0/last.ckpt"
        [[ -f "$(dirname "$CKPT")/checkpoint_metadata.json" ]] || {
          echo "The 512 run has not finished (no checkpoint_metadata.json yet)" >&2; exit 1; } ;;
-  *) echo "Usage: run_width_probe.sh 256|512|compare [preview]" >&2; exit 2 ;;
+  *) echo "Usage: run_width_probe.sh 256|512|compare|curves [preview]" >&2; exit 2 ;;
 esac
 [[ -f "$CKPT" ]] || { echo "Missing encoder checkpoint: $CKPT" >&2; exit 1; }
 [[ -d "$BUNDLE" ]] || { echo "No stage-1 bundle at $BUNDLE: run prepare first" >&2; exit 1; }

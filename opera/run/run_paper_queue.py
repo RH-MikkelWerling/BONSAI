@@ -126,8 +126,8 @@ def audit_encoder(
     origin,
     *,
     expected_width=256,
-    minimum_local_epochs=20,
-    minimum_dapt_epochs=20,
+    minimum_local_epochs=10,
+    minimum_dapt_epochs=10,
     allow_milestone=False,
 ):
     """Strict CPU reconstruction plus completion/provenance gates.
@@ -267,8 +267,8 @@ def main():
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--max-runs", type=int)
-    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
-    parser.add_argument("--minimum-dapt-epochs", type=int, default=20)
+    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=10)
+    parser.add_argument("--minimum-dapt-epochs", type=int, default=10)
     parser.add_argument("--external-hidden-size", type=int, default=256)
     parser.add_argument("--local-hidden-size", type=int, default=256)
     parser.add_argument("--execute", action="store_true")

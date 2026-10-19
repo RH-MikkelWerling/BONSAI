@@ -121,3 +121,8 @@ class SupervisionFactorialTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_patience_is_one_setting_for_every_scope():
+    configs = factorial_configs(base_config(), encoder_checkpoint="/x/best.ckpt", patience=3)
+    assert {c["training"]["early_stopping_patience"] for c in configs.values()} == {3}

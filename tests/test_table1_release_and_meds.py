@@ -336,3 +336,23 @@ def test_no_index_stratum_is_one_list_of_registry_identifiers():
         assert values <= registry  # registry identifiers, not display names
     assert found["no_index_family_level"] == NO_ROUTINE_INDEX - {"NMZL"}
     assert found["no_index_guideline_use"] == NO_ROUTINE_INDEX | {"AITL", "BL"}
+
+
+def test_supervised_population_keeps_indexed_split_patients_and_counts_the_rest():
+    import pandas as pd
+    import pytest
+    from opera.run.export_table1 import supervised_population
+
+    population = pd.DataFrame({
+        "subject_id": [1, 2, 3, 4, 5],
+        "index_date": ["2020-01-01", None, "2022-03-01", "2023-05-01", "2019-02-02"],
+        "split": ["train", "train", "tuning", "held_out", None],
+    })
+    kept, audit = supervised_population(population)
+    assert kept.subject_id.tolist() == [1, 3, 4]
+    assert audit["excluded_without_index_date"] == 1
+    assert audit["excluded_with_index_but_no_split"] == 1
+    assert audit["by_split"] == {"train": 1, "tuning": 1, "held_out": 1}
+    duplicated = pd.concat([population, population.iloc[[0]]])
+    with pytest.raises(ValueError, match="more than one row"):
+        supervised_population(duplicated)

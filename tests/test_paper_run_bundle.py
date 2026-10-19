@@ -171,15 +171,15 @@ def test_dapt_requires_complete_training_and_the_exact_direct_export(tmp_path):
     adapted.mkdir()
     torch.save(payload, adapted / "best.ckpt")
     sidecar = adapted / "checkpoint_metadata.json"
-    sidecar.write_text(json.dumps({"extra": {"completed_epochs": 19}}))
+    sidecar.write_text(json.dumps({"extra": {"completed_epochs": 9}}))
     config = {
         "dapt_ckpt": str(adapted / "best.ckpt"),
         "paths": {"vocabulary": str(target_vocab)},
         "paper_run": {"direct_external_checkpoint": direct["checkpoint"]},
     }
-    with pytest.raises(ValueError, match="require 20"):
+    with pytest.raises(ValueError, match="require 10"):
         audit_encoder(config, "EA", expected_width=8)
-    sidecar.write_text(json.dumps({"extra": {"completed_epochs": 20}}))
+    sidecar.write_text(json.dumps({"extra": {"completed_epochs": 10}}))
     assert (
         audit_encoder(config, "EA", expected_width=8)["status"]
         == "strict_load_and_forward_passed"
@@ -230,3 +230,41 @@ def test_width_decision_waits_for_the_reference_probe(tmp_path):
     decision = compare(tmp_path)
     assert decision["decision"].startswith("pending")
     assert (tmp_path / "width_decision.json").is_file()
+
+
+def test_width_decision_compares_macro_auc_at_each_selected_epoch(tmp_path, monkeypatch):
+    """Selection is on tuning loss; the rule compares macro AUC at that epoch."""
+    import bonsai.functional.checkpointing as checkpointing
+    from opera.run.width_probe import compare
+
+    curves = {"w256_e10": [(0, 0.60), (1, 0.66), (2, 0.65)],
+              "w512_e10": [(0, 0.62), (1, 0.69), (2, 0.70)]}
+    best = {"w256_e10": 1, "w512_e10": 1}  # the loss-selected epochs
+    for label, curve in curves.items():
+        logs = tmp_path / label / "contrastive_multicohort_runs" / "version_0"
+        logs.mkdir(parents=True)
+        rows = ["epoch,step,val/cr_cif_auc_macro,val/loss"]
+        rows += [f"{e},{10 * e},{auc},0.3" for e, auc in curve]
+        (logs / "metrics.csv").write_text("\n".join(rows) + "\n")
+        (tmp_path / label / "encoder_audit.json").write_text("{}")
+    monkeypatch.setattr(checkpointing, "verified_training_selection", lambda run: {
+        "best_epoch": best[run.name], "monitor": "val/cr_horizon_bce_endpoint_group_macro",
+        "mode": "min", "best_model_score": 0.2})
+    decision = compare(tmp_path)
+    assert decision["gain_w512_e10_vs_w256_e10"] == 0.03  # 0.69 - 0.66, not epoch 2
+    assert decision["decision"] == "switch to w512_e10"
+    best["w512_e10"] = 0  # 0.62 - 0.66: below the threshold
+    assert compare(tmp_path)["decision"] == "keep 256"
+
+
+def test_probe_curves_report_the_loss_minimum_one_based(tmp_path):
+    from opera.run.width_probe import curves
+
+    logs = tmp_path / "w512_e10" / "contrastive_multicohort_runs" / "version_0"
+    logs.mkdir(parents=True)
+    logs.joinpath("metrics.csv").write_text(
+        "epoch,val/cr_horizon_bce_endpoint_group_macro,val/cr_cif_auc_macro,train/loss\n"
+        "0,0.30,0.66,\n0,,,0.9\n1,0.25,0.69,\n2,0.27,0.70,\n")
+    report = curves(tmp_path)["w512_e10"]
+    assert report["best_epoch_by_loss"] == 2 and report["auc_at_best"] == 0.69
+    assert report["epochs_validated"] == 3

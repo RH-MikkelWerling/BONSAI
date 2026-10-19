@@ -96,7 +96,8 @@ DATA_EFFICIENCY_FRACTIONS = (0.1, 0.25, 0.5)
 
 
 def build_bundle(
-    base, reference, checkpoints, *, seeds=(42,), epochs=30, selected_router=None,
+    base, reference, checkpoints, *, seeds=(42,), epochs=30, patience=5,
+    selected_router=None,
     router_controls=True,
     external_sequence_dir=None,
     data_efficiency=True,
@@ -127,7 +128,8 @@ def build_bundle(
     entries = []
     for seed in seeds:
         factorial = factorial_configs(
-            base, encoder_checkpoint=checkpoints["L"], epochs=epochs, seed=seed
+            base, encoder_checkpoint=checkpoints["L"], epochs=epochs, seed=seed,
+            patience=patience,
         )
         shared = factorial["J_all_diseases_all_outcomes"]
         for name, config in factorial.items():
@@ -443,6 +445,8 @@ def main():
                         help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--seeds", default="42")
     parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--early-stopping-patience", type=int, default=5,
+                        help="Epochs without tuning improvement before stopping (every arm)")
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -484,6 +488,7 @@ def main():
         checkpoints,
         seeds=seeds,
         epochs=args.epochs,
+        patience=args.early_stopping_patience,
         selected_router=selected,
         router_controls=not args.no_router_controls,
         external_sequence_dir=args.external_sequence_dir,

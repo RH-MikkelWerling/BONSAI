@@ -59,6 +59,16 @@ is expected until step 2 finishes.
 
 ## 2. Pretrain both widths (two GPUs, in parallel)
 
+> **Decided 2026-10-19: 10 epochs for every encoder.** Local pretraining and
+> domain adaptation run 10 epochs, as the national PHAIR encoder did; on tuning
+> data, 10- and 20-epoch encoders gave the same fine-tuned performance. The
+> pipeline defaults are now 10 (`OPERA_PAPER_MIN_LOCAL_EPOCHS`,
+> `OPERA_PAPER_MIN_DAPT_EPOCHS`); **set both to 10 in the server `.env`**, which
+> overrides the defaults. The paper encoder is the winning width's 10-epoch
+> checkpoint: 256 `epoch_010.ckpt` needs a completed run with its sidecar, so
+> for 256 either stop the run at 10 epochs or let it finish and point at the
+> epoch-10 milestone; 512 `last.ckpt` is already epoch 10.
+
 One GPU allocation each. The launcher refuses a directory that already holds
 a run, and reads only `$REL`.
 

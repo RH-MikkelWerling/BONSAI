@@ -270,21 +270,60 @@ def load_decisions(path):
     return value or {}
 
 
+def completed_wall_seconds(run_dir):
+    """Wall time of a fit's completing attempt plus any earlier ones, or None."""
+    path = Path(run_dir) / ATTEMPTS
+    try:
+        attempts = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if not any(a.get("status") == "completed" for a in attempts):
+        return None
+    return sum(float(a.get("wall_seconds", 0)) for a in attempts)
+
+
+def throughput(walls, counts):
+    """Median GPU-minutes per finished fit and GPU-hours left, per phase.
+
+    Fits still to do are priced at their phase's median; a phase with no
+    finished fit yet has no projection.
+    """
+    report = {}
+    for label in sorted({label for label, _ in counts}):
+        times = sorted(walls.get(label, []))
+        left = sum(n for (lab, state), n in counts.items()
+                   if lab == label and state != "complete")
+        entry = {"finished": len(times), "left": left}
+        if times:
+            median = times[len(times) // 2]
+            entry["median_gpu_minutes"] = round(median / 60, 1)
+            entry["gpu_hours_left"] = round(left * median / 3600, 1)
+        report[label] = entry
+    known = [e["gpu_hours_left"] for e in report.values() if "gpu_hours_left" in e]
+    report["total_gpu_hours_left_priced"] = round(sum(known), 1)
+    return report
+
+
 def status(args):
     decisions = load_decisions(args.decisions)
-    counts = Counter()
+    counts, walls = Counter(), {}
     for row, _, gate in todo(args.bundle_dir, decisions):
+        run_dir = args.runs_dir / row["run_directory"]
         state = gate or run_state(
-            args.runs_dir / row["run_directory"],
+            run_dir,
             stale_minutes=args.stale_minutes,
             max_attempts=args.max_attempts,
         )
         label = f"{row['phase']}{'/' + row['regime'] if row['phase'] == 'supervision' else ''}"
         counts[(label, state.split(":")[0])] += 1
+        wall = completed_wall_seconds(run_dir)
+        if wall is not None:
+            walls.setdefault(label, []).append(wall)
     report = {}
     for (label, state), number in sorted(counts.items()):
         report.setdefault(label, {})[state] = number
     print(json.dumps(report, indent=2))
+    print(json.dumps({"throughput": throughput(walls, counts)}, indent=2))
     return report
 
 
@@ -429,8 +468,8 @@ def main():
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--max-consecutive-failures", type=int, default=3)
     parser.add_argument("--max-runs", type=int)
-    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=20)
-    parser.add_argument("--minimum-dapt-epochs", type=int, default=20)
+    parser.add_argument("--minimum-local-pretraining-epochs", type=int, default=10)
+    parser.add_argument("--minimum-dapt-epochs", type=int, default=10)
     parser.add_argument("--external-hidden-size", type=int, default=256)
     parser.add_argument("--local-hidden-size", type=int, default=256)
     args = parser.parse_args()
