@@ -1,56 +1,86 @@
-\begin{tikzpicture}[opera,node distance=10mm and 12mm,
-    every node/.append style={execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}}]
-  \node[stageblue,text width=6.1cm] (pretrainbox)
-    {78,668 diagnosis-linked patients\\{\scriptsize register histories before 2022 used for encoder pretraining}};
-  \node[eyebrow,above=3mm of pretrainbox] (pretrainlabel) {PRETRAINING POPULATION};
-  \node[eyebrow,below=7mm of pretrainbox] (branchlabel)
-    {FIRST-LINE COHORT ASCERTAINMENT};
-  \node[stage,text width=6.1cm,below=4mm of branchlabel] (index)
-    {First-line treatment index identified\\38,635 patients};
-  \node[stage,text width=6.1cm,below=of index] (pass1)
-    {Initial disease assignment using diagnoses through day 14\\37,357 assigned; 1,278 unresolved};
-  \node[stageteal,text width=6.1cm,below=of pass1] (pass2)
-    {Coding-lag reassessment through day 90\\209 additional patients assigned};
-  \node[stage,text width=6.1cm,below=of pass2] (classified)
-    {Disease assigned after both passes\\37,566 patients};
-  \node[stageblue,text width=6.1cm,below=of classified] (firstline)
-    {First-line cohort after IgM MGUS exclusion\\37,557 patients};
-  \node[stageblue,text width=6.1cm,below=of firstline] (supervised)
-    {37,531 patients for training, tuning and testing};
+% CONSORT diagram: pretraining population -> first-line ascertainment -> final
+% supervised cohort and its temporal split. House style as the other figures:
+% eyebrow + heading per band, soft panels, stage boxes, accents only on the
+% first and last steps. Exclusions leave the flow line between steps.
+\def\cfn#1{{\fontsize{11}{13.5}\selectfont\bfseries\textit{n}\,=\,#1}}
+\def\cfsub#1{{\fontsize{8.6}{10.4}\selectfont\color{OperaInkSecondary}#1}}
+\begin{tikzpicture}[opera,
+    every node/.append style={execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+    flowstep/.style={stage, text width=5.9cm, inner ysep=2.4mm, font=\sffamily\fontsize{10}{12.2}\selectfont},
+    excl/.style={rounded corners=0.8mm, draw=OperaSienna!45, fill=white,
+      line width=0.55pt, text width=5.5cm, align=left, inner xsep=3mm, inner ysep=2.6mm,
+      font=\sffamily\fontsize{9}{11}\selectfont, text=OperaInkSecondary},
+    exclarrow/.style={-{Latex[length=1.7mm,width=1.1mm]}, line width=0.6pt,
+      draw=OperaSienna!80},
+    splitbox/.style={stage, text width=3.2cm, inner ysep=2.4mm, draw=OperaTeal!65,
+      font=\sffamily\fontsize{10}{12.2}\selectfont,
+      line width=0.7pt},
+    band/.style={softpanel, rounded corners=1.6mm, inner xsep=4.5mm, inner ysep=3.4mm}]
 
-  \foreach \a/\b in {index/pass1,pass1/pass2,
-                       pass2/classified,classified/firstline,firstline/supervised}
-    \draw[flowblue,shorten >=1pt] (\a.south) -- (\b.north);
-  \draw[flowblue,shorten >=1pt] (pretrainbox.south) -- (index.north);
-  \node[eyebrow,fill=white,inner xsep=2mm] at (branchlabel) {FIRST-LINE COHORT ASCERTAINMENT};
-  \node[eyebrow,fill=white,inner xsep=2mm,above=2mm of supervised]
-    {FINAL SUPERVISED COHORT};
+  % Steps
+  \node[flowstep, stageblue] (pre)
+    {DALY-CARE patients with a lymphoid cancer diagnosis\\
+     \cfn{78,668}\\\cfsub{histories before 2022 used for pretraining}};
+  \node[flowstep, below=44mm of pre] (index)
+    {First-line treatment index identified\\\cfn{38,635}};
+  \node[flowstep, below=13mm of index] (classified)
+    {Disease assigned\\\cfn{37,566}\\
+     \cfsub{37,357 with diagnoses by day 14\\+\,209 by day 90 (late coding)}};
+  \node[flowstep, below=13mm of classified] (firstline)
+    {First-line cohort\\\cfn{37,557}};
+  \node[flowstep, stageteal, below=44mm of firstline] (cohort)
+    {Final supervised cohort\\\cfn{37,531}};
+  \node[splitbox, below=10mm of cohort] (tune)
+    {Tuning\\\cfn{1,980}\\\cfsub{index in 2022}};
+  \node[splitbox, left=7mm of tune] (train)
+    {Training\\\cfn{29,105}\\\cfsub{index through 2021}};
+  \node[splitbox, right=7mm of tune] (test)
+    {Test (held out)\\\cfn{6,446}\\\cfsub{index from 2023}};
 
-  % Mutually distinct exits from the central first-line flow.
-  \node[softpanel,text width=4.45cm,align=left,right=of pretrainbox] (noindex)
-    {\bfseries Excluded: \textit{n}\,=\,40{,}033\\No qualifying first-line treatment index};
-  \node[softpanel,text width=4.45cm,align=left,right=of pass2] (unresolved)
-    {\bfseries Excluded: \textit{n}\,=\,1{,}069\\Disease unresolved after both passes};
-  \node[softpanel,text width=4.45cm,align=left,right=of classified] (secondary)
-    {\bfseries Excluded: \textit{n}\,=\,9\\IgM MGUS, untreated by definition};
-  \node[softpanel,text width=4.45cm,align=left,right=of firstline] (nosurvival)
-    {\bfseries Excluded: \textit{n}\,=\,26\\Died (\textit{n}\,=\,17) or follow-up ended (\textit{n}\,=\,9) before treatment};
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (pretrainbox.east) -- (noindex.west);
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (pass2.east) -- (unresolved.west);
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (classified.east) -- (secondary.west);
-  \draw[relation,draw=OperaSienna,shorten >=1pt] (firstline.east) -- (nosurvival.west);
+  % Main flow and split
+  \foreach \a/\b in {pre/index, index/classified,
+                     classified/firstline, firstline/cohort}
+    \draw[flowblue] (\a.south) -- (\b.north);
+  \coordinate (fork) at ($(cohort.south)+(0,-6mm)$);
+  \draw[line width=0.75pt, draw=OperaTeal] (cohort.south) -- (fork);
+  \draw[line width=0.75pt, draw=OperaTeal] (train.north |- fork) -- (test.north |- fork);
+  \foreach \s in {train, tune, test}
+    \draw[flowteal] (\s.north |- fork) -- (\s.north);
 
-  \node[stage,text width=3.55cm,below left=14mm and 14mm of supervised] (train)
-    {Training\\index through 2021\\\textit{n}\,=\,29{,}105};
-  \node[stage,text width=3.55cm,below=14mm of supervised] (tune)
-    {Tuning\\index in 2022\\\textit{n}\,=\,1{,}980};
-  \node[stage,text width=3.55cm,below right=14mm and 14mm of supervised] (held)
-    {Test (held out)\\index from 2023\\\textit{n}\,=\,6{,}446};
-  \coordinate (split) at ($(supervised.south)+(0,-7mm)$);
-  \draw[flowblue] (supervised.south) -- (split);
-  \draw[draw=OperaIndigo,line width=0.75pt]
-    (train.north |- split) -- (held.north |- split);
-  \foreach \dest in {train,tune,held}
-    \draw[flowblue,shorten >=1pt] (\dest.north |- split) -- (\dest.north);
+  % Exclusions within a band leave the line midway between two steps.
+  \foreach \a/\b/\name/\body in {
+      index/classified/x2/{\textbf{Excluded, \textit{n}\,=\,1,069}\\Disease unresolved after both passes},
+      classified/firstline/x3/{\textbf{Excluded, \textit{n}\,=\,9}\\IgM MGUS, untreated by definition}} {
+    \coordinate (m\name) at ($(\a.south)!0.5!(\b.north)$);
+    \node[excl, anchor=west] (\name) at ($(m\name)+(35mm,0)$) {\body};
+    \draw[exclarrow] (m\name) -- (\name.west);
+  }
 
+  % Bands behind everything, one width; eyebrow and heading at the top left.
+  \coordinate (L) at ($(train.west)+(-1mm,0)$);
+  \coordinate (R) at ($(x2.east)+(1mm,0)$);
+  \begin{scope}[on background layer]
+    \node[band, fit=(pre)(L |- {$(pre.north)+(0,12mm)$})(R |- pre.south)] (bpre) {};
+    \node[band, fit=(index)(firstline)(L |- {$(index.north)+(0,12mm)$})(R |- firstline.south)] (basc) {};
+    \node[band, fit=(cohort)(train)(test)(L |- {$(cohort.north)+(0,12mm)$})(R |- train.south)] (bsup) {};
+  \end{scope}
+  % Exclusions between bands sit in the middle of the white gap.
+  \foreach \up/\down/\name/\body in {
+      bpre/basc/x1/{\textbf{Excluded, \textit{n}\,=\,40,033}\\No qualifying first-line treatment},
+      basc/bsup/x4/{\textbf{Excluded, \textit{n}\,=\,26}\\Died (\textit{n}\,=\,17) or follow-up ended
+        (\textit{n}\,=\,9) before treatment}} {
+    \coordinate (m\name) at ($(\up.south)!0.5!(\down.north)$);
+    \coordinate (m\name) at (pre.south |- m\name);
+    \node[excl, anchor=west] (\name) at ($(m\name)+(35mm,0)$) {\body};
+    \draw[exclarrow] (m\name) -- (\name.west);
+  }
+  \foreach \b/\colour/\eyebrowtext/\title in {
+      bpre/OperaIndigo/PRETRAINING POPULATION/{Pretrains the encoder},
+      basc/OperaInkMuted/FIRST-LINE ASCERTAINMENT/{Starting first-line treatment},
+      bsup/OperaTeal/FINAL SUPERVISED COHORT/{Trains, tunes and tests every model}} {
+    \node[eyebrow, font=\sffamily\fontsize{7.8}{9}\selectfont\bfseries, text=\colour,
+          anchor=north west] at ($(\b.north west)+(3.4mm,-2.6mm)$) {\eyebrowtext};
+    \node[heading, font=\sffamily\fontsize{10.5}{12.5}\selectfont\bfseries,
+          anchor=north west] at ($(\b.north west)+(3.4mm,-6.2mm)$) {\title};
+  }
 \end{tikzpicture}

@@ -53,7 +53,7 @@ def test_bundle_preserves_inputs_and_separates_supervision_from_sources(tmp_path
     with pytest.raises(ValueError, match="tuning decisions"):
         select_runs(report, "rank_screen")
     ranks = select_runs(report, "rank_screen", {"source_mode": "disease_only"})
-    assert len(ranks) == 2
+    assert len(ranks) == 3  # ranks 8, 16 and 32
     query = select_runs(
         report, "query_screen", {"source_mode": "disease_only", "rank": 8}
     )

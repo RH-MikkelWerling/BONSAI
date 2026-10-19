@@ -93,6 +93,11 @@ def external_sequences(config, sequence_dir):
 # Data efficiency: the joint model trained on nested shares of the training
 # patients, from the local and from the adapted national encoder.
 DATA_EFFICIENCY_FRACTIONS = (0.1, 0.25, 0.5)
+# Adapter ranks screened. The encoder is four times wider than the 64-wide
+# model on which rank 8 was chosen, so rank 32 keeps the same rank-to-width
+# ratio (8/64 = 32/256); the screen prefers the smallest rank unless a larger
+# one is clearly better on tuning data.
+ROUTER_RANKS = (8, 16, 32)
 
 
 def build_bundle(
@@ -120,7 +125,7 @@ def build_bundle(
             "both",
         }:
             raise ValueError("Unknown locked source bank")
-        if selected_router["rank"] not in (8, 16) or (
+        if selected_router["rank"] not in ROUTER_RANKS or (
             selected_router["query_mode"],
             selected_router["query_width"],
         ) not in {("additive", 128), ("interacting", 128), ("interacting", 512)}:
@@ -196,7 +201,7 @@ def build_bundle(
                     }
                 )
             for source in ("disease_only", "outcome_only", "both"):
-                for rank in (8, 16):
+                for rank in ROUTER_RANKS:
                     config = router_config(
                         shared,
                         reference,

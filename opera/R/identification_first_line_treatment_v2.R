@@ -715,7 +715,7 @@ make_firstline <- function(tx,
       n_codes               = n_distinct(code),
       has_anchor            = any(code %in% ANCHOR_CODES),
       has_prophy_suspect    = any(code %in% PROPHY_SUSPECT_CODES),
-      has_cd20_suspect = any(code %in% c("L01FA01", "L01XC02", "BOHJ11")) | any(str_detect(tolower(code_text), "rituximab|ofatumumab|cd29 antibody")),
+      has_cd20_suspect = any(code %in% c("L01FA01", "L01XC02", "BOHJ11")) | any(str_detect(tolower(code_text), "rituximab|ofatumumab|cd20 antibody")),
       ## RKKP trigger - we say that RKKP is as good as an anchor
       has_rkkp_source = any(is_rkkp),
       # Use ICD10 codes as confirmation 

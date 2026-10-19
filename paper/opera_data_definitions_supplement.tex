@@ -49,9 +49,8 @@ This supplement describes how the study cohort, the index date (start of
 first-line treatment), the temporal split, the disease-course endpoints and the
 69 treatment-related and acute-care outcomes were defined in the Danish
 Lymphoid Cancer Research (DALY-CARE) data resource~\citep{brieghel2025dalycare}.
-Reported cohort counts describe the current release and await final supervisor
-sign-off. Implementation traceability and unresolved clinical/source decisions
-are recorded in the companion traceability and open-question documents.
+Reported cohort counts describe the analysis release (Supplementary Table~\ref{tab:flow}).
+The R and Python code that implements every step is released with the paper.
 
 \paragraph{Conventions.} Dates are calendar dates without time of day unless
 stated otherwise. The \emph{index date} is the start of the reconstructed
@@ -142,67 +141,81 @@ event.
 % ===========================================================================
 \section{Study population and index date (first-line treatment)}\label{sec:population}
 
-The index date was the start of first-line treatment, reconstructed from the
-treatment records by the following algorithm. Exploratory variants (disabling
-anti-CD20 monotherapy as first-line treatment, and a fallback to
-registry-recorded treatment dates) were not used.
+First-line treatment is not recorded as such in any Danish register, so its
+start, the index date of every prediction, was reconstructed from the treatment
+records. The reconstruction has to separate lymphoma-directed treatment from
+three kinds of record that look alike in the data: drugs given for another
+cancer, drugs given as prophylaxis, maintenance or supportive care, and isolated
+administrations that do not amount to a course of therapy. Each of the choices
+below addresses one of these.
 
-\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=4.2em]
-\item \textbf{Diagnosis anchor.} For each patient, the earliest record of any
-DALY-CARE haematological diagnosis (including MGUS, MBL and unspecified codes)
-defined the diagnosis anchor date.
-\item \textbf{Record filter.} Treatment records required a patient identifier,
-a date and a drug code (or, if missing, a drug text). A record was retained if,
-in order of precedence: (i) it originated from a quality registry (LYFO,
-DaMyDa, DCLLR); (ii) its indication code started with a haematological ICD-10
-prefix (DC81--DC89, DC90--DC96, DD47). It was discarded if (iii) its
-four-character indication code was a listed non-haematological cancer (DC18,
-DC19, DC20, DC25, DC34, DC43, DC50, DC56, DC61, DC71, DC78), or (iv) the
-indication text matched a list of non-haematological Danish terms or the drug
-text named a listed agent not used for lymphoid malignancy (e.g.\
-fluorouracil, capecitabine, imatinib, azacitidine, hydroxycarbamide,
-cisplatin, carboplatin). Otherwise (v) it was retained as of uncertain
-indication.
-\item \textbf{Search window.} Records dated from 30 days before to 3,650 days
-after the diagnosis anchor were eligible.
-\item \textbf{Episodes.} Records were grouped into one treatment episode while
-successive treatment dates were at most 21 days apart (a gap rule, not a
-maximum duration). The episode start was the earliest record date.
-\item \textbf{Therapy-like criterion} (first matching rule): (a) the episode
-contained an \emph{anchor} agent $\Rightarrow$ qualified; (b) it contained a
-quality-registry record, unless it also contained an agent suspected of
-prophylactic or non-lymphoma use and fewer than two distinct codes
-$\Rightarrow$ qualified; (c) anti-CD20 monotherapy (ATC L01FA01, L01XC02, SKS
-BOHJ11, or drug text rituximab or ofatumumab) on $\ge$2 dates
-$\Rightarrow$ qualified; (d) it contained a suspect agent $\Rightarrow$
-required $\ge$3 dates and $\ge$2 distinct codes; (e) otherwise $\ge$2 dates or
-$\ge$2 distinct codes were required.
+\paragraph{Where to look.} Each patient's earliest DALY-CARE haematological
+diagnosis of any kind, including MGUS, MBL and unspecified codes, served as the
+diagnosis anchor, and treatment records from 30 days before to 3,650 days after
+it were eligible. Starting before the anchor allows for treatment that begins
+while the diagnosis is still being registered.
 
-Anchor agents comprised the CLL agents (fludarabine, cyclophosphamide,
-bendamustine, chlorambucil, obinutuzumab, ibrutinib, zanubrutinib,
-acalabrutinib, idelalisib, venetoclax, alemtuzumab; ATC and SKS BWHA/BOHJ
-codes), aggressive B-cell lymphoma agents and regimens (e.g.\ SKS codes for
-CHOP, COP and CHOEP; mitoxantrone, ifosfamide, carboplatin, gemcitabine,
-vincristine, melphalan, cytarabine, bortezomib, lenalidomide, thiotepa,
-carmustine), myeloma regimens identified by drug text (e.g.\ daratumumab,
-carfilzomib, pomalidomide, autologous stem-cell transplantation) and SKS
-radiotherapy codes (codes described as ``strålebehandling'' [radiotherapy],
-except listed prefixes, plus AFB04F3 and AFB03F3). Agents suspected of
-prophylactic or non-lymphoma use were removed from the anchor list: rituximab,
-unspecified CD20 antibody, methotrexate, gemcitabine and cisplatin identified
-by text, doxorubicin, etoposide, oxaliplatin, selinexor, the generic cytostatic
-codes BWHA1, BWHA2 and BWHA4, and bevacizumab.
-\item \textbf{Curated CLL and MM anchors.} For patients in the curated CLL or
-MM treatment-line data, the earliest first-line date (the earlier of the two if
-present in both) was attached. An episode was an \emph{anchored episode} if
-this date fell within it or within 30 days of its start or end. Anchored
-episodes did not need to meet the therapy-like criterion.
-\item \textbf{Selection.} Patients with a curated anchor received the anchored
-episode closest to the curated date; all others received the earliest
-qualifying episode. The index date was the start of the selected episode, not
-the curated date. Patients without a qualifying episode had no index date and
-were not included.
-\end{enumerate}
+\paragraph{Which records count.} A record needed a patient, a date and a drug
+code, or a drug text where no code was given. Records were then judged by their
+indication, in order of trust. Records from the clinical quality registries
+(LYFO, DaMyDa, DCLLR) were kept, as were records whose indication carried a
+haematological ICD-10 code (DC81--DC89, DC90--DC96, DD47). Records were discarded
+when the indication was a listed non-haematological cancer (DC18, DC19, DC20,
+DC25, DC34, DC43, DC50, DC56, DC61, DC71, DC78), when the indication text matched
+a list of non-haematological Danish terms, or when the drug is not used for
+lymphoid malignancy (e.g.\ fluorouracil, capecitabine, imatinib, azacitidine,
+hydroxycarbamide, cisplatin, carboplatin). Records without an informative
+indication were kept as uncertain rather than discarded, because much routine
+treatment is recorded without one.
+
+\paragraph{From records to courses of therapy.} Records belonged to one episode
+as long as consecutive treatment dates were at most 21 days apart, a gap rule
+that follows the cycle length of most regimens rather than a limit on duration;
+the episode started on its earliest record. An episode then had to look like
+therapy, and the evidence required depended on how specific its drugs were. The
+strongest evidence is a drug used almost only for lymphoid malignancy, and an
+episode containing one of these \emph{anchor} agents qualified outright. The
+anchors were the CLL agents (fludarabine, cyclophosphamide, bendamustine,
+chlorambucil, obinutuzumab, ibrutinib, zanubrutinib, acalabrutinib, idelalisib,
+venetoclax, alemtuzumab; ATC and SKS BWHA/BOHJ codes); aggressive B-cell
+lymphoma agents and regimens (e.g.\ SKS codes for CHOP, COP and CHOEP;
+mitoxantrone, ifosfamide, carboplatin, gemcitabine, vincristine, melphalan,
+cytarabine, bortezomib, lenalidomide, thiotepa, carmustine); myeloma agents and
+regimens identified by drug text (e.g.\ daratumumab, carfilzomib, pomalidomide,
+autologous stem-cell transplantation), including the generic myeloma treatment
+categories recorded as drug text (complex or other cytostatic treatment, other
+antineoplastic agents, monoclonal antibodies and antibody--drug conjugates);
+SKS BWHA135 and the drug text ``vcr''; and radiotherapy (SKS codes described as
+``strålebehandling'', except listed prefixes, plus AFB04F3 and AFB03F3). Drugs
+that are also given for prophylaxis, maintenance or other diseases were kept out
+of the anchors on purpose, so that they could not confirm a course on their own:
+rituximab (ATC L01FA01, L01XC02), unspecified CD20 antibody (drug text and SKS
+BOHJ11), methotrexate (drug text and ATC L01BA01, L04AX03), gemcitabine and
+cisplatin identified by text, doxorubicin, etoposide, oxaliplatin, selinexor,
+basic cytostatic treatment, the generic cytostatic codes BWHA1, BWHA2 and BWHA4,
+and bevacizumab.
+
+Without an anchor, more evidence was required the more easily the episode could
+be something else. A quality-registry record sufficed, unless the episode also
+contained one of the suspect agents above and fewer than two distinct codes.
+Anti-CD20 treatment (the codes above, or the drug texts rituximab, ofatumumab or
+CD20 antibody) on two or more dates sufficed, so that rituximab monotherapy, a
+genuine first-line treatment in indolent lymphoma, is not lost. An episode with
+any other suspect agent needed at least three treatment dates and two distinct
+codes, and any remaining episode at least two dates or two distinct codes.
+
+\paragraph{Curated treatment lines.} For patients in DALY-CARE's curated
+treatment-line data for CLL (version 4) and multiple myeloma (version 5), the
+curated first-line date was trusted over the reconstruction. An episode that
+contained this date, or lay within 30 days of it, qualified without the
+therapy-like criterion, and the episode closest to the curated date was chosen.
+The index date remained the start of that episode, not the curated date, so
+that all diseases share one definition of the index.
+
+\paragraph{The first line.} All other patients received their earliest
+qualifying episode, and patients without one had no index date and were not
+included. Two exploratory variants, one without the anti-CD20 rule and one
+falling back on registry-recorded treatment dates, were examined and not used.
 
 \paragraph{Cohort flow.} Supplementary Table~\ref{tab:flow} shows the cohort
 flow. Patients enter the outcome population only if they had a follow-up record
@@ -210,7 +223,8 @@ and both end of follow-up and the data cutoff fell after the index date; a
 patient with a missing follow-up record, end of follow-up on or before the
 index date (including death on the index date) or an index date on or after
 the cutoff was therefore excluded from all outcomes. Twenty-six patients of the
-first-line cohort were excluded in this way.
+first-line cohort were excluded in this way: for all of them, death (17) or the
+end of follow-up (9) was recorded before the reconstructed index date.
 
 \begin{table}[ht]
 \centering\footnotesize
@@ -247,23 +261,38 @@ lymphoplasmacytic lymphoma by DC830B or DC880; nodal marginal-zone lymphoma by
 DC830C; splenic marginal-zone lymphoma by DC830D; the generic marginal-zone
 group was not used; and DD472A (IgM MGUS) was mapped to an exclusion group.
 
-\paragraph{Pass 1 (contemporaneous diagnoses).} Diagnoses dated from 7,300
-days (about 20 years) before to 14 days after the index date were considered
-(an asymmetric window). A disease group was \emph{confirmed} if any diagnosis
-had a reliability rank of 3 or better (1 being the highest; quality-registry
-diagnoses rank 1), if there were $\ge$2 diagnoses spanning $\ge$14 days, or if
-there was a single rank-1 diagnosis. Among confirmed groups, unspecified and
-supergroup-only labels (generic DALY-CARE, unspecified, unspecified B-cell
-lymphoma, unspecified lymphoma and unspecified leukaemia) and MGUS/MBL were not
-assignable. Two derived labels were added: Richter transformation (CLL/SLL and
-DLBCL both confirmed in the window, with the earliest recorded DLBCL code
-$\ge$90 days after the earliest recorded CLL/SLL code, both taken over the
-patient's full history) and transformed follicular lymphoma (same rule for
-FL). Specific labels took precedence over supergroups and aggressive over
-non-aggressive labels; remaining ties were broken by aggressiveness (Richter;
-then DLBCL, BL, PTCL, ALCL, AITL, LBL, PCL, MCL; then MM, solitary
-plasmacytoma; then CLL, SLL, LPL; then FL, MZL, EMZL, HCL; then others), then
-by best reliability rank, latest diagnosis date and specificity.
+\paragraph{Pass 1 (contemporaneous diagnoses).} Disease identity was taken
+from the diagnoses recorded around the start of treatment, from 20 years (7,300
+days) before to 14 days after the index date. The long look-back captures an
+indolent disease diagnosed years before it needed treatment; the short forward
+window allows for codes registered during the first weeks of treatment. A single
+code can be a working diagnosis, so a disease group counted as confirmed only
+when supported by a diagnosis of reliability rank 3 or better (quality-registry
+diagnoses rank 1) or by at least two diagnoses at least 14 days apart. Catch-all
+labels (generic DALY-CARE, unspecified, unspecified B-cell lymphoma, unspecified
+lymphoma and unspecified leukaemia) could not be assigned, nor could MGUS and
+MBL, which by definition are not treated.
+
+When several groups were confirmed, three principles decided between them.
+First, a specific label beat a broad one: the catch-all labels and the broad
+groups B-cell lymphoma, T-cell lymphoma, plasma-cell disorder and Hodgkin
+lymphoma gave way to any other confirmed specific label in the window, so that
+Hodgkin lymphoma was assigned only when no other specific lymphoma was
+confirmed. Second, an aggressive disease beat an indolent one, because
+first-line treatment in a patient with both is usually given for the aggressive
+disease: Richter transformation, DLBCL, BL, PTCL, ALCL, AITL, LBL and PCL took
+precedence over all other labels, including MCL. Third, remaining ties were
+broken by a ranking of aggressiveness (Richter transformation; then DLBCL, BL,
+PTCL, ALCL, AITL, LBL, PCL and MCL; then MM and solitary plasmacytoma; then CLL,
+SLL and LPL; then FL, MZL, EMZL and HCL; then others), and then by the most
+reliable, most recent and most specific diagnosis.
+
+Transformation was recognised from the order of diagnoses. A patient with DLBCL
+confirmed in the window was labelled Richter transformation if CLL or SLL had
+been recorded anywhere in their history, confirmed or not, at least 90 days
+before their first DLBCL code, and transformed follicular lymphoma under the
+same rule for FL. The 90-day gap keeps a CLL or FL code registered during the
+same work-up as the DLBCL from being read as a transformation.
 
 \paragraph{Pass 2 (coding-lag reassessment).} A specific lymphoma diagnosis is
 often registered only after the diagnostic work-up is complete, which can be

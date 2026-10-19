@@ -199,7 +199,11 @@ patient's subtype). The reference $E^0$ replaces every event's content by the
 mean content embedding of training events, an average event, while keeping the
 timeline. The encoder was pretrained to predict the next event, so the mask
 token was never trained and is not a suitable reference. Integrated gradients
-\citep{sundararajan2017ig} give event $j$ the credit
+\citep{sundararajan2017ig} move the record step by step from this average
+record to the patient's own, and add up how much each event's content changes
+the prediction along the way; the integral below is that running sum, and
+$\alpha$ runs from the average record ($\alpha=0$) to the patient's record
+($\alpha=1$). Event $j$ thus receives the credit
 \begin{equation}
  a_{jk}=\sum_d(E_{jd}-E^0_{jd})
  \int_0^1\frac{\partial f_{k}(E^0+\alpha(E-E^0);C)}

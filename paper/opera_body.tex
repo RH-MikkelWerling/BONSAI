@@ -310,10 +310,11 @@ and fine-tuning.
 
 To test transfer beyond the specialist cohort, joint and routed models were
 initialised from the nation-scale PHAIR encoder, either directly or after
-continued pretraining on the cohort's records. The national population contains
-the cohort, so the national encoder was pretrained on the cohort's pre-2022
-records (in its own register deliveries) as well as on those of the rest of the
-population. Continued pretraining on the cohort therefore adds no patients: it
+continued pretraining on the records of the pretraining population. The
+national population contains the pretraining population, so the national
+encoder was pretrained on its pre-2022 records (in its own register deliveries)
+as well as on those of the rest of the population. Continued pretraining on the
+pretraining population therefore adds no patients: it
 is domain-adaptive pretraining \citep{gururangan2020dont}, which refocuses the
 encoder on the target population. National against cohort pretraining
 measures what the rest of the population adds, and adaptation what refocusing
@@ -395,9 +396,14 @@ and routed arms; do not interpret them as results for an automatically selected
 national model.}
 
 \operasubsection{Who was studied, and what was predicted?}
-Of 78,668 adults in DALY-CARE with a lymphoid cancer or related diagnosis,
-37,531 started first-line treatment and were included (\cref{fig:cohort-flow}):
-29,105 in the training period (to 2021), 1,980 in the tuning year (2022) and 6,446 in the held-out test set (from 2023). \placeholder{Median age, sex and the
+The pretraining population comprised all 78,668 adults in DALY-CARE with a
+lymphoid cancer diagnosis; their records before 2022 pretrained the cohort
+encoder. Of these, 38,635 started first-line treatment, and the 37,531 with an
+assigned lymphoid disease who were alive and followed at treatment start form
+the final supervised cohort, on which every prediction model was trained,
+tuned and tested (\cref{fig:cohort-flow}): 29,105 in the training period (to
+2021), 1,980 in the tuning year (2022) and 6,446 in the held-out test set (from
+2023). \placeholder{Median age, sex and the
 largest disease groups (Table~1).} Of the 24 diseases and 69 outcomes,
 \result{cells_evaluable}{N} cells had enough test events to be evaluated at one year. Event rates ranged from \placeholder{range}, and \result{cells_low_support}{N} cells had fewer than 20 events to train on
 (\cref{fig:supp-coverage,fig:supp-support}).

@@ -44,11 +44,12 @@ the probability of every outcome by each of six horizons.}
 
 \begin{figure}[p]
   \centering
-  \resizebox{0.94\textwidth}{!}{\input{figures/cohort_flow}}
-  \caption{\textbf{CONSORT diagram.} Of 78,668 adults in DALY-CARE with a
-  lymphoid cancer or related diagnosis, whose pre-2022 histories were used for
-  pretraining, 38,635 started first-line treatment, 37,557 had an assigned lymphoid
-  disease, and 37,531 alive and followed at treatment start were assigned to the training (to 2021),
+  \resizebox{!}{0.84\textheight}{\input{figures/cohort_flow}}
+  \caption{\textbf{CONSORT diagram.} Of the pretraining population of 78,668
+  adults in DALY-CARE with a lymphoid cancer diagnosis, whose pre-2022 histories
+  were used for pretraining, 38,635 started first-line treatment, 37,557 had an assigned lymphoid
+  disease, and the 37,531 alive and followed at treatment start form the final
+  supervised cohort, assigned to the training (to 2021),
   tuning (2022) or test (from 2023) period. Subtypes
   were assigned from diagnoses up to 14 days after treatment start, with
   reassessment up to day 90 for late-coded diagnoses. Counts are unique patients. Not every patient contributes to every endpoint: outcome-specific eligibility,
