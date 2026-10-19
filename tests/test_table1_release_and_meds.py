@@ -209,12 +209,13 @@ def test_manuscript_table_renders_released_display_values_verbatim():
             "split": ["train"] * 100 + ["tuning"] * 100 + ["held_out"] * 100,
             "sex": ["Female"] * 2 + ["Male"] * 98 + ["Female", "Male"] * 100,
             "age": list(range(40, 90)) * 6,
-            "arm_primary": ["Rare"] * 2 + ["Common_arm"] * 298,
+            # A categorical row of the main table (treatment arms moved out of it).
+            "predominant_region": ["Rare"] * 2 + ["Common_arm"] * 298,
         }
     )
     release, _ = release_table(build_tables(pop))
     tex = pooled_table_latex(release, source_sha256="abc123")
-    assert "export sha256 abc123" in tex and "Review version" in tex
+    assert "export sha256 abc123" in tex and "Review version" not in tex
     assert r"\quad Common\_arm" in tex  # escaped, indented category row
     assert "$<$5" in tex  # suppressed small cell kept as released
     pooled = release.loc[(release.cohort_level == "all") & (release.kind != "continuous")]
@@ -285,9 +286,9 @@ def test_subtypes_are_nested_under_their_disease_group():
     tex = pooled_table_latex(release, source_sha256="x", policy="primary-only")
     lines = tex.splitlines()
     group = next(i for i, line in enumerate(lines)
-                 if line.startswith(r"\quad \textbf{DLBCL and related"))
+                 if line.startswith(r"\quad \textbf{Large B-cell lymphomas"))
     # Subtypes by size, full names; RT has no index in routine use.
-    assert lines[group + 1].startswith(r"\qquad Diffuse large B-cell lymphoma (DLBCL) &")
+    assert lines[group + 1].startswith(r"\qquad Diffuse large B-cell (DLBCL) &")
     assert lines[group + 2].startswith(r"\qquad Richter transformation (RT)$^{\dagger}$")
     # A single-subtype group is one bold row under the subtype's name, after the
     # aggressive B-cell group (clinical, not alphabetical, order).
@@ -299,11 +300,14 @@ def test_subtypes_are_nested_under_their_disease_group():
 
 def test_layout_preview_shows_every_subtype_without_data():
     from opera.run.format_table1_release import layout_table_latex
-    from opera.visualization.paper_taxonomy import FINE_LONG, fine_cohort_groups
+    from opera.visualization.paper_taxonomy import (
+        FINE_IN_GROUP, FINE_LONG, fine_cohort_groups)
 
     tex = layout_table_latex()
     for fine in fine_cohort_groups():
-        assert FINE_LONG[fine].replace("_", r"\_") in tex
+        names = {FINE_LONG[fine], FINE_IN_GROUP.get(fine, FINE_LONG[fine])}
+        assert any(name.replace("_", r"\_") in tex for name in names), fine
+    assert "median (IQR)" in tex and ", median (IQR) &" not in tex
     assert "Layout preview" in tex and "Review version" not in tex
     assert not any(ch.isdigit() for line in tex.splitlines()
                    if line.startswith(r"\q") for ch in line.split("&", 1)[1])
@@ -368,3 +372,75 @@ def test_supervised_scope_uses_index_and_split_from_the_joined_sources():
     kept, audit = supervised_population(join_metadata(population, [survival]))
     assert kept.subject_id.tolist() == [1, 3]
     assert audit["excluded_without_index_date"] == 1
+
+
+def test_relabel_brings_an_old_reviewed_table_to_the_new_labels_without_touching_values():
+    from opera.run.relabel_table1 import relabel, value_cells
+
+    old = "\n".join([
+        r"\caption{\textbf{Baseline characteristics at first-line treatment.} One record per patient at the shared first-line index, by temporal split.}",
+        r"\setlength{\tabcolsep}{5pt}",
+        r"Age at treatment, years, median (IQR) & 68 (59–75) & 68 (59–75) & 67 (58–74) & 69 (60–76) \\",
+        r"\multicolumn{5}{@{}l}{Disease group and subtype, $n$ (\%)}\\",
+        r"\quad \textbf{DLBCL and related aggressive B-cell lymphomas} & 9,000 (24.0) & 1 & 2 & 3 \\",
+        r"\qquad Diffuse large B-cell lymphoma (DLBCL) & 8,000 (21.3) & 1 & 2 & 3 \\",
+        r"\qquad Richter transformation (RT)$^{\dagger}$ & <5 & 1 & 2 & 3 \\",
+        r"\quad \textbf{Mantle-cell lymphoma (MCL)} & 1,500 (4.0) & 1 & 2 & 3 \\",
+        r"\quad \textbf{T-cell non-Hodgkin lymphoma} & 900 & 1 & 2 & 3 \\",
+        r"\qquad Angioimmunoblastic T-cell lymphoma (AITL) & 200 & 1 & 2 & 3 \\",
+        r"Female, $n$ (\%) & 1 & 2 & 3 & 4 \\",
+    ])
+    new = relabel(old)
+    assert value_cells(new) == value_cells(old)
+    assert "Values are $n$ (\\%) or median (IQR).}" in new and "{4pt}" in new
+    assert r"Age at treatment, years & 68" in new and r"Female & 1" in new
+    assert r"{Disease group and subtype}\\" in new
+    assert r"\textbf{Large B-cell lymphomas}" in new and r"\textbf{T-cell lymphomas}" in new
+    assert r"\qquad Diffuse large B-cell (DLBCL) &" in new
+    assert r"\qquad Angioimmunoblastic (AITL) &" in new
+    assert r"\textbf{Mantle-cell lymphoma (MCL)}" in new  # standalone row keeps its full name
+
+
+def test_relabel_drops_internal_blocks_and_shows_sex_as_one_row():
+    from opera.run.relabel_table1 import is_subsequence, relabel, value_cells
+
+    old = "\n".join([
+        r"\multicolumn{5}{@{}l}{Sex, $n$ (\%)}\\",
+        r"\quad F & 10 (40.0) & 1 & 2 & 3 \\",
+        r"\quad M & 15 (60.0) & 1 & 2 & 3 \\",
+        r"Year of treatment & 2016 & 2014 & 2022 & 2024 \\",
+        r"\multicolumn{5}{@{}l}{Subtype assignment}\\",
+        r"\quad pass1 & 24 & 1 & 2 & 3 \\",
+        r"\multicolumn{5}{@{}l}{First-line treatment, $n$ (\%)}\\",
+        r"\quad CLL: FCR-like & <5 & 1 & 2 & 3 \\",
+        r"\quad MM: KRd-like & 7 & 1 & 2 & 3 \\",
+        r"\addlinespace",
+        r"\multicolumn{5}{@{}l}{\sffamily\bfseries Pre-index history}\\",
+        r"Recorded events & 900 & 1 & 2 & 3 \\",
+    ])
+    new = relabel(old)
+    assert r"Female & 10 (40.0)" in new and "15 (60.0)" not in new
+    assert "pass1" not in new and "FCR" not in new and "Subtype assignment" not in new
+    assert "Pre-index history" in new and r"Recorded events & 900" in new
+    assert is_subsequence(value_cells(new), value_cells(old))
+    assert not is_subsequence([" 11 (40.0) \\\\"], value_cells(old))
+
+
+def test_relabel_names_regions_and_merges_reverse_km_into_follow_up():
+    from opera.run.relabel_table1 import is_subsequence, relabel, value_cells
+
+    old = "\n".join([
+        r"\multicolumn{5}{@{}l}{Region (most contacts), $n$ (\%)}\\",
+        r"\quad 1084 & 9 & 1 & 2 & 3 \\",
+        r"\addlinespace",
+        r"\multicolumn{5}{@{}l}{\sffamily\bfseries Follow-up}\\",
+        r"Died during follow-up, $n$ (\%) & 5 & 1 & 2 & 3 \\",
+        r"\addlinespace",
+        r"\multicolumn{5}{@{}l}{\sffamily\bfseries Other characteristics}\\",
+        r"Median follow-up (reverse Kaplan-Meier), years & 9.1 & 1 & 2 & 3 \\",
+    ])
+    new = relabel(old)
+    assert r"\quad Capital Region & 9" in new
+    assert "Other characteristics" not in new and new.count(r"\addlinespace") == 1
+    assert r"Reverse Kaplan--Meier follow-up, years & 9.1" in new
+    assert is_subsequence(value_cells(new), value_cells(old))

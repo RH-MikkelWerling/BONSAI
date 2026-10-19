@@ -28,15 +28,15 @@ FINE_NAMES = {"AMYLOIDOSIS": "Amyloidosis", "TRANSFORMED_FL": "Transformed FL",
 
 # Full clinical names for tables (abbreviation as used in the figures).
 GROUP_LONG = {
-    "DLBCL_like": "DLBCL and related aggressive B-cell lymphomas",
-    "BL_LBL": "Burkitt and lymphoblastic lymphoma",
+    "DLBCL_like": "Large B-cell lymphomas",
+    "BL_LBL": "Burkitt and lymphoblastic lymphomas",
     "MCL": "Mantle-cell lymphoma",
-    "Indolent_B_NHL": "Indolent B-cell non-Hodgkin lymphoma",
-    "CLL_SLL": "CLL and small lymphocytic lymphoma",
+    "Indolent_B_NHL": "Indolent B-cell lymphomas",
+    "CLL_SLL": "CLL and SLL",
     "HCL": "Hairy-cell leukaemia",
     "HL": "Hodgkin lymphoma",
-    "T_NHL": "T-cell non-Hodgkin lymphoma",
-    "MM": "Myeloma and other plasma-cell neoplasms",
+    "T_NHL": "T-cell lymphomas",
+    "MM": "Plasma-cell neoplasms",
     "AMYLOIDOSIS": "Amyloidosis",
 }
 # Clinical order for tables: aggressive B-cell, indolent B-cell, Hodgkin, T-cell,
@@ -69,6 +69,31 @@ FINE_LONG = {
     "SolM": "Solitary plasmacytoma",
     "AMYLOIDOSIS": "Amyloidosis",
 }
+# Under its group heading a subtype drops what the heading already says
+# ("T-cell lymphomas" > "Angioimmunoblastic (AITL)"), so Table 1 rows fit one
+# line; a group with one subtype is a standalone row and keeps FINE_LONG.
+FINE_IN_GROUP = {
+    "DLBCL": "Diffuse large B-cell (DLBCL)",
+    "RT": "Richter transformation (RT)",
+    "TRANSFORMED_FL": "Transformed follicular (tFL)",
+    "BL": "Burkitt (BL)",
+    "LBL": "Lymphoblastic (LBL)",
+    "FL": "Follicular (FL)",
+    "LPL": "Lymphoplasmacytic (LPL)",
+    "EMZL": "Extranodal marginal-zone (EMZL)",
+    "SMZL": "Splenic marginal-zone (SMZL)",
+    "NMZL": "Nodal marginal-zone (NMZL)",
+    "BCL": "Unspecified B-cell (BCL)",
+    "CLL": "Chronic lymphocytic leukaemia (CLL)",
+    "SLL": "Small lymphocytic lymphoma (SLL)",
+    "PTCL": "Peripheral T-cell, NOS (PTCL)",
+    "AITL": "Angioimmunoblastic (AITL)",
+    "ALCL": "Anaplastic large-cell (ALCL)",
+    "TCL": "Unspecified T-cell (TCL)",
+    "MM": "Multiple myeloma (MM)",
+    "PCL": "Plasma-cell leukaemia (PCL)",
+    "SolM": "Solitary plasmacytoma",
+}
 # Subtypes without a dedicated prognostic index (prespecified stratum): no
 # multivariable index derived for the entity and externally validated in an
 # independent cohort; indices borrowed from other entities (the IPI applied to
@@ -82,6 +107,11 @@ NO_ROUTINE_INDEX = frozenset({"LBL", "HCL", "ALCL", "TRANSFORMED_FL", "PCL", "RT
 
 def disease_long_name(fine: str) -> str:
     return FINE_LONG.get(fine, disease_name(fine))
+
+
+def disease_in_group_name(fine: str) -> str:
+    """Subtype name under its group heading (Table 1)."""
+    return FINE_IN_GROUP.get(fine, disease_long_name(fine))
 
 
 def disease_group_long_name(group: str) -> str:

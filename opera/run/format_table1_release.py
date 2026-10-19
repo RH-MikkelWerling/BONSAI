@@ -38,6 +38,9 @@ LAYOUT = [
     ("Disease", [
         ("cohort_grouped", "Disease group and subtype", None),
         ("cohort_source", "Subtype assignment", None),
+        ("performance_status", "Performance status (ECOG)", None),
+        ("risk_category", "Risk group by disease-specific index$^{\ddagger}$", None),
+        ("nccn_ipi_risk", "NCCN-IPI risk group, DLBCL$^{\S}$", None),
         ("prognostic_score_by_system", "Prognostic index recorded at diagnosis", None),
         ("nccn_ipi_group", "NCCN-IPI risk group (DLBCL)", None),
         *[(name, "First-line treatment", None) for name in (
@@ -58,18 +61,32 @@ LAYOUT = [
     ]),
     ("Follow-up", [
         ("followup_days", "Follow-up, years", 1),
+        ("followup_reverse_km", "Reverse Kaplan--Meier follow-up, years", 1),
         ("death_event", "Died during follow-up", None),
     ]),
 ]
 # Shown elsewhere or internal: never listed under "Other characteristics".
 NOT_IN_TABLE = {"patients", "cohort_fine", "index", "ipi", "IPI", "nccn_ipi_score",
-                "predominant_region_status", "female"}
+                "predominant_region_status", "female", "PS", "ps"}
 # Shown only in the supplementary table by disease.
-MAIN_TABLE_EXCLUDE = frozenset({SPECIALTY_PREFIX, "prognostic_score_by_system", "nccn_ipi_group"})
+# Also kept out of Table 1: the subtype-assignment pass (an internal pipeline
+# field) and the detailed first-line regimens (too many small categories for
+# one page; a treatment-class summary belongs in a supplementary table).
+TREATMENT_VARIABLES = ("arm_primary", "treatment_group", "treatment_grouped",
+                       "treatment_category", "regimen_group", "regimen_category",
+                       "first_line_treatment_group")
+MAIN_TABLE_EXCLUDE = frozenset({SPECIALTY_PREFIX, "prognostic_score_by_system",
+                                "nccn_ipi_group", "cohort_source", *TREATMENT_VARIABLES})
 # Two-level characteristics shown as one row (the other level is the complement).
-SINGLE_LEVEL = {"sex": ("Female", "Female")}
+# The patient table codes sex as F/M; older exports wrote Female/Male.
+SINGLE_LEVEL = {"sex": (("Female", "F"), "Female")}
 CATEGORY_ORDER = ["low", "low-intermediate", "medium", "intermediate",
-                  "high-intermediate", "high", "very high"]
+                  "high-intermediate", "high", "very high", "0–1", "2–4", "not recorded"]
+
+
+# Danish region codes (Statistics Denmark) as recorded with each contact.
+REGION_NAMES = {"1081": "North Denmark", "1082": "Central Denmark",
+                "1083": "Southern Denmark", "1084": "Capital Region", "1085": "Zealand"}
 
 
 def _number(value, decimals):
@@ -103,7 +120,8 @@ def _category_label(variable, category):
         from opera.visualization.paper_taxonomy import disease_group_name
         return disease_group_name(text)
     if variable == "predominant_region":
-        return text.split("//", 1)[-1]
+        code = text.split("//", 1)[-1]
+        return REGION_NAMES.get(code, code)
     if variable == "prognostic_score_by_system":
         system, _, level = text.partition(": ")
         return f"{system}, {level}"
@@ -118,8 +136,8 @@ def _disease_rows(result, cells, informative, width, label):
     without a prognostic index in routine use carry a dagger.
     """
     from opera.visualization.paper_taxonomy import (
-        GROUP_ORDER, NO_ROUTINE_INDEX, disease_group_long_name, disease_long_name,
-        fine_cohort_groups)
+        GROUP_ORDER, NO_ROUTINE_INDEX, disease_group_long_name, disease_in_group_name,
+        disease_long_name, fine_cohort_groups)
 
     groups = result.loc[result.variable == "cohort_grouped"]
     fines = result.loc[result.variable == "cohort_fine"]
@@ -134,17 +152,18 @@ def _disease_rows(result, cells, informative, width, label):
     size = (pd.to_numeric(overall.get("count"), errors="coerce")
             .groupby(overall.category.astype(str)).max() if "count" in overall else pd.Series(dtype=float))
 
-    def named(fine):
+    def named(fine, standalone=False):
         dagger = r"$^{\dagger}$" if fine in NO_ROUTINE_INDEX else ""
-        return _tex(disease_long_name(fine)) + dagger
+        name = disease_long_name(fine) if standalone else disease_in_group_name(fine)
+        return _tex(name) + dagger
 
-    lines = [r"\multicolumn{%d}{@{}l}{%s, $n$ (\%%)}\\" % (width, label)]
+    lines = [r"\multicolumn{%d}{@{}l}{%s}\\" % (width, label)]
     for group in names:
         members = sorted((str(f) for f in fines.category.dropna().unique()
                           if mapping.get(str(f), "Other") == group),
                          key=lambda f: (-size.get(f, 0) if pd.notna(size.get(f, 0)) else 0,
                                         disease_long_name(f)))
-        title = (named(members[0]) if len(members) == 1
+        title = (named(members[0], standalone=True) if len(members) == 1
                  else _tex(disease_group_long_name(group)))
         values = cells(groups.loc[groups.category.astype(str) == group], None)
         lines.append(rf"\quad \textbf{{{title}}} & " + " & ".join(map(_tex, values)) + r" \\")
@@ -196,24 +215,24 @@ def _body(result, columns, key, exclude=()):
                         specialty = _tex(name[len(SPECIALTY_PREFIX):].replace("_", " "))
                         rows_out.append(rf"\quad {specialty} & " + " & ".join(map(_tex, values)) + r" \\")
                 if rows_out:
-                    block.append(r"\multicolumn{%d}{@{}l}{%s, $n$ (\%%)}\\" % (width, label))
+                    block.append(r"\multicolumn{%d}{@{}l}{%s}\\" % (width, label))
                     block += rows_out
                 continue
             rows = result.loc[result.variable == variable]
             if rows.empty:
                 continue
             kind = rows.kind.iloc[0]
-            suffix = ", median (IQR)" if kind == "continuous" else ", $n$ (\\%)"
+            suffix = ""  # "n (%) or median (IQR)" is stated once, in the caption
             if kind in {"continuous", "binary", "count"}:
                 values = cells(rows, decimals)
                 if informative(values):
                     block.append(f"{label}{suffix} & " + " & ".join(map(_tex, values)) + r" \\")
                 continue
             if variable in SINGLE_LEVEL:
-                level, name = SINGLE_LEVEL[variable]
-                values = cells(rows.loc[rows.category.astype(str) == level], None)
+                levels, name = SINGLE_LEVEL[variable]
+                values = cells(rows.loc[rows.category.astype(str).isin(levels)], None)
                 if informative(values):
-                    block.append(f"{name}, $n$ (\\%) & " + " & ".join(map(_tex, values)) + r" \\")
+                    block.append(f"{name} & " + " & ".join(map(_tex, values)) + r" \\")
                     continue
             category_rows = []
             for category in sorted(rows.category.dropna().unique(), key=_category_key):
@@ -239,7 +258,13 @@ def _note(policy):
 def _disease_note():
     return (r"\par{\scriptsize $^{\dagger}$No dedicated, externally validated prognostic "
             r"index; the prespecified stratum of subtypes without an index "
-            r"(Supplementary \cref{tab:index-availability}).}")
+            r"(Supplementary \cref{tab:index-availability}). "
+            r"$^{\ddagger}$The low, intermediate or high category recorded at diagnosis "
+            r"with the index of each disease's quality registry (e.g.\ IPI, FLIPI, "
+            r"CLL-IPI, ISS), collapsed to three groups (e.g.\ CLL-IPI very high as high); "
+            r"not recorded includes conflicting records. "
+            r"$^{\S}$Computed from registry components at diagnosis (low 0--1, "
+            r"intermediate 2--5, high $\geq$6); percentages of patients with DLBCL.}")
 
 
 def pooled_table_latex(result, *, source_sha256, status="review", policy="targeted"):
@@ -264,18 +289,14 @@ def pooled_table_latex(result, *, source_sha256, status="review", policy="target
         "% Do not edit values by hand; regenerate from the reviewed export.",
         r"\begin{table*}[p]",
         r"\centering",
+        # Written as the final table; review status lives in provenance, not the caption.
         r"\caption{\textbf{Baseline characteristics at first-line treatment.} "
-        + (
-            "Review version pending supervisor sign-off; values are the disclosure-"
-            "processed aggregate export. "
-            if status == "review"
-            else ""
-        )
-        + r"One record per patient at the shared first-line index, by temporal split.}",
+        r"One record per patient at the shared first-line index, by temporal split. "
+        r"Values are $n$ (\%) or median (IQR).}",
         r"\label{tab:characteristics}",
         r"\footnotesize",
-        r"\setlength{\tabcolsep}{5pt}",
-        r"\renewcommand{\arraystretch}{1.05}",
+        r"\setlength{\tabcolsep}{4pt}",
+        r"\renewcommand{\arraystretch}{1.0}",
         r"\begin{tabularx}{\textwidth}{@{}Xrrrr@{}}",  # noqa
         r"\toprule",
         "Characteristic & " + " & ".join(label for _, label in SPLIT_COLUMNS) + r" \\",

@@ -52,6 +52,8 @@ CLINICAL_CATEGORICAL = {
     "first_line_regimen",
     "first_line_treatment_group",
     "performance_status",
+    "risk_category",
+    "nccn_ipi_risk",
     "performance_score",
     "performance_status_score",
     "who_performance_status",
@@ -372,6 +374,9 @@ def summarize(frame):
                 "nccn_ipi_score": "NCCN-IPI score",
                 "cohort_source": "Subtype assignment (pass)",
                 "ipi": "Prognostic score value (IPI field)",
+                "performance_status": "Performance status",
+                "risk_category": "Risk group by the disease's own index",
+                "nccn_ipi_risk": "NCCN-IPI risk group (DLBCL)",
             }.get(str(column).lower(), column.replace("_", " ").title())
             add(column, label, values, "categorical", level)
     if {"IPI", "index"} <= set(frame):

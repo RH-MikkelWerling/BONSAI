@@ -1,53 +1,28 @@
-% Table 1 for supervisor sign-off: the cohort table, its by-disease supplement
-% and the prognostic-index table that defines the dagger stratum.
-% Copy the server-rendered (disclosure-reviewed) files into paper/tables/:
-%   $OPERA_PAPER_ROOT/table1/manuscript/table1_current_review.tex
-%   $OPERA_PAPER_ROOT/table1/manuscript/table1_current_review_by_disease.tex
-% then build with: pdflatex table1_review && bibtex table1_review && pdflatex table1_review (x2)
+% Table 1 alone, for supervisor sign-off.
+% Copy the disclosure-reviewed table1_current_review.tex into paper/tables/
+% (bring it to the current labels with: python -m opera.run.relabel_table1
+% paper/tables/table1_current_review.tex), then build with: pdflatex table1_review (x2)
 \documentclass[11pt]{article}
-\usepackage[a4paper,margin=2.0cm]{geometry}
+\usepackage[a4paper,margin=1.6cm,top=1.4cm,bottom=1.4cm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{tgpagella,mathpazo}
 \usepackage[scaled=0.95]{helvet}
 \usepackage{microtype}
 \usepackage{amsmath}
-\usepackage{booktabs,tabularx,multirow,longtable}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage{graphicx}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{caption}
-\usepackage{tikz}
-\usepackage[numbers,sort&compress]{natbib}
 \usepackage[hidelinks]{hyperref}
 \usepackage[nameinlink,capitalise]{cleveref}
-\input{opera_style}
-\newcommand{\placeholder}[1]{\textcolor{OperaSienna}{\textbf{[#1]}}}
-\newcommand{\opera}{\textsc{opera}}
+\pagestyle{empty}
+% The footnote points to the paper's supplementary index table, not part of this sheet.
+\newcommand{\indextableref}{table of prognostic indices}
 
 \begin{document}
-\begin{center}
-{\large\bfseries Table 1 for review}\\[2pt]
-{\small Learning across diseases and outcomes for haematological risk prediction\quad·\quad\today}
-\end{center}
-
-\noindent\textbf{What to check.} (1) The characteristics and their grouping;
-(2) disease groups and subtype names; (3) the subtypes marked $^{\dagger}$
-(no dedicated, externally validated prognostic index; definition and sources
-in \cref{tab:index-availability}); (4) anything missing that a haematologist
-would expect at first-line treatment. Counts of 1--4 are shown as $<$5. All
-values come from the disclosure-reviewed server export; none are typed by hand.
-
+\renewcommand{\cref}[1]{\indextableref}
 \IfFileExists{tables/table1_current_review.tex}
   {\input{tables/table1_current_review}}
   {\input{tables/table1_current_layout}}
-
-\IfFileExists{tables/table1_current_review_by_disease.tex}
-  {\input{tables/table1_current_review_by_disease}}
-  {\begin{table}[h]\centering\caption{Characteristics by disease group.}\label{tab:characteristics-disease}
-   \placeholder{Copy table1\_current\_review\_by\_disease.tex from the server export.}\end{table}}
-
-\input{tables/index_availability}
-
-\clearpage
-\bibliographystyle{unsrtnat}
-\bibliography{paper}
 \end{document}
