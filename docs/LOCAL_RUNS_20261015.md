@@ -35,8 +35,7 @@ OPERA_PAPER_MIN_LOCAL_EPOCHS=20
 OPERA_PAPER_MIN_DAPT_EPOCHS=20
 OPERA_PAPER_DECISIONS=<R>/decisions.json          # written in step 5
 OPERA_PAPER_ROUTER_LOCK=<R>/router_lock.json      # written in step 5
-OPERA_PAPER_FEATURE_SOURCE=<DALY-CARE feature export (timeseriesflattener, first-line index)>
-OPERA_PAPER_FEATURE_MATRIX=<R>/features/<feature source stem>__sequence_matched.parquet
+OPERA_PAPER_FEATURE_DIR=<folder: one feature export per cohort (<cohort_fine>.<ext>) plus all.<ext>>
 OPERA_PAPER_TABULAR_HORIZONS=30,60,90,180,365,730
 OPERA_PAPER_CELL_METADATA=<R>/metadata/cell_metadata.csv
 OPERA_PAPER_PATIENT_METADATA=<R>/metadata/patient_metadata.parquet
@@ -73,8 +72,7 @@ f=pd.read_parquet(p) if p.endswith('.parquet') else pd.read_csv(p, nrows=5); pri
 | `OPERA_PAPER_ROUTER_REFERENCE` | router reference config recording `readout_mode` and adapter fields | `prepare` | `prepare` |
 | `OPERA_PAPER_LOCAL_CKPT` | `<local 256 run>/version_0/best.ckpt`, next to `checkpoint_metadata.json`; vocabulary size must match the sequence vocabulary | encoder audit (256 wide, 4 layers, 4 heads, scaled Time2Vec, ≥ 20 epochs, strict load) | `prepare` (frozen into the bundle), workers, smoke |
 | `OPERA_PAPER_LOCAL_VOCAB` | the same `vocabulary.pt` as above | — | `patient-metadata` |
-| `OPERA_PAPER_FEATURE_SOURCE` | the raw DALY-CARE feature export | `features` | `features` |
-| `OPERA_PAPER_FEATURE_MATRIX` | the file `features` writes: `<R>/features/<source stem>__sequence_matched.parquet` | `tabular` | `tabular` |
+| `OPERA_PAPER_FEATURE_DIR` | a folder with one raw matrix per cohort, named by `cohort_fine` (e.g. `DLBCL.pkl`), plus `all.<ext>` for the pooled XGBoost | `features` (prepares each into `<R>/features/`) | `features`, then `tabular` reads `<R>/features/` |
 | `OPERA_PAPER_CELL_METADATA`, `OPERA_PAPER_PATIENT_METADATA` | output paths (written by the builders, then read by `inventory`) | — | builders, `inventory`, `plot-tables` |
 
 If the local encoder was trained on a different vocabulary than

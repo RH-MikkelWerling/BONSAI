@@ -210,7 +210,12 @@ features came from the pipeline of our earlier DLBCL study
 \citep{bernstorff2023tsflattener}, prescriptions, laboratory results,
 procedures and referrals, pathology codes, and diagnoses were summarised over 90-day, one-year and three-year windows before
 the index date, with aggregates suited to each source (counts and distinct counts for codes, and latest, minimum, maximum, variance and slope for laboratory values). Variables recorded for fewer than 10\% of training patients were
-represented by per-source counts of such rare occurrences. To align the register sources available to the tabular
+represented by per-source counts of such rare occurrences. Features were
+constructed separately within each disease, including this threshold, so each
+disease's models used a feature set suited to its own patients. The XGBoost
+pooled across diseases used one matrix constructed in the same way across all
+supervised patients and, like the neural pooled models, was not given the
+disease. To align the register sources available to the tabular
 and sequence models, quality-registry variables such as
 stage and performance status were removed, and age and sex at the index date
 were added. Unlike the earlier study, no LASSO preselection was applied.

@@ -206,22 +206,18 @@ are retained under the same neural run root.
 
 ## Tabular features and baselines
 
-`OPERA_PAPER_FEATURE_SOURCE` is a pre-exported feature matrix; this launcher
-cannot reconstruct a raw EHR export absent its upstream data/source recipe.
-The matrix must cover the same supervised population at the same index, with
+`OPERA_PAPER_FEATURE_DIR` is a folder with one raw matrix per cohort, named by `cohort_fine` (e.g. `DLBCL.pkl`), plus `all.<ext>` for the pooled XGBoost. Features are built per cohort, so their
+columns differ; each specialist fit reads its own cohort's matrix and the pooled
+XGBoost reads `all`. Every matrix must be at the first-line index, with
 train-only feature fitting and no post-index predictors.
 
 ```bash
-bash scripts/run_paper_experiments.sh features --execute
-```
-
-The existing preparer prints its cached parquet path. Set that exact path as
-`OPERA_PAPER_FEATURE_MATRIX`:
-
-```bash
-python -m opera.run.configure_paper_env --set OPERA_PAPER_FEATURE_MATRIX=/secure/path/prepared.parquet --apply
+bash scripts/run_paper_experiments.sh features --execute   # <R>/features/<name>__{sequence_matched,registry_augmented}.parquet
 bash scripts/run_paper_experiments.sh tabular --shard-count 4 --shard-index 0 --execute
 ```
+
+`tabular` stops before fitting if any cohort's prepared matrix is missing, and
+lists the expected file names (a run without `--execute` lists them too).
 
 The queue derives fine-disease/outcome tasks and structural exclusions from the
 S configs, covers the requested six horizons and seed roster, and fits logistic

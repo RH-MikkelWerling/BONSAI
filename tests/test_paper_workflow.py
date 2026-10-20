@@ -152,7 +152,7 @@ def env(tmp_path):
         "OPERA_SEQUENCE_DATA_DIR": str(tmp_path / "sequences"),
         "OPERA_PAPER_ROUTER_LOCK": str(tmp_path / "router_lock.json"),
         "OPERA_PAPER_DECISIONS": str(tmp_path / "decisions.json"),
-        "OPERA_PAPER_FEATURE_MATRIX": str(tmp_path / "features.parquet"),
+        "OPERA_PAPER_FEATURE_DIR": str(tmp_path / "raw_features"),
     }
 
 
@@ -235,9 +235,17 @@ def test_tabular_jobs_match_specialist_scopes_and_all_horizons(tmp_path):
     )
     assert {j["horizon_days"] for j in jobs} == {30, 365}
     option = Namespace(
-        features=tmp_path / "features.parquet", output_dir=tmp_path / "tabular"
+        features_dir=tmp_path / "features", output_dir=tmp_path / "tabular"
     )
     command = training_command(jobs[0], option)
+    # Each specialist reads its own cohort's matrix (columns differ by cohort).
+    assert command[command.index("--features") + 1] == str(
+        tmp_path / "features" / f"{jobs[0]['cohort']}__sequence_matched.parquet"
+    )
+    option.feature_profile = "registry_augmented"
+    assert training_command(jobs[0], option)[command.index("--features") + 1].endswith(
+        f"{jobs[0]['cohort']}__registry_augmented.parquet"
+    )
     assert "--known_status_cif" in command
     assert command[command.index("--selection_metric") + 1] == "log_loss"
     assert command[command.index("--n_hours_end_include") + 1] == str(
@@ -423,8 +431,9 @@ def test_real_tabular_queue_saves_both_models_and_single_class_tuning(tmp_path):
     for name, table in (
         ("outcome", outcomes),
         ("population", population),
-        ("features", features),
+        ("features/CLL__sequence_matched", features),
     ):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         table.to_parquet(tmp_path / f"{name}.parquet", index=False)
     job = {
         "seed": 42,
@@ -441,7 +450,7 @@ def test_real_tabular_queue_saves_both_models_and_single_class_tuning(tmp_path):
         "relative_dir": "seed42/CLL/event/30d",
     }
     options = Namespace(
-        features=tmp_path / "features.parquet",
+        features_dir=tmp_path / "features",
         output_dir=tmp_path / "tabular",
         execute=True,
     )
@@ -572,3 +581,66 @@ def test_gpu_worker_reads_both_stages_and_live_decisions(tmp_path):
     assert "--wait" in command and "node3-gpu1" in command
     status = build_commands(args("queue-status", worker_name=None, wait=False), config)[0]
     assert "status" in status and "--wait" not in status
+
+
+def test_feature_check_counts_overlap_and_index_dates(tmp_path):
+    from opera.run import check_tabular_alignment as check
+
+    directory = bundle(tmp_path)
+    cohorts = sorted({job["cohort"] for job in tabular_jobs(directory, (365,))})
+    first = cohorts[0]
+    ids = list(range(20))
+    pd.DataFrame({
+        "subject_id": ids,
+        "cohort_fine": [cohorts[i % len(cohorts)] for i in ids],
+        "index_date": pd.Timestamp("2020-01-01"),
+    }).to_parquet(tmp_path / "population.parquet")
+    own = [i for i in ids if i % len(cohorts) == 0]
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    # One patient of the cohort missing, one from another cohort, one a day late.
+    rows = own[1:] + [1]
+    pd.DataFrame({
+        "patientid": rows,
+        "timestamp": [pd.Timestamp("2020-01-02") if i == own[1] else pd.Timestamp("2020-01-01")
+                      for i in rows],
+        "pred_x": 1.0,
+    }).to_parquet(raw / f"{first}.parquet")
+    pd.DataFrame({"subject_id": ids, "timestamp": pd.Timestamp("2020-01-01")}).to_csv(
+        raw / "all.csv", index=False)
+    (raw / "CLL_SLL.pkl").write_bytes(b"")  # a cohort_grouped matrix: reported as unused
+    output = tmp_path / "alignment.csv"
+    sys_argv = ["x", "--bundle-dir", str(directory), "--feature-dir", str(raw),
+                "--output", str(output)]
+    import sys
+    old, sys.argv = sys.argv, sys_argv
+    try:
+        check.main()
+    finally:
+        sys.argv = old
+    table = pd.read_csv(output).set_index("matrix")
+    row = table.loc[first]
+    assert row.neural_patients == len(own) and row.neural_missing_from_matrix == 1
+    assert row.matrix_not_in_neural_cohort == 1
+    assert row.same_index_day == len(own) - 2 and row.index_day_differs == 1
+    assert table.loc["all"].in_both == 20 and table.loc["all"].same_index_day == 20
+    if len(cohorts) > 1:
+        assert table.loc[cohorts[1], "status"] == "no matrix for this cohort"
+
+
+def test_tabular_processes_share_work_and_skip_a_fit_in_progress(tmp_path):
+    import fcntl
+    from opera.run.paper_tabular_queue import run_job
+
+    job = {"relative_dir": "seed42/CLL/event/30d", "population": None,
+           "outcome_path": None, "competing_path": None, "eligibility": None,
+           "cohort": "CLL"}
+    directory = tmp_path / "tabular" / job["relative_dir"]
+    directory.mkdir(parents=True)
+    (tmp_path / "features").mkdir()
+    (tmp_path / "features" / "CLL__sequence_matched.parquet").write_bytes(b"x")
+    options = Namespace(features_dir=tmp_path / "features",
+                        output_dir=tmp_path / "tabular", execute=True)
+    with (directory / ".tabular.lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert run_job(job, options)["status"] == "running_elsewhere"

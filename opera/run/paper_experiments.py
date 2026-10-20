@@ -276,30 +276,46 @@ def build_commands(args, env):
             )
         ]
     if args.action == "features":
+        # One raw matrix per cohort (<cohort_fine>.<ext>) plus all.<ext> for the
+        # pooled XGBoost; each is prepared under both profiles.
+        source_dir = Path(path_value(env, "OPERA_PAPER_FEATURE_DIR"))
+        sources = sorted(
+            path for path in source_dir.iterdir()
+            if path.suffix.lower() in {".pkl", ".pickle", ".parquet", ".pq", ".csv"}
+        ) if source_dir.is_dir() else []
+        if not sources:
+            raise ValueError(f"No feature matrices (.pkl/.parquet/.csv) in {source_dir}")
         return [
             module(
                 "opera.run.prepare_tabular_features",
                 "--features",
-                path_value(env, "OPERA_PAPER_FEATURE_SOURCE"),
+                *sources,
                 "--population",
                 path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
                 "--output_dir",
                 root / "features",
-                # Primary matrix, and one keeping the quality-registry
+                # Primary matrices, and ones keeping the quality-registry
                 # predictors for the tabular reference arm (XR).
                 "--feature_profile", "sequence_matched", "registry_augmented",
             )
         ]
+    if args.action == "feature-check":
+        # Do the raw matrices cover the neural cohorts at the same index dates?
+        return [module(
+            "opera.run.check_tabular_alignment",
+            "--bundle-dir", bundle,
+            "--feature-dir", path_value(env, "OPERA_PAPER_FEATURE_DIR"),
+            "--index-date-column", value(env, "OPERA_PAPER_INDEX_DATE_COLUMN", "index_date"),
+            "--output", root / "features" / "alignment.csv",
+        )]
     if args.action == "tabular":
         command = module(
             "opera.run.paper_tabular_queue",
             *shared,
-            "--features",
-            (root / "features" / (Path(value(env, "OPERA_PAPER_FEATURE_SOURCE")).stem
-                                  + "__registry_augmented.parquet") if args.registry
-             else path_value(env, "OPERA_PAPER_FEATURE_MATRIX", str(
-                 root / "features" / (Path(value(env, "OPERA_PAPER_FEATURE_SOURCE")).stem
-                                      + "__sequence_matched.parquet")))),
+            "--features-dir",
+            root / "features",
+            "--feature-profile",
+            "registry_augmented" if args.registry else "sequence_matched",
             "--output-dir",
             root / ("tabular_runs_registry" if args.registry else "tabular_runs"),
             "--horizons",
@@ -710,6 +726,7 @@ def main():
             "export-external",
             "dapt",
             "features",
+            "feature-check",
             "tabular",
             "evaluate",
             "inventory",
@@ -775,9 +792,9 @@ def main():
     commands = build_commands(args, env)
     for command in commands:
         print(shlex.join(command), flush=True)
-        if args.execute or args.action in {"check", "status", "queue-status"}:
+        if args.execute or args.action in {"check", "status", "queue-status", "feature-check"}:
             subprocess.run(command, cwd=REPO, env=env, check=True)
-    if not args.execute and args.action not in {"check", "status", "queue-status"}:
+    if not args.execute and args.action not in {"check", "status", "queue-status", "feature-check"}:
         print("Preview only; use --execute to run this stage.")
 
 

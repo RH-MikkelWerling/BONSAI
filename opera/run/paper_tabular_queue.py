@@ -6,6 +6,7 @@ import argparse
 import fcntl
 from functools import lru_cache
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -96,6 +97,14 @@ def pooled_tabular_jobs(bundle_dir, horizons):
     return pooled
 
 
+def feature_matrix(job, args):
+    """The job's prepared feature matrix: its own cohort's (feature creation is
+    per cohort, so columns differ), or ``all`` for the pooled XGBoost."""
+    name = "all" if job.get("pooled") else job["cohort"]
+    profile = getattr(args, "feature_profile", "sequence_matched")
+    return Path(args.features_dir) / f"{name}__{profile}.parquet"
+
+
 def job_models(job, per_cell=("xgboost", "logistic")):
     return ("xgboost",) if job.get("pooled") else tuple(per_cell)
 
@@ -107,7 +116,7 @@ def training_command(job, args):
         "-m",
         "opera.run.train_tabular_baselines",
         "--features",
-        str(args.features),
+        str(feature_matrix(job, args)),
         "--population",
         job["population"],
         "--cohort_fine_col",
@@ -156,7 +165,7 @@ def run_job(job, args):
         "training_code_sha256": input_hash(
             Path(__file__).with_name("train_tabular_baselines.py")
         ),
-        "feature_sha256": input_hash(args.features),
+        "feature_sha256": input_hash(feature_matrix(job, args)),
         "input_sha256": {
             key: input_hash(job[key])
             for key in ("population", "outcome_path", "competing_path", "eligibility")
@@ -165,7 +174,12 @@ def run_job(job, args):
     }
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / ".tabular.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Another process is fitting this cell: share the work, as the GPU
+            # workers do, and move on to the next.
+            return job | {"status": "running_elsewhere"}
         intent = directory / "intent.json"
         marker = directory / "training_complete.json"
         if intent.exists() and json.loads(intent.read_text()) != signature:
@@ -213,7 +227,10 @@ def main():
     parser.add_argument(
         "--runs-dir", type=Path, required=True
     )  # Common dispatcher interface.
-    parser.add_argument("--features", type=Path, required=True)
+    parser.add_argument("--features-dir", type=Path, required=True,
+                        help="Prepared matrices: <cohort>__<profile>.parquet, all__<profile>.parquet")
+    parser.add_argument("--feature-profile", default="sequence_matched",
+                        choices=("sequence_matched", "registry_augmented"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--horizons", default="30,60,90,180,365,730")
     parser.add_argument("--shard-count", type=int, default=1)
@@ -237,6 +254,13 @@ def main():
         parser.error("Invalid horizons or shard")
     jobs = [*tabular_jobs(args.bundle_dir, horizons),
             *([] if args.no_pooled else pooled_tabular_jobs(args.bundle_dir, horizons))]
+    missing = sorted({str(feature_matrix(j, args)) for j in jobs
+                      if not feature_matrix(j, args).is_file()})
+    if missing:
+        message = "Missing prepared feature matrices:\n  " + "\n  ".join(missing)
+        if args.execute:
+            parser.error(message)
+        print(message, file=sys.stderr)
     jobs = jobs[args.shard_index :: args.shard_count]
     if args.max_runs is not None:
         if args.max_runs < 1:
@@ -252,7 +276,8 @@ def main():
     print(json.dumps(reports, indent=2, default=str))
     if args.execute:
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        (args.output_dir / f"queue_shard{args.shard_index}.json").write_text(
+        report = f"queue_shard{args.shard_index}_pid{os.getpid()}.json"
+        (args.output_dir / report).write_text(
             json.dumps(reports, indent=2, default=str) + "\n"
         )
         if any(report["status"] == "failed_fit" for report in reports):

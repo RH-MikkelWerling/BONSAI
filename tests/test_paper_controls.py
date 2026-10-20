@@ -16,8 +16,10 @@ def test_pooled_xgboost_covers_every_disease_of_each_outcome(tmp_path):
     for job in pooled:
         diseases = sorted(c["cohort"] for c in cells if c["outcome"] == job["outcome"])
         assert job["cohorts"] == diseases and job["pooled"]
-        command = training_command(job, Namespace(features="f.parquet", output_dir="out"))
+        command = training_command(job, Namespace(features_dir="f", output_dir="out"))
         assert command[command.index("--cohort_fine_value") + 1] == ",".join(diseases)
+        # Pooled XGBoost reads the all-patients matrix.
+        assert command[command.index("--features") + 1] == "f/all__sequence_matched.parquet"
         assert "--add_cohort_feature" not in command  # matches the neural pooled models
         assert command[command.index("--models") + 1] == "xgboost"
 

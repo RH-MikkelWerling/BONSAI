@@ -24,6 +24,12 @@ SUPPORTED_PROFILES = frozenset({SEQUENCE_MATCHED_PROFILE, REGISTRY_AUGMENTED_PRO
 BOOKKEEPING_COLUMNS = frozenset(
     {"timestamp", "prediction_time_uuid", "patientid"}
 )
+# Never predictors: timeseriesflattener outcome columns (post-index) and the
+# patient's cohort or split (the pooled models are not told the disease).
+OUTCOME_PREFIX = "outc_"
+COHORT_COLUMNS = frozenset(
+    {"cohort", "cohort_fine", "cohort_grouped", "cohort_group", "disease", "split"}
+)
 DEMOGRAPHIC_ALIASES = frozenset(
     {"age", "age_years", "age_at_index", "age_at_diagnosis", "sex", "matched_sex"}
 )
@@ -156,11 +162,20 @@ def prepare_sequence_matched_features(
         if column != "subject_id"
         and _is_unmatched_sequence_feature(column, keep_registry)
     )
+    removed_outcome_or_cohort = sorted(
+        column
+        for column in features.columns
+        if str(column).lower().startswith(OUTCOME_PREFIX)
+        or str(column).lower() in COHORT_COLUMNS
+    )
     removed_demographics = sorted(
         column for column in DEMOGRAPHIC_ALIASES if column in features.columns
     )
     features = features.drop(
-        columns=removed_bookkeeping + removed_unmatched + removed_demographics,
+        columns=removed_bookkeeping
+        + removed_unmatched
+        + removed_outcome_or_cohort
+        + removed_demographics,
         errors="ignore",
     )
 
@@ -204,6 +219,7 @@ def prepare_sequence_matched_features(
         "sex_source": sex_source,
         "removed_bookkeeping_columns": removed_bookkeeping,
         "removed_unmatched_columns": removed_unmatched,
+        "removed_outcome_or_cohort_columns": removed_outcome_or_cohort,
         "removed_existing_demographic_columns": removed_demographics,
         "removed_all_missing_columns": removed_all_missing,
         "removed_constant_columns": removed_constant,

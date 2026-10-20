@@ -336,8 +336,9 @@ held-out evaluation.}
 \operasubsection{Tabular and clinical comparators}
 We trained XGBoost \citep{chen2016xgboost} and ridge logistic regression for
 each disease, outcome and horizon using history summaries adapted from our
-DLBCL pipeline \citep{werling2026dlbcl,bernstorff2023tsflattener}. XGBoost
-pooled across diseases tests whether pooling also benefits tabular prediction;
+DLBCL pipeline \citep{werling2026dlbcl,bernstorff2023tsflattener}, constructed
+within each disease. XGBoost pooled across diseases, on features constructed
+across all patients, tests whether pooling also benefits tabular prediction;
 a registry-augmented version assesses the value of curated clinical fields.
 The main tabular and sequence pipelines use aligned register sources but
 differ in history windows and representation, so this compares pipelines

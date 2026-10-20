@@ -258,6 +258,24 @@ def test_registry_profile_keeps_only_the_rkkp_predictors(tmp_path):
     assert "pred_adverse_event_x" not in matched and "pred_adverse_event_x" in augmented
     assert job_models({}, ("xgboost",)) == ("xgboost",)
 
+def test_outcome_and_cohort_columns_never_become_predictors(tmp_path):
+    from opera.functional.tabular_features import prepare_feature_matrix
+
+    source = tmp_path / "all.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "pred_lab_mean": [1.0, 2.0, 3.0],
+                  "outc_death_within_365_days": [0, 1, 0],
+                  "cohort_fine": ["DLBCL", "CLL", "MM"], "cohort_grouped": ["A", "B", "C"]}
+                 ).to_parquet(source)
+    population = tmp_path / "population.csv"
+    pd.DataFrame({"subject_id": [1, 2, 3], "age_at_index": [60, 70, 80], "sex": ["F", "M", "F"]}
+                 ).to_csv(population, index=False)
+    path, manifest = prepare_feature_matrix(source, profile="sequence_matched",
+                                            population_path=population, output_dir=tmp_path)
+    assert set(pd.read_parquet(path)) == {"subject_id", "pred_lab_mean", "age_at_index", "matched_sex"}
+    assert manifest["removed_outcome_or_cohort_columns"] == [
+        "cohort_fine", "cohort_grouped", "outc_death_within_365_days"]
+
+
 def test_an_index_recorded_in_several_subtypes_is_also_compared_across_them():
     from opera.run.render_clinical_score_panels import expand_index_scores
 
