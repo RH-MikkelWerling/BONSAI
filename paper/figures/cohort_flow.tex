@@ -1,5 +1,5 @@
 % CONSORT diagram: pretraining population -> first-line ascertainment -> final
-% supervised cohort and its temporal split. House style as the other figures:
+% (prediction) cohort and its temporal split. House style as the other figures:
 % eyebrow + heading per band, soft panels, stage boxes, accents only on the
 % first and last steps. Exclusions leave the flow line between steps.
 \def\cfn#1{{\fontsize{11}{13.5}\selectfont\bfseries\textit{n}\,=\,#1}}
@@ -24,12 +24,11 @@
   \node[flowstep, below=44mm of pre] (index)
     {First-line treatment index identified\\\cfn{38,635}};
   \node[flowstep, below=13mm of index] (classified)
-    {Disease assigned\\\cfn{37,566}\\
-     \cfsub{37,357 with diagnoses by day 14\\+\,209 by day 90 (late coding)}};
+    {Diagnosis assigned\\\cfn{37,566}};
   \node[flowstep, below=13mm of classified] (firstline)
     {First-line cohort\\\cfn{37,557}};
   \node[flowstep, stageteal, below=44mm of firstline] (cohort)
-    {Final supervised cohort\\\cfn{37,531}};
+    {Final cohort\\\cfn{37,531}\\\cfsub{models trained, tuned and tested on these patients}};
   \node[splitbox, below=10mm of cohort] (tune)
     {Tuning\\\cfn{1,980}\\\cfsub{index in 2022}};
   \node[splitbox, left=7mm of tune] (train)
@@ -49,7 +48,7 @@
 
   % Exclusions within a band leave the line midway between two steps.
   \foreach \a/\b/\name/\body in {
-      index/classified/x2/{\textbf{Excluded, \textit{n}\,=\,1,069}\\Disease unresolved after both passes},
+      index/classified/x2/{\textbf{Excluded, \textit{n}\,=\,1,069}\\Diagnosis unresolved after both passes},
       classified/firstline/x3/{\textbf{Excluded, \textit{n}\,=\,9}\\IgM MGUS, untreated by definition}} {
     \coordinate (m\name) at ($(\a.south)!0.5!(\b.north)$);
     \node[excl, anchor=west] (\name) at ($(m\name)+(35mm,0)$) {\body};
@@ -76,7 +75,7 @@
   }
   \foreach \b/\colour/\title in {bpre/OperaIndigo/Pretraining population,
                                  basc/OperaInkSecondary/First-line ascertainment,
-                                 bsup/OperaTeal/Final supervised cohort}
+                                 bsup/OperaTeal/Prediction cohort}
     \node[heading, font=\sffamily\fontsize{11}{13}\selectfont\bfseries, text=\colour,
           anchor=north west] at ($(\b.north west)+(3.4mm,-3.0mm)$) {\title};
 \end{tikzpicture}

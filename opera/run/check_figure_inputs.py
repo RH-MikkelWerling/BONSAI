@@ -26,7 +26,7 @@ RESULTS_RECIPE = REPO / "opera/configs/paper_results_figures.full.example.yaml"
 ATTRIBUTION_RECIPE = REPO / "opera/configs/attribution_figures.example.yaml"
 # Rendered by the clinical-scores action into <analysis root>/clinical_scores.
 CLINICAL_FIGURES = ("fig_risk_groups", "fig_clinical_score", "supp_clinical_score_age",
-                    "supp_score_overview")
+                    "supp_score_overview", "fig_decision_curve")
 EMBEDDING_TABLES = ("gallery_coordinates.csv", "embedding_gallery.parquet",
                     "patient_coordinates.csv", "matched_patient_embeddings.csv",
                     "calibration_map_outcomes.json")

@@ -213,6 +213,8 @@ def build_inventory(args):
                                 "horizon_days": horizon,
                                 "status": "prediction_available"
                                 if ready
+                                else "not_estimable"
+                                if (source_run / "not_estimable.json").is_file()
                                 else "evaluation_missing",
                             }
                         )

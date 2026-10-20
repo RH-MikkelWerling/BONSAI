@@ -115,6 +115,15 @@ def _competing_path(data_dir: str, outcome_config: dict) -> Optional[str]:
     return path if os.path.isabs(path) else os.path.join(data_dir, "outcomes", path)
 
 
+class NoPatientsInSplit(ValueError):
+    """A configured cohort has no patients at all in a split.
+
+    A disease with no patients in the tuning year (NMZL) cannot have its own
+    model selected; the paper worker records such fits as not estimable
+    instead of failed.
+    """
+
+
 def _read_population(cohort_cfg: dict, data_dir: str) -> pd.DataFrame:
     path = cohort_cfg.get(
         "population_file", os.path.join(data_dir, "population_full.csv")
@@ -538,6 +547,12 @@ class MultiCohortContrastiveDataModule(L.LightningDataModule):
                 df = pd.read_parquet(path)
                 population = self._population_for_cohort(cohort_name, cohort_cfg, data_dir)
                 df = df[df["subject_id"].isin(population["subject_id"])].copy()
+                if self.require_all_configured_cells and not (df["split"] == split_key).any():
+                    fine = cohort_cfg.get("cohort_fine_value")
+                    raise NoPatientsInSplit(
+                        f"Cohort {cohort_name!r}{f' ({fine})' if fine else ''} has no "
+                        f"patients in split {split_key!r}."
+                    )
                 df = filter_outcome_eligibility(
                     df, _eligibility_path(data_dir, ocfg),
                     cohort=cohort_name, outcome_name=name,

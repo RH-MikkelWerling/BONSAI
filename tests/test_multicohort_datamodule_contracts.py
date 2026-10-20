@@ -198,3 +198,37 @@ def test_multi_outcome_label_cache_reuses_each_outcome_independently(tmp_path, m
     module._load_outcomes_for_cohort("cohort", cfg, str(data_dir), "tuning")
     assert len(calls) == 4
     assert len(population_calls) == 1
+
+
+def test_a_disease_without_tuning_patients_is_reported_as_such(tmp_path, monkeypatch):
+    """No patients at all in a split (NMZL in the tuning year) raises
+    NoPatientsInSplit; patients removed by eligibility stay an ordinary error."""
+    data_dir = tmp_path / "cohort"
+    (data_dir / "outcomes").mkdir(parents=True)
+    (data_dir / "outcomes" / "a.parquet").write_bytes(b"a")
+    frame = pd.DataFrame({"split": ["train"], "subject_id": [1]})
+    monkeypatch.setattr(multicohort_module.pd, "read_parquet", lambda path: frame.copy())
+    monkeypatch.setattr(multicohort_module, "_read_population",
+                        lambda *_args: pd.DataFrame({"subject_id": [1]}))
+    monkeypatch.setattr(multicohort_module, "attach_prediction_censor_abspos", lambda df: df)
+    monkeypatch.setattr(multicohort_module, "filter_registry_eligible_outcomes",
+                        lambda df, *_args, **_kwargs: df)
+    monkeypatch.setattr(multicohort_module, "filter_outcome_eligibility",
+                        lambda df, *_args, **_kwargs: df)
+    module = MultiCohortContrastiveDataModule(
+        cohort_configs={"cohort": {"data_dir": str(data_dir)}},
+        outcome_configs={"a": {"outcome_file": "a.parquet", "n_hours_start_include": 1,
+                               "n_hours_end_include": 720}},
+        predict_token_id=1, batch_size=2, num_workers=0,
+        require_all_configured_cells=True,
+    )
+    cfg = {"data_dir": str(data_dir), "cohort_fine_col": "cohort_fine",
+           "cohort_fine_value": "NMZL"}
+    with pytest.raises(multicohort_module.NoPatientsInSplit, match=r"\(NMZL\).*'tuning'"):
+        module._load_outcomes_for_cohort("cohort", cfg, str(data_dir), "tuning")
+
+    monkeypatch.setattr(multicohort_module, "filter_outcome_eligibility",
+                        lambda df, *_args, **_kwargs: df.iloc[0:0])
+    with pytest.raises(ValueError, match="no eligible rows") as caught:
+        module._load_outcomes_for_cohort("cohort", cfg, str(data_dir), "train")
+    assert not isinstance(caught.value, multicohort_module.NoPatientsInSplit)

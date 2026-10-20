@@ -31,6 +31,8 @@ from pathlib import Path
 
 from bonsai.functional.checkpointing import verified_training_selection
 from opera.run.run_paper_queue import (
+    NOT_ESTIMABLE,
+    NotEstimable,
     audit_encoder,
     encoder_key,
     load_run_config,
@@ -134,6 +136,8 @@ def run_state(run_dir, *, stale_minutes, max_attempts):
         except ValueError as error:
             return f"complete_unverified:{error}"
         return "complete"
+    if (run_dir / NOT_ESTIMABLE).is_file():
+        return "not_estimable"  # Final: no data to fit or select on, by design.
     claim = read_json(run_dir / CLAIM)
     if (run_dir / CLAIM).exists() and not claim:
         return "claim_unreadable"
@@ -292,7 +296,7 @@ def throughput(walls, counts):
     for label in sorted({label for label, _ in counts}):
         times = sorted(walls.get(label, []))
         left = sum(n for (lab, state), n in counts.items()
-                   if lab == label and state != "complete")
+                   if lab == label and state not in {"complete", "not_estimable"})
         entry = {"finished": len(times), "left": left}
         if times:
             median = times[len(times) // 2]
@@ -381,6 +385,34 @@ def next_runnable(args, decisions, audited, blocked_encoders):
     return None, None, None, None, None, waiting
 
 
+def mark_not_estimable(args):
+    """Record a disease's own fits (O and S) as not estimable before they run.
+
+    For a disease with no patients in a split the fits need (NMZL has none in
+    the tuning year). Workers started before this code existed skip the fits
+    because the failure record is past any attempt limit; current workers read
+    ``not_estimable.json``. Fits already complete or running are left alone.
+    """
+    marked = []
+    for row, bundle_dir, _ in todo(args.bundle_dir, {}):
+        factorial = raw_config(bundle_dir, row).get("supervision_factorial") or {}
+        if row["phase"] != "supervision" or factorial.get("fine_cohort") != args.fine:
+            continue
+        run_dir = args.runs_dir / row["run_directory"]
+        state = run_state(run_dir, stale_minutes=args.stale_minutes,
+                          max_attempts=args.max_attempts)
+        if state in {"complete", "running"}:
+            continue
+        run_dir.mkdir(parents=True, exist_ok=True)
+        record = {"name": row["name"], "reason": args.reason, "marked_at": now().isoformat()}
+        (run_dir / NOT_ESTIMABLE).write_text(json.dumps(record, indent=2) + "\n")
+        (run_dir / FAILED).write_text(json.dumps(
+            {"attempts": 999, "error": f"not estimable: {args.reason}"} | record, indent=2) + "\n")
+        marked.append(row["name"])
+    print(json.dumps({"fine_cohort": args.fine, "marked": len(marked), "fits": marked}, indent=2))
+    return marked
+
+
 def work(args):
     if not any((Path(d) / "bundle.json").is_file() for d in args.bundle_dir):
         raise FileNotFoundError("Prepare a paper bundle before starting GPU workers")
@@ -417,6 +449,10 @@ def work(args):
         try:
             train_run(row, path, run_dir, audit_record)
             status = "completed"
+        except NotEstimable as reason:  # A property of the data, not a failure.
+            status = "not_estimable"
+            (Path(run_dir) / FAILED).unlink(missing_ok=True)
+            print(f"[{args.worker}] not estimable {row['name']}: {reason}", flush=True)
         except Exception as error:  # Record, release and continue with other fits.
             record_failure(run_dir, args.worker, error)
             consecutive_failures += 1
@@ -444,7 +480,9 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("command", choices=("next", "status"))
+    parser.add_argument("command", choices=("next", "status", "mark-not-estimable"))
+    parser.add_argument("--fine", help="mark-not-estimable: the disease (cohort_fine)")
+    parser.add_argument("--reason", help="mark-not-estimable: why, recorded with each fit")
     parser.add_argument(
         "--bundle-dir",
         type=Path,
@@ -477,6 +515,11 @@ def main():
         parser.error("stale-minutes must comfortably exceed the heartbeat interval")
     if args.command == "status":
         status(args)
+        return
+    if args.command == "mark-not-estimable":
+        if not (args.fine and args.reason):
+            parser.error("mark-not-estimable needs --fine and --reason")
+        mark_not_estimable(args)
         return
     from dotenv import load_dotenv
 

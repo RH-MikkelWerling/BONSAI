@@ -7,14 +7,9 @@ composites. Unresolved production branches, CTCAE versions and follow-up cutoffs
 are marked explicitly. See `docs/ascertainment_review.md`; do not interpret the
 draft as a verified all-v6 endpoint dictionary.
 
-The current Table 1 is a historical layout draft from the supplied
-`table1_values_long.csv` and `table1_pooled_display.csv` exports (37,467
-analysis patients; 29,108 training, 1,967 tuning, 6,392 held-out). It has
-**not** been refreshed against the current 37,557-patient first-line source
-and must not be cited as a final cohort description. Source exports used
-primary-only masking and are NOT disclosure-cleared. `tables/table1.tex` uses
-the historical disease groups,
-not the incomplete `Disease` field. Fine cohorts are indented under their
+Table 1 (`tables/table1.tex`) describes the 37,531-patient prediction cohort
+(29,105 training, 1,980 tuning, 6,446 test) and was approved by the data owner
+on 2026-10-20. Fine cohorts are indented under their
 canonical grouped parent in the main table; one-to-one groups appear once.
 Disease percentages use each column's full population, not the parent total.
 High/very-high risk categories are combined
@@ -51,11 +46,10 @@ one-disease row and fully joint panel. `supervision_grid_outline.tex` is a
 separate conceptual handout with the figure outline, not a results figure.
 Compile it with the same command below, replacing the entry-point filename.
 
-The current manuscript deliberately does not input historical `tables/table1.tex`.
-It uses `tables/table1_current_approved.tex` after supervisor signoff. Before
-that, `tables/table1_current_review.tex` can display the current server-derived
-table with an explicit review-pending label; otherwise `tables/table1_current_layout.tex` supplies a visible draft table with
-current patient counts and pending characteristic values. Current cohort counts
+Table 1 is `tables/table1.tex`, approved by the data owner on 2026-10-20
+(exact small counts; see the file header), with `tables/table1_by_disease.tex`
+alongside; `table1.tex` in this folder renders it with the CONSORT diagram.
+The superseded layouts are kept as `tables/*_original.tex`. Current cohort counts
 are marked provisional and empirical results remain explicit placeholders.
 
 Compile from this directory so relative figure and bibliography paths resolve:
@@ -139,10 +133,9 @@ cohort-description work that can be completed while training runs continue
 from figures that require locked held-out predictions.
 
 Table 1 supervisor handoff: [review checklist](../docs/table1_supervisor_handoff_20261014.md).
-The historical main table remains `tables/table1.tex`. The README previously
-mentioned `opera_table1_supplement.tex`, but that file is absent from the current
-checkout; fine-cohort and treatment tables must be regenerated from the current
-release rather than treated as an existing compiled supplement.
+The README previously mentioned `opera_table1_supplement.tex`, but that file is
+absent from the current checkout; the by-disease table is
+`tables/table1_by_disease.tex`.
 
 The population section explicitly flushes introductory figures and cohort/table
 floats in the working draft, so the cohort-flow diagram and Table 1 remain near

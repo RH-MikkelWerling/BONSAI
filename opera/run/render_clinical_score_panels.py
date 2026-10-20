@@ -196,7 +196,29 @@ def score_availability(metadata, *, cohort_column, index_column, group_column):
 
 MANUSCRIPT_NAMES = {"risk_groups": "fig_risk_groups",
                     "clinical_score": "fig_clinical_score",
-                    "clinical_score_age": "supp_clinical_score_age"}
+                    "clinical_score_age": "supp_clinical_score_age",
+                    "decision_curve": "fig_decision_curve"}
+DEFAULT_DCA_THRESHOLDS = [round(0.05 + 0.01 * i, 2) for i in range(36)]  # 5% to 40%
+
+
+def with_comparators(held, predictions, spec, models, split="held_out"):
+    """Held-out score patients with each comparator model's risk as a column.
+
+    Restricted to patients every comparator predicted, so all strategies are
+    compared on the same patients; returns the frame and how many were dropped.
+    """
+    data = held
+    for model in models:
+        other = predictions.loc[
+            (predictions.model == model) & (predictions.seed == spec["seed"])
+            & (predictions.split == split) & (predictions.outcome == spec["outcome"])
+            & (predictions.horizon_days == spec["horizon_days"])
+            & predictions.cohort.isin(spec["cohorts"]),
+            ["subject_id", "probability"]].rename(columns={"probability": model})
+        if other.subject_id.duplicated().any():
+            raise ValueError(f"Duplicate {model} predictions for score patients")
+        data = data.merge(other, on="subject_id", how="inner", validate="one_to_one")
+    return data, len(held) - len(data)
 
 
 def native_entries(specs, native):
@@ -412,8 +434,10 @@ def main():
         raise ValueError("Patient metadata must be unique")
     tables = []
     hashes = {}
+    wanted = {s["model"] for s in specs} | {
+        m for s in specs for m in (s.get("decision_curve") or {}).get("comparators", [])}
     for artifact in analysis["artifacts"]:
-        if artifact["model"] not in {s["model"] for s in specs}:
+        if artifact["model"] not in wanted:
             continue
         frame, _ = read_artifact(
             artifact,
@@ -434,6 +458,7 @@ def main():
     group_rows = []
     stratification = []
     overview = []
+    decision_tables = []
     for spec in specs:
         record = {"score_id": spec["id"]}
         try:
@@ -533,6 +558,33 @@ def main():
                             estimate=1 - value if spec["death_in_endpoint"] else value,
                         )
                     )
+            if spec.get("decision_curve"):
+                # Net benefit of acting on the model, the index and comparators,
+                # at thresholds and for an action fixed before testing.
+                from opera.evaluation.decision_curves import (
+                    decision_curves, figure_decision_curve)
+
+                dca = spec["decision_curve"]
+                comparators = list(dca.get("comparators", []))
+                paired, dropped = with_comparators(held, predictions, spec, comparators)
+                curves = decision_curves(
+                    paired, tuning, spec["horizon_days"],
+                    dca.get("thresholds", DEFAULT_DCA_THRESHOLDS),
+                    comparators=comparators, n_boot=dca.get("n_boot", 1000))
+                curves.insert(0, "score_id", spec["id"])
+                curves.to_csv(directory / "decision_curve.csv", index=False)
+                decision_tables.append(curves)
+                record.update(dca_patients=len(paired), dca_dropped_no_comparator=dropped,
+                              dca_action=dca.get("action", ""))
+                fig = figure_decision_curve(
+                    curves, index_label=spec["score_label"],
+                    labels=dca.get("labels", {}),
+                    outcome_label=dca.get("outcome_label", spec["outcome_label"].lower()),
+                    horizon_days=spec["horizon_days"])
+                save_fig(fig, str(directory / "decision_curve.png"))
+                if spec.get("manuscript_figures"):
+                    save_fig(fig, str(args.output_dir / (MANUSCRIPT_NAMES["decision_curve"] + ".png")))
+                plt.close(fig)
             stratification.extend(stratification_summary(
                 held, spec, cuts,
                 top_fractions=tuple(spec.get("top_fractions", (0.05, 0.10)))))
@@ -623,6 +675,8 @@ def main():
             "model_low_observed_risk": low.loc["model", "observed_risk"],
             "manuscript": bool(spec.get("manuscript_figures"))})
     pd.DataFrame(headline).to_csv(args.output_dir / "headline_scores.csv", index=False)
+    if decision_tables:
+        pd.concat(decision_tables).to_csv(args.output_dir / "decision_curves.csv", index=False)
     (args.output_dir / "report_manifest.json").write_text(
         json.dumps(
             dict(

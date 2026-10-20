@@ -451,7 +451,7 @@ def build_commands(args, env):
             "--input", root / "table1" / "LOCAL_ONLY_internal" / "table1_values_long.csv",
             "--output-dir", manuscript,
             "--disclosure-policy", "primary-only",
-            "--latex", manuscript / "table1_current_review.tex")]
+            "--latex", manuscript / "table1.tex")]
     if args.action == "embedding-tables":
         return [module("opera.run.build_paper_embedding_tables",
                        "--config", path_value(env, "OPERA_PAPER_EMBEDDING_CONFIG"),

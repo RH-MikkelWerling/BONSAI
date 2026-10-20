@@ -3,15 +3,11 @@
 All data were held and processed in the DALY-CARE environment at the Danish
 National Genome Center \citep{brieghel2025dalycare}. Registers were linked
 through the civil registration number and converted to the Medical Event Data
-Standard (MEDS) with ehr2meds (\url{https://github.com/FGA-DIKU/ehr2meds},
-configurations \texttt{preMEDS/lymphoma\_ngc.yaml},
-\texttt{MEDS/lymphoma\_ngc\_event.yaml} and \texttt{MEDS/lymphoma\_pipeline.yaml},
-main branch, commit \texttt{5562abc}). MEDS stores every record as an event
-with a patient, a time, a code and an optional value, so all sources share one
-format. The conversion has three steps, described below, followed by
-tokenisation in BONSAI. \Cref{tab:meds-sources} lists the sources, what each
-contributes and when its events are dated, and \cref{fig:model-inputs} shows
-how they form one sequence per patient.
+Standard (MEDS) with ehr2meds (\url{https://github.com/FGA-DIKU/ehr2meds}).
+MEDS stores every record as an event with a patient, a time, a code and an
+optional value, so all sources share one format. \Cref{tab:meds-sources} lists
+the sources, what each contributes and when its events are dated, and
+\cref{fig:model-inputs} shows how they form one sequence per patient.
 
 \begin{table}[h]
 \centering\small
@@ -21,172 +17,119 @@ national data in the extract.}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.21\linewidth}>{\raggedright\arraybackslash}p{0.33\linewidth}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.15\linewidth}@{}}
 \toprule
-Source & Events (code prefix) & Time of the event & Coverage \\
+Source & Events & Time of the event & Coverage \\
 \midrule
-Civil registration & sex (\texttt{SEX}), date of birth, date of death & fixed per patient & \placeholder{years} \\
-National patient register, LPR2 (to 2019) and LPR3 (from 2019) & diagnoses and diagnosis type (\texttt{DIAGNOSIS}), procedures (\texttt{PROCEDURE}), contact reason, priority, type and patient type, specialty and region (\texttt{CONTACT\_*}, \texttt{PATIENT\_TYPE}, \texttt{REGION}) & diagnoses at contact end, contact attributes at contact start, procedures when performed & \placeholder{years} \\
-Danish National Pathology Register (PATOBANK) & SNOMED codes (\texttt{PATHOLOGY}), including molecular findings such as TP53 aberrations \placeholder{confirm}; requesting department's specialty and region & receipt of the requisition & \placeholder{years} \\
-Register of Pharmaceutical Sales (LSR) & redeemed prescriptions by ATC code (\texttt{MEDICATION}) & dispensing date & \placeholder{years} \\
-National Hospital Medication Register (SMR) & hospital-administered medication by ATC code (\texttt{MEDICATION}), patient type, specialty and region & start of the order & \placeholder{years} \\
-Laboratory database (LABKA) & results by NPU code (\texttt{LABTEST}), as value bin or text result & sampling time & \placeholder{years, varies by region} \\
+Civil registration & sex, date of birth, date of death & fixed per patient & \placeholder{years} \\
+National Patient Register (LPR2 to 2019, LPR3 from 2019) & diagnoses, procedures, and the reason, priority, type, specialty and region of hospital contacts & diagnoses at contact end, contact attributes at contact start, procedures when performed & \placeholder{years} \\
+National Pathology Register & SNOMED codes, including molecular findings such as TP53 aberrations \placeholder{confirm}; specialty and region of the requesting department & receipt of the requisition & \placeholder{years} \\
+Register of Pharmaceutical Sales & redeemed prescriptions (ATC) & dispensing & \placeholder{years} \\
+Hospital Medication Register & hospital-administered medication (ATC), with specialty and region & start of the order & \placeholder{years} \\
+Laboratory database & results by NPU code, as value bin or text result & sampling & \placeholder{years, varies by region} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The registers arrive as separate tables, each with its own identifiers, column
-names and conventions for time, and the first task of the conversion is to give
-them a common form. Personal identifiers were replaced by integer subject
-identifiers, and timestamps were assembled from the separate date, hour and
-minute fields in which the registers store them. Diagnoses and procedures are
-recorded against a hospital contact rather than a patient, so they were joined
-to their contact, which supplies the patient and the contact's start and end.
-Contacts, pathology requisitions and hospital medication orders were then
-assigned a region and a primary specialty from the national register of
-health-care organisations (SOR). Because departments merge, move and change
-specialty over time, each record used the organisation as it was registered on
-the date of the record. Records from the older patient register (LPR2), which
-predates SOR, took their specialty from the register's own specialty code and
-their region from the hospital code.
+The registers arrive as separate tables with their own identifiers and
+conventions for time, so the conversion first gives them a common form.
+Diagnoses and procedures are recorded against a hospital contact rather than a
+patient, so they were joined to their contact. Contacts, pathology requisitions
+and hospital medication orders were assigned a region and a primary specialty
+from the national register of health-care organisations, using each
+organisation as it was registered on the date of the record, because
+departments merge, move and change specialty over time. The change of patient
+register in 2019 also changed how some contact attributes are coded; where a
+documented correspondence exists, older values were mapped to their newer
+equivalents, so that a token means the same before and after the change.
 
-The change from LPR2 to LPR3 in 2019 also changed how some contact attributes
-are coded. Where a documented correspondence exists, LPR2 values were mapped to
-their LPR3 equivalents, so that a token means the same thing before and after
-the change: acute and planned priority became \texttt{ATA1} and
-\texttt{ATA3}, and the reasons for contact became the corresponding
-\texttt{ALCC} codes. Values without a documented equivalent were kept as they
-were rather than guessed.
-
-Each record then became one or more events, and the time given to an event
-determines what the model can see at the start of treatment. Neither patient
-register records when during a contact a diagnosis was made, so diagnoses were
-placed at the end of their contact, the first moment they are certain to have
-been known. A diagnosis made during an admission that spans the start of
-treatment is therefore not visible to the model. Attributes known when a
-contact opens, such as its reason, priority, type, specialty and region, were
-placed at its start, procedures when they were performed, prescriptions at
-dispensing, hospital medication at the start of the order and laboratory
-results at sampling. Sex was a background event without a time. A laboratory
-result was treated as a number only if the whole result parsed as one, so that
-\texttt{12.5} is numeric but \texttt{<0.1} is kept as text.
-
-The events were then processed by a MEDS-Transforms pipeline. It first assigned
-patients at random to a fitting split (90\%) and a remaining split (10\%). This
-split exists only to fit the statistics described below. It is unrelated to
-the study's training, tuning and test periods and plays no part in which
-patients are evaluated. Exact duplicates were removed, including results whose
-numeric and text forms were identical, as were events whose code had an empty
-part or was recorded as unknown (\texttt{UNK} or the Danish \texttt{UKENDT},
-for example \texttt{DIAGNOSIS//UKENDT}). Events at the same time kept the order
-of their source table, so the sequence is reproducible. The last stages shaped
-the vocabulary by merging rare codes and binning laboratory values, as
-described next, and joined each laboratory result with its bin or its text
-value into a single code, \texttt{LABTEST//<NPU code>//BIN\_<k>} or
-\texttt{LABTEST//<NPU code>//<text>}.
+The time given to an event determines what the model can see at the start of
+treatment. The patient registers do not record when during a contact a
+diagnosis was made, so diagnoses were placed at the end of their contact, the
+first moment they are certain to have been known; a diagnosis made during an
+admission that spans the start of treatment is therefore not visible to the
+model. Attributes known when a contact opens were placed at its start,
+procedures when performed, prescriptions at dispensing, hospital medication at
+the start of the order and laboratory results at sampling.
 
 Rare codes give the model too few examples to learn from, so codes with fewer
-than 100 events were merged into the nearest ancestor in their hierarchy that
-reached 100 events. Diagnoses could be shortened to 4, 3 and 2 characters,
-procedures from 8 down to 2, ATC codes to levels 5, 4, 3 and 1, and SNOMED
-pathology codes to 5, 4 and 3 characters. Codes that never reached the
-threshold were kept, and laboratory and contact codes were not merged. The
-counts were taken over the fitting split and the whole period. What this does
-and does not affect is described under ``National encoder: data and
-representation''.
+than 100 events were merged into the nearest ancestor in their classification
+that reached 100 events (a shorter diagnosis, procedure, ATC or SNOMED code);
+laboratory and contact codes were not merged. Laboratory values were binned
+separately for each test: values were clipped at the 1st and 99th percentiles
+and assigned to quantile bins, with more bins for tests with more distinct
+values, following the power law that Montgomery et al.\ fitted for transformers
+on health records ($B = \mathrm{round}(1.14\,N_{\mathrm{distinct}}^{0.237})$,
+between 2 and 100) \citep{montgomery2026numeric}. Each result became one token
+combining the test with its bin, or with its text value for non-numeric results
+such as ``$<$0.1''. Bins and code counts were fitted on a random 90\% of
+patients; this split serves only these statistics and is unrelated to the
+study's training, tuning and test periods.
 
-Laboratory values were binned for each NPU code separately. Values were clipped
-at the 1st and 99th percentiles, scaled and assigned to quantile bins, with the
-number of bins growing with the number of distinct values,
-$B = \mathrm{round}(1.14\,N_{\mathrm{distinct}}^{0.237})$, bounded between 2
-and 100. This is the power law Montgomery et al.\ fitted for the best number of
-bins in transformers for health records \citep{montgomery2026numeric}. No unit
-conversion was needed, because each NPU code has a fixed unit. The bins were
-fitted on events before 2022 from patients in the fitting split and applied to
-every event.
-
-Finally, BONSAI \citep{montgomery2025bonsai} turned each patient's events into the sequence the models read
-(configuration \texttt{daly\_care\_joined\_bins\_data.yaml}), reading each
-joined laboratory code as one token. The vocabulary
-was fitted on events before 1 January 2022 from patients in the fitting split,
-and codes first seen after that date were read as an unknown token, so no code
-that appears only in the test period has a learned embedding. Sex and age opened
-the sequence as background tokens, a separator token marked each change of
-time, so that events recorded together stay grouped, and every event kept its
-time. For each prediction the sequence was cut strictly before the start of
-treatment and, if longer than 8,192 tokens, shortened to the background tokens
-and the most recent events.
-
-The ehr2meds repository contains the configurations for our cohort and for the
-national extract (\texttt{phair\_lymphoma}), together with the SOR mapping and
-the code that builds it, so the conversion can be rerun on the same registers
-inside the DALY-CARE environment. The paper's own code for training, evaluation
-and figures is listed under Code availability.
-
+BONSAI \citep{montgomery2025bonsai} then turned each patient's events into the
+sequence the models read. The vocabulary was fitted on events before 1 January
+2022, and codes first seen later were read as an unknown token, so no code that
+appears only in the test period has a learned embedding. Sex and age opened the
+sequence, a separator marked each change of time so that events recorded
+together stay grouped, and every event kept its time. For each prediction the
+sequence was cut strictly before the start of treatment and, if longer than
+8,192 tokens, shortened to the sex and age tokens and the most recent events.
+The conversion can be rerun on the same registers inside the DALY-CARE
+environment from the configurations in the ehr2meds repository.
 
 \operasubsection{Model development}
 
-\paragraph{What the model reads.} Each patient was represented as one
-chronological sequence of events from the sources in \cref{tab:meds-sources} and \cref{fig:model-inputs}:
-diagnoses, procedures, pathology codes, medications, laboratory results and
-the attributes of hospital contacts (type, reason, priority, specialty and
-region), preceded by tokens for sex and age. Every event carried its time,
-encoded with a scaled Time2Vec representation \citep{kazemi2019time2vec}, and
-the sequence was cut strictly before the index date, so the model saw only
-what was recorded before treatment started. Laboratory results entered as
-tokens that combine the test with its value bin, a hybrid representation that
-keeps the value while remaining robust to outliers. The number of bins per test followed the power law that Montgomery et al.\ derived for this purpose
-\citep{montgomery2026numeric}. Longer histories were cut to the sex and age
-tokens plus the most recent events, up to 8,192 tokens in total.
+\paragraph{Encoder and pretraining.} The encoder builds on CORE-BEHRT
+\citep{odgaard2024core}, adapted from a bidirectional to a causal transformer
+\citep{vaswani2017attention} that predicts each next event from the events
+before it, with every event's time encoded by a scaled Time2Vec representation
+\citep{kazemi2019time2vec} (\cref{tab:model-spec}). It was pretrained on the
+histories before 1 January 2022 of the pretraining population, every DALY-CARE
+patient with a lymphoid cancer diagnosis (78,668), for 10 epochs, the budget of
+the national encoder. An encoder twice as wide was considered before the
+analysis was locked and not adopted: fine-tuned as the joint model, it improved
+tuning AUC by 0.003, short of the prespecified 0.01. This encoder initialised
+every supervised model, each trained, tuned and tested on the final
+cohort (37,531 patients).
 
-\paragraph{Encoder and pretraining.} The encoder builds on CORE-BEHRT \citep{odgaard2024core}, a bidirectional model, adapted here to a causal transformer \citep{vaswani2017attention} with
-a hidden size of 256, four layers and four attention heads of 64 dimensions,
-pretrained to predict each next event from the events before it. Pretraining
-used the histories up to 1 January 2022 of the pretraining population, every
-DALY-CARE patient with a lymphoid cancer diagnosis (78,668), and ran for 10
-epochs, as for the national encoder; the encoder after the tenth epoch was
-used. An encoder twice as wide (hidden size 512, eight heads of 64
-dimensions), pretrained in the same way for the same 10 epochs, was compared
-before the analysis was locked: fine-tuned as the joint model, it improved
-the tuning macro AUC by 0.003, below the prespecified 0.01 required to adopt
-it, so the 256-wide encoder was kept.
-\placeholder{Number of individuals and events, training time and selected
-epoch.} This encoder initialised every supervised model, each trained, tuned and
-tested on the final supervised cohort (37,531 patients), in the main
-comparisons.
+\begin{table}[h]
+\centering\small
+\caption{\textbf{Model and training specification.}}
+\label{tab:model-spec}
+\begin{tabular}{@{}p{0.32\linewidth}p{0.6\linewidth}@{}}
+\toprule
+Encoder & causal transformer; hidden size 256, 4 layers, 4 attention heads of 64 dimensions; \placeholder{feed-forward width, parameters} \\
+Input & up to 8,192 tokens; scaled Time2Vec time encoding; laboratory results as test--bin tokens \\
+Pretraining & next-event prediction; events before 1 January 2022; 10 epochs; \placeholder{optimiser, learning rate, batch, tokens} \\
+Prediction head & linear; piecewise-constant hazards for each outcome and for competing death; cumulative incidence at 30, 60, 90, 180, 365 and 730 days \\
+Supervised training & effective batch of 256 patients; up to 30 epochs, stopping after 5 without improvement in tuning loss; tuning-best checkpoint \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{Prediction head and loss.} Every supervised model consisted of the
 pretrained encoder, trained further, and a linear head that produced, for each
-outcome, piecewise-constant hazards for the outcome and for competing death
-\citep{gensheimer2019nnetsurvival,lee2018deephit}, from which the cumulative
-incidence at each horizon was derived. These references motivate survival
-and competing-risk neural models; the implemented piecewise-hazard
-parameterisation with horizon BCE is not the original DeepHit objective. The loss was a binary cross-entropy at
-each horizon: patients with the event before the horizon were positive,
-patients who died of another cause or were followed beyond the horizon were
-negative, and patients censored earlier did not contribute at that horizon.
-This known-status training objective is not a censoring-weighted survival
-likelihood: different horizons can be learned from different observed subsets.
-Censoring-weighted evaluation and calibration checks assess the resulting
-predictions but do not retrospectively change the training objective.
-Losses were averaged within each outcome and then across endpoints, where the
-grade variants of one laboratory finding (grade $\geq$2 and $\geq$3) and nested
-definitions of the same finding formed one endpoint (69 outcomes, 52
-endpoints), so that a finding defined at two grades did not count twice. This
-weighting is separate from the clinical domains used to present results.
+outcome, piecewise-constant hazards for the outcome and for competing death,
+from which the cumulative incidence at each horizon was derived
+\citep{gensheimer2019nnetsurvival,lee2018deephit}. The loss was a binary
+cross-entropy at each horizon over the patients whose status was known: those
+with the event before the horizon were positive, those who died of another cause
+or were followed beyond it negative, and those censored earlier did not
+contribute at that horizon. Censoring weights were used in evaluation, not in
+training. Losses were averaged within each outcome and then across endpoints,
+treating the grade variants and nested definitions of one finding as one
+endpoint (69 outcomes, 52 endpoints), so that a finding defined at two grades
+did not count twice.
 
-\paragraph{Supervision scopes and training.} The four scopes differed only in
-which cells of the disease-by-outcome grid (one outcome in one disease) provided labels (\cref{fig:supervision-grid}): a specialist learned
-one outcome in one disease, a disease-pooled model one outcome across all
-diseases, an outcome-pooled model all outcomes in one disease, and the joint
-model all outcomes in all diseases. Every model predicted all six horizons and
-was trained with the same optimiser, an effective batch of 256 patients and the
-same sampling settings, for up to 30 epochs, stopping after five epochs without
-improvement in tuning loss and keeping the tuning-best checkpoint. Every
-comparison used the same target patients, labels and horizons. Because equal
-epochs do not mean equal optimisation steps or computation, both are reported
-for each scope. Checkpoint selection uses the labels available within the
-model's scope; the contrast therefore evaluates adding supervision under this
-common selection rule, including its effect on optimisation and checkpoint
-selection, rather than holding every optimisation trajectory fixed.
+\paragraph{Supervision scopes.} The four scopes differed only in which cells of
+the disease-by-outcome grid provided labels (\cref{fig:supervision-grid}): a
+specialist learned one outcome in one disease, a disease-pooled model one
+outcome across all diseases, an outcome-pooled model all outcomes in one
+disease, and the joint model all outcomes in all diseases. Every model
+predicted all six horizons and was trained with the same settings
+(\cref{tab:model-spec}) on the same target patients, labels and horizons. Each
+selected its checkpoint on the tuning labels within its own scope, so a
+contrast between scopes includes what the extra labels do to training as well
+as to the final prediction. Because equal epochs do not mean equal computation,
+optimisation steps and compute are reported for each scope.
 
 \operasubsection{Outcome panel}
 We predicted 69 outcomes covering disease course (second-line treatment,
@@ -195,158 +138,169 @@ haematological toxicity and transfusion, kidney, liver and coagulation
 toxicity, electrolyte and metabolic disturbances, cardiovascular events and
 acute care, each at 30, 60, 90, 180, 365 and 730 days. Laboratory outcomes used
 grading thresholds aligned with, but not identical to, the Common Terminology
-Criteria for Adverse Events \citep{nci2025ctcae}, with baseline-aware thresholds
-when pre-treatment values were already abnormal. Infection was additionally captured through antimicrobial treatment, which we label as such. A patient
-contributed to an outcome only if it was ascertainable for them, for example if laboratory follow-up was available, and was otherwise treated as missing
-rather than negative. Death was a competing event for every non-fatal outcome.
-Definitions, code lists and risk-set sizes are
-given in Supplementary Methods S5--S9.
+Criteria for Adverse Events \citep{nci2025ctcae}, with thresholds relative to
+the patient's own pre-treatment value where that was already abnormal.
+Infection was also captured through antimicrobial treatment, labelled as such.
+A patient contributed to an outcome only if it could be ascertained for them,
+for example if laboratory follow-up was available, and was otherwise left out
+rather than counted as negative. Death was a competing event for every non-fatal
+outcome. Definitions, code lists and risk-set sizes are given in the
+definitions supplement.
 
 \operasubsection{Tabular comparators: features and tuning}
-For each disease--outcome cell and horizon, we trained gradient-boosted trees (XGBoost) \citep{chen2016xgboost} and ridge-penalised logistic regression on the
+For each disease--outcome cell and horizon, we trained gradient-boosted trees
+(XGBoost) \citep{chen2016xgboost} and ridge-penalised logistic regression on the
 same patients, labels and competing-event handling as the neural models. Their
 features came from the pipeline of our earlier DLBCL study
 \citep{werling2026dlbcl}: using timeseriesflattener
 \citep{bernstorff2023tsflattener}, prescriptions, laboratory results,
-procedures and referrals, pathology codes, and diagnoses were summarised over 90-day, one-year and three-year windows before
-the index date, with aggregates suited to each source (counts and distinct counts for codes, and latest, minimum, maximum, variance and slope for laboratory values). Variables recorded for fewer than 10\% of training patients were
-represented by per-source counts of such rare occurrences. Features were
-constructed separately within each disease, including this threshold, so each
-disease's models used a feature set suited to its own patients. The XGBoost
-pooled across diseases used one matrix constructed in the same way across all
-supervised patients and, like the neural pooled models, was not given the
-disease. To align the register sources available to the tabular
-and sequence models, quality-registry variables such as
+procedures and referrals, pathology codes and diagnoses were summarised over
+90-day, one-year and three-year windows before the index date (counts and
+distinct counts for codes; latest, minimum, maximum, variance and slope for
+laboratory values). Variables recorded for fewer than 10\% of training patients
+were represented by per-source counts of such rare occurrences, and comorbidity
+by these counts rather than a weighted index such as Charlson. Features were
+constructed separately within each disease, so each disease's models used a
+feature set suited to its own patients. The XGBoost pooled across diseases used
+one matrix constructed in the same way across all supervised patients and, like
+the neural pooled models, was not given the disease. To align the register
+sources of the tabular and sequence models, quality-registry variables such as
 stage and performance status were removed, and age and sex at the index date
-were added. Unlike the earlier study, no LASSO preselection was applied.
-Numeric features were median-imputed with missingness indicators and
+were added. Numeric features were median-imputed with missingness indicators and
 standardised, and categorical features one-hot encoded, with all preprocessing
 fitted on training data. Hyperparameters were chosen for each cell by log loss
 on the tuning set from a prespecified grid: for XGBoost, shallow trees (depth
 1--3), deeper trees (depth 4 and 6) and the setting of the earlier study
 (depth 8, learning rate 0.01, up to 3,000 trees), with the number of trees also
-chosen on the tuning set. For logistic regression, the penalty strength was chosen along
-a seven-value path ($C$ from $3\times10^{-4}$ to 1, fitted with warm starts). Neither model was class-reweighted. Predicted probabilities were evaluated
-without test-set recalibration; absence of class reweighting does not itself
-guarantee calibration. \placeholder{Confirm against the
-delivered feature export: anchoring at first-line treatment, source list and
+chosen on the tuning set; for logistic regression, seven penalty strengths.
+Neither model was class-reweighted or recalibrated. \placeholder{Confirm against
+the delivered feature export: anchoring at first-line treatment, source list and
 number of features.}
 
 As a reference outside the information-matched comparison, XGBoost was also
 trained for each cell with the quality-registry predictors of the earlier
-study's feature set kept: clinical variables recorded at diagnosis (such as
-performance status, stage, lactate dehydrogenase, extranodal involvement and
-cytogenetic risk, where the registry for the disease records them) and
-registry-recorded adverse events before the index date. They were left missing
-where not recorded and handled by the same missingness indicators, and hyperparameters were tuned on the same grid.
-The sequence models never saw these variables, so this arm estimates what the
-curated registry adds, not a like-for-like comparison.
+study kept: variables recorded at diagnosis (such as performance status, stage,
+lactate dehydrogenase, extranodal involvement and cytogenetic risk, where the
+registry for the disease records them) and registry-recorded adverse events
+before the index date, left missing where not recorded. The sequence models
+never saw these variables, so this arm estimates what the curated registry
+adds, not a like-for-like comparison.
 
 \operasubsection{National encoder: data and representation}
 The national (PHAIR) encoder was pretrained on the registers of the whole
-Danish population, converted to MEDS with the same pipeline and the same
-processing steps as our cohort. The registers are the same entities, but the
-national extract uses older deliveries of some of them. Prescriptions came from an earlier delivery of the prescription register with the same fields. Pathology came from an earlier delivery of the pathology register, which records codes and dates but not the requesting department's specialty or region. Laboratory results came from an earlier research extract of the
-laboratory database. The national extract also includes psychiatric hospital
-contacts. The code vocabulary and laboratory bins were fitted on the national
-data. To use the national encoder, our patients' records were taken from the
-national extract and tokenised with its vocabulary, so that it read them in
-the form it was trained on. Outcomes, cohort membership and splits were unchanged. The national and cohort encoders therefore differ in population, in
-these register deliveries and in training budget, and the comparisons concern
-the encoders as delivered. Because the national population contains the cohort,
-the national encoder had seen the cohort's pre-2022 records (in the national
-deliveries) as well as those of everyone else; continued pretraining on the
-cohort adds no patients and is domain adaptation.
+Danish population, converted to MEDS with the same pipeline. The registers are
+the same, but the national extract uses older deliveries of some of them:
+pathology without the requesting department's specialty and region, and an
+earlier research extract of the laboratory database; it also includes
+psychiatric contacts. Its vocabulary and laboratory bins were fitted on the
+national data. To use it, our patients' records were taken from the national
+extract and tokenised with its vocabulary, so that it read them in the form it
+was trained on; outcomes, cohort membership and splits were unchanged. Because
+the national population contains the cohort, the national encoder had seen the
+cohort's pre-2022 records as well as everyone else's, and continued pretraining
+on the cohort adds no patients: it is domain adaptation. The national and
+cohort encoders therefore differ in population, register deliveries and
+training budget, and the comparisons concern the encoders as delivered.
 
-In the conversion, codes with fewer than 100 events were merged into their
-parent codes. These counts were taken over a random 90\% of all patients in the
-extract and over the whole period, so they included events after 2021,
-including later events of patients in the test period. Although no outcome labels were used, this representation choice depends on
-aggregate code frequencies after the temporal cutoff. It is therefore a
-transductive preprocessing step, not a strictly prospective vocabulary design.
-Its potential influence is a limitation; restricting token fitting and gradient
-updates to pre-2022 events does not undo it. Everything the models learned from was restricted to the
-training period: laboratory bins were fitted on events before 2022, the token
-vocabulary was built from events before 2022 (codes first seen later became
-an unknown token), and pretraining used only events before 2022.
-
-The merging threshold and the binning depend on the size of the dataset they
-are applied to, so the two vocabularies differ in resolution as well as in
-coverage. With the same threshold of 100 events, the national extract keeps
-specific codes, such as particular molecular findings or rare diagnoses, that
-the cohort's conversion merged into their parents; and because the number of
-bins grows with the number of distinct values, laboratory results are binned
-more finely. Finer resolution is one route by which the national encoder, and
-any larger dataset, could improve prediction, separate from the knowledge
-learned from other patients.
+With the same threshold of 100 events, the national conversion keeps specific
+codes, such as particular molecular findings or rare diagnoses, that the
+cohort's conversion merged into their parents, and bins laboratory results more
+finely. Finer resolution is one route by which the national encoder, or any
+larger dataset, could improve prediction, separate from what it learns from
+other patients. In the national conversion, rare codes were counted over the
+whole period, including events after 2021. No outcomes were involved, and
+everything the models learned from was restricted to events before 2022, but
+which codes kept their own token depends on these later frequencies; we note it
+as a limitation.
 
 The national encoder was pretrained for 10 epochs with a 1 January 2022
 cutoff. Continued pretraining on the pretraining population (adaptation) and
-pretraining on it from scratch ran for the same 10 epochs, with validation-based
-checkpoint selection; on tuning data, encoders pretrained for 10 and 20
-epochs gave the same fine-tuned performance. Actual
-patients, tokens and optimisation steps are reported separately, because equal
-epochs do not guarantee equal exposure. \placeholder{Verified national training
-population, observation years, events/tokens, encoder version and PHAIR
-provenance/reference.}
+pretraining on it from scratch ran for the same 10 epochs; on tuning data,
+encoders pretrained for 10 and 20 epochs gave the same fine-tuned performance.
+Patients, tokens and optimisation steps are reported separately, because equal
+epochs do not guarantee equal exposure. \placeholder{National training
+population, observation years, events and tokens, encoder version and PHAIR
+reference.}
 
 \operasubsection{Data efficiency of national pretraining}
 To test whether population-scale pretraining is most useful when local labels
 are scarce, the joint model was retrained from the cohort encoder and from the
 national encoder adapted to the cohort on 10\%, 25\% and 50\% of the training
-patients, with otherwise identical training. Patients were selected by a fixed
-hash of their identifier, so the subsets are nested (10\% within 25\% within
-50\%), identical for every outcome and reproducible, and each disease keeps
-its expected share. Tuning and test patients were never subsampled, model
-selection used the full tuning set, and every model was evaluated on the same test cells. National versus cohort encoders were compared at each share with the same
-paired bootstrap as the main analysis.
+patients, with otherwise identical training. The subsets are nested (10\% within
+25\% within 50\%), identical for every outcome, and keep each disease's share.
+Tuning and test patients were never subsampled, model selection used the full
+tuning set, and national and cohort encoders were compared at each share with
+the paired bootstrap of the main analysis.
 
 \operasubsection{Comparison with clinical prognostic indices}
 The quality registries record, for each patient, the prognostic index scored at
 diagnosis (for example the IPI, FLIPI, MIPI, CLL-IPI or ISS)
 \citep{IPI1993,solalceligny2004flipi,hoster2008mipi,cllipi2016,greipp2005iss}
-and its risk
-category (low, intermediate or high), before treatment started. Every index
-recorded for at least 50 patients of a subtype, and every index used in more
-than one subtype pooled across all subtypes recording it, was compared with the joint model's prediction for the endpoint the index was developed for, in the patients who had that index (see the end of this section). For DLBCL we also computed the
-NCCN-IPI from the components recorded in the lymphoma registry, following
-the original definition \citep{zhou2014nccnipi}: age (41--60, 61--75 and
-over 75 years: 1, 2 and 3 points), LDH relative to the local upper limit of normal (205~U/L, or 255~U/L from age 70, with ratios above 1 and above 3 scoring 1 and 2 points),
-Ann Arbor stage III--IV (1 point), involvement of bone marrow, central nervous
-system, liver, gastrointestinal tract or lung (1 point), and performance
-status $\geq$2 (1 point). The categories were low 0--1, low-intermediate 2--3, high-intermediate 4--5 and high $\geq$6. Patients missing any component were not scored.
+and its risk category. Every index recorded for at least 50 patients of a
+subtype was compared with \opera{}'s prediction for the endpoint the
+index was developed for, in the patients who had that index, and every index
+used in several subtypes also across all of them, since the IPI, for instance,
+is applied to many rare lymphomas without a score of their own. For DLBCL we
+also computed the NCCN-IPI from its components in the lymphoma registry,
+following the original definition \citep{zhou2014nccnipi}: age (41--60, 61--75
+and over 75 years: 1, 2 and 3 points), LDH relative to the upper limit of
+normal (above 1 and above 3 times: 1 and 2 points), Ann Arbor stage III--IV,
+involvement of bone marrow, central nervous system, liver, gastrointestinal
+tract or lung, and performance status $\geq$2 (1 point each), grouped as low
+(0--1), low-intermediate (2--3), high-intermediate (4--5) and high ($\geq$6).
+Patients missing a component were not scored.
 
 Model risk groups were fixed on tuning patients with known two-year status and
-applied unchanged to the test set. The low cutoff was the highest predicted
-risk at which the group below it, of at least 20 patients, had an observed risk
-no higher than the index's low-risk category. The high cutoff was the predicted
-risk at which the model's specificity equalled that of the index's high-risk
-category, so that both flagged the same proportion of patients without the
-event. This is also the operating point marked in the precision--recall comparison. Patients between the two cutoffs were divided in the proportions
-of the index's intermediate categories (one for the registry indices, two for
-the NCCN-IPI). Anchoring both ends to the index makes the groups directly
-comparable while leaving the model free to differ: a model that ranks patients
-better places more patients at low risk at the same risk, and captures more
-events at the same specificity. For each index and each system we report group
-size, observed risk, and the sensitivity and specificity of classifying a
-patient in that group or higher, and, for the model, the observed risk in its
-highest-risk 5\% and 10\% of patients, which the index cannot resolve within
-its top category. As a sensitivity analysis, model groups were instead given exactly the index's group sizes. Overall survival was used for the IPI, NCCN-IPI, CLL-IPI, ISS, R-ISS, FLIPI
-and MIPI. Separately, treatment failure was used as a proxy for the IPS,
-which was built for freedom from progression \citep{hasenclever1998ips}.
-Second-line treatment or death is a proxy for progression-based endpoints,
-not the same endpoint; the IPS comparison is labelled as endpoint-approximate
-and is not combined with endpoint-matched overall-survival comparisons. The horizon was the longest of two years and one year that lay within the median follow-up of the index's test population, estimated by the reverse Kaplan--Meier method and chosen without reference to outcomes. The original indices were developed for longer horizons, usually five years, so even endpoint-matched comparisons use a shorter horizon and are not
-reproductions of the original analyses. Discrimination used the index category (or
-NCCN-IPI points) as an ordinal score.
+applied unchanged to the test set, anchored to the index at both ends. The low
+cutoff was the highest predicted risk at which the group below it, of at least
+20 patients, had an observed risk no higher than the index's low-risk category.
+The high cutoff matched the specificity of the index's high-risk category, so
+that both flagged the same share of patients without the event; this is also
+the operating point marked in the precision--recall comparison. Patients in
+between were divided in the proportions of the index's intermediate categories.
+A model that ranks patients better can then place more patients at low risk at
+the same observed risk, and capture more events at the same specificity. For
+each index we report group sizes, observed risks, and the sensitivity and
+specificity of classifying a patient in a group or higher, and, for the model,
+the observed risk in its highest-risk 5\% and 10\%, which the index cannot
+resolve within its top category. As a sensitivity analysis, model groups were
+given exactly the index's group sizes.
+
+Overall survival was the endpoint for the IPI, NCCN-IPI, CLL-IPI, ISS, R-ISS,
+FLIPI and MIPI. The IPS, built for freedom from progression
+\citep{hasenclever1998ips}, was compared on treatment failure, a proxy that is
+reported separately as endpoint-approximate. The horizon was two years, or one
+year where two exceeded the median follow-up of the index's test population
+(reverse Kaplan--Meier), chosen without reference to outcomes. The original
+indices were developed for longer horizons, usually five years, so these are
+shorter-horizon evaluations, not reproductions of the original analyses.
+Discrimination used the index category (or NCCN-IPI points) as an ordinal
+score.
+
+Decision curves ask whether acting on a prediction does more good than harm
+\citep{vickers2006dca}. For each threshold probability $p$, net benefit is the
+share of patients correctly flagged minus the share wrongly flagged, weighted by
+the odds $p/(1-p)$ at which a clinician would trade one for the other. The
+action was closer monitoring and supportive care for patients above a predicted
+two-year risk of death, at thresholds from 5\% to 40\%, fixed before the test
+set was opened. The action changes how closely patients are followed, not which
+treatment they receive; a prediction that changed treatment would have to meet
+the evidence standards of that treatment \citep{blythe2026economic}. Many test patients were followed for less than two years, so
+true and false positives were weighted by the inverse probability of remaining
+uncensored, as for the primary metrics; dropping them instead would overstate
+the risk and the benefit. An index has categories rather than probabilities, so
+each category entered as its observed two-year risk among tuning patients,
+giving a curve fixed before testing. \opera{}, the index, per-task XGBoost,
+acting for everyone and acting for no one were compared on the same patients,
+with 95\% intervals for the differences in net benefit from 1,000 patient
+resamples.
 
 \operasubsection{Routing formulation and selection}
 To test whether a joint model benefits from conditioning its predictions on
-disease and outcome beyond ordinary shared learning, we compared the joint
-model with a routed model trained on the same panel. In the routed model, the
-patient representation
-$h_i$ is adjusted for each target outcome $k$ by a weighted combination of
-small residual adapters, one per disease and one per outcome:
+disease and outcome beyond ordinary shared learning, we compared it with a
+routed model trained on the same panel. In the routed model, the patient
+representation $h_i$ is adjusted for each target outcome $k$ by a weighted
+combination of small residual adapters, one per disease and one per outcome:
 \begin{equation}
  \begin{aligned}
  h_{ik}&=h_i+\lambda\sum_s\pi_{iks}\,c_s\,A_s(h_i),\\
@@ -358,57 +312,47 @@ small residual adapters, one per disease and one per outcome:
 where $A_s$ is a low-rank adapter for source $s$, the weights $\pi_{iks}$ are
 computed from the patient, the patient's disease and the target outcome, and
 $c_s$ shrinks the contribution of sources with few training events $e_s$. The
-adapted representation enters the same linear head as in the joint model. Each adapter was
-updated only by the supervision of its own disease or outcome. The approach
-relates to mixtures of experts and parameter-efficient adapters
+adapted representation enters the same linear head as in the joint model, and
+each adapter was updated only by the supervision of its own disease or outcome.
+The approach relates to mixtures of experts and parameter-efficient adapters
 \citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion,hu2022lora}.
 
-The router configuration was chosen on the tuning set in a short prespecified
-sequence: which adapter banks to include (none, disease, outcome or both, at
-rank 8 with an interacting query of width 128), then the adapter rank (8, 16
-or 32; 32 keeps the ratio of rank to encoder width of an earlier 64-wide model
-that used rank 8), then the form of the routing query (additive or interacting,
-width 128 or 512). A simpler configuration was preferred unless a more complex
-one was clearly better on tuning data, and disease adapters alone were kept
-unless outcome adapters added supported value. A routed model with no adapters
-had to lie within 0.005 of the joint model's tuning AUC before differences
-between adapter banks were interpreted, so that a gain from routing could not
-come from added capacity alone.
-\placeholder{Insert the selected configuration.} Because a target outcome
-already has its own prediction head, an outcome adapter bank must add value
-beyond that head. Route weights describe how the model allocates corrections
-and are not interpreted as evidence of relationships between diseases.
-
-
-
-
+The router was configured on the tuning set in a short prespecified sequence:
+which adapter banks to include (none, disease, outcome or both), then the
+adapter rank (8, 16 or 32), then the form of the routing query. A simpler
+configuration was preferred unless a more complex one was clearly better, and
+disease adapters alone were kept unless outcome adapters added supported value.
+Before banks were compared, a routed model with no adapters had to lie within
+0.005 of the joint model's tuning AUC, so that a gain from routing could not
+come from added capacity alone. \placeholder{Insert the selected configuration.}
+Route weights describe how the model allocates corrections and are not
+interpreted as relationships between diseases.
 
 \operasubsection{Hierarchy for effect heterogeneity}
 The primary evidence is the paired effect in each disease--outcome cell with
 its patient-bootstrap interval. Many cells are small, so their raw estimates
 are noisy and rankings of individual cells are unreliable. We therefore also
-fit a deliberately simple Bayesian hierarchical model whose purpose is partial
-pooling: each cell's effect is the panel mean plus a disease effect, an outcome
-effect and a cell-specific deviation, so that a noisy cell is shrunk towards
-what similar cells show, by an amount the data determine. The model answers
-two questions: how large is the typical effect, and how much does it vary
-between diseases and between outcomes? The cell estimates are not treated as
-independent: their sampling covariance, taken from the shared patient-bootstrap
-draws, enters the likelihood, because the same patients contribute to every
-outcome within a disease.
+fit a simple Bayesian hierarchical model for partial pooling: each cell's
+effect is the panel mean plus a disease effect, an outcome effect and a
+cell-specific deviation, so that a noisy cell is shrunk towards what similar
+cells show, by an amount the data determine. It answers two questions: how
+large is the typical effect, and how much does it vary between diseases and
+between outcomes? Because the same patients contribute to every outcome within
+a disease, the cells' sampling covariance, taken from the shared bootstrap
+draws, enters the likelihood.
 
-Whether effects depend on the amount of training data available for the
-target is a separate question, and we do not assume a linear relationship.
-A low-dimensional spline still constrains smoothness and complexity. The cell effect is allowed to vary smoothly with log training
-events through a cubic spline with few knots and a shrinkage prior, to regularise departures from a flat relationship. The prior still affects the fitted shape and is assessed in sensitivity checks. As a transparent check
-that does not depend on smoothing, cells are also grouped into prespecified
-bins of training events (fixed before test-set evaluation) and the mean effect
-is estimated within each bin. Within each
-question, the model fits the independent effects directly (for pooling:
-disease pooling, outcome pooling and their interaction). Conditional and combined contrasts are exact sums of these, so all reported pooling contrasts
-are mutually consistent. Priors
-are weakly informative on each metric's scale and checked with prior predictive simulation, and convergence and posterior predictive checks are reported. Posterior probabilities of benefit, harm and practical equivalence
-use a prespecified tolerance. Raw paired estimates are always shown alongside.
+Whether effects depend on the amount of training data for the target is a
+separate question, and we did not assume a linear relationship: the cell effect
+varies smoothly with log training events through a cubic spline with few knots
+and a shrinkage prior towards a flat relationship. As a check that does not
+depend on smoothing, cells were also grouped into bins of training events fixed
+before test-set evaluation. Pooling contrasts were fitted as their independent
+parts (disease pooling, outcome pooling and their interaction), so that every
+reported combination is an exact sum and all are mutually consistent. Priors
+are weakly informative on each metric's scale and checked by prior predictive
+simulation; convergence and posterior predictive checks are reported, and
+posterior probabilities of benefit, harm and practical equivalence use a
+prespecified tolerance. Raw paired estimates are always shown alongside.
 \placeholder{Insert locked priors, tolerances, support-bin edges and sampling
 diagnostics.}
 

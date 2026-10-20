@@ -25,7 +25,7 @@ all_indices:
   pooled: true                  # also each index across all subtypes recording it
   manuscript: {index: null, cohort: DLBCL}  # exact `index` value of the IPI
   template:
-    model: J_L
+    model: J_L                  # the configuration selected as OPERA on the tuning set
     seed: 42
     outcome: null  # Exact registry name of death-inclusive treatment failure.
     outcome_label: Treatment failure
@@ -136,9 +136,16 @@ index_endpoint: native
 # (reverse Kaplan-Meier on overall survival), chosen without outcomes. The
 # original horizons are longer than ours (usually 5 years), so these are
 # shorter-horizon evaluations of the native endpoint, not reproductions.
+# decision_curve: net benefit of acting on the model, the index and the named
+# comparators (analysis-artifact model names, e.g. X for per-task XGBoost) when
+# patients above a threshold risk receive the action. Action and thresholds
+# (default 5% to 40%) must be fixed before the test set is opened.
 native_endpoints:
   IPI:       {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
-              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+              original_endpoint: "overall survival, 5 years", horizons_days: [730, 365],
+              decision_curve: {action: "closer monitoring and supportive care",
+                               outcome_label: death, comparators: [X],
+                               labels: {X: XGBoost}}}
   NCCN-IPI:  {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
   CLL-IPI:   {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,

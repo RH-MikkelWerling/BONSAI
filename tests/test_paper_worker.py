@@ -244,3 +244,75 @@ def test_throughput_prices_remaining_fits_at_the_phase_median(tmp_path):
                                        "median_gpu_minutes": 10.0, "gpu_hours_left": 1.0}
     assert "gpu_hours_left" not in report["supervision/J"]
     assert report["total_gpu_hours_left_priced"] == 1.0
+
+
+def test_fits_without_tuning_patients_are_final_and_do_not_stop_workers(tmp_path, monkeypatch):
+    """A disease with no tuning patients (NMZL) cannot have its own model; its
+    fits are recorded as not estimable, never retried, and never count as
+    failures, so a block of them cannot stop a worker."""
+    directory = bundle(tmp_path)
+    worker._RAW.clear()
+    monkeypatch.setattr(worker, "audit_encoder", lambda *a, **k: {"status": "ok"})
+
+    def no_tuning(row, path, run_dir, audit_record):
+        (run_dir / worker.NOT_ESTIMABLE).write_text(json.dumps({"reason": "no tuning"}))
+        raise worker.NotEstimable("Cohort 'indolent' (NMZL) has no patients in split 'tuning'.")
+
+    monkeypatch.setattr(worker, "train_run", no_tuning)
+    args = options(tmp_path, directory, max_consecutive_failures=1)
+    assert worker.work(args) == 0
+    assert not list((tmp_path / "runs").rglob(worker.FAILED))
+    marked = list((tmp_path / "runs").rglob(worker.NOT_ESTIMABLE))
+    assert marked and not list((tmp_path / "runs").rglob(worker.CLAIM))
+    assert worker.run_state(marked[0].parent, stale_minutes=30, max_attempts=2) == "not_estimable"
+    monkeypatch.setattr(worker, "train_run", lambda *a: pytest.fail("must not retry"))
+    worker.work(args)
+
+
+def test_train_run_records_a_missing_split_as_not_estimable(tmp_path, monkeypatch):
+    import subprocess
+    import opera.run.run_paper_queue as queue
+
+    def fake_run(command, stdout=None, **kwargs):
+        if stdout is None:  # preflight
+            return subprocess.CompletedProcess(command, 0)
+        stdout.write("Traceback ...\nopera.modules.datamodules.MultiCohortContrastiveDataModule."
+                     "NoPatientsInSplit: Cohort 'indolent' (NMZL) has no patients in split 'tuning'.\n")
+        stdout.flush()
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(queue.subprocess, "run", fake_run)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "queue_training.log").write_text("NoPatientsInSplit: an earlier attempt\n")
+    with pytest.raises(queue.NotEstimable, match="NMZL"):
+        queue.train_run({"name": "O_NMZL__all_outcomes"}, tmp_path / "c.yaml", run_dir, {})
+    record = json.loads((run_dir / queue.NOT_ESTIMABLE).read_text())
+    assert "split 'tuning'" in record["reason"]
+
+    def other_failure(command, stdout=None, **kwargs):
+        if stdout is not None:
+            stdout.write("RuntimeError: CUDA out of memory\n")
+        return subprocess.CompletedProcess(command, 0 if stdout is None else 1)
+
+    (run_dir / queue.NOT_ESTIMABLE).unlink()
+    monkeypatch.setattr(queue.subprocess, "run", other_failure)
+    with pytest.raises(subprocess.CalledProcessError):
+        queue.train_run({"name": "x"}, tmp_path / "c.yaml", run_dir, {})
+    assert not (run_dir / queue.NOT_ESTIMABLE).exists()
+
+
+def test_marking_a_disease_not_estimable_also_stops_older_workers(tmp_path):
+    directory = bundle(tmp_path)
+    worker._RAW.clear()
+    rows = [row for row, d, _ in worker.todo([directory], {})
+            if (worker.raw_config(d, row).get("supervision_factorial") or {}).get("fine_cohort")]
+    assert rows, "the test bundle has disease-specific fits"
+    fine = worker.raw_config(directory, rows[0])["supervision_factorial"]["fine_cohort"]
+    args = options(tmp_path, directory, fine=fine, reason="no tuning patients")
+    marked = worker.mark_not_estimable(args)
+    assert marked
+    run_dir = args.runs_dir / rows[0]["run_directory"]
+    assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "not_estimable"
+    (run_dir / worker.NOT_ESTIMABLE).unlink()  # what a worker without this code sees
+    assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "failed"

@@ -9,7 +9,7 @@ Every remaining value cell is checked to be byte-identical to the input and in
 the same order, so the reviewed numbers cannot change and no new review is
 needed.
 
-    python -m opera.run.relabel_table1 paper/tables/table1_current_review.tex
+    python -m opera.run.relabel_table1 paper/tables/table1.tex
 """
 
 from __future__ import annotations

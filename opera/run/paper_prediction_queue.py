@@ -140,6 +140,8 @@ def evaluate_row(row, path, config, args, aliases=()):
         # Held-out labels are only opened for locked paper models; tuning-only
         # screening candidates are never scored on held-out patients.
         return result | {"status": "held_out_closed_for_screening_candidate"}
+    if (run / "not_estimable.json").is_file():
+        return result | {"status": "not_estimable"}
     try:
         selection = verified_training_selection(run)
     except ValueError as error:

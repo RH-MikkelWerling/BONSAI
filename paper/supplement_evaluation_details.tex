@@ -20,19 +20,18 @@ validate a sparsely observed cell for individual clinical use.
 The unit of evaluation was one disease--outcome--horizon combination. Its risk
 set was determined by eligibility and ascertainment of the outcome, not by the
 models compared. For each split we report eligible patients, outcome events,
-competing deaths and patients whose status was unknown at the horizon. Within a cell, available models were required to have identical patient
-identities, labels and data contracts; a silent intersection was not used to
-repair mismatches. Contrasts can cover different sets of evaluable cells, and
-their cell and patient denominators are reported. Cells in which a model could not be fitted or a metric could not be
-estimated remain in the coverage inventory with the reason
-(\cref{fig:supp-coverage}) and are not treated as zero effects.
+competing deaths and patients whose status was unknown at the horizon. Within a
+cell, every model was evaluated on the same patients and labels. Contrasts can
+cover different sets of evaluable cells, so their cell and patient counts are
+reported. Cells in which a model could not be fitted or a metric could not be
+estimated are shown with the reason (\cref{fig:supp-coverage}) and not treated
+as zero effects.
 
-Superiority among evaluable cells was kept separate from coverage of
-additional cells. A pooled model could predict cells in which no specialist
-could be fitted. These cells have absolute performance estimates but no paired
-specialist comparison, and were not imputed into pooled averages. Outcome
-definitions and the reconstruction of treatment lines are in the appended
-data-definition supplement.
+A pooled model could predict cells in which no specialist could be fitted.
+These cells have absolute performance estimates but no paired specialist
+comparison, so they are reported as added coverage and kept out of the paired
+averages. Outcome definitions and the reconstruction of treatment lines are in
+the definitions supplement.
 
 \operasubsection{Clinical prognostic indices}
 \paragraph{Which index each subtype has.} \Cref{tab:index-availability} lists,
@@ -53,38 +52,17 @@ treatment.
 
 \input{tables/index_availability}
 
-The quality registries record which prognostic index was scored at diagnosis
-and its risk category. We compared the joint model and the tabular comparators with each applicable index recorded for at least 50 patients of a subtype, in the patients who had it, and with each index used in several subtypes also across all of them, since the IPI, for instance, is applied to many rare lymphomas for which no specific score exists. In DLBCL we also computed the NCCN-IPI from its recorded components \citep{zhou2014nccnipi}. Overall-survival indices were compared on overall survival. Indices whose
-original endpoint was not available, such as progression-based IPS, were
-reported separately on the closest panel proxy and labelled as endpoint-approximate, at the longest prespecified horizon (two years, otherwise one year) within the median follow-up of its population. The original indices were built for longer horizons, so these are shorter-horizon evaluations of the original endpoint, not reproductions. Follow-up was summarised by the reverse Kaplan--Meier method. The IPI is the main comparator because it is recorded for more patients and
-is used in the Danish guideline \citep{DLG2025DLBCL}. The NCCN-IPI, developed
-for rituximab-treated DLBCL \citep{zhou2014nccnipi}, is reported alongside
-in its complete cases. Model risk groups were defined on the tuning set to mirror the index at both ends: the low-risk group was the
-largest whose observed risk did not exceed that of the index's low-risk
-category, the high-risk group flagged the same proportion of patients without
-the event as the index's high-risk category (equal specificity), and patients
-between them were divided in the proportions of the index's intermediate
-categories. The comparison then measures the achieved test-period sensitivity and
-specificity, the size of the low-risk group and its observed risk. Matching on
-tuning data does not guarantee equal specificity or low-group risk in the test
-period. The observed risk in the model's highest-risk 5\% and 10\% shows what it identifies beyond the index's
-top category. Details and a size-matched sensitivity analysis are in the
-Supplementary Methods.
-
-Each index was evaluated in the population and for the endpoint closest to
-those it was developed for, at the same prediction time. Original and evaluated
-endpoints and horizons are listed side by side, and a shorter available
-horizon is not presented as a reproduction of a longer development horizon.
-All methods in an index comparison used the same patients, those with the index
-recorded at diagnosis, and how often it was recorded is reported by disease and
-calendar period. Index categories were used as recorded. Because the sequence
-and tabular models read the wider history, a gain over an index is a gain of
-the whole pipeline and does not separate the model from the information it
-receives.
-
-Index categories are not individual probabilities. They were used for ranking
-and stratification. Brier scores and calibration of an index would require a
-probability mapping fitted on development data, which we did not use.
+The IPI is the main comparator because it is recorded for most patients with
+DLBCL and sets treatment in the Danish guideline \citep{DLG2025DLBCL}; the
+NCCN-IPI, developed for rituximab-treated DLBCL \citep{zhou2014nccnipi}, is
+reported alongside in its complete cases. How the indices were compared, and
+how model risk groups were anchored to them, is described under ``Comparison
+with clinical prognostic indices''. All methods in an index comparison used the
+same patients, those with the index recorded at diagnosis, and how often it was
+recorded is reported by disease and calendar period. Because the models read
+the wider history, a gain over an index is a gain of the whole pipeline, not of
+the model alone. Index categories are not probabilities, so they were used for
+ranking and stratification only, not for Brier scores or calibration.
 \placeholder{Index, version, population and availability inventory from the
 secure analysis.}
 
@@ -117,24 +95,22 @@ period then shows how far the achieved specificity drifts from its tuning
 target. For each decision point we report the threshold, the confusion matrix,
 sensitivity, specificity, positive and negative predictive values, MCC and the
 share of patients flagged, with 95\% intervals from the shared patient
-bootstrap and paired differences between the joint model and XGBoost, the
-joint model and the specialist, and the routed and joint models. Confusion
+bootstrap and paired differences between \opera{} and XGBoost, the joint
+model and the specialist, and the routed and joint models. Confusion
 counts below five are suppressed in exported tables, as required by the secure
 environment. Cells with fewer than five tuning events or non-events have no
 decision point.
 
 \operasubsection{Censoring, calibration and robustness}
-Censoring-weighted and known-status estimates answer different questions and
-are reported separately, and the known-status analysis is a prespecified
-sensitivity analysis. For the censoring weights we report the censoring model,
-the censoring survival at each horizon and the distribution of weights. Long
-horizons with little follow-up are flagged where estimates are unstable. The
-locked analysis estimates marginal censoring survival separately by disease,
-outcome and split, treating target and competing events as non-censoring
-terminations. The same estimated weights are reused in its patient-bootstrap
-draws, so these intervals condition on the estimated censoring distribution.
-This approximation and the marginal independent-censoring assumption are
-limitations, especially where monitoring and prognosis are related.
+The primary metrics weight patients by the inverse probability of remaining
+uncensored, estimated separately by disease, outcome and split; an analysis on
+patients with known status, without weights, is a prespecified sensitivity
+analysis. We report the censoring survival at each horizon and the distribution
+of weights, and flag long horizons where little follow-up makes estimates
+unstable. The weights are held fixed across bootstrap resamples, so intervals
+do not include their uncertainty, and they assume censoring independent of
+prognosis, which may not hold where monitoring follows the patient's
+condition.
 
 Calibration is reported as calibration-in-the-large, the calibration slope
 where estimable, and reliability curves for outcomes chosen by a fixed rule. No
@@ -156,9 +132,7 @@ pretraining, national pretraining adapted to the cohort, and the nationally
 initialised joint model.
 For each stage, the projection was fitted on tuning patients and applied
 unchanged to test patients, so coordinates are comparable within a stage but
-not between stages. For every stage we record the checkpoint, the layer and
-pooling used, the input cutoff and truncation. Clusters and changes in
-separation are descriptive. They do not show differences in prediction,
+not between stages. Clusters and changes in separation are descriptive. They do not show differences in prediction,
 biological mechanisms or the effect of transfer. Only kernel-smoothed
 summaries over at least \placeholder{N} patients are shown, following the
 disclosure rules of the secure environment.
@@ -184,7 +158,7 @@ paper as machine-readable files, with counts below five suppressed.
 
 
 \operasubsection{What the model relies on: attributions and input restriction}
-This secondary analysis asks what the locked joint model reads in a patient's
+This secondary analysis asks what \opera{} reads in a patient's
 history, so that clinicians can judge whether its predictions rest on sensible
 information. It is computed once on the model selected on tuning data, before
 any attribution is inspected, and every figure and table is a summary of that
@@ -224,9 +198,8 @@ The path integral is evaluated by Gauss--Legendre quadrature with 8 nodes and
 repeated with 32 when the absolute gap between the summed credits and
 $f_k(E;C)-f_k(E^0;C)$, divided by $\max(|f_k(E;C)-f_k(E^0;C)|,0.001)$, exceeds
 0.05. Patient--outcome pairs that still fail are reported by outcome and
-excluded from the summaries. Every held-out test patient was explained.
-Patient-level outputs are cached with hashes of the inputs, checkpoint and code,
-and stay in the secure environment.
+excluded from the summaries. Every held-out test patient was explained, and
+patient-level outputs stay in the secure environment.
 
 \paragraph{Episodes and concepts.} The unit of interpretation is the episode of
 care: events within one day of each other, such as one admission or one

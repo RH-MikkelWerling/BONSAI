@@ -463,7 +463,7 @@ def main():
     parser.add_argument(
         "--latex",
         type=Path,
-        help="Also write the manuscript table, e.g. paper/tables/table1_current_review.tex",
+        help="Also write the manuscript table, e.g. paper/tables/table1.tex",
     )
     parser.add_argument(
         "--layout", type=Path,

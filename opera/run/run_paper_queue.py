@@ -81,8 +81,25 @@ def encoder_key(config, row):
     )
 
 
+NOT_ESTIMABLE = "not_estimable.json"
+
+
+class NotEstimable(RuntimeError):
+    """The fit cannot be trained by design (e.g. no tuning patients to select on)."""
+
+
+def not_estimable_reason(log_text):
+    """The reason a training log ended in NoPatientsInSplit, or None."""
+    found = re.findall(r"NoPatientsInSplit: (.+)", log_text)
+    return found[-1].strip() if found else None
+
+
 def train_run(row, path, run_dir, audit_record):
-    """Preflight and train one bundle run in ``run_dir``; resumes its last.ckpt."""
+    """Preflight and train one bundle run in ``run_dir``; resumes its last.ckpt.
+
+    A fit whose disease has no patients in a split it needs is recorded in
+    ``not_estimable.json`` and raises NotEstimable instead of failing.
+    """
     run_dir = Path(run_dir)
     (run_dir / "encoder_audit.json").write_text(json.dumps(audit_record, indent=2) + "\n")
     subprocess.run(
@@ -98,8 +115,10 @@ def train_run(row, path, run_dir, audit_record):
         ],
         check=True,
     )
-    with (run_dir / "queue_training.log").open("a") as log:
-        subprocess.run(
+    log_path = run_dir / "queue_training.log"
+    start = log_path.stat().st_size if log_path.exists() else 0
+    with log_path.open("a") as log:
+        result = subprocess.run(
             [
                 sys.executable,
                 "-u",
@@ -113,8 +132,17 @@ def train_run(row, path, run_dir, audit_record):
             ],
             stdout=log,
             stderr=subprocess.STDOUT,
-            check=True,
         )
+    if result.returncode:
+        with log_path.open("rb") as handle:
+            handle.seek(start)
+            reason = not_estimable_reason(handle.read().decode(errors="replace"))
+        if reason:
+            (run_dir / NOT_ESTIMABLE).write_text(
+                json.dumps({"name": row["name"], "reason": reason}, indent=2) + "\n"
+            )
+            raise NotEstimable(reason)
+        raise subprocess.CalledProcessError(result.returncode, result.args)
     if not (run_dir / "training_complete.json").is_file():
         raise RuntimeError(f"Training exited without completion marker: {run_dir}")
     from bonsai.functional.checkpointing import verified_training_selection
@@ -318,8 +346,14 @@ def main():
         try:
             if (run_dir / "training_complete.json").is_file():
                 verified_training_selection(run_dir)
+            elif (run_dir / NOT_ESTIMABLE).is_file():
+                print(f"Not estimable: {row['name']}", flush=True)
+                continue
             else:
                 train_run(row, path, run_dir, audited[key])
+        except NotEstimable as reason:
+            print(f"Not estimable {row['name']}: {reason}", flush=True)
+            continue
         finally:
             claim.release()
         print(f"Completed/reused {row['name']}: {run_dir}", flush=True)

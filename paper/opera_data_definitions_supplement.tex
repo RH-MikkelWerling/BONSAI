@@ -80,9 +80,7 @@ the clinical definitions and state their limitations.
 \textbf{What counts?} The qualifying event and its threshold or code rule.\par
 \textbf{Who is eligible?} Required baseline information and source coverage.\par
 \textbf{How long is it observable?} Ascertainment, censoring and competing death.\par
-An unavailable label is not a negative outcome. Clinical rationale and known
-limitations accompany the implementation; unresolved source decisions remain
-listed in the companion open-question document.
+An unavailable label is not a negative outcome.
 \end{minipage}}
 \end{center}
 \tableofcontents
@@ -120,23 +118,13 @@ International Prognostic Index (IPI) & IPI at diagnosis & Population description
 \bottomrule
 \end{longtable}}
 
-\paragraph{Linkage of procedures.} Procedure records in LPR2 were linked to
-their admission or contact through the full record identifier; records with a
-missing identifier were not linked. A data-quality audit on 4 October 2026
-showed that an earlier linkage, which truncated long record identifiers, had
-failed to link procedures for 355,581 (surgical procedures) and 1,576,198
-(other procedures) distinct record identifiers. Correcting the linkage, and
-dating procedures by the procedure start rather than the admission start, added
-22,208 event labels and moved 5,484 event dates earlier, summed across seven
-procedure outcomes (not distinct patients). The corresponding audit of LPR3
-procedure-to-contact linkage found no lost records.
+\paragraph{Linkage of procedures.} Procedure records were linked to their
+admission or contact through the full record identifier and dated by the start
+of the procedure rather than of the admission.
 
 \paragraph{Data cutoff.} The administrative data cutoff was 19 March 2026 for
-all endpoints, including second-line treatment; an earlier cutoff of 4 March
-2026 was used only in historical sensitivity analyses. All endpoints shared the
-same cutoff, which was checked when composite outcomes were formed. A death
-recorded after the cutoff was treated as censoring at the cutoff, not as an
-event.
+all endpoints. A death recorded after the cutoff was treated as censoring at
+the cutoff, not as an event.
 
 % ===========================================================================
 \section{Study population and index date (first-line treatment)}\label{sec:population}
@@ -214,8 +202,7 @@ that all diseases share one definition of the index.
 
 \paragraph{The first line.} All other patients received their earliest
 qualifying episode, and patients without one had no index date and were not
-included. Two exploratory variants, one without the anti-CD20 rule and one
-falling back on registry-recorded treatment dates, were examined and not used.
+included.
 
 \paragraph{Cohort flow.} Supplementary Table~\ref{tab:flow} shows the cohort
 flow. Patients enter the outcome population only if they had a follow-up record
@@ -236,11 +223,11 @@ Stage & Patients\\
 Patients with a DALY-CARE haematological diagnosis (pretraining population) & 78,668\\
 \quad No qualifying first-line treatment & 40,033\\
 First-line index date identified (pass 1) & 38,635\\
-\quad Disease assigned in pass 1 (diagnoses from 20 years before to 14 days after index) & 37,357\\
+\quad Diagnosis assigned in pass 1 (diagnoses from 20 years before to 14 days after index) & 37,357\\
 \quad Unassigned after pass 1 & 1,278\\
 \quad Additionally assigned in pass 2 (coding-lag reassessment, up to 90 days after index) & 209\\
 \quad Unassigned after pass 2 (excluded) & 1,069\\
-Disease assigned after both passes & 37,566\\
+Diagnosis assigned after both passes & 37,566\\
 \quad IgM MGUS excluded & 9\\
 First-line cohort & 37,557\\
 \quad No follow-up after the index date or index on/after the data cutoff & 26\\
@@ -306,17 +293,13 @@ still applied), and disease was re-assigned with a 10-year look-back and a
 replacing their pass-1 index. This allowed a specific diagnosis registered up
 to 90 days after treatment start to define disease identity.
 
-\paragraph{Regimen-based assignment and exclusions.} Patients still unassigned
-after pass 2 could be assigned a disease group from their first-line regimen;
-this added no patients to the final cohort. Patients assigned IgM MGUS (DD472A)
-were excluded. Regimen-level characteristics (for example, salvage-like or
-radiotherapy-only first episodes) were recorded descriptively and did not lead
-to exclusion.
+\paragraph{Exclusions.} Patients still unassigned after pass 2, and patients
+assigned IgM MGUS, were excluded. Characteristics of the first regimen (for
+example radiotherapy alone) were recorded descriptively and did not lead to
+exclusion.
 
 \paragraph{Disease taxonomy.} The analysis used 24 disease subtypes nested in
-10 disease groups (Supplementary Table~\ref{tab:taxonomy}). The plasma-cell
-dyscrasia supergroup was grouped with MM and the generic marginal-zone group
-with indolent B-NHL; neither occurs among the 24 analysis subtypes.
+10 disease groups (Supplementary Table~\ref{tab:taxonomy}).
 
 \begin{table}[ht]
 \centering\footnotesize
@@ -354,9 +337,7 @@ token. Treatment and laboratory records on the index date itself were
 therefore not model inputs, although an index-date laboratory draw counted
 towards laboratory ascertainment (Section~\ref{sec:elig}). Because most
 records carry a date but no time, events on the index date cannot be ordered
-relative to treatment start; such events were not counted as outcomes, and
-models were evaluated on events occurring at least 1 hour after the
-prediction time.
+relative to treatment start; such events were not counted as outcomes.
 
 \paragraph{Pretraining.} The foundation model was pretrained with an exclusive
 calendar cutoff of 1 January 2022, applied in the same way, and its vocabulary
@@ -711,13 +692,9 @@ were administratively ascertained: all patients in the outcome population were
 eligible and censored at the administrative censoring date. The only calendar
 restriction was the SMR start date (index date on or after 15 May 2018) for
 the intravenous antimicrobial-use proxy and the infection composite that
-contains it. A previous restriction of procedure outcomes to the LPR3 era (go-live 3
-February 2019 plus 30 days) was removed after the procedure linkage and dating
-were corrected (Section~\ref{sec:sources}); hospitalisation and diagnosis
-outcomes were deliberately not restricted by era (decision of 5 October 2026).
-Calendar trends in registry capture are therefore part of these labels. For
-every outcome, the released label set itself defined the risk set; no
-additional eligibility masks were applied.
+contains it. Diagnosis, procedure and hospitalisation outcomes were not
+restricted to one register era, so calendar trends in registry capture are part
+of these labels.
 
 \subsection{Competing death and horizon labels}
 For a fixed horizon $h$, a patient was a case if the event occurred by $h$ and
@@ -737,14 +714,11 @@ and both treatment-failure composites) had no competing event.
 % ===========================================================================
 \section{Selection of the outcome panel}\label{sec:panel}
 
-The panel was selected from a historical list of 87 candidate outcomes using
-only training and tuning data. Support was the number of eligible patients
-with an event within 365 days of the index date, without a follow-up
-requirement. The minimum support was $\ge$100 events in training and $\ge$20
-in tuning. Held-out test counts were reported descriptively and never used for
-selection. Clinical decisions took precedence over support
-(Supplementary Table~\ref{tab:panel}); every released outcome was re-checked
-against the support threshold.
+The panel was selected from 87 candidate outcomes using training and tuning
+data only. Each outcome needed at least 100 events within a year of the index
+date in training and 20 in tuning, and clinical judgement of the definition took
+precedence over support (Supplementary Table~\ref{tab:panel}). Test-period
+counts played no part in the selection.
 
 {\footnotesize
 \setlength{\tabcolsep}{3pt}
@@ -756,25 +730,19 @@ Step & $n$ & Outcomes and reason\\
 \toprule
 Step & $n$ & Outcomes and reason\\
 \midrule\endhead
-Historical candidate list & 87 & \\
-Retired & $-$6 & Hypofibrinogenaemia grade $\ge$2 and grade $\ge$3 (sparse; assay, unit and baseline grading not verified); leukocytosis grade $\ge$2 (the grading algorithm requested grade 3 despite the label, and CTCAE v6 discourages the term for leukaemia-related rises); DIC-like coagulopathy, Hy's-law drug-induced liver injury and tumour lysis syndrome (laboratory co-occurrence proxies without the usual monitoring-based ascertainment).\\
+Candidate outcomes & 87 & \\
+Definition not reliable & $-$6 & Hypofibrinogenaemia grade $\ge$2 and grade $\ge$3 (sparse; assay and grading not verified); leukocytosis grade $\ge$2 (grading did not match the label, and the term is discouraged for disease-related rises); DIC-like coagulopathy, Hy's-law liver injury and tumour lysis syndrome (laboratory co-occurrence proxies without monitoring-based ascertainment).\\
 Definition concerns, excluded & $-$5 & Lymphopenia grade $\ge$2 and grade $\ge$3 (CTCAE v6 has no grade 2/3 tier); hypokalaemia grade $\ge$2 and grade $\ge$3 (local thresholds $\le$3.0 and $\le$2.5 mmol/L, not CTCAE v6); major adverse cardiovascular events (composite included atrial fibrillation, venous thromboembolism and heart failure).\\
 Below support threshold & $-$9 & AST increased grade $\ge$2 and grade $\ge$3; herpes zoster; hypermagnesaemia grade $\ge$3; hypoglycaemia grade $\ge$2 and grade $\ge$3; hypomagnesaemia grade $\ge$3; invasive fungal infection; myocardial infarction.\\
-Primary candidates & 60 & Met the support threshold; no clinical concern.\\
-Definition concerns, retained & $+$7 & Renamed to describe the measured quantity: alkaline phosphatase grade $\ge$2/$\ge$3 as alkaline phosphatase elevation tier $\ge$2/$\ge$3; hyponatraemia grade $\ge$3 as sodium $<$125 mmol/L; intravenous, prescription and combined infection outcomes as antimicrobial-use proxies. Hyponatraemia grade $\ge$2 kept its name. All met the support threshold.\\
-Replacements & 0 & ALT increased grade $\ge$2/$\ge$3 replaced by the baseline-relative definition; hepatotoxicity rebuilt with the baseline-relative ALT grade $\ge$3.\\
-Additions & $+$2 & Creatinine rise $>$1.5$\times$ pre-index baseline; potassium $<$3.0 mmol/L.\\
+Met support, no concern & 60 & \\
+Retained, renamed & $+$7 & Named for what they measure: alkaline phosphatase elevation tier $\ge$2/$\ge$3; sodium $<$125 mmol/L (for hyponatraemia grade $\ge$3); intravenous, prescription and combined infection outcomes as antimicrobial-use proxies; hyponatraemia grade $\ge$2. ALT increased and hepatotoxicity use the baseline-relative ALT definition.\\
+Added & $+$2 & Creatinine rise $>$1.5$\times$ pre-index baseline; potassium $<$3.0 mmol/L.\\
 \midrule
 Final panel & 69 & \\
 \bottomrule
 \end{longtable}}
 
-Candidate tumour lysis labels (shared laboratory ascertainment; $\ge$2 of urate
-$\ge$476\,\textmu mol/L, potassium $\ge$6.0 mmol/L, phosphate $\ge$1.45 mmol/L
-and calcium $\le$1.75 mmol/L on the same day, on days 1--7 after the index
-date; with a variant additionally involving kidney injury) remained
-exploratory and outside the panel, with 243/45/114 and 207/41/100 events
-(training/tuning/held-out test), respectively.
+
 
 % ===========================================================================
 \section{Composite outcomes, endpoint groups and display groups}\label{sec:composites}
@@ -843,9 +811,8 @@ completeness of the curated CLL and MM data, excludes patients with only weak
 retreatment evidence (enriching the risk set for events) and is censored at
 death or the data cutoff rather than at end of follow-up as for other
 outcomes.
-\item \textbf{Tumour lysis syndrome} is not part of the panel; candidate
-laboratory definitions remain exploratory and the historical co-occurrence
-proxy was retired.
+\item \textbf{Tumour lysis syndrome} is not part of the panel, because no
+laboratory definition could be ascertained reliably.
 \end{enumerate}
 
 \bibliographystyle{unsrtnat}

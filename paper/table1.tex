@@ -1,7 +1,6 @@
 % Table 1 and the CONSORT diagram.
-% Copy the disclosure-reviewed table1_current_review.tex into paper/tables/
-% (bring it to the current labels with: python -m opera.run.relabel_table1
-% paper/tables/table1_current_review.tex), then build with: pdflatex table1_review (x2)
+% Standalone sheet of paper/tables/table1.tex (approved 2026-10-20) and the
+% CONSORT diagram. Build with: pdflatex table1 (x2)
 \documentclass[11pt]{article}
 \usepackage[a4paper,margin=1.6cm,top=1.4cm,bottom=1.4cm]{geometry}
 \usepackage[T1]{fontenc}
@@ -26,16 +25,16 @@
 
 \begin{document}
 \renewcommand{\cref}[1]{\indextableref}
-\IfFileExists{tables/table1_current_review.tex}
-  {\input{tables/table1_current_review}}
-  {\input{tables/table1_current_layout}}
+\input{tables/table1}
 \clearpage
 \begin{figure}[p]
 \centering
 \resizebox{!}{0.84\textheight}{\input{figures/cohort_flow}}
 \caption{\textbf{CONSORT diagram.} From the pretraining population, every DALY-CARE
-patient with a lymphoid cancer diagnosis, to the final supervised cohort and its
-temporal split. Not every patient contributes to
+patient with a lymphoid cancer diagnosis, to the final cohort and its temporal
+split. A diagnosis was assigned to 37,357 patients from diagnoses recorded up to
+14 days after treatment start, and to a further 209 on reassessment up to day 90
+for late-coded diagnoses. Not every patient contributes to
 every endpoint: outcome-specific eligibility, competing events and follow-up are
 applied within each split.}
 \label{fig:consort}
