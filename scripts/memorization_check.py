@@ -323,13 +323,15 @@ def run_bonsai(model, subjects_by_split, *, prompts, news, n, device, batch_size
 
 
 def plot(summary, path, train, heldout):
+    """Exact match by continuation length: colour = prompt length, style = split."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
     except ImportError:  # pragma: no cover
         return
-    fig, ax = plt.subplots(figsize=(6.4, 3.8))
+    fig, ax = plt.subplots(figsize=(6.6, 3.9))
     prompts = sorted(summary.prompt_tokens.unique())
     colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(prompts)))
     for color, prompt in zip(colors, prompts):
@@ -338,14 +340,22 @@ def plot(summary, path, train, heldout):
                                & (summary.split == split)].sort_values("new_tokens")
             if len(part):
                 ax.plot(part.new_tokens, part.exact_match, style, color=color, marker="o",
-                        markersize=3, label=f"X={prompt}, {split}")
+                        markersize=3)
                 ax.fill_between(part.new_tokens, part.exact_match_lower,
                                 part.exact_match_upper, color=color, alpha=0.08, lw=0)
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("Generated tokens (Y)")
-    ax.set_ylabel("Exact 1-1 match with the patient")
-    ax.set_title("Training patients (solid) vs unseen patients (dashed)", fontsize=9)
-    ax.legend(fontsize=6, ncol=2, frameon=False)
+    ax.set_xlabel("Events to reproduce after the prompt (Y)")
+    ax.set_ylabel("Exact match with the patient's record")
+    ax.set_title("Does the model reproduce the patients it was trained on?", fontsize=9)
+    by_prompt = [Line2D([], [], color=c, marker="o", markersize=3, label=f"{p:,}")
+                 for c, p in zip(colors, prompts)]
+    by_split = [Line2D([], [], color="0.3", linestyle="-", label="Training patients"),
+                Line2D([], [], color="0.3", linestyle="--",
+                       label="Unseen patients (never trained on)")]
+    first = ax.legend(handles=by_prompt, title="Prompt length (X events)", fontsize=6.5,
+                      title_fontsize=7, frameon=False, loc="upper right")
+    ax.add_artist(first)
+    ax.legend(handles=by_split, fontsize=6.5, frameon=False, loc="upper center")
     fig.tight_layout()
     fig.savefig(path, dpi=200)
 

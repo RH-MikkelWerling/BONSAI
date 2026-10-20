@@ -60,9 +60,9 @@
   \coordinate (L) at ($(train.west)+(-1mm,0)$);
   \coordinate (R) at ($(x2.east)+(1mm,0)$);
   \begin{scope}[on background layer]
-    \node[band, fit=(pre)(L |- {$(pre.north)+(0,12mm)$})(R |- pre.south)] (bpre) {};
-    \node[band, fit=(index)(firstline)(L |- {$(index.north)+(0,12mm)$})(R |- firstline.south)] (basc) {};
-    \node[band, fit=(cohort)(train)(test)(L |- {$(cohort.north)+(0,12mm)$})(R |- train.south)] (bsup) {};
+    \node[band, fit=(pre)(L |- {$(pre.north)+(0,9mm)$})(R |- pre.south)] (bpre) {};
+    \node[band, fit=(index)(firstline)(L |- {$(index.north)+(0,9mm)$})(R |- firstline.south)] (basc) {};
+    \node[band, fit=(cohort)(train)(test)(L |- {$(cohort.north)+(0,9mm)$})(R |- train.south)] (bsup) {};
   \end{scope}
   % Exclusions between bands sit in the middle of the white gap.
   \foreach \up/\down/\name/\body in {
@@ -74,13 +74,9 @@
     \node[excl, anchor=west] (\name) at ($(m\name)+(35mm,0)$) {\body};
     \draw[exclarrow] (m\name) -- (\name.west);
   }
-  \foreach \b/\colour/\eyebrowtext/\title in {
-      bpre/OperaIndigo/PRETRAINING POPULATION/{Pretrains the encoder},
-      basc/OperaInkMuted/FIRST-LINE ASCERTAINMENT/{Starting first-line treatment},
-      bsup/OperaTeal/FINAL SUPERVISED COHORT/{Trains, tunes and tests every model}} {
-    \node[eyebrow, font=\sffamily\fontsize{7.8}{9}\selectfont\bfseries, text=\colour,
-          anchor=north west] at ($(\b.north west)+(3.4mm,-2.6mm)$) {\eyebrowtext};
-    \node[heading, font=\sffamily\fontsize{10.5}{12.5}\selectfont\bfseries,
-          anchor=north west] at ($(\b.north west)+(3.4mm,-6.2mm)$) {\title};
-  }
+  \foreach \b/\colour/\title in {bpre/OperaIndigo/Pretraining population,
+                                 basc/OperaInkSecondary/First-line ascertainment,
+                                 bsup/OperaTeal/Final supervised cohort}
+    \node[heading, font=\sffamily\fontsize{11}{13}\selectfont\bfseries, text=\colour,
+          anchor=north west] at ($(\b.north west)+(3.4mm,-3.0mm)$) {\title};
 \end{tikzpicture}
