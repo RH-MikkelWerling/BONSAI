@@ -128,7 +128,12 @@ predicted all six horizons and was trained with the same settings
 (\cref{tab:model-spec}) on the same target patients, labels and horizons. Each
 selected its checkpoint on the tuning labels within its own scope, so a
 contrast between scopes includes what the extra labels do to training as well
-as to the final prediction. Because equal epochs do not mean equal computation,
+as to the final prediction. A disease without tuning patients therefore cannot
+have a model of its own: nodal marginal-zone lymphoma had five training patients
+and none in 2022 (\cref{tab:characteristics}), so its specialists and its
+outcome-pooled model were not estimable by design and were recorded as such,
+not as failures; its predictions come only from the disease-pooled, joint and
+routed models. Because equal epochs do not mean equal computation,
 optimisation steps and compute are reported for each scope.
 
 \operasubsection{Outcome panel}

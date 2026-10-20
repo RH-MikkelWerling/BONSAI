@@ -385,6 +385,31 @@ def next_runnable(args, decisions, audited, blocked_encoders):
     return None, None, None, None, None, waiting
 
 
+def clear_stale(args):
+    """List stale claims (killed jobs, e.g. walltime); remove them with --execute.
+
+    Only run --execute once the jobs that held them have stopped (qstat): a
+    heartbeat older than --stale-minutes means the worker stopped beating,
+    which after a walltime kill is certain. The next worker resumes each fit
+    from its own last.ckpt.
+    """
+    stale = []
+    for row, _, _ in todo(args.bundle_dir, load_decisions(args.decisions)):
+        run_dir = args.runs_dir / row["run_directory"]
+        state = run_state(run_dir, stale_minutes=args.stale_minutes,
+                          max_attempts=args.max_attempts)
+        if state not in {"stale_claim", "claim_unreadable"}:
+            continue
+        claim = read_json(run_dir / CLAIM) or {}
+        stale.append({"name": row["name"], "state": state, "host": claim.get("host"),
+                      "worker": claim.get("worker"), "heartbeat_at": claim.get("heartbeat_at"),
+                      "resumes_from_last_ckpt": (run_dir / "last.ckpt").is_file()})
+        if args.execute:
+            (run_dir / CLAIM).unlink(missing_ok=True)
+    print(json.dumps({"stale_claims": stale, "cleared": bool(args.execute)}, indent=2))
+    return stale
+
+
 def mark_not_estimable(args):
     """Record a disease's own fits (O and S) as not estimable before they run.
 
@@ -480,7 +505,9 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("command", choices=("next", "status", "mark-not-estimable"))
+    parser.add_argument("command", choices=("next", "status", "mark-not-estimable", "clear-stale"))
+    parser.add_argument("--execute", action="store_true",
+                        help="clear-stale: remove the stale claims (default: only list them)")
     parser.add_argument("--fine", help="mark-not-estimable: the disease (cohort_fine)")
     parser.add_argument("--reason", help="mark-not-estimable: why, recorded with each fit")
     parser.add_argument(
@@ -515,6 +542,9 @@ def main():
         parser.error("stale-minutes must comfortably exceed the heartbeat interval")
     if args.command == "status":
         status(args)
+        return
+    if args.command == "clear-stale":
+        clear_stale(args)
         return
     if args.command == "mark-not-estimable":
         if not (args.fine and args.reason):

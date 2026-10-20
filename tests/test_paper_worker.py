@@ -316,3 +316,20 @@ def test_marking_a_disease_not_estimable_also_stops_older_workers(tmp_path):
     assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "not_estimable"
     (run_dir / worker.NOT_ESTIMABLE).unlink()  # what a worker without this code sees
     assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "failed"
+
+
+def test_stale_claims_are_listed_and_cleared_only_on_request(tmp_path):
+    directory = bundle(tmp_path)
+    worker._RAW.clear()
+    args = options(tmp_path, directory, execute=False)
+    row = worker.todo([directory], {})[0][0]
+    run_dir = args.runs_dir / row["run_directory"]
+    run_dir.mkdir(parents=True)
+    old = (worker.now() - timedelta(hours=2)).isoformat()
+    (run_dir / worker.CLAIM).write_text(json.dumps({"host": "n1", "heartbeat_at": old}))
+    assert [s["name"] for s in worker.clear_stale(args)] == [row["name"]]
+    assert (run_dir / worker.CLAIM).exists()
+    args.execute = True
+    worker.clear_stale(args)
+    assert not (run_dir / worker.CLAIM).exists()
+    assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "pending"

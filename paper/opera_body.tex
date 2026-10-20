@@ -486,7 +486,8 @@ computed from its registry components was compared with \opera{} on the same
 patients \placeholder{result} (\cref{fig:score-overview}). \placeholder{Number and
 share of cells in which sharing was worse than the specialist, with examples.}
 Pooled models also predicted \placeholder{N} cells for which no specialist could
-be trained, with \placeholder{absolute performance}
+be trained, including every outcome in nodal marginal-zone lymphoma, which had
+no patients in the tuning year and so no model of its own, with \placeholder{absolute performance}
 (\cref{fig:supp-pooling-cells,fig:supp-horizons}).
 
 \begin{figure}[H]
@@ -697,7 +698,10 @@ own.} Sharing everything is not guaranteed to help: multi-task studies of health
 records have reported uneven benefits and negative transfer
 \citep{harutyunyan2019multitask,mcdermott2020mtl,ding2019phenotyping}, and in our
 earlier study, pooling related aggressive lymphomas matched but did not clearly
-improve on a model trained on DLBCL alone \citep{werling2026dlbcl}.
+improve on a model trained on DLBCL alone \citep{werling2026dlbcl}. At the
+other extreme, sharing is the only option: nodal marginal-zone lymphoma had five
+training patients and none in the tuning year, so no model of its own could be
+fitted or selected, and every prediction for it came from a shared model.
 \placeholder{Whether and where sharing everything hurt here, and whether learning
 what to borrow recovered it.} The routing controls locate the gain:
 the gain did not come from added capacity, from knowing the diagnosis or from
