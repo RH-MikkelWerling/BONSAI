@@ -385,6 +385,67 @@ def next_runnable(args, decisions, audited, blocked_encoders):
     return None, None, None, None, None, waiting
 
 
+def epoch_progress(run_dir, monitor):
+    """Validated epochs across every resume, the best epoch and the last save."""
+    import pandas as pd
+
+    frames = []
+    for path in sorted(Path(run_dir).glob("contrastive_multicohort_runs/*/metrics.csv")):
+        try:
+            frame = pd.read_csv(path)
+        except (OSError, ValueError, pd.errors.EmptyDataError):
+            continue
+        if monitor in frame and "epoch" in frame:
+            frames.append(frame[["epoch", monitor]].dropna())
+    result = {"epochs_done": 0, "best_epoch": None, "epochs_since_best": None}
+    if frames:
+        scores = pd.concat(frames).groupby("epoch")[monitor].last()
+        best = scores.idxmax() if "auc" in monitor.lower() else scores.idxmin()
+        result.update(epochs_done=int(scores.index.max()) + 1, best_epoch=int(best),
+                      epochs_since_best=int(scores.index.max() - best))
+    last = Path(run_dir) / "last.ckpt"
+    result["last_checkpoint_at"] = (
+        datetime.fromtimestamp(last.stat().st_mtime, timezone.utc).isoformat()
+        if last.is_file() else None)
+    return result
+
+
+def progress(args):
+    """Where each unfinished non-specialist fit stands, and what a kill lost.
+
+    ``lost_minutes`` is the time between the fit's last saved checkpoint and its
+    last heartbeat: training a killed job did that a resume repeats. Epochs left
+    is an upper bound from the epoch budget and early-stopping patience.
+    """
+    report, specialists = [], Counter()
+    for row, bundle_dir, gate in todo(args.bundle_dir, load_decisions(args.decisions)):
+        run_dir = args.runs_dir / row["run_directory"]
+        state = gate or run_state(run_dir, stale_minutes=args.stale_minutes,
+                                  max_attempts=args.max_attempts)
+        if row["phase"] == "supervision" and row["regime"] == "S":
+            specialists[state.split(":")[0]] += 1
+            continue
+        if state in {"complete", "not_estimable"} or state.startswith("blocked"):
+            continue
+        training = raw_config(bundle_dir, row)["training"]
+        entry = {"name": row["name"], "phase": row["phase"], "state": state,
+                 **epoch_progress(run_dir, training["eval_monitor_metric"])}
+        if entry["epochs_since_best"] is not None:
+            entry["max_epochs_left"] = min(
+                int(training["epochs"]) - entry["epochs_done"],
+                int(training.get("early_stopping_patience") or 10**6)
+                - entry["epochs_since_best"])
+        claim = read_json(run_dir / CLAIM) or {}
+        entry["host"], entry["last_heartbeat"] = claim.get("host"), claim.get("heartbeat_at")
+        if entry["last_heartbeat"] and entry["last_checkpoint_at"]:
+            lost = (datetime.fromisoformat(entry["last_heartbeat"])
+                    - datetime.fromisoformat(entry["last_checkpoint_at"]))
+            entry["lost_minutes"] = round(max(lost.total_seconds(), 0) / 60)
+        report.append(entry)
+    print(json.dumps({"long_fits": report, "specialists": dict(specialists)}, indent=2))
+    return report
+
+
 def clear_stale(args):
     """List stale claims (killed jobs, e.g. walltime); remove them with --execute.
 
@@ -505,7 +566,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("command", choices=("next", "status", "mark-not-estimable", "clear-stale"))
+    parser.add_argument("command", choices=("next", "status", "mark-not-estimable", "clear-stale", "progress"))
     parser.add_argument("--execute", action="store_true",
                         help="clear-stale: remove the stale claims (default: only list them)")
     parser.add_argument("--fine", help="mark-not-estimable: the disease (cohort_fine)")
@@ -542,6 +603,9 @@ def main():
         parser.error("stale-minutes must comfortably exceed the heartbeat interval")
     if args.command == "status":
         status(args)
+        return
+    if args.command == "progress":
+        progress(args)
         return
     if args.command == "clear-stale":
         clear_stale(args)

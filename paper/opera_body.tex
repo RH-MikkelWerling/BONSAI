@@ -241,11 +241,21 @@ instead learns what to borrow: each disease and each outcome has a small adapter
 trained only on its own labels, and for every patient and target outcome a
 router weighs these adapters, so that a prediction can draw on the diseases and
 outcomes that help it and ignore the rest (\cref{fig:source-router})
-\citep{ma2018mmoe,houlsby2019adapters,hu2022lora}. Three controls separate
-learning what to borrow from simpler explanations: a router without adapters
-tests added capacity, a joint model told the patient's disease tests knowing the
+\citep{ma2018mmoe,houlsby2019adapters,hu2022lora}. Controls separate
+learning what to borrow from simpler explanations. A router with every source
+switched off is functionally the joint model: it checks that the routing
+machinery changes nothing by itself and shows how much two otherwise identical
+fits differ. A joint model told the patient's disease tests knowing the
 diagnosis, and models restricted to the patient's own disease or outcome adapter
-test task-specific capacity without borrowing.
+test the adapters' added capacity without borrowing. We expected borrowing
+across outcomes to add little, because the joint model already shares one
+encoder across all outcomes and gives each outcome its own output layer. The
+disease, too, is largely known to the joint model, whose encoder reads the
+diagnoses in the record; what it lacks are parameters of each disease's own,
+through which the same finding can carry different weight in different
+diseases. The controls separate the three: the disease-told model adds the
+identity, the own-disease adapter adds disease-specific parameters, and the
+router adds borrowing.
 
 The broadest source is the population. Joint and routed models were also
 initialised from the PHAIR encoder \placeholder{PHAIR reference}, pretrained
@@ -518,10 +528,11 @@ The joint model gives every prediction the same shared signal. The routed model
 learns, for each patient and target, which diseases and outcomes to draw on
 (\cref{fig:source-router}). Routing changed one-year AUC by \result{R1_auc}{X}
 and IPA by \result{R1_ipa}{Y} relative to the joint model, and had the higher
-AUC in \result{R1_better}{N of M} cells (\cref{fig:routing}A). The gain was not
-added capacity: the router without adapters differed from the joint model by
-\result{R0_auc}{X}. \placeholder{Nor was it knowing the diagnosis, or having
-task-specific capacity: a joint model told the disease, and models restricted to
+AUC in \result{R1_better}{N of M} cells (\cref{fig:routing}A). The joint model
+and the router with every source switched off, two fits of the same model,
+differed by \result{R0_auc}{X}, which sets the noise floor for these
+comparisons. \placeholder{The gain was not knowing the diagnosis or the
+adapters' added capacity: a joint model told the disease, and models restricted to
 the patient's own disease or outcome adapter, accounted for X and Y of the
 routing gain, so Z came from borrowing from other diseases and outcomes.}
 \placeholder{Disease adapters, outcome adapters and both changed AUC by X, Y and
@@ -704,8 +715,8 @@ training patients and none in the tuning year, so no model of its own could be
 fitted or selected, and every prediction for it came from a shared model.
 \placeholder{Whether and where sharing everything hurt here, and whether learning
 what to borrow recovered it.} The routing controls locate the gain:
-the gain did not come from added capacity, from knowing the diagnosis or from
-task-specific capacity alone, but from borrowing \placeholder{if the results
+the gain did not come from knowing the diagnosis or from the adapters' added
+capacity, but from borrowing \placeholder{if the results
 hold}. A model that chooses its sources can take what helps a prediction and
 leave what does not, which may make sharing easier to apply where its effect
 cannot be known in advance. The attributions add that sharing did not blur the

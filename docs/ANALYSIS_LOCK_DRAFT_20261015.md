@@ -43,7 +43,23 @@ Fixed before any held-out evaluation. When agreed, these values are written into
 ## Claims
 - Practical margin: ±0.01 AUC, ±0.01 IPA.
 - Router-null gate (R0, no-source router vs joint): interval within ±0.005 AUC
-  before source-bank effects (R2–R7) are interpreted.
+  before source-bank effects (R2–R7) are interpreted. With every source masked
+  the router's correction is exactly zero, so R0 is the joint model with a
+  different initialisation: it checks the routing machinery and measures the
+  difference between two fits of the same model (the noise floor). It does not
+  test capacity; RDH and ROH (own adapter, no borrowing) do.
+- Router decisions on tuning data (added 2026-10-20, before any source-screen
+  fit had finished). Paired patient bootstrap on the tuning patients, 1,000
+  replicates, seed 2026, same draws for every fit; panel one-year AUC and Brier
+  differences weighted as for the panel summaries. A candidate replaces the
+  default (disease_only; rank 8; interacting query, width 128) only if the 95%
+  interval of its AUC gain excludes 0, the point gain exceeds both 0.01 and
+  |R0|, and its Brier score is not worse. Otherwise the default, or the simpler
+  option, is kept. Outcome sources (outcome_only, both) must pass this against
+  disease_only.
+- If the R0 gate fails, the router proceeds with the defaults throughout, the
+  source-bank contrasts are reported as not interpretable, and |R0| is reported
+  as the noise floor for every single-seed contrast.
 - Label per contrast and horizon: **better** if the pooled 95% interval excludes
   0 and P(gain > margin) ≥ 0.95; **equivalent** if the interval lies within
   ±margin; otherwise **inconclusive**.

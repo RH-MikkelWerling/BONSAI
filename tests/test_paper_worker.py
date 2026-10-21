@@ -333,3 +333,24 @@ def test_stale_claims_are_listed_and_cleared_only_on_request(tmp_path):
     worker.clear_stale(args)
     assert not (run_dir / worker.CLAIM).exists()
     assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "pending"
+
+
+def test_progress_reports_epochs_across_resumes_and_time_lost(tmp_path):
+    directory = bundle(tmp_path)
+    worker._RAW.clear()
+    args = options(tmp_path, directory)
+    row, bundle_dir, _ = next(item for item in worker.todo([directory], {})
+                              if item[0]["regime"] != "S")
+    monitor = worker.raw_config(bundle_dir, row)["training"]["eval_monitor_metric"]
+    run_dir = args.runs_dir / row["run_directory"]
+    for version, rows in enumerate(([(0, 0.5), (1, 0.4)], [(2, 0.45), (3, 0.46)])):
+        logs = run_dir / "contrastive_multicohort_runs" / f"version_{version}"
+        logs.mkdir(parents=True)
+        lines = ["epoch,step," + monitor] + [f"{e},{e},{v}" for e, v in rows]
+        (logs / "metrics.csv").write_text("\n".join(lines) + "\n")
+    (run_dir / "last.ckpt").write_bytes(b"x")
+    beat = (worker.now() + timedelta(minutes=50)).isoformat()
+    (run_dir / worker.CLAIM).write_text(json.dumps({"host": "n1", "heartbeat_at": beat}))
+    entry = next(e for e in worker.progress(args) if e["name"] == row["name"])
+    assert entry["epochs_done"] == 4 and entry["best_epoch"] == 1
+    assert entry["epochs_since_best"] == 2 and entry["lost_minutes"] in (49, 50)
