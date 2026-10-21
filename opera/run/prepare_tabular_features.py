@@ -16,6 +16,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="One or more source pickle/CSV/parquet feature matrices.",
     )
     parser.add_argument("--population", required=True)
+    parser.add_argument("--demographics",
+                        help="subject_id, sex and birth_date (the Table 1 demographics "
+                             "export), when the membership file lacks them.")
     parser.add_argument(
         "--feature_profile",
         nargs="+",
@@ -39,6 +42,7 @@ def main() -> None:
                 population_path=args.population,
                 output_dir=args.output_dir,
                 overwrite=args.overwrite,
+                demographics_path=args.demographics,
             )
             print(
                 f"prepared/reused ({profile}): {source} -> {target} "

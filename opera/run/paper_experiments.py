@@ -292,6 +292,8 @@ def build_commands(args, env):
                 *sources,
                 "--population",
                 path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+                *(("--demographics", path_value(env, "OPERA_PAPER_DEMOGRAPHICS"))
+                  if env.get("OPERA_PAPER_DEMOGRAPHICS") else ()),
                 "--output_dir",
                 root / "features",
                 # Primary matrices, and ones keeping the quality-registry
@@ -408,6 +410,8 @@ def build_commands(args, env):
             *(("--identity-date-column", env["OPERA_PAPER_IDENTITY_DATE_COLUMN"])
               if env.get("OPERA_PAPER_IDENTITY_DATE_COLUMN") else ()),
             "--output", path_value(env, "OPERA_PAPER_PATIENT_METADATA"))
+        if env.get("OPERA_PAPER_DEMOGRAPHICS"):
+            command += ["--demographics", str(path_value(env, "OPERA_PAPER_DEMOGRAPHICS"))]
         if env.get("OPERA_PAPER_CLINICAL_METADATA"):
             command += ["--clinical-metadata",
                         str(path_value(env, "OPERA_PAPER_CLINICAL_METADATA"))]

@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from opera.functional.tabular_features import prepare_feature_matrix
@@ -82,3 +83,28 @@ def test_sequence_matched_profile_uses_existing_age_and_sex_keywords(tmp_path):
     assert result["matched_sex"].tolist() == ["F", "M"]
     assert manifest["age_source"] == "age_years"
     assert manifest["sex_source"] == "biological_sex"
+
+
+def test_sealed_membership_uses_firstline_date_and_joined_demographics(tmp_path):
+    """The sealed membership file has firstline_date and no age or sex; those
+    come from the Table 1 demographics export."""
+    source = tmp_path / "DLBCL.pkl"
+    pd.DataFrame({"patientid": [1, 2], "timestamp": ["a", "b"],
+                  "numeric__pred_lab": [1.0, 2.0]}).to_pickle(source)
+    membership = tmp_path / "population_metadata.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "cohort_fine": ["DLBCL"] * 3,
+                  "firstline_date": ["2020-01-01", "2021-06-01", None]}
+                 ).to_parquet(membership)
+    demographics = tmp_path / "table1_demographics.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "sex": ["F", "M", "F"],
+                  "birth_date": pd.to_datetime(["1950-01-01", "1960-06-01", "1970-01-01"])}
+                 ).to_parquet(demographics)
+
+    target, manifest = prepare_feature_matrix(
+        source, profile="sequence_matched", population_path=membership,
+        output_dir=tmp_path / "out", demographics_path=demographics)
+    result = pd.read_parquet(target).set_index("subject_id")
+    assert manifest["age_source"] == "index_date-birth_date"
+    assert result.loc[1, "age_at_index"] == pytest.approx(70.0, abs=0.01)
+    assert result.loc[2, "matched_sex"] == "M"
+    assert "demographics" in manifest

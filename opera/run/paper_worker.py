@@ -429,6 +429,7 @@ def progress(args):
             continue
         training = raw_config(bundle_dir, row)["training"]
         entry = {"name": row["name"], "phase": row["phase"], "state": state,
+                 "run_directory": str(run_dir),
                  **epoch_progress(run_dir, training["eval_monitor_metric"])}
         if entry["epochs_since_best"] is not None:
             entry["max_epochs_left"] = min(
@@ -466,6 +467,22 @@ def clear_stale(args):
                       "worker": claim.get("worker"), "heartbeat_at": claim.get("heartbeat_at"),
                       "resumes_from_last_ckpt": (run_dir / "last.ckpt").is_file()})
         if args.execute:
+            # A killed job never records its attempt; log it from the claim so
+            # the compute inventory counts the GPU time it used.
+            try:
+                started = datetime.fromisoformat(claim["claimed_at"])
+                ended = datetime.fromisoformat(claim["heartbeat_at"])
+            except (KeyError, TypeError, ValueError):
+                started = ended = None
+            if started and ended:
+                with (run_dir / ATTEMPTS).open("a") as handle:
+                    handle.write(json.dumps({
+                        "worker": claim.get("worker"), "host": claim.get("host"),
+                        "cuda_visible_devices": claim.get("gpu"), "gpu": None,
+                        "started_at": started.isoformat(), "finished_at": ended.isoformat(),
+                        "wall_seconds": max((ended - started).total_seconds(), 0.0),
+                        "status": "killed",
+                    }) + "\n")
             (run_dir / CLAIM).unlink(missing_ok=True)
     print(json.dumps({"stale_claims": stale, "cleared": bool(args.execute)}, indent=2))
     return stale

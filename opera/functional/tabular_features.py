@@ -48,11 +48,41 @@ def read_feature_table(path: str | Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported feature-table format: {source}")
 
 
-def _read_population(path: str | Path) -> pd.DataFrame:
+def _read_population(
+    path: str | Path, demographics: str | Path | None = None
+) -> pd.DataFrame:
+    """Membership table, with the index date and demographics the code expects.
+
+    The sealed membership file records the index as ``firstline_date`` (checked
+    equal to the survival outcome's ``index_date`` when it was built) and has
+    no birth date or sex; those come from the Table 1 demographics export
+    (``subject_id``, ``sex``, ``birth_date``), joined when given.
+    """
     source = Path(path)
     if source.suffix.lower() in {".parquet", ".pq"}:
-        return pd.read_parquet(source)
-    return pd.read_csv(source, low_memory=False)
+        population = pd.read_parquet(source)
+    else:
+        population = pd.read_csv(source, low_memory=False)
+    if "index_date" not in population and "firstline_date" in population:
+        population["index_date"] = population["firstline_date"]
+    if demographics is not None:
+        extra = _read_population(demographics)
+        if "subject_id" not in extra and "patientid" in extra:
+            extra = extra.rename(columns={"patientid": "subject_id"})
+        columns = [c for c in ("birth_date", "sex") if c in extra and c not in population]
+        if columns:
+            extra = extra[["subject_id", *columns]].dropna(subset=["subject_id"])
+            if extra["subject_id"].duplicated().any():
+                raise ValueError("Demographics contain duplicate subject_id rows.")
+            if pd.api.types.is_numeric_dtype(population["subject_id"]):
+                extra["subject_id"] = pd.to_numeric(extra["subject_id"], errors="coerce")
+            else:
+                extra["subject_id"] = extra["subject_id"].astype("string").str.strip()
+                population["subject_id"] = (
+                    population["subject_id"].astype("string").str.strip())
+            population = population.merge(extra, on="subject_id", how="left",
+                                          validate="many_to_one")
+    return population
 
 
 def _file_signature(path: Path) -> dict[str, Any]:
@@ -86,7 +116,8 @@ def _age_at_index(population: pd.DataFrame) -> tuple[pd.Series, str]:
         return (index_date - birth_date).dt.days / 365.2425, "index_date-birth_date"
     raise ValueError(
         "Population metadata cannot supply age: expected age_at_index, age, "
-        "age_years, age_at_diagnosis, or index_date plus birth_date."
+        "age_years, age_at_diagnosis, or index_date plus birth_date (set "
+        "OPERA_PAPER_DEMOGRAPHICS to the Table 1 demographics export)."
     )
 
 
@@ -118,6 +149,7 @@ def prepare_sequence_matched_features(
     *,
     overwrite: bool = False,
     profile: str = SEQUENCE_MATCHED_PROFILE,
+    demographics_path: str | Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Prepare or reuse a sequence-matched (or registry-augmented) feature parquet."""
     keep_registry = profile == REGISTRY_AUGMENTED_PROFILE
@@ -130,6 +162,8 @@ def prepare_sequence_matched_features(
         "source": _file_signature(source),
         "population": _file_signature(population_source),
     }
+    if demographics_path is not None:
+        expected_inputs["demographics"] = _file_signature(Path(demographics_path))
     if target.exists() and manifest_path.exists() and not overwrite:
         with open(manifest_path) as handle:
             cached = json.load(handle)
@@ -137,7 +171,7 @@ def prepare_sequence_matched_features(
             return target, cached
 
     features = read_feature_table(source)
-    population = _read_population(population_source)
+    population = _read_population(population_source, demographics_path)
     original_shape = [int(features.shape[0]), int(features.shape[1])]
     if "subject_id" not in features.columns:
         if "patientid" not in features.columns:
@@ -238,6 +272,7 @@ def prepare_feature_matrix(
     population_path: str | Path,
     output_dir: str | Path | None = None,
     overwrite: bool = False,
+    demographics_path: str | Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Prepare a source matrix under a named, cacheable feature profile."""
     if profile not in SUPPORTED_PROFILES:
@@ -249,6 +284,7 @@ def prepare_feature_matrix(
     directory = Path(output_dir) if output_dir else source.parent / "prepared"
     target = directory / f"{source.stem}__{profile}.parquet"
     return prepare_sequence_matched_features(
-        source, population_path, target, overwrite=overwrite, profile=profile
+        source, population_path, target, overwrite=overwrite, profile=profile,
+        demographics_path=demographics_path,
     )
 

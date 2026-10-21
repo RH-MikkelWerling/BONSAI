@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from opera.functional.tabular_features import read_feature_table
+from opera.functional.tabular_features import _read_population, read_feature_table
 from opera.run.paper_tabular_queue import tabular_jobs
 
 SUFFIXES = {".pkl", ".pickle", ".parquet", ".pq", ".csv"}
@@ -21,7 +21,7 @@ SUFFIXES = {".pkl", ".pickle", ".parquet", ".pq", ".csv"}
 
 def neural_patients(population_path, cohorts, index_column) -> pd.Series:
     """Index date per neural patient of these cohorts (indexed by subject_id)."""
-    population = read_feature_table(population_path)
+    population = _read_population(population_path)  # index_date from firstline_date
     population = population[population["cohort_fine"].astype(str).isin(cohorts)]
     ids = population["subject_id"].astype("string").str.strip()
     dates = pd.to_datetime(population[index_column], errors="coerce")

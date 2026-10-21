@@ -123,6 +123,9 @@ def main():
     parser.add_argument("--population", type=Path, required=True,
                         help="Cohort membership with subject_id, index date, age/birth "
                              "date, sex, cohort_fine and the index/IPI columns.")
+    parser.add_argument("--demographics", type=Path,
+                        help="subject_id, sex and birth_date, when the membership file "
+                             "lacks them (the Table 1 demographics export).")
     parser.add_argument("--clinical-metadata", type=Path,
                         help="Optional separate table with subject_id, index and IPI.")
     parser.add_argument("--subject-data-dir", type=Path, required=True)
@@ -138,7 +141,7 @@ def main():
     from opera.functional.outcomes import _pandas_abspos
     from opera.modules.datamodules.OutcomeFinetuneDataModule import load_subject_pool
 
-    population = _read_population(args.population)
+    population = _read_population(args.population, args.demographics)
     if args.clinical_metadata:
         clinical = _read_population(args.clinical_metadata)
         # The prognostic index and, when the membership file lacks them,

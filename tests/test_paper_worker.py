@@ -326,12 +326,16 @@ def test_stale_claims_are_listed_and_cleared_only_on_request(tmp_path):
     run_dir = args.runs_dir / row["run_directory"]
     run_dir.mkdir(parents=True)
     old = (worker.now() - timedelta(hours=2)).isoformat()
-    (run_dir / worker.CLAIM).write_text(json.dumps({"host": "n1", "heartbeat_at": old}))
+    start = (worker.now() - timedelta(hours=5)).isoformat()
+    (run_dir / worker.CLAIM).write_text(
+        json.dumps({"host": "n1", "claimed_at": start, "heartbeat_at": old}))
     assert [s["name"] for s in worker.clear_stale(args)] == [row["name"]]
     assert (run_dir / worker.CLAIM).exists()
     args.execute = True
     worker.clear_stale(args)
     assert not (run_dir / worker.CLAIM).exists()
+    killed = json.loads((run_dir / worker.ATTEMPTS).read_text())
+    assert killed["status"] == "killed" and round(killed["wall_seconds"] / 3600) == 3
     assert worker.run_state(run_dir, stale_minutes=30, max_attempts=2) == "pending"
 
 
