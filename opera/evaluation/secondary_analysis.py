@@ -24,6 +24,8 @@ PATIENT = [*CELL, "subject_id"]
 # rate in the same (weighted) sample; comparable across outcomes.
 METRICS = ("auc", "brier", "ipa", "log_loss", "calibration_bias", "ece")
 ESTIMANDS = ("binary_known_status_unweighted", "cif_ipcw")
+# horizon_days of summaries pooled over every horizon.
+ALL_HORIZONS = 0
 
 
 def _censoring_survival_before(times, events):
@@ -695,6 +697,37 @@ def annotate_router_gate(table, gate, *, gated=ROUTER_GATED_CONTRASTS):
     return merged
 
 
+def bootstrap_p_value(draws):
+    """Two-sided paired bootstrap test of a zero difference.
+
+    Twice the smaller share of finite draws on either side of zero, at most 1.
+    """
+    finite = np.asarray(draws, float)
+    finite = finite[np.isfinite(finite)]
+    if not len(finite):
+        return np.nan
+    return float(min(1.0, 2 * min((finite <= 0).mean(), (finite >= 0).mean())))
+
+
+def claim_label(gain, lower, upper, margin):
+    """Prespecified label of a pooled test-set contrast (lock, 2026-10-21).
+
+    better: the 95% interval lies above zero; worse: below zero; equivalent:
+    the interval lies within +-margin; otherwise inconclusive. A difference
+    whose interval lies above zero and whose estimate exceeds the margin is
+    also flagged as practically meaningful.
+    """
+    if not (np.isfinite(lower) and np.isfinite(upper)):
+        return "not estimable"
+    if lower > 0:
+        return "better, above margin" if gain > margin else "better"
+    if upper < 0:
+        return "worse, beyond margin" if gain < -margin else "worse"
+    if -margin <= lower and upper <= margin:
+        return "equivalent"
+    return "inconclusive"
+
+
 def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
     """Equal-cell descriptive summaries with subject-correlated intervals.
 
@@ -718,8 +751,12 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
         if key in values
     ]
     rows = []
-    for stratum in [None, *strata]:
-        groups = ["split", "seed", "contrast", "metric", "horizon_days"]
+    # Per horizon, and pooled over all horizons (horizon_days == ALL_HORIZONS),
+    # every disease-outcome-horizon cell weighing equally.
+    for stratum, by_horizon in [(s, h) for s in [None, *strata] for h in (True, False)]:
+        groups = ["split", "seed", "contrast", "metric"]
+        if by_horizon:
+            groups.append("horizon_days")
         if stratum:
             groups.append(stratum)
         for identity, group in values.groupby(groups, dropna=False):
@@ -741,11 +778,13 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
             rows.append(
                 {
                     **dict(zip(groups, identity)),
+                    **({} if by_horizon else {"horizon_days": ALL_HORIZONS}),
                     "stratum": stratum or "all_cells",
                     "stratum_value": str(identity[-1]) if stratum else "all",
                     "gain": group.gain.mean(),
                     "n_cells": len(group),
                     "aggregation": "equal_cell_not_population_or_endpoint_group_macro",
+                    "p_value": bootstrap_p_value(sampled),
                     **_interval(sampled),
                 }
             )

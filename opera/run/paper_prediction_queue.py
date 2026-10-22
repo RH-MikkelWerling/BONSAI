@@ -218,6 +218,9 @@ def main():
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--max-runs", type=int)
+    parser.add_argument("--only", action="append", default=[],
+                        help="Evaluate only these phases, e.g. source_screen or "
+                             "supervision:J (repeatable)")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
@@ -230,6 +233,10 @@ def main():
     if args.status:
         args.execute = False
     bundle, rows = bundle_runs(args.bundle_dir)
+    if args.only:
+        rows = [item for item in rows
+                if item[0]["phase"] in args.only
+                or f"{item[0]['phase']}:{item[0].get('regime')}" in args.only]
     if args.split == "held_out":
         rows = [item for item in rows if canonical_models(item[0], item[2], bundle)]
     rows = rows[args.shard_index :: args.shard_count]

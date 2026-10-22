@@ -324,17 +324,17 @@ The approach relates to mixtures of experts and parameter-efficient adapters
 
 The router was configured on the tuning set in a short prespecified sequence:
 which adapter banks to include (none, disease, outcome or both), then the
-adapter rank (8, 16 or 32), then the form of the routing query. A simpler
-configuration was preferred unless a more complex one was clearly better, and
-disease adapters alone were kept unless outcome adapters added supported value;
-"clearly better" meant a paired tuning-set interval excluding zero and a gain
-larger than both the practical margin and the difference between two fits of
-the same model. That difference came from a router with every source switched
-off, which computes exactly the joint model's prediction but is initialised
-differently; before banks were compared it had to lie within 0.005 of the joint
-model's tuning AUC, confirming that the routing machinery changes nothing by
-itself. Capacity without borrowing is tested separately, by models restricted to
-the patient's own disease or outcome adapter. \placeholder{Insert the selected configuration.}
+adapter rank (8, 16 or 32), then the form of the routing query (additive, or
+interacting with width 128 or 512). Each step chose the option with the highest
+tuning AUC, averaged over diseases, outcomes and all six horizons; options
+within the difference between two fits of the same model were treated as tied,
+and the simplest was chosen, and an option whose IPA was clearly worse was not
+eligible. That difference came from a router with every source switched off,
+which computes exactly the joint model's prediction but is initialised
+differently; it was expected to lie within 0.005 of the joint model's tuning
+AUC, confirming that the routing machinery changes nothing by itself. Capacity
+without borrowing is tested separately, by models restricted to the patient's
+own disease or outcome adapter. \placeholder{Insert the selected configuration.}
 Route weights describe how the model allocates corrections and are not
 interpreted as relationships between diseases.
 

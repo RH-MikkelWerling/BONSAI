@@ -269,19 +269,31 @@ def test_fits_without_tuning_patients_are_final_and_do_not_stop_workers(tmp_path
     worker.work(args)
 
 
+def fake_popen(text, returncode):
+    """A Popen stand-in that writes ``text`` to the log and exits."""
+    class FakeProcess:
+        pid = -1
+
+        def __init__(self, command, stdout=None, **kwargs):
+            stdout.write(text)
+            stdout.flush()
+            self.returncode = returncode
+
+        def poll(self):
+            return self.returncode
+
+    return FakeProcess
+
+
 def test_train_run_records_a_missing_split_as_not_estimable(tmp_path, monkeypatch):
     import subprocess
     import opera.run.run_paper_queue as queue
 
-    def fake_run(command, stdout=None, **kwargs):
-        if stdout is None:  # preflight
-            return subprocess.CompletedProcess(command, 0)
-        stdout.write("Traceback ...\nopera.modules.datamodules.MultiCohortContrastiveDataModule."
-                     "NoPatientsInSplit: Cohort 'indolent' (NMZL) has no patients in split 'tuning'.\n")
-        stdout.flush()
-        return subprocess.CompletedProcess(command, 1)
-
-    monkeypatch.setattr(queue.subprocess, "run", fake_run)
+    monkeypatch.setattr(queue.subprocess, "run",
+                        lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
+    monkeypatch.setattr(queue.subprocess, "Popen", fake_popen(
+        "Traceback ...\nopera.modules.datamodules.MultiCohortContrastiveDataModule."
+        "NoPatientsInSplit: Cohort 'indolent' (NMZL) has no patients in split 'tuning'.\n", 1))
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "queue_training.log").write_text("NoPatientsInSplit: an earlier attempt\n")
@@ -290,16 +302,30 @@ def test_train_run_records_a_missing_split_as_not_estimable(tmp_path, monkeypatc
     record = json.loads((run_dir / queue.NOT_ESTIMABLE).read_text())
     assert "split 'tuning'" in record["reason"]
 
-    def other_failure(command, stdout=None, **kwargs):
-        if stdout is not None:
-            stdout.write("RuntimeError: CUDA out of memory\n")
-        return subprocess.CompletedProcess(command, 0 if stdout is None else 1)
-
     (run_dir / queue.NOT_ESTIMABLE).unlink()
-    monkeypatch.setattr(queue.subprocess, "run", other_failure)
+    monkeypatch.setattr(queue.subprocess, "Popen",
+                        fake_popen("RuntimeError: CUDA out of memory\n", 1))
     with pytest.raises(subprocess.CalledProcessError):
         queue.train_run({"name": "x"}, tmp_path / "c.yaml", run_dir, {})
     assert not (run_dir / queue.NOT_ESTIMABLE).exists()
+
+
+def test_a_training_process_that_goes_quiet_is_stopped(tmp_path):
+    """A fit hung after training (no log output) must not hold a GPU for a day."""
+    import subprocess
+    import sys
+    import time
+    import opera.run.run_paper_queue as queue
+
+    log = tmp_path / "queue_training.log"
+    with log.open("a") as handle:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; print('epoch 5', flush=True); time.sleep(120)"],
+            stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
+        started = time.time()
+        with pytest.raises(queue.TrainingStalled, match="No log output"):
+            queue.wait_with_watchdog(process, log, stall_seconds=1, poll_seconds=0.2)
+    assert process.poll() is not None and time.time() - started < 30
 
 
 def test_marking_a_disease_not_estimable_also_stops_older_workers(tmp_path):

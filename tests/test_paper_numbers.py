@@ -34,8 +34,9 @@ def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
     assert r"\@namedef{opera@res@P5_auc}" in macros
     rows = (tmp_path / "out" / "panel_effects_rows.tex").read_text()
     assert rows.rstrip().endswith(r"\bottomrule")  # tables cannot end with \IfFileExists
-    assert "Joint vs per-task XGBoost & -- " in rows  # absent comparisons stay explicit
-    assert rows.splitlines()[0].count("&") == 6  # seven columns, rare subtypes included
+    assert "OPERA vs per-task XGBoost & -- " in rows  # absent comparisons stay explicit
+    assert rows.splitlines()[0].startswith(r"\rlap{\textit{")  # grouped by question
+    assert rows.splitlines()[1].count("&") == 6  # seven columns, rare subtypes included
 
 
 def test_percent_ci_is_a_wilson_interval():

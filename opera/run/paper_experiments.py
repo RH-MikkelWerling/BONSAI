@@ -343,7 +343,23 @@ def build_commands(args, env):
             command += ["--max-runs", str(args.max_runs)]
         if args.export_routes:
             command += ["--export-routes"]
+        for only in getattr(args, "only", []):
+            command += ["--only", only]
         return [command + (["--execute"] if args.execute else [])]
+    if args.action == "router-decision":
+        # Prespecified router rules on tuning predictions (needs `evaluate
+        # --split tuning --only supervision:J --only <phase>` first).
+        command = module(
+            "opera.run.router_decision",
+            "--phase", args.phase,
+            "--bundle-dir", bundle,
+            "--prediction-dir", root / "predictions",
+            "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+            "--decisions", path_value(env, "OPERA_PAPER_DECISIONS"),
+            "--output-dir", root / "router_decisions",
+            "--router-lock", root / "router_lock.json",
+        )
+        return [command + (["--write"] if getattr(args, "record", False) else [])]
     if args.action == "inventory":
         return [
             module(
@@ -756,6 +772,7 @@ def main():
             "worker",
             "queue-status",
             "compute-inventory",
+            "router-decision",
         ],
     )
     parser.add_argument("--env-file", type=Path, default=REPO / ".env")
@@ -769,6 +786,10 @@ def main():
     parser.add_argument("--split", choices=("tuning", "held_out"), default="tuning")
     parser.add_argument("--include-external", action="store_true")
     parser.add_argument("--export-routes", action="store_true")
+    parser.add_argument("--only", action="append", default=[],
+                        help="evaluate: only these phases, e.g. source_screen or supervision:J")
+    parser.add_argument("--record", action="store_true",
+                        help="router-decision: write the decision (default: report only)")
     parser.add_argument("--registry", action="store_true",
                         help="tabular: the registry-augmented XGBoost arm (XR).")
     parser.add_argument("--prior-only", action="store_true")

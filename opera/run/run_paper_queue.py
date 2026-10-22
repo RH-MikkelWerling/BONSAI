@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -94,6 +97,38 @@ def not_estimable_reason(log_text):
     return found[-1].strip() if found else None
 
 
+class TrainingStalled(RuntimeError):
+    """The training process wrote nothing to its log for too long and was stopped."""
+
+
+# A fit's progress bar writes to its log continuously while it trains or
+# validates; this long without output means it is stuck (seen once, in the
+# data-loader shutdown after early stopping of a tiny specialist).
+STALL_MINUTES = float(os.environ.get("OPERA_PAPER_STALL_MINUTES", "120"))
+
+
+def wait_with_watchdog(process, log_path, *, stall_seconds, poll_seconds=30):
+    """Wait for ``process``; stop its whole process group if the log goes quiet."""
+    while process.poll() is None:
+        time.sleep(poll_seconds)
+        quiet = time.time() - Path(log_path).stat().st_mtime
+        if process.poll() is None and quiet > stall_seconds:
+            for sig, grace in ((signal.SIGTERM, 60), (signal.SIGKILL, 0)):
+                try:
+                    os.killpg(process.pid, sig)
+                except ProcessLookupError:
+                    break
+                try:
+                    process.wait(timeout=grace or None)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            raise TrainingStalled(
+                f"No log output for {quiet / 60:.0f} minutes; training stopped "
+                f"(retried from last.ckpt): {log_path}")
+    return process.returncode
+
+
 def train_run(row, path, run_dir, audit_record):
     """Preflight and train one bundle run in ``run_dir``; resumes its last.ckpt.
 
@@ -117,23 +152,24 @@ def train_run(row, path, run_dir, audit_record):
     )
     log_path = run_dir / "queue_training.log"
     start = log_path.stat().st_size if log_path.exists() else 0
+    command = [
+        sys.executable,
+        "-u",
+        "-m",
+        "opera.run.contrastive_multicohort",
+        "--config-path",
+        str(path.parent),
+        "--config-name",
+        path.stem,
+        f"hydra.run.dir={run_dir.resolve()}",
+    ]
     with log_path.open("a") as log:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-u",
-                "-m",
-                "opera.run.contrastive_multicohort",
-                "--config-path",
-                str(path.parent),
-                "--config-name",
-                path.stem,
-                f"hydra.run.dir={run_dir.resolve()}",
-            ],
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-    if result.returncode:
+        # Own process group, so a stalled fit is stopped with its data loaders.
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        returncode = wait_with_watchdog(process, log_path,
+                                        stall_seconds=STALL_MINUTES * 60)
+    if returncode:
         with log_path.open("rb") as handle:
             handle.seek(start)
             reason = not_estimable_reason(handle.read().decode(errors="replace"))
@@ -142,7 +178,7 @@ def train_run(row, path, run_dir, audit_record):
                 json.dumps({"name": row["name"], "reason": reason}, indent=2) + "\n"
             )
             raise NotEstimable(reason)
-        raise subprocess.CalledProcessError(result.returncode, result.args)
+        raise subprocess.CalledProcessError(returncode, command)
     if not (run_dir / "training_complete.json").is_file():
         raise RuntimeError(f"Training exited without completion marker: {run_dir}")
     from bonsai.functional.checkpointing import verified_training_selection

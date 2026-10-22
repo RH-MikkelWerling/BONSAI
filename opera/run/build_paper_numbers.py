@@ -39,19 +39,26 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from opera.evaluation.secondary_analysis import ALL_HORIZONS
 from opera.run.analyse_locked_predictions import file_hash, read_table
 
 SPLIT = "held_out"
 HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
          "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50", "J_vs_best_tuning")
+# Table 2, grouped by question; (None, title) starts a group. The T contrasts
+# are computed for the configuration selected as OPERA.
 TABLE_ROWS = (
-    ("P5", "Joint vs specialist"), ("P1", "Disease-pooled vs specialist"),
-    ("P2", "Outcome-pooled vs specialist"), ("T2", "Joint vs per-task XGBoost"),
-    ("T6", "Joint vs XGBoost pooled across diseases"),
-    ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
-    ("E1", "National vs local encoder (joint)"),
-    ("E3", "Adapted national vs local encoder (joint)"),
+    (None, "Learning across diseases and outcomes (against the specialist)"),
+    ("P1", "Other diseases (disease-pooled)"), ("P2", "Other outcomes (outcome-pooled)"),
+    ("P5", "Both (joint)"),
+    (None, "Learning how much to borrow"), ("R1", "Routed vs joint"),
+    (None, "Population pretraining (joint model)"),
+    ("E1", "National vs cohort encoder"), ("E3", "Adapted national vs cohort encoder"),
+    (None, "Sequence models against tabular models"),
+    ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
+    ("T2", "OPERA vs per-task XGBoost"), ("T6", "OPERA vs pooled XGBoost"),
+    ("T9", "OPERA vs XGBoost with registry variables"),
 )
 
 
@@ -88,14 +95,19 @@ def _read(path, sources):
     return frame
 
 
-def contrast_numbers(summaries, contrasts):
+def contrast_numbers(summaries, contrasts, *, horizon=ALL_HORIZONS, suffix=""):
+    """Contrast macros pooled over all horizons (default) or at one horizon.
+
+    ``suffix`` is appended to every key, e.g. ``_1y`` for the one-year values
+    that the main figures show.
+    """
     numbers = {}
     if summaries is not None:
-        part = summaries.loc[(summaries.split == SPLIT) & (summaries.horizon_days == HORIZON)]
+        part = summaries.loc[(summaries.split == SPLIT) & (summaries.horizon_days == horizon)]
         if "stratum" in part:
             # Prespecified strata: rare subtypes (<500 training patients) and the
             # subtypes without a prognostic index in routine use.
-            for stratum, suffix in (("subtype_size", "rare"), ("no_index_subtype", "noindex")):
+            for stratum, label in (("subtype_size", "rare"), ("no_index_subtype", "noindex")):
                 rows = part.loc[part.stratum == stratum]
                 if stratum == "subtype_size":
                     rows = rows.loc[rows.stratum_value.astype(str).str.startswith("(-1")]
@@ -105,25 +117,27 @@ def contrast_numbers(summaries, contrasts):
                     if row.contrast in CODES and row.metric in ("auc", "ipa"):
                         text = with_ci(row.gain, row.lower, row.upper)
                         if text:
-                            numbers[f"{row.contrast}_{row.metric}_{suffix}"] = text
-                        numbers.setdefault(f"{row.contrast}_cells_{suffix}", f"{int(row.n_cells):,}")
+                            numbers[f"{row.contrast}_{row.metric}_{label}{suffix}"] = text
+                        numbers.setdefault(f"{row.contrast}_cells_{label}{suffix}",
+                                           f"{int(row.n_cells):,}")
             part = part.loc[part.stratum == "all_cells"]
         for row in part.itertuples():
             if row.contrast in CODES and row.metric in ("auc", "ipa"):
                 text = with_ci(row.gain, row.lower, row.upper)
                 if text:
-                    numbers[f"{row.contrast}_{row.metric}"] = text
-                numbers.setdefault(f"{row.contrast}_cells", f"{int(row.n_cells):,}")
+                    numbers[f"{row.contrast}_{row.metric}{suffix}"] = text
+                numbers.setdefault(f"{row.contrast}_cells{suffix}", f"{int(row.n_cells):,}")
     if contrasts is not None:
-        part = contrasts.loc[(contrasts.split == SPLIT) & (contrasts.horizon_days == HORIZON)
-                             & (contrasts.metric == "auc")]
+        part = contrasts.loc[(contrasts.split == SPLIT) & (contrasts.metric == "auc")]
+        if horizon != ALL_HORIZONS:
+            part = part.loc[part.horizon_days == horizon]
         for code, rows in part.groupby("contrast"):
             gains = rows.gain.dropna()
             if code not in CODES or not len(gains):
                 continue
-            numbers[f"{code}_better"] = f"{int((gains > 0).sum()):,} of {len(gains):,}"
+            numbers[f"{code}_better{suffix}"] = f"{int((gains > 0).sum()):,} of {len(gains):,}"
             q1, median, q3 = gains.quantile([0.25, 0.5, 0.75])
-            numbers[f"{code}_median"] = with_ci(median, q1, q3, label="IQR")
+            numbers[f"{code}_median{suffix}"] = with_ci(median, q1, q3, label="IQR")
     return numbers
 
 
@@ -269,6 +283,11 @@ def table_rows(panel):
 
     lines = []
     for code, label in TABLE_ROWS:
+        if code is None:
+            # \rlap, not \multicolumn: the rows are read inside \IfFileExists.
+            lines.append(f"\\rlap{{\\textit{{{label}}}}} & & & & & & \\\\")
+            continue
+        label = "\\quad " + label
         found = panel.loc[panel.contrast == code]
         if not len(found):
             lines.append(f"{label} & -- & -- & -- & -- & -- & -- \\\\")
@@ -277,7 +296,7 @@ def table_rows(panel):
         better = row.get("cells_better")
         verdict = row.get("label")
         lines.append(" & ".join([
-            label, f"{int(row.cells):,}", cell(row, "auc"), cell(row, "rare_auc"), cell(row, "ipa"),
+            label, f"{int(row.cells):,}", cell(row, "auc"), cell(row, "ipa"), cell(row, "rare_auc"),
             str(better).replace("%", "\\%") if isinstance(better, str) else "--",
             verdict if isinstance(verdict, str) else "--"]) + " \\\\")
     # The closing rule travels with the rows: a table cannot end with \IfFileExists.
@@ -291,8 +310,12 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     clinical = Path(clinical_scores) if clinical_scores else analysis_root / "clinical_scores"
     sources = {}
     numbers = {}
-    numbers.update(contrast_numbers(_read(analysis / "effect_summaries.csv", sources),
-                                    _read(analysis / "contrasts.csv", sources)))
+    effects = _read(analysis / "effect_summaries.csv", sources)
+    contrasts = _read(analysis / "contrasts.csv", sources)
+    # Headline numbers pool all six horizons (the primary metric is AUC at each
+    # horizon); the one-year values shown in the main figures carry ``_1y``.
+    numbers.update(contrast_numbers(effects, contrasts))
+    numbers.update(contrast_numbers(effects, contrasts, horizon=HORIZON, suffix="_1y"))
     numbers.update(coverage_numbers(_read(analysis / "estimates.csv", sources),
                                     _read(cell_metadata, sources) if cell_metadata else None))
     numbers.update(decision_numbers(_read(analysis / "operating_points.csv", sources)))

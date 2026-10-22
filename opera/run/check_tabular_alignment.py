@@ -19,19 +19,33 @@ from opera.run.paper_tabular_queue import tabular_jobs
 SUFFIXES = {".pkl", ".pickle", ".parquet", ".pq", ".csv"}
 
 
+SPLITS = ("train", "tuning", "held_out")
+
+
 def neural_patients(population_path, cohorts, index_column) -> pd.Series:
-    """Index date per neural patient of these cohorts (indexed by subject_id)."""
+    """Index date per neural patient of these cohorts (indexed by subject_id).
+
+    Neural patients are those the fits can use: an index date and a split, as
+    for Table 1. Membership rows without them (e.g. the patients who died or
+    left follow-up before treatment) are counted in ``.attrs["without_split"]``.
+    """
     population = _read_population(population_path)  # index_date from firstline_date
     population = population[population["cohort_fine"].astype(str).isin(cohorts)]
-    ids = population["subject_id"].astype("string").str.strip()
     dates = pd.to_datetime(population[index_column], errors="coerce")
-    return pd.Series(dates.to_numpy(), index=ids.to_numpy())
+    usable = dates.notna()
+    if "split" in population:
+        usable &= population["split"].astype("string").isin(SPLITS)
+    ids = population["subject_id"].astype("string").str.strip()
+    neural = pd.Series(dates[usable].to_numpy(), index=ids[usable].to_numpy())
+    neural.attrs["without_split"] = int((~usable).sum())
+    return neural
 
 
 def compare(name, matrix_path, neural: pd.Series) -> dict:
     """Patient overlap and index-date agreement for one matrix."""
     row = {"matrix": name, "file": matrix_path.name if matrix_path else None,
-           "neural_patients": len(neural)}
+           "neural_patients": len(neural),
+           "membership_without_split": neural.attrs.get("without_split", 0)}
     if matrix_path is None:
         return row | {"status": "no matrix for this cohort"}
     features = read_feature_table(matrix_path)
@@ -83,11 +97,12 @@ def main() -> None:
         for cohort, population in sorted(populations.items())
     ]
     # The pooled matrix against every cohort (the cohorts share one population file).
-    union = pd.concat([
-        neural_patients(population, set(populations), args.index_date_column)
-        for population in sorted(set(populations.values()))
-    ])
-    rows.append(compare("all", files.get("all"), union[~union.index.duplicated()]))
+    parts = [neural_patients(population, set(populations), args.index_date_column)
+             for population in sorted(set(populations.values()))]
+    union = pd.concat(parts)
+    union = union[~union.index.duplicated()]
+    union.attrs["without_split"] = sum(part.attrs["without_split"] for part in parts)
+    rows.append(compare("all", files.get("all"), union))
     unused = sorted(set(files) - set(populations) - {"all"})
 
     table = pd.DataFrame(rows)

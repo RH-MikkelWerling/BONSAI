@@ -644,3 +644,30 @@ def test_tabular_processes_share_work_and_skip_a_fit_in_progress(tmp_path):
     with (directory / ".tabular.lock").open("w") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert run_job(job, options)["status"] == "running_elsewhere"
+
+
+def test_feature_check_counts_only_patients_the_fits_can_use(tmp_path):
+    """Membership rows without a split (died or left follow-up before treatment)
+    are not neural patients; they are counted separately."""
+    from opera.run.check_tabular_alignment import neural_patients
+
+    path = tmp_path / "membership.parquet"
+    pd.DataFrame({"subject_id": [1, 2, 3], "cohort_fine": ["CLL"] * 3,
+                  "firstline_date": ["2020-01-01", "2020-02-01", "2020-03-01"],
+                  "split": ["train", "held_out", None]}).to_parquet(path)
+    neural = neural_patients(path, {"CLL"}, "index_date")
+    assert list(neural.index) == ["1", "2"] and neural.attrs["without_split"] == 1
+
+
+def test_router_decision_reports_by_default_and_records_only_on_request(tmp_path):
+    config = env(tmp_path) | {"BONSAI_COHORT_MEMBERSHIP": str(tmp_path / "membership.parquet")}
+    option = args("router-decision", only=[], record=False)
+    option.phase = "source_screen"
+    command = build_commands(option, config)[0]
+    assert "opera.run.router_decision" in command and "--write" not in command
+    assert str(tmp_path / "decisions.json") in command
+    option.record = True
+    assert "--write" in build_commands(option, config)[0]
+    evaluate = args("evaluate", only=["supervision:J", "source_screen"], record=False)
+    command = build_commands(evaluate, config)[0]
+    assert command.count("--only") == 2 and "supervision:J" in command

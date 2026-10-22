@@ -28,7 +28,10 @@ Fixed before any held-out evaluation. When agreed, these values are written into
   differences reported alongside.
 - **Calibration:** slope and calibration-in-the-large (descriptive).
 - **Horizons:** all six (30, 60, 90, 180, 365, 730 days) are prespecified and
-  reported with their own intervals; one year is shown in the main figures.
+  reported with their own intervals. Headline differences and Table 2 pool all
+  six horizons (each disease-outcome-horizon cell equal; `horizon_days = 0` in
+  the summaries); the per-horizon table is a supplement, and one year is shown
+  in the main figures (revised 2026-10-21, before the test set was opened).
 
 ## Unit, uncertainty and weighting
 - Unit: one disease × outcome cell; models compared on identical patients.
@@ -48,21 +51,50 @@ Fixed before any held-out evaluation. When agreed, these values are written into
   different initialisation: it checks the routing machinery and measures the
   difference between two fits of the same model (the noise floor). It does not
   test capacity; RDH and ROH (own adapter, no borrowing) do.
-- Router decisions on tuning data (added 2026-10-20, before any source-screen
-  fit had finished). Paired patient bootstrap on the tuning patients, 1,000
-  replicates, seed 2026, same draws for every fit; panel one-year AUC and Brier
-  differences weighted as for the panel summaries. A candidate replaces the
-  default (disease_only; rank 8; interacting query, width 128) only if the 95%
-  interval of its AUC gain excludes 0, the point gain exceeds both 0.01 and
-  |R0|, and its Brier score is not worse. Otherwise the default, or the simpler
-  option, is kept. Outcome sources (outcome_only, both) must pass this against
-  disease_only.
-- If the R0 gate fails, the router proceeds with the defaults throughout, the
-  source-bank contrasts are reported as not interpretable, and |R0| is reported
-  as the noise floor for every single-seed contrast.
-- Label per contrast and horizon: **better** if the pooled 95% interval excludes
-  0 and P(gain > margin) ≥ 0.95; **equivalent** if the interval lies within
-  ±margin; otherwise **inconclusive**.
+- Tuning choices: source bank, rank, query and OPERA (applied by
+  `opera.run.router_decision`; OPERA by the same rule over the final arms).
+  - Rule: the **best option** on tuning data. Highest panel AUC, where the
+    panel averages the AUC difference over every estimable cell (>= 5 cases
+    and >= 5 controls), each disease equal, each outcome equal within a
+    disease and all six horizons equal within an outcome. Full-risk-set IPCW
+    estimand; one paired patient bootstrap (1,000 replicates, seed 2026,
+    shared draws) for the reported intervals.
+  - Ties: options within the noise floor of the best count as tied, and the
+    simplest is chosen. Noise floor = |R0|, the panel AUC difference between
+    the router with every source switched off and J (the same model,
+    initialised differently).
+  - Calibration guard: an option whose panel IPA is worse than the simplest
+    option's by more than the IPA noise floor is not eligible.
+  - Simplest first: sources disease_only, outcome_only, both; rank 8, 16, 32;
+    query additive 128, interacting 128, interacting 512; OPERA: joint before
+    router, cohort before adapted national before national encoder.
+  - R0 is also a machinery check (|R0| <= 0.005 expected), reported, not used
+    to choose.
+  - The 0.01 margin is the practical margin for test-set claims only, not for
+    tuning choices: these are hyperparameters, and the claims are tested on
+    patients the choices never saw.
+  - History: on 2026-10-20 the screens required an interval above zero and a
+    gain above max(0.01, |R0|) to leave a default. On 2026-10-21 this was
+    replaced by the rule above, after rough source-screen point estimates had
+    been seen (disease_only and both within about 0.001, outcome_only lower).
+    The source-bank choice therefore could depend on the noise floor; its
+    consequence is limited because stage 2 trains all four banks with the
+    locked rank and query and compares them on the test set. Rank, query and
+    OPERA results had not been seen.
+  - The tuning panel sees mainly the common diseases (rare cells are rarely
+    estimable on 1,980 patients), so it cannot show gains where data are
+    scarcest.
+- Label per contrast and horizon (revised 2026-10-21, before the test set was
+  opened), from the paired bootstrap of the pooled difference: **better** if
+  the 95% interval lies above 0 (**worse** if below), additionally flagged
+  "above margin" when the estimate exceeds the practical margin; **equivalent**
+  if the interval lies within ±margin; otherwise **inconclusive**. Each pooled
+  contrast also reports a two-sided paired bootstrap p-value (twice the smaller
+  share of draws on either side of zero). The earlier rule (better only if
+  P(gain > margin) ≥ 0.95) labelled a precisely estimated gain below the margin
+  as equivalent, conflating statistical and practical significance. The
+  hierarchical model's posterior probabilities of benefit, harm and practical
+  equivalence are reported alongside, descriptively.
 - Primary contrasts: P5 joint vs specialist, P1 disease pooling, P2 outcome
   pooling, T2 joint vs XGBoost, E1 national vs local. Others secondary;
   C1–C5 explanatory.

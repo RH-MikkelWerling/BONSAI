@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 
 import pandas as pd
+
+from opera.evaluation.secondary_analysis import ALL_HORIZONS, claim_label
 import yaml
 
 from opera.run.analyse_locked_predictions import file_hash, read_table
@@ -362,11 +364,13 @@ def region_tables(effects, models, patients=None, *, seed=None):
 PANEL_TABLE_ROWS = (
     ("P5", "Joint vs specialist"), ("P1", "Disease-pooled vs specialist"),
     ("P2", "Outcome-pooled vs specialist"), ("T2", "Joint vs per-task XGBoost"),
+    ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
     ("T6", "Joint vs XGBoost pooled across diseases"),
     ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
     ("E1", "National vs local encoder (joint)"),
     ("E3", "Adapted national vs local encoder (joint)"),
 )
+PRACTICAL_MARGIN = 0.01  # AUC and IPA, the locked practical margin
 TABLE_MODELS = {"J_L": "Joint", "R_L": "Routed", "S_L": "Specialist", "X": "XGBoost"}
 
 
@@ -376,8 +380,12 @@ def _interval(low, high, digits=3):
     return f"{low:.{digits}f} to {high:.{digits}f}"
 
 
-def panel_effects(summaries, contrasts, *, horizon=365, seed=None):
-    """Table 2: pooled paired differences per comparison, with share of cells better."""
+def panel_effects(summaries, contrasts, *, horizon=ALL_HORIZONS, seed=None):
+    """Table 2: pooled paired differences per comparison, with share of cells better.
+
+    ``horizon`` = ALL_HORIZONS pools every disease-outcome-horizon cell (the
+    main table); a number gives the table at that horizon (supplement).
+    """
     summary = _select(summaries, seed=seed)
     summary = summary.loc[summary.horizon_days == horizon]
     rare = summary.loc[(summary.get("stratum", "") == "subtype_size")
@@ -385,7 +393,8 @@ def panel_effects(summaries, contrasts, *, horizon=365, seed=None):
                        .astype(str).str.startswith("(-1")]
     summary = summary.loc[summary.get("stratum", "all_cells") == "all_cells"]
     cells = _select(contrasts, seed=seed)
-    cells = cells.loc[cells.horizon_days == horizon]
+    if horizon != ALL_HORIZONS:
+        cells = cells.loc[cells.horizon_days == horizon]
     rows = []
     for code, label in PANEL_TABLE_ROWS:
         row = {"comparison": label, "contrast": code}
@@ -395,7 +404,13 @@ def panel_effects(summaries, contrasts, *, horizon=365, seed=None):
                 record = part.iloc[0]
                 row[f"{metric}_gain"] = round(float(record.gain), 3)
                 row[f"{metric}_interval"] = _interval(record.lower, record.upper)
+                row[f"{metric}_p_value"] = (float(record.p_value)
+                                            if "p_value" in record and pd.notna(record.p_value)
+                                            else None)
                 row["cells"] = int(record.n_cells)
+                if metric == "auc":
+                    row["label"] = claim_label(float(record.gain), float(record.lower),
+                                               float(record.upper), PRACTICAL_MARGIN)
         part = rare.loc[(rare.contrast == code) & (rare.metric == "auc")]
         if len(part):
             record = part.iloc[0]
@@ -531,6 +546,10 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("strategy_cells.csv", strategy)
     # Printed tables (Table 2 and the supplementary tables).
     table("panel_effects.csv", lambda: panel_effects(summaries(), contrasts(), seed=seed))
+    # Supplement: Table 2 at each horizon.
+    table("panel_effects_by_horizon.csv", lambda: pd.concat(
+        [panel_effects(summaries(), contrasts(), horizon=h, seed=seed).assign(horizon_days=h)
+         for h in sorted(set(summaries().horizon_days) - {ALL_HORIZONS})], ignore_index=True))
     table("paired_domain_summary.csv",
           lambda: paired_domain_summary(contrasts(), metadata, seed=seed))
     table("calibration_domain_summary.csv", lambda: calibration_domain_summary(
