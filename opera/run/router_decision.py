@@ -58,8 +58,13 @@ def panel(contrasts, draws, contrast, metric, *, minimum=5):
     sampled = draws.loc[(draws.contrast == contrast) & (draws.metric == metric)].merge(
         rows[[*keys, "weight"]], on=keys, validate="one_to_one")
     arrays = np.stack(sampled.gain_draws.to_numpy())
-    weighted = (arrays * sampled.weight.to_numpy()[:, None]).sum(axis=0)
-    weighted[~np.isfinite(arrays).all(axis=0)] = np.nan
+    # Per replicate, average over the cells that are finite in it (a small
+    # tuning cell can lack cases in a resample), renormalising the weights.
+    # The point estimate, and so every choice, uses all estimable cells.
+    weights = np.where(np.isfinite(arrays), sampled.weight.to_numpy()[:, None], 0.0)
+    total = weights.sum(axis=0)
+    weighted = np.where(total > 0, np.nansum(arrays * weights, axis=0) / np.where(total > 0, total, 1),
+                        np.nan)
     interval = _interval(weighted)
     return {"gain": float((rows.gain * rows.weight).sum()), "lower": interval["lower"],
             "upper": interval["upper"], "n_cells": int(len(rows)),
@@ -76,6 +81,8 @@ def decide(predictions, *, joint, null, options, gate_tolerance=0.005,
     """
     simplest, others = options[0], list(options[1:])
     contrasts = {"noise": f"gain({null},{joint})"}
+    # Every option against the joint model: the routing gain the paper asks about.
+    contrasts.update({f"joint:{name}": f"gain({name},{joint})" for name in options})
     contrasts.update({f"vs:{name}": f"gain({name},{simplest})" for name in others})
     tables = paired_analysis(predictions, contrasts, replicates=replicates, seed=seed,
                              patient_gain_contrasts=())
@@ -97,6 +104,8 @@ def decide(predictions, *, joint, null, options, gate_tolerance=0.005,
     for row in rows:
         row["best"] = row["auc"]["gain"] == best
         row["tied_with_best"] = row in tied
+        row["vs_joint"] = {metric: summary[f"joint:{row['model']}"][metric]
+                           for metric in ("auc", "ipa")}
     return {
         "noise": {"auc": summary["noise"]["auc"], "ipa": summary["noise"]["ipa"],
                   "floor_auc": noise["auc"], "floor_ipa": noise["ipa"],
@@ -216,6 +225,9 @@ def main():
                       "options": [{"model": o["model"], "auc_gain_vs_simplest": o["auc"]["gain"],
                                    "auc_interval": [o["auc"]["lower"], o["auc"]["upper"]],
                                    "ipa_gain_vs_simplest": o["ipa"]["gain"],
+                                   "auc_gain_vs_joint": o["vs_joint"]["auc"]["gain"],
+                                   "auc_vs_joint_interval": [o["vs_joint"]["auc"]["lower"],
+                                                             o["vs_joint"]["auc"]["upper"]],
                                    "eligible": o["eligible"], "tied_with_best": o["tied_with_best"]}
                                   for o in result["options"]],
                       "decision": update, "report": str(report)}, indent=2, default=float))

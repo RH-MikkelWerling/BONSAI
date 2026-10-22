@@ -69,3 +69,10 @@ def test_options_are_ordered_simplest_first_and_need_earlier_decisions():
     assert [key[1] for key in roles("rank_screen", {"source_mode": "both"})] == [8, 16, 32]
     with pytest.raises(ValueError, match="source_mode"):
         roles("rank_screen", {})
+
+
+def test_intervals_survive_cells_without_cases_in_some_resamples():
+    rows = predictions({"J": 0.2, "N": 0.2, "D": 0.2, "A": 0.19}, n=40)
+    result = decide(rows, joint="J", null="N", options=["D", "A"], replicates=200)
+    a = result["options"][1]
+    assert np.isfinite(a["auc"]["lower"]) and np.isfinite(a["vs_joint"]["auc"]["upper"])
