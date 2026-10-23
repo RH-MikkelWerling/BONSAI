@@ -384,3 +384,32 @@ def test_progress_reports_epochs_across_resumes_and_time_lost(tmp_path):
     entry = next(e for e in worker.progress(args) if e["name"] == row["name"])
     assert entry["epochs_done"] == 4 and entry["best_epoch"] == 1
     assert entry["epochs_since_best"] == 2 and entry["lost_minutes"] in (49, 50)
+
+
+def _screen_bundle(tmp_path):
+    rows = [{"name": "src_d", "phase": "source_screen", "condition": {}},
+            *[{"name": f"rank_{s}", "phase": "rank_screen", "condition": {"source_mode": s}}
+              for s in ("disease_only", "both")],
+            *[{"name": f"query_{s}_r{r}", "phase": "query_screen",
+               "condition": {"source_mode": s, "rank": r}}
+              for s in ("disease_only", "both") for r in (8, 16)]]
+    for i, row in enumerate(rows):
+        row.update(scientific_hash=str(i), seed=42, regime=None)
+    directory = tmp_path / "bundles" / "stage1"
+    directory.mkdir(parents=True)
+    (directory / "bundle.json").write_text(json.dumps({"runs": rows}))
+    return directory
+
+
+def test_speculative_runs_undecided_branches_and_recorded_choices_prune(tmp_path):
+    from opera.run.paper_worker import todo
+    bundle = _screen_bundle(tmp_path)
+    plain = {r["name"]: g for r, _, g in todo([bundle], {})}
+    assert plain["rank_disease_only"].startswith("blocked_needs_decision")
+    open_all = {r["name"]: g for r, _, g in todo([bundle], {}, speculative=True)}
+    assert len(open_all) == 7 and all(g is None for g in open_all.values())
+    pruned = {r["name"] for r, _, g in todo([bundle], {"source_mode": "both"}, speculative=True)}
+    assert pruned == {"src_d", "rank_both", "query_both_r8", "query_both_r16"}
+    final = {r["name"] for r, _, g in todo([bundle], {"source_mode": "both", "rank": 16},
+                                          speculative=True)}
+    assert final == {"src_d", "rank_both", "query_both_r16"}

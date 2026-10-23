@@ -281,7 +281,9 @@ def build_bundle(
             entries.append({
                 "name": f"seed{seed}/L/control_RSI",
                 "phase": "router_controls", "origin": "L", "seed": seed,
-                "condition": {"adapter_shared_logit_init": SENSITIVITY_SHARED_LOGIT},
+                # No gating condition: conditions name recorded decisions, and
+                # this key is never one (it would silently skip the fit).
+                "condition": {},
                 "config": config,
             })
         if selected_router is not None:

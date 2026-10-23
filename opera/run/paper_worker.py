@@ -97,8 +97,14 @@ def priority(row):
     return len(PHASE_ORDER)
 
 
-def todo(bundle_dirs, decisions):
-    """Ordered, de-duplicated runs with their gating status."""
+def todo(bundle_dirs, decisions, speculative=False):
+    """Ordered, de-duplicated runs with their gating status.
+
+    ``speculative``: screening branches whose deciding choice is not recorded
+    yet run instead of waiting; once a choice is recorded, the branches it
+    excludes drop out as usual (fits already finished stay on disk, unused).
+    The decisions themselves are still taken in order, on tuning predictions.
+    """
     rows, seen = [], set()
     for bundle_dir in bundle_dirs:
         bundle_dir = Path(bundle_dir)
@@ -115,10 +121,11 @@ def todo(bundle_dirs, decisions):
                     and row["phase"] == "supervision" and row["regime"] == "S")
             if held:
                 gate = "blocked_held:specialists"
-            elif missing:
+            elif missing and not speculative:
                 gate = "blocked_needs_decision:" + ",".join(sorted(missing))
             elif any(
-                decisions.get(k) != v for k, v in row.get("condition", {}).items()
+                k in decisions and decisions[k] != v
+                for k, v in row.get("condition", {}).items()
             ):
                 continue  # A screening branch that the recorded decision excluded.
             else:
@@ -311,7 +318,7 @@ def throughput(walls, counts):
 def status(args):
     decisions = load_decisions(args.decisions)
     counts, walls = Counter(), {}
-    for row, _, gate in todo(args.bundle_dir, decisions):
+    for row, _, gate in todo(args.bundle_dir, decisions, getattr(args, "speculative", False)):
         run_dir = args.runs_dir / row["run_directory"]
         state = gate or run_state(
             run_dir,
@@ -334,7 +341,7 @@ def status(args):
 def next_runnable(args, decisions, audited, blocked_encoders):
     """Claim and return the first runnable fit, or None with a reason summary."""
     waiting = Counter()
-    for row, bundle_dir, gate in todo(args.bundle_dir, decisions):
+    for row, bundle_dir, gate in todo(args.bundle_dir, decisions, getattr(args, "speculative", False)):
         if gate:
             waiting[gate] += 1
             continue
@@ -418,7 +425,7 @@ def progress(args):
     is an upper bound from the epoch budget and early-stopping patience.
     """
     report, specialists = [], Counter()
-    for row, bundle_dir, gate in todo(args.bundle_dir, load_decisions(args.decisions)):
+    for row, bundle_dir, gate in todo(args.bundle_dir, load_decisions(args.decisions), getattr(args, "speculative", False)):
         run_dir = args.runs_dir / row["run_directory"]
         state = gate or run_state(run_dir, stale_minutes=args.stale_minutes,
                                   max_attempts=args.max_attempts)
@@ -456,7 +463,7 @@ def clear_stale(args):
     from its own last.ckpt.
     """
     stale = []
-    for row, _, _ in todo(args.bundle_dir, load_decisions(args.decisions)):
+    for row, _, _ in todo(args.bundle_dir, load_decisions(args.decisions), getattr(args, "speculative", False)):
         run_dir = args.runs_dir / row["run_directory"]
         state = run_state(run_dir, stale_minutes=args.stale_minutes,
                           max_attempts=args.max_attempts)
@@ -598,6 +605,11 @@ def main():
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument(
         "--decisions", type=Path, help="Tuning decisions JSON, re-read every pass"
+    )
+    parser.add_argument(
+        "--speculative", action="store_true",
+        help="Run rank/query screen branches before their deciding choice is recorded; "
+             "recorded choices still prune the excluded branches",
     )
     parser.add_argument("--worker", default=f"{socket.gethostname()}-{os.getpid()}")
     parser.add_argument(

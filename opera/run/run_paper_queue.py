@@ -42,7 +42,8 @@ def select_runs(
     for row in bundle["runs"]:
         if row["phase"] != phase or (regime and row["regime"] != regime):
             continue
-        if any(decisions.get(key) != value for key, value in row["condition"].items()):
+        if any(key in decisions and decisions[key] != value
+               for key, value in row["condition"].items()):
             continue
         if row["scientific_hash"] in seen:
             continue

@@ -725,6 +725,8 @@ def build_commands(args, env):
         )
         if env.get("OPERA_PAPER_DECISIONS"):
             command += ["--decisions", str(path_value(env, "OPERA_PAPER_DECISIONS"))]
+        if env.get("OPERA_PAPER_SPECULATIVE_SCREENS", "0") == "1":
+            command += ["--speculative"]
         if args.action == "worker":
             if args.worker_name:
                 command += ["--worker", args.worker_name]
