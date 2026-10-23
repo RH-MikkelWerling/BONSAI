@@ -59,8 +59,10 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
     result["source_opera_ckpt"] = None
     # Every router parameter (adapters, keys, queries, query interaction, shared
     # logit) uses the small adapter epsilon: their gradients sit far below the
-    # default 1e-6, which otherwise damps their updates (router_fit_audit,
-    # 2026-10-23; the interaction's first layer had 99.6% of entries below it).
+    # default 1e-6, which otherwise damps their updates. Router fit audit,
+    # 2026-10-23: the interaction's first layer had 75-99% of entries below
+    # 1e-6 and 19-31% below 1e-8; none below 1e-10 in any routing parameter
+    # (exact zeros of switched-off sources aside).
     epsilon = reference.get("training", {}).get("adapter_optimizer_epsilon")
     result["training"]["adapter_optimizer_epsilon"] = (
         ROUTER_EPSILON if epsilon is None else min(float(epsilon), ROUTER_EPSILON))
@@ -69,7 +71,7 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
     return result
 
 
-ROUTER_EPSILON = 1e-8  # Adam epsilon for every router parameter (PyTorch's default)
+ROUTER_EPSILON = 1e-10  # Adam epsilon for every router parameter (see router_config)
 SENSITIVITY_SHARED_LOGIT = 3.0  # control_RSI: shared slot starts with most weight
 
 ROUTER_CONTROLS = {

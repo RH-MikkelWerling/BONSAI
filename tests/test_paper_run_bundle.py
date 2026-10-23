@@ -8,7 +8,7 @@ import torch
 
 from bonsai.run.export_external_encoder import export_external_encoder
 from bonsai.functional.checkpointing import extract_encoder_state_dict
-from opera.run.prepare_paper_run_bundle import build_bundle, write_bundle
+from opera.run.prepare_paper_run_bundle import ROUTER_EPSILON, build_bundle, write_bundle
 from opera.run.run_paper_queue import audit_encoder, file_hash, select_runs
 from test_supervision_factorial import base_config
 from test_pretrain_transfer import _bundle
@@ -281,6 +281,6 @@ def test_every_router_fit_puts_all_router_parameters_on_the_adapter_epsilon(epsi
     for entry in routers:
         training = entry["config"]["training"]
         assert training["adapter_epsilon_scope"] == "router"
-        assert training["adapter_optimizer_epsilon"] == 1e-8
+        assert training["adapter_optimizer_epsilon"] == ROUTER_EPSILON == 1e-10
     assert all("adapter_epsilon_scope" not in e["config"]["training"]
                for e in entries if e not in routers)
