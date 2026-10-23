@@ -346,6 +346,35 @@ def build_commands(args, env):
         for only in getattr(args, "only", []):
             command += ["--only", only]
         return [command + (["--execute"] if args.execute else [])]
+    if args.action == "source-removal":
+        # One evaluation of the locked router writing every borrowing variant:
+        # no borrowing, each disease source alone, each left out (stage-2
+        # bundle; one GPU pass per split, no training).
+        command = module(
+            "opera.run.paper_prediction_queue",
+            "--bundle-dir", root / "bundles" / "stage2",
+            "--runs-dir", runs,
+            "--split", args.split,
+            "--output-dir", root / "predictions",
+            "--batch-size", value(env, "OPERA_PAPER_BATCH_SIZE", "1"),
+            "--source-removal",
+        )
+        return [command + (["--execute"] if args.execute else [])]
+    if args.action == "borrowing-map":
+        # Borrowing map and prespecified pairs from the borrowing design (CPU).
+        bundles = [part for path in stage_bundles(root) for part in ("--bundle-dir", path)]
+        return [module(
+            "opera.run.source_removal",
+            *bundles,
+            "--prediction-dir", root / "predictions",
+            "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+            "--output-dir", analysis_root / "source_removal",
+            "--split", args.split,
+            "--replicates", value(env, "OPERA_PAPER_REMOVAL_REPLICATES", "1000"),
+            "--ablation", getattr(args, "ablation", "mean"),
+            "--shard-count", args.shard_count,
+            "--shard-index", args.shard_index,
+        )]
     if args.action == "router-decision":
         # Prespecified router rules on tuning predictions (needs `evaluate
         # --split tuning --only supervision:J --only <phase>` first).
@@ -773,6 +802,8 @@ def main():
             "queue-status",
             "compute-inventory",
             "router-decision",
+            "source-removal",
+            "borrowing-map",
         ],
     )
     parser.add_argument("--env-file", type=Path, default=REPO / ".env")
@@ -788,6 +819,8 @@ def main():
     parser.add_argument("--export-routes", action="store_true")
     parser.add_argument("--only", action="append", default=[],
                         help="evaluate: only these phases, e.g. source_screen or supervision:J")
+    parser.add_argument("--ablation", choices=("mean", "zero"), default="mean",
+                        help="borrowing-map: mean ablation (primary) or zero (sensitivity)")
     parser.add_argument("--record", action="store_true",
                         help="router-decision: write the decision (default: report only)")
     parser.add_argument("--registry", action="store_true",

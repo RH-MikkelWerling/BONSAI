@@ -33,7 +33,7 @@ from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
-from opera.visualization.style import PALETTE, despine
+from opera.visualization.style import PALETTE, TITLE_PAD, despine
 
 HORIZON_COLORS = {
     30: "#343A88",
@@ -998,6 +998,379 @@ def figure_routing(cells, gate, *, metric="auc", horizon=365, tolerance=0.005, m
             color=PALETTE["ink_muted"], ha="right", va="bottom")
     _panel_title(ax, "B", "Adapter banks")
     despine(ax, "x")
+    watermark(fig, mark)
+    return fig
+
+
+BORROWING_SHORT = {"TRANSFORMED_FL": "tFL", "AMYLOIDOSIS": "AL", "SolM": "SP"}
+LEVEL_STYLE = {
+    # Shades of the routed model's colour, darkest for the within-model level.
+    "dependence": ("#4B3B7A", "AUC lost without borrowing"),
+    "trained_borrowing": ("#8974AC", "Gain over own-disease router"),
+    "routing": ("#B7A9D3", "Routing (vs joint model)"),
+}
+
+
+def _short_disease(code):
+    return BORROWING_SHORT.get(code, code)
+
+
+def _borrowing_order(pooled):
+    """Target diseases ordered by lineage group, then name; and the groups."""
+    groups = list(dict.fromkeys(pooled.sort_values(["target_group", "target"]).target_group))
+    order = (pooled[["target", "target_group"]].drop_duplicates()
+             .assign(g=lambda d: d.target_group.map({g: i for i, g in enumerate(groups)}))
+             .sort_values(["g", "target"]).target.tolist())
+    return order, groups
+
+
+def _auc_levels(levels, *, all_outcomes=True):
+    if levels is None:
+        return None
+    data = levels.loc[levels.endpoint_group == "All outcomes"] if all_outcomes else levels
+    return data.loc[data.metric == "auc"] if "metric" in data else data
+
+
+def _sparse_targets(pooled, min_cells):
+    if "n_cells" not in pooled:
+        return set()
+    off = pooled.target != pooled.source
+    cells = pooled.loc[off].groupby("target").n_cells.max()
+    return set(cells.index[cells.fillna(0) < min_cells])
+
+
+def _group_heatmap(ax, part, groups, vmax, *, labels):
+    grid = (part.groupby(["target_group", "source_group"]).effect.mean().unstack()
+            .reindex(index=groups, columns=groups)).to_numpy(float)
+    ax.grid(False)
+    image = ax.imshow(np.ma.masked_invalid(grid), cmap=GAIN_CMAP,
+                      norm=TwoSlopeNorm(0, -vmax, vmax), aspect="equal",
+                      interpolation="nearest")
+    ax.set_xticks(range(len(groups)), groups if labels else [""] * len(groups),
+                  rotation=90, fontsize=5.2)
+    ax.set_yticks(range(len(groups)), groups if labels else [""] * len(groups),
+                  fontsize=5.2)
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return image
+
+
+def _key_legend(ax, handles, *, y, ncol=1):
+    """A key placed directly under its own panel, left-aligned with it."""
+    return ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, y), ncol=ncol,
+                     frameon=False, fontsize=6.3, handletextpad=0.3, columnspacing=0.9,
+                     borderaxespad=0, labelspacing=0.35)
+
+
+def _pair_labels(data):
+    return [f"{_short_disease(r.source)} → {_short_disease(r.target)}, "
+            f"{SHORT_GROUP.get(r.domain, r.domain).lower()}" for r in data.itertuples()]
+
+
+def figure_borrowing_map(table, hypotheses, levels=None, test=None, *, min_cells=24,
+                         mark=None):
+    """From whom the routed model borrows, how much in total, and whether the
+    clinically expected pairs stand out (main figure; type as ``figure_pooling``).
+
+    ``table``: one row per target disease, source disease and outcome domain
+    (``endpoint_group``; "All outcomes" pools them), with ``target_group``,
+    ``source_group``, the partially pooled AUC gain of the source alone over no
+    borrowing (``effect``, AUC points), its 95% interval and ``n_cells``.
+    ``hypotheses``: prespecified pairs and negative controls with the unshrunk
+    source-alone effect. ``levels``: rows per ``contrast``, target (with "All
+    diseases") and ``endpoint_group``, with ``n_patients``; the dependence level
+    is drawn. ``test``: the set test of the pairs; its ``mean_other`` (the mean
+    of all other pairs of the same domains) is drawn as the typical pair. The
+    variants drop source terms from the trained model without retraining, so
+    they describe the fitted model, not the diseases.
+    """
+    from opera.visualization.paper_taxonomy import disease_name
+
+    pooled = table.loc[table.endpoint_group == "All outcomes"]
+    order, _ = _borrowing_order(pooled)
+    group_of = dict(zip(pooled.target, pooled.target_group))
+    sparse = _sparse_targets(pooled, min_cells)
+    off = pooled.target != pooled.source
+    scale = pooled.loc[off & ~pooled.target.isin(sparse), "effect"]
+    vmax = (float(np.nanpercentile(np.abs(scale), 99)) if len(scale) else 1.0) or 1.0
+    level = _auc_levels(levels)
+    sizes = ({} if level is None else
+             level.dropna(subset=["n_patients"]).drop_duplicates("target")
+             .set_index("target").n_patients.to_dict())
+
+    # Sizes in inches: A is square (equal cells) and B shares its rows.
+    width, height = 7.2, 9.2
+    side, b_width, left = 3.5, 1.55, 1.72
+    a_bottom = 0.955 - side / height
+    fig = plt.figure(figsize=(width, height))
+    ax = fig.add_axes([left / width, a_bottom, side / width, side / height])
+    bx = fig.add_axes([(left + side + 0.12) / width, a_bottom, b_width / width,
+                       side / height], sharey=ax)
+
+    # A: from whom each disease borrows.
+    matrix = (pooled.pivot_table(index="target", columns="source", values="effect")
+              .reindex(index=order, columns=order)).to_numpy(float, copy=True)
+    own = np.eye(len(order), dtype=bool)
+    matrix[own] = np.nan
+    ax.grid(False)
+    image = ax.imshow(np.ma.masked_invalid(matrix), cmap=GAIN_CMAP,
+                      norm=TwoSlopeNorm(0, -vmax, vmax), aspect="auto",
+                      interpolation="nearest")
+    ax.imshow(np.where(own, 1.0, np.nan), cmap=LinearSegmentedColormap.from_list(
+        "own", [PALETTE["grid"], PALETTE["grid"]]), aspect="auto", interpolation="nearest")
+    # Dots use the pooled interval: per-pair unpooled intervals put about one
+    # false dot in twenty null pairs, hundreds of pairs here.
+    lower = (pooled.pivot_table(index="target", columns="source", values="lower")
+             .reindex(index=order, columns=order)).to_numpy(float)
+    rows, cols = np.nonzero((lower > 0) & ~own)
+    ax.scatter(cols, rows, s=5, color="white", edgecolors=PALETTE["ink"], linewidths=0.4,
+               zorder=3)
+    for b in [i for i in range(1, len(order))
+              if group_of[order[i]] != group_of[order[i - 1]]]:
+        ax.axhline(b - 0.5, color="white", lw=1.4)
+        ax.axvline(b - 0.5, color="white", lw=1.4)
+    names = [f"{disease_name(c)} ({int(sizes[c]):,})" if c in sizes else disease_name(c)
+             for c in order]
+    ax.set_yticks(range(len(order)), names)
+    ax.set_xticks(range(len(order)), [_short_disease(c) for c in order], rotation=90)
+    ax.tick_params(length=0, labelsize=6.6)
+    for label, code in zip(ax.get_yticklabels(), order):
+        if code in sparse:
+            label.set_color(PALETTE["ink_muted"])
+    ax.set_xlabel("Source disease")
+    ax.set_ylabel("Target disease (patients)")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    _panel_title(ax, "A", "What each disease adds")
+    cax = ax.inset_axes([0.0, -0.215, 1.0, 0.022])
+    colorbar = fig.colorbar(image, cax=cax, orientation="horizontal")
+    colorbar.set_label("AUC gain for the target from this source alone (points)",
+                       fontsize=7.2)
+    colorbar.ax.tick_params(labelsize=6.5)
+    colorbar.outline.set_visible(False)
+    colorbar.ax.xaxis.set_major_locator(MaxNLocator(5))
+
+    # B: each disease's total dependence on borrowing, as a row total.
+    colour = LEVEL_STYLE["dependence"][0]
+    if level is not None and (level.contrast == "dependence").any():
+        dep = level.loc[level.contrast == "dependence"]
+        per = dep.set_index("target").reindex(order)
+        y = np.arange(len(order))
+        bx.barh(y, per.effect, height=0.62, color=MODEL_STYLE["R"][0], alpha=0.55,
+                linewidth=0)
+        bx.hlines(y, per.lower, per.upper, color=colour, lw=0.8)
+        overall = dep.loc[dep.target == "All diseases"]
+        if len(overall):
+            bx.axvline(overall.effect.iloc[0], color=colour, lw=0.9, ls=(0, (3, 2)))
+    bx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
+    bx.tick_params(axis="y", labelleft=False, length=0)
+    bx.tick_params(axis="x", labelsize=6.6)
+    bx.xaxis.set_major_locator(MaxNLocator(3))
+    bx.set_xlabel("AUC lost without borrowing\n(points; dashed: all diseases)")
+    bx.grid(axis="y", visible=False)
+    _panel_title(bx, "B", "In total")
+    despine(bx, "x")
+
+    # C: the clinically expected pairs and negative controls.
+    data = hypotheses.reset_index(drop=True)
+    cx = fig.add_axes([1.85 / width, 0.1, 2.15 / width, 0.275])
+    colours = {"hypothesis": MODEL_STYLE["R"][0], "negative control": PALETTE["ink_muted"]}
+    for y, row in data.iterrows():
+        c = colours.get(row.kind, PALETTE["ink"])
+        cx.plot([row.lower, row.upper], [y, y], color=c, lw=1.1, alpha=0.6)
+        cx.scatter(row.effect, y, marker="D", s=16, color=c, zorder=3)
+    typical = None
+    if test is not None and "mean_other" in test:
+        typical = test.loc[test.kind == "hypothesis", "mean_other"].dropna()
+        typical = float(typical.iloc[0]) if len(typical) else None
+    cx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
+    if typical is not None:
+        cx.axvline(typical, color=PALETTE["ink_secondary"], lw=0.9, ls=(0, (3, 2)))
+    cx.set_yticks(range(len(data)), _pair_labels(data))
+    cx.tick_params(axis="y", length=0, labelsize=6.8)
+    cx.tick_params(axis="x", labelsize=6.6)
+    cx.set_ylim(len(data) - 0.5, -0.5)
+    cx.xaxis.set_major_locator(MaxNLocator(4))
+    cx.set_xlabel("AUC gain from the source alone\n(points, 95% CI)")
+    cx.grid(axis="y", visible=False)
+    despine(cx, "x")
+    _panel_title(cx, "C", "Pairs expected to share signal")
+    handles = [Line2D([], [], marker="D", ls="", color=colours["hypothesis"],
+                      markersize=4.5, label="Expected pair"),
+               Line2D([], [], marker="D", ls="", color=colours["negative control"],
+                      markersize=4.5, label="Negative control")]
+    if typical is not None:
+        handles.append(Line2D([], [], color=PALETTE["ink_secondary"], lw=0.9,
+                              ls=(0, (3, 2)), label="Typical pair"))
+    _key_legend(cx, handles, y=-0.2, ncol=3)
+
+    # D: for which outcomes borrowing matters, all diseases weighing equally.
+    dx = fig.add_axes([5.3 / width, 0.1, 1.75 / width, 0.275])
+    by_domain = _auc_levels(levels, all_outcomes=False)
+    if by_domain is not None:
+        rows_d = by_domain.loc[(by_domain.contrast == "dependence")
+                               & (by_domain.target == "All diseases")
+                               & (by_domain.endpoint_group != "All outcomes")]
+        rows_d = rows_d.sort_values("effect", ascending=False).reset_index(drop=True)
+        y = np.arange(len(rows_d))
+        dx.hlines(y, rows_d.lower, rows_d.upper, color=colour, lw=1.0, alpha=0.6)
+        dx.scatter(rows_d.effect, y, marker="D", s=16, color=colour, zorder=3)
+        overall = by_domain.loc[(by_domain.contrast == "dependence")
+                                & (by_domain.target == "All diseases")
+                                & (by_domain.endpoint_group == "All outcomes")]
+        if len(overall):
+            dx.axvline(overall.effect.iloc[0], color=colour, lw=0.9, ls=(0, (3, 2)))
+        dx.set_yticks(y, [SHORT_GROUP.get(d, d) for d in rows_d.endpoint_group])
+        dx.set_ylim(len(rows_d) - 0.5, -0.5)
+    dx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
+    dx.tick_params(axis="y", length=0, labelsize=6.8)
+    dx.tick_params(axis="x", labelsize=6.6)
+    dx.xaxis.set_major_locator(MaxNLocator(3))
+    dx.set_xlabel("AUC lost without borrowing\n(points, 95% CI)")
+    dx.grid(axis="y", visible=False)
+    despine(dx, "x")
+    _panel_title(dx, "D", "For which outcomes")
+    watermark(fig, mark)
+    return fig
+
+
+def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min_cells=24,
+                            mark=None):
+    """Supplement: the detail behind the borrowing figure.
+
+    A: three levels per disease (AUC): dependence (the fitted model with and
+    without its borrowed corrections), borrowing as trained (against the router
+    trained with only the own disease adapter) and routing (against the joint
+    model). B: dependence and borrowing as trained against disease size.
+    C: the expected pairs and negative controls, source alone and source left
+    out. D: mean partially pooled source-alone gain between disease groups for
+    every outcome domain (targets with few estimable cells left out).
+    """
+    from opera.visualization.paper_taxonomy import disease_name
+
+    pooled = table.loc[table.endpoint_group == "All outcomes"]
+    order, groups = _borrowing_order(pooled)
+    sparse = _sparse_targets(pooled, min_cells)
+    domains = domains or [d for d in SHORT_GROUP if d in set(table.endpoint_group)]
+    level = _auc_levels(levels)
+    fig = plt.figure(figsize=(7.2, 10.0))
+
+    # A: three levels per disease.
+    ax = fig.add_axes([0.2, 0.555, 0.27, 0.405])
+    present = [] if level is None else [c for c in LEVEL_STYLE if c in set(level.contrast)]
+    for offset, contrast in zip(np.linspace(-0.22, 0.22, len(present)), present):
+        colour, label = LEVEL_STYLE[contrast]
+        part = level.loc[level.contrast == contrast].set_index("target").reindex(order)
+        y = np.arange(len(order)) + offset
+        ax.hlines(y, part.lower, part.upper, color=colour, lw=0.7, alpha=0.5)
+        ax.scatter(part.effect, y, marker="D", s=12 if contrast == "dependence" else 9,
+                   color=colour, zorder=3)
+    ax.set_yticks(range(len(order)), [disease_name(c) for c in order])
+    ax.tick_params(axis="y", length=0, labelsize=6.6)
+    ax.tick_params(axis="x", labelsize=6.6)
+    for label, code in zip(ax.get_yticklabels(), order):
+        if code in sparse:
+            label.set_color(PALETTE["ink_muted"])
+    ax.set_ylim(len(order) - 0.5, -0.5)
+    ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
+    ax.set_xlabel("AUC gain (points, 95% CI)")
+    ax.xaxis.set_major_locator(MaxNLocator(4))
+    ax.grid(axis="y", visible=False)
+    if present:
+        _key_legend(ax, [Line2D([], [], marker="D", ls="", color=LEVEL_STYLE[c][0],
+                                markersize=4.5, label=LEVEL_STYLE[c][1])
+                         for c in present], y=-0.09)
+    despine(ax, "x")
+    _panel_title(ax, "A", "Three levels")
+
+    # B: by disease size.
+    ax = fig.add_axes([0.66, 0.79, 0.32, 0.17])
+    handles = []
+    if level is not None:
+        per = level.loc[level.target != "All diseases"]
+        for contrast in [c for c in ("trained_borrowing", "dependence")
+                         if c in set(per.contrast)]:
+            colour, label = LEVEL_STYLE[contrast]
+            part = per.loc[per.contrast == contrast]
+            ax.vlines(part.n_patients, part.lower, part.upper, color=colour, lw=0.7,
+                      alpha=0.4, zorder=2)
+            ax.scatter(part.n_patients, part.effect, marker="D", s=12, color=colour,
+                       zorder=3, linewidths=0)
+            handles.append(Line2D([], [], marker="D", ls="", color=colour, markersize=4.5,
+                                  label=label))
+        ax.set_xscale("log")
+    ax.axhline(0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
+    ax.tick_params(labelsize=6.6)
+    ax.set_xlabel("Patients with the disease (log scale)", fontsize=8)
+    ax.set_ylabel("AUC gain (points)", fontsize=8)
+    ax.yaxis.set_major_locator(MaxNLocator(4))
+    if handles:
+        ax.legend(handles=handles[::-1], loc="upper right", frameon=False, fontsize=6.3,
+                  handletextpad=0.3, borderaxespad=0)
+    despine(ax, "y")
+    _panel_title(ax, "B", "By disease size")
+
+    # C: pairs, source alone and source left out.
+    ax = fig.add_axes([0.73, 0.555, 0.25, 0.17])
+    data = hypotheses.reset_index(drop=True)
+    colours = {"hypothesis": MODEL_STYLE["R"][0], "negative control": PALETTE["ink_muted"]}
+    for y, row in data.iterrows():
+        c = colours.get(row.kind, PALETTE["ink"])
+        ax.plot([row.lower, row.upper], [y - 0.17, y - 0.17], color=c, lw=0.9, alpha=0.6)
+        ax.scatter(row.effect, y - 0.17, marker="D", s=9, color=c, zorder=3)
+        if np.isfinite(row.get("out_effect", np.nan)):
+            ax.plot([row.out_lower, row.out_upper], [y + 0.2, y + 0.2], color=c, lw=0.6,
+                    alpha=0.45)
+            ax.scatter(row.out_effect, y + 0.2, marker="D", s=8, facecolor="white",
+                       edgecolor=c, linewidths=0.6, zorder=3)
+    ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
+    ax.set_yticks(range(len(data)), _pair_labels(data))
+    ax.tick_params(axis="y", length=0, labelsize=5.6)
+    ax.tick_params(axis="x", labelsize=6.6)
+    ax.set_ylim(len(data) - 0.5, -0.5)
+    ax.xaxis.set_major_locator(MaxNLocator(3))
+    ax.set_xlabel("AUC gain (points, 95% CI)", fontsize=8)
+    ax.grid(axis="y", visible=False)
+    despine(ax, "x")
+    _key_legend(ax, [Line2D([], [], marker="D", ls="", color=colours["hypothesis"],
+                            markersize=4, label="Source alone"),
+                     Line2D([], [], marker="D", ls="", markerfacecolor="white",
+                            color=colours["hypothesis"], markersize=4,
+                            label="Source left out")], y=-0.3, ncol=2)
+    ax.set_title("C  Pairs: alone and left out", loc="left", fontsize=10.5,
+                 pad=TITLE_PAD, x=-0.75)
+
+    # D: every domain, between disease groups.
+    columns = 4
+    rows_n = int(np.ceil(len(domains) / columns))
+    grid = fig.add_gridspec(rows_n, columns, left=0.13, right=0.86, top=0.43, bottom=0.065,
+                            wspace=0.08, hspace=0.3)
+    dense = ~table.target.isin(sparse) & (table.target != table.source)
+    scale = table.loc[dense & table.endpoint_group.isin(domains), "effect"]
+    vmax = (float(np.nanpercentile(np.abs(scale), 98)) if len(scale) else 1.0) or 1.0
+    image = None
+    for i, domain in enumerate(domains):
+        ax = fig.add_subplot(grid[i // columns, i % columns])
+        left_col, last = i % columns == 0, i // columns == rows_n - 1
+        image = _group_heatmap(ax, table.loc[dense & (table.endpoint_group == domain)],
+                               groups, vmax, labels=False)
+        if left_col:
+            ax.set_yticks(range(len(groups)), groups)
+        if last and left_col:
+            ax.set_xticks(range(len(groups)), groups, rotation=90)
+        ax.tick_params(labelsize=6.2)
+        ax.set_title(SHORT_GROUP.get(domain, domain), fontsize=8, pad=4)
+    fig.text(0.04, 0.462, "D  Between disease groups, by outcome domain", fontsize=10.5,
+             color=PALETTE["ink"])
+    if image is not None:
+        cax = fig.add_axes([0.885, 0.17, 0.012, 0.16])
+        colorbar = fig.colorbar(image, cax=cax)
+        colorbar.set_label("AUC gain from a source\ngroup alone (points;\nrows: target,"
+                           " columns:\nsource)", fontsize=7.2)
+        colorbar.ax.tick_params(labelsize=6.5)
+        colorbar.outline.set_visible(False)
+        colorbar.ax.yaxis.set_major_locator(MaxNLocator(5))
     watermark(fig, mark)
     return fig
 

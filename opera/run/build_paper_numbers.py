@@ -45,7 +45,9 @@ from opera.run.analyse_locked_predictions import file_hash, read_table
 SPLIT = "held_out"
 HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
-         "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50", "J_vs_best_tuning")
+         "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50",
+         "LS10", "LS25", "LS50", "LSE10", "LSE25", "LSE50", "FD10", "FD25", "FD50", "RS1",
+         "J_vs_best_tuning")
 # Table 2, grouped by question; (None, title) starts a group. The T contrasts
 # are computed for the configuration selected as OPERA.
 TABLE_ROWS = (

@@ -25,8 +25,8 @@
 \setlength{\emergencystretch}{2.5em}
 \setlength{\parskip}{4pt plus 1pt minus 1pt}
 \setlist{nosep,leftmargin=*}
-\renewcommand{\thesection}{S\arabic{section}}
-\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thesection}{D\arabic{section}}
+\renewcommand{\thetable}{D\arabic{table}}
 \renewcommand{\tablename}{Supplementary Table}
 
 % Column layout for the outcome tables (Supplementary Tables S5--S11).
@@ -46,8 +46,9 @@ Outcome & Definition and threshold & Source & Baseline requirement & Ascertainme
 \section*{Supplementary Methods: cohort, prediction time and outcome definitions}
 
 This supplement describes how the study cohort, the index date (start of
-first-line treatment), the temporal split, the disease-course endpoints and the
-69 treatment-related and acute-care outcomes were defined in the Danish
+first-line treatment), the temporal split and the 69 outcomes, from
+disease-course endpoints to treatment-related and acute-care outcomes, were
+defined in the Danish
 Lymphoid Cancer Research (DALY-CARE) data resource~\citep{brieghel2025dalycare}.
 Reported cohort counts describe the analysis release (Supplementary Table~\ref{tab:flow}).
 The R and Python code that implements every step is released with the paper.
@@ -211,7 +212,7 @@ patient with a missing follow-up record, end of follow-up on or before the
 index date (including death on the index date) or an index date on or after
 the cutoff was therefore excluded from all outcomes. Twenty-six patients of the
 first-line cohort were excluded in this way: for all of them, death (17) or the
-end of follow-up (9) was recorded before the reconstructed index date.
+end of follow-up (9) was recorded on or before the reconstructed index date.
 
 \begin{table}[ht]
 \centering\footnotesize
@@ -339,9 +340,10 @@ towards laboratory ascertainment (Section~\ref{sec:elig}). Because most
 records carry a date but no time, events on the index date cannot be ordered
 relative to treatment start; such events were not counted as outcomes.
 
-\paragraph{Pretraining.} The foundation model was pretrained with an exclusive
+\paragraph{Pretraining.} The cohort encoder was pretrained with an exclusive
 calendar cutoff of 1 January 2022, applied in the same way, and its vocabulary
-was derived from pre-2022 events of pretraining patients only. Pre-2022
+was derived from pre-2022 events of pretraining patients only; the national
+encoder has its own vocabulary, fitted on national data with the same cutoff. Pre-2022
 histories of patients later assigned to tuning or held-out test were included
 in pretraining; the evaluation therefore concerns future treatment episodes,
 not unseen individuals.
@@ -349,9 +351,9 @@ not unseen individuals.
 \paragraph{Disease identity at prediction time.} Disease labels could rely on
 codes registered up to 14 days (pass 1) or 90 days (pass 2) after the index
 date. Models conditioned on disease therefore used information that was not
-necessarily available at the index date for these patients; the main text
-describes a sensitivity analysis restricted to labels available at treatment
-start.
+necessarily available at the index date for these patients; a prespecified
+sensitivity analysis excludes the 209 patients whose disease was assigned after
+day 14 (Supplementary Methods, Prespecification).
 
 % ===========================================================================
 \section{Disease-course endpoints}\label{sec:2l}
@@ -471,7 +473,7 @@ Each outcome belongs to one of the following classes.
 \begin{description}[style=nextline,leftmargin=1.2em]
 \item[Graded laboratory (DALY-CARE grading).] Laboratory values were graded by
 the DALY-CARE standardised adverse-event grading algorithms, whose upstream
-documentation describes several as derived from CTCAE v5. The event was the
+graders cite CTCAE v5 (correspondence with CTCAE in Section~\ref{sec:ctcae}). The event was the
 first post-index measurement at or above the stated grade.
 \item[Local laboratory threshold.] As above, with the numeric threshold stated
 in the table.
@@ -497,7 +499,8 @@ tiers, laboratory events are the first post-index documentation of an abnormal
 value, not new onset or worsening: abnormal baseline values were not excluded.
 No outcome is a verified CTCAE v6 grade; grade labels denote the output of the
 grading algorithm (``CTCAE-aligned''). Prediction horizons were 30, 60, 90, 180,
-365 and 730 days (primary 365 days). For every outcome in
+365 and 730 days, all prespecified; pooled summaries weigh every horizon equally,
+and the main figures show 365 days. For every outcome in
 Supplementary Tables~\ref{tab:inf}--\ref{tab:acute}, death was a competing event.
 
 \paragraph{Abbreviations in Supplementary Tables~\ref{tab:inf}--\ref{tab:acute}.}
@@ -564,7 +567,7 @@ Any transfusion & Union of the red-cell and platelet code sets (single code-set 
 \otablehead
 Acute kidney injury (first documented) & First post-index start of an acute kidney injury episode derived from creatinine by the DALY-CARE algorithm. & Lab & Lab rule & Lab & Grd\\
 Creatinine increased, grade $\ge$2; grade $\ge$3 & Creatinine graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
-Creatinine rise $>$1.5$\times$ pre-index baseline & Creatinine (\textmu mol/L) $>$1.5 times baseline on any post-index day. Not a CTCAE grade or an acute kidney injury diagnosis. & Lab & Lab rule; baseline value $>$0 (no reference-limit requirement) & Lab & Rel\\
+Creatinine rise $>$1.5$\times$ pre-index baseline & Creatinine (\textmu mol/L) $>$1.5 times baseline on any post-index day: the baseline arm of CTCAE v5 grade $\ge$2 alone, not an acute kidney injury diagnosis. & Lab & Lab rule; baseline value $>$0 (no reference-limit requirement) & Lab & Rel\\
 Dialysis & SKS procedure codes beginning BJFD. & DNPR-Proc & OP & Admin & Reg\\
 \end{longtable}}
 
@@ -575,7 +578,7 @@ Dialysis & SKS procedure codes beginning BJFD. & DNPR-Proc & OP & Admin & Reg\\
 ALT increased, grade $\ge$2; grade $\ge$3 & ALT (U/L), with reference ULN $>$0. If baseline $>$ its ULN: value $>$1.5 / $>$2.0 times baseline. Otherwise: value $>$3 / $>$5 times the ULN of the measurement. & Lab & Lab rule; gradable baseline (value $>$0, baseline ULN $>$0) & Lab & Rel\\
 Alkaline phosphatase elevation, tier $\ge$2; tier $\ge$3 & $>$2.5 / $>$5 times the sample ULN if the running mean of prior samples was normal, otherwise $>$2.5 / $>$5 times that prior mean; missing ULN set to 105 U/L. Time-varying baseline; CTCAE v6 grades ALP at grade 1 only. & Lab & Lab rule & Lab & Grd\\
 Bilirubin increased, grade $\ge$2; grade $\ge$3 & Bilirubin graded $\ge$2 / $\ge$3. & Lab & Lab rule & Lab & Grd\\
-Hepatotoxicity & Earliest of ALT increased grade $\ge$3 (baseline-relative), AST increased grade $\ge$3 and bilirubin increased grade $\ge$3. & Composite & Intersection, hence gradable ALT baseline & Earliest component & Cmp\\
+Hepatotoxicity & Earliest of ALT increased grade $\ge$3 (baseline-relative), AST increased grade $\ge$3 (a component only, not a panel outcome) and bilirubin increased grade $\ge$3. & Composite & Intersection, hence gradable ALT baseline & Earliest component & Cmp\\
 INR increased, grade $\ge$2; grade $\ge$3 & INR graded $\ge$2 / $\ge$3; anticoagulant therapy not considered. & Lab & Lab rule & Lab & Grd\\
 \end{longtable}}
 
@@ -642,6 +645,61 @@ Bone fracture & ICD-10 S02, S12, S22, S32, S42, S52, S62, S72, S82, S92, T02, M8
 \end{longtable}}
 
 % ===========================================================================
+\section{Correspondence with CTCAE}\label{sec:ctcae}
+Laboratory outcomes were defined with reference to the NCI Common Terminology
+Criteria for Adverse Events, version 5.0~\citep{nci2017ctcae} and, where noted,
+6.0~\citep{nci2025ctcae}, using laboratory criteria only: the symptom,
+intervention and hospitalisation criteria of some grades cannot be observed in
+the data, and none changes a laboratory threshold below. An outcome is
+\emph{derived} from CTCAE when its thresholds equal the laboratory thresholds of
+the stated grade, \emph{analogous} when it follows the same grade but differs in
+the stated way, and has \emph{no counterpart} otherwise. Graded outcomes come
+from the DALY-CARE graders (package commit a0742b0, every grader citing CTCAE
+v5); the version installed on the analysis server is to be confirmed. Table
+\ref{tab:ctcae} lists every laboratory outcome; outcomes were not redefined.
+Where a DALY-CARE grader uses R's default interval rule, a value exactly at a
+cut-off falls in the more severe band ($\le$ where CTCAE uses $<$), which matters
+for haemoglobin, reported to 0.1~mmol/L, and albumin, reported in whole g/L.
+
+{\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{longtable}{L{3.4cm}L{3.6cm}L{1.7cm}L{6.4cm}}
+\caption{Correspondence of laboratory outcomes with CTCAE.}\label{tab:ctcae}\\
+\toprule\rowcolor{OperaIndigo!8}
+Outcome & CTCAE term and grade & Relation & Difference\\\midrule\endfirsthead
+\toprule\rowcolor{OperaIndigo!8}
+Outcome & CTCAE term and grade & Relation & Difference\\\midrule\endhead
+\bottomrule\endfoot
+Thrombocytopenia $\ge$2; $\ge$3 & Platelet count decreased, v5 & Derived & None; v6 changed only the grade 3/4 boundary. \\
+Lymphocytosis $\ge$2; $\ge$3 & Lymphocyte count increased, v5 & Derived & None. \\
+Haptoglobin decreased & Haptoglobin decreased, v5 & Derived & None. \\
+INR increased $\ge$2; $\ge$3 & INR increased, v5 & Derived & The arm for patients on anticoagulation is not applied. \\
+Hyponatraemia $\ge$2 & Hyponatremia, v5 & Derived & None for grade $\ge$2. \\
+Potassium $<$3.0 mmol/L & Hypokalemia grade $\ge$3, v5 & Derived & Named by its threshold. \\
+Hypernatraemia $\ge$2; $\ge$3 & Hypernatremia, v5 & Derived & None. \\
+Hyperkalaemia $\ge$2; $\ge$3 & Hyperkalemia, v5 & Derived & None. \\
+Hypomagnesaemia $\ge$2 & Hypomagnesemia, v5 & Derived & None. \\
+Hypertriglyceridaemia $\ge$2; $\ge$3 & Hypertriglyceridemia, v5 & Derived & None (fasting not specified by CTCAE). \\
+Hyperuricaemia & Hyperuricemia grade $\ge$1, v5 & Derived & Unit conversion of urate to be confirmed. \\
+LDH increased & Blood lactate dehydrogenase increased, v5 & Derived & None. \\
+ALT increased $\ge$2; $\ge$3 & Alanine aminotransferase increased, v6 & Derived & Equals v6 in both baseline arms (v5 uses $\times$3--5 of an abnormal baseline). \\
+Anaemia $\ge$2; $\ge$3 & Anemia, v5 & Analogous & Values exactly at 6.2 or 4.9~mmol/L fall in the more severe grade. \\
+Neutropenia $\ge$2; $\ge$3 & Neutrophil count decreased, v5 & Analogous & Values exactly at a cut-off fall in the more severe grade; v6 moved every grade down one step, so these are v6 grades $\ge$1 and $\ge$2. \\
+Leukopenia $\ge$2; $\ge$3 & White blood cell decreased, v5 & Analogous & Values exactly at a cut-off fall in the more severe grade. \\
+Hypoalbuminaemia $\ge$2; $\ge$3 & Hypoalbuminemia, v5 & Analogous & Values exactly at 30 or 20~g/L fall in the more severe grade. \\
+Creatinine increased $\ge$2; $\ge$3 & Creatinine increased, v5 & Analogous & Arm relative to the upper limit of normal only; the arm relative to baseline is not applied. \\
+Creatinine $>$1.5$\times$ baseline & Creatinine increased grade $\ge$2, v5 & Analogous & Arm relative to baseline only; v6 restricts that arm to a baseline below the lower limit of normal. \\
+Bilirubin increased $\ge$2; $\ge$3 & Blood bilirubin increased, v5 & Analogous & Arm relative to the upper limit of normal only. \\
+Eosinophilia & Eosinophilia grade $\ge$1, v5 & Analogous & The condition ``above baseline'' is not applied. \\
+Hypercalcaemia $\ge$2; $\ge$3 & Hypercalcemia, v5 & Analogous & CTCAE grades corrected or ionised calcium; whether the total-calcium codes are albumin-corrected is to be confirmed (derived if so). \\
+Hypocalcaemia $\ge$2; $\ge$3 & Hypocalcemia, v5 & Analogous & As for hypercalcaemia. \\
+Sodium $<$125 mmol/L & Hyponatremia grade $\ge$3, v5 & Analogous & Laboratory arm only; symptomatic values of 125--129 are not included. \\
+Hyperphosphataemia & Hyperphosphatemia grade 1, v5 & Analogous & CTCAE gives no number for ``laboratory finding only''; the upper limit of normal is used. \\
+Alkaline phosphatase tier $\ge$2; $\ge$3 & Alkaline phosphatase increased, v5 & Analogous & v5 multiples applied to a running mean of earlier samples; v6 has grade 1 only, so these are named tiers, not grades. \\
+Acute kidney injury & Acute kidney injury (clinical), v5 & No counterpart & Episode algorithm from creatinine, close to KDIGO. \\
+Severe cytopenia & -- & No counterpart & Composite of grade $\ge$3 anaemia, neutropenia and thrombocytopenia. \\
+Hepatotoxicity & -- & No counterpart & Composite of ALT (v6), AST (v5) and bilirubin (v5) grade $\ge$3. \\
+\end{longtable}}
+
 \section{Outcome-specific eligibility, ascertainment and censoring}\label{sec:elig}
 
 \paragraph{Outcome population.} All outcomes started from the first-line
@@ -758,19 +816,24 @@ failure, treatment failure or transformation, severe cytopenia, hepatotoxicity,
 and infection diagnosis or antimicrobial use. Any transfusion and serious
 infection were defined as single code-set outcomes rather than composites.
 
-\paragraph{Endpoint groups.} Training loss and checkpoint selection used a
-macro-average over endpoint groups of the competing-risk, cumulative-incidence
-based area under the curve on the tuning set. Endpoint groups combined the
+\paragraph{Endpoints.} The training loss and the checkpoint criterion (the
+tuning loss) averaged the horizon-wise binary cross-entropy within each outcome
+and then equally over endpoints. Endpoints combined the
 grade variants of one endpoint (grade $\ge$2 and grade $\ge$3), the two
 alkaline phosphatase tiers, and hyponatraemia grade $\ge$2 with sodium
-$<$125 mmol/L, giving 52 endpoint groups for the 69 outcomes. Related
+$<$125 mmol/L, giving 52 endpoints for the 69 outcomes. Related
 diagnoses, proxies and composites were not merged.
 
-\paragraph{Display groups.} For figures only, the 69 outcomes were assigned
-once each to 17 descriptive groups; creatinine rise $>$1.5$\times$ baseline
-was placed under ``Kidney injury and renal support'' and potassium
-$<$3.0 mmol/L under ``Sodium and potassium''. Display groups did not affect
-model weighting.
+\paragraph{Clinical domains.} Each outcome was assigned once to one of 12
+clinical domains: disease course and later malignancy; infection and
+antimicrobial use; erythroid findings and transfusion; neutrophil, white-cell and
+platelet findings; lymphocyte and eosinophil counts; renal injury and support;
+liver injury and coagulation; sodium and potassium; calcium and magnesium;
+metabolic and cell-turnover markers; cardiovascular and thrombotic events; and
+acute care and other events. Creatinine increase was placed under renal injury
+and support and hypokalaemia under sodium and potassium. Domains organise the
+figures, define the sensitivity analysis that weighs every domain equally, and
+group outcomes in the borrowing analysis; they do not enter training.
 
 % ===========================================================================
 \section{Limitations of the outcome definitions}\label{sec:limits}
@@ -783,7 +846,7 @@ haematological ICD-10 block, not histologically confirmed transformation.
 Second-line treatment is time to next qualifying treatment, not observed
 progression.
 \item \textbf{CTCAE-aligned, not CTCAE.} Laboratory grades derive from the
-DALY-CARE grading algorithms (several described as CTCAE v5-derived) and local
+DALY-CARE grading algorithms (all citing CTCAE v5) and local
 thresholds, some using reference limits with fixed fallback values. Symptoms,
 interventions and clinical context required by CTCAE for several grades are
 not observed; no outcome is a verified CTCAE v6 grade~\citep{nci2017ctcae,nci2025ctcae}.

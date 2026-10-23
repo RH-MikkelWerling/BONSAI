@@ -1,0 +1,117 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=1.8cm]{geometry}
+\usepackage[T1]{fontenc}\usepackage{lmodern}\usepackage{amssymb}
+\usepackage{booktabs,longtable,array,xcolor,enumitem}
+\usepackage[hidelinks]{hyperref}
+% Fillable form: one exclusive choice and one comment box per pair.
+\newcommand{\viewfield}[1]{\ChoiceMenu[popdown,name=view_#1,width=2.1cm,height=1.2em,
+  bordercolor={0.6 0.6 0.6},charsize=8pt,default= ]{}{ = ,agree=agree,disagree=disagree,unsure=unsure}}
+\newcommand{\commentfield}[1]{\TextField[name=comment_#1,multiline=true,width=5.2cm,
+  height=1.35cm,bordercolor={0.7 0.7 0.7},charsize=8pt]{}}
+\renewcommand{\familydefault}{\sfdefault}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setlength{\parindent}{0pt}\setlength{\parskip}{5pt}
+\pagestyle{plain}
+\begin{document}
+\begin{Form}
+{\Large\bfseries Which lymphoid cancers should learn from each other?}\par
+{\large Request for review of a list fixed before testing}\par
+{\footnotesize\color{black!55}Draft for the study haematologists. Fill in this PDF directly
+(Adobe Reader or Preview), save it and send it to Mikkel Werling.}\par
+Your name: \TextField[name=reviewer,width=7cm,height=1.1em,bordercolor={0.7 0.7 0.7}]{}
+
+\textbf{Background.} We have built one prediction model for patients starting first-line treatment
+for any of 24 lymphoid cancers (37,531 Danish patients). For each patient it predicts the risk of
+69 outcomes over the following two years, from relapse and second-line treatment to infection,
+cytopenia, organ toxicity and hospital admission. Because the model learns from all diseases at
+once, what it learns in one disease can be used for another.
+
+\textbf{What we will test.} After the model is trained, we can switch off what it learned from one
+disease and see how much worse its predictions become for another. We want to check whether the
+model relies on other diseases \emph{where clinical knowledge says it should}. To make this a fair
+test, we must write down the expected pairs \textbf{before} we look at the results on the test
+patients. Once the test data are opened, the list can no longer be changed. Your clinical
+judgement now is therefore what makes the test meaningful.
+
+\textbf{What we ask of you.}
+\begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=0pt]
+  \item For each pair below, tick \emph{agree}, \emph{disagree} or \emph{unsure}: would you
+  expect what is learned in the first disease to help predict the stated outcomes in the second?
+  Add a comment where useful. We deliberately give no reasons, so as not to steer your view.
+  \item Suggest pairs we have missed. Any disease can be paired with any other, for any group of
+  outcomes; the diseases and outcomes are listed at the end. Pairs that would not be obvious from
+  the classification alone, such as diseases that share a treatment or a typical complication, are
+  especially useful.
+  \item Check the \emph{negative controls} (the last three rows): pairs we expect \emph{not} to
+  inform each other. They show whether the method finds a signal where none should exist.
+\end{enumerate}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{L{0.55cm}L{4.6cm}L{2.8cm}L{2.3cm}L{5.4cm}}
+\toprule
+& Pair & For predicting & Your view & Comment\\ \midrule\endfirsthead
+\toprule
+& Pair & For predicting & Your view & Comment\\ \midrule\endhead
+\multicolumn{5}{l}{\bfseries Pairs expected to inform each other}\\ \midrule
+1 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Small lymphocytic lymphoma (SLL)} & all outcomes & \viewfield{H1} & \commentfield{H1} \\ \midrule
+2 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Plasma-cell leukaemia (PCL)} & disease course and later malignancy & \viewfield{H2} & \commentfield{H2} \\ \midrule
+3 & Learn from \textbf{Extranodal marginal-zone lymphoma (EMZL)}\newline to predict for \textbf{Splenic marginal-zone lymphoma (SMZL)} & disease course and later malignancy & \viewfield{H3} & \commentfield{H3} \\ \midrule
+4 & Learn from \textbf{Diffuse large B-cell lymphoma (DLBCL)}\newline to predict for \textbf{Transformed follicular lymphoma (tFL)} & disease course and later malignancy & \viewfield{H4} & \commentfield{H4} \\ \midrule
+5 & Learn from \textbf{Diffuse large B-cell lymphoma (DLBCL)}\newline to predict for \textbf{Richter transformation (RT)} & disease course and later malignancy & \viewfield{H5} & \commentfield{H5} \\ \midrule
+6 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Richter transformation (RT)} & infection and antimicrobial use & \viewfield{H6} & \commentfield{H6} \\ \midrule
+7 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Chronic lymphocytic leukaemia (CLL)} & infection and antimicrobial use & \viewfield{H7} & \commentfield{H7} \\ \midrule
+8 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Multiple myeloma (MM)} & infection and antimicrobial use & \viewfield{H8} & \commentfield{H8} \\ \midrule
+9 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Amyloidosis} & renal injury and support & \viewfield{H9} & \commentfield{H9} \\ \midrule
+10 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & neutrophil, white-cell and platelet findings & \viewfield{H10} & \commentfield{H10} \\ \midrule
+11 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & metabolic and cell-turnover markers & \viewfield{H11} & \commentfield{H11} \\ \midrule
+12 & Learn from \textbf{Peripheral T-cell lymphoma, NOS (PTCL)}\newline to predict for \textbf{T-cell lymphoma, unspecified (TCL)} & disease course and later malignancy & \viewfield{H12} & \commentfield{H12} \\ \midrule
+13 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Lymphoplasmacytic lymphoma (LPL)} & cardiovascular and thrombotic events & \viewfield{H13} & \commentfield{H13} \\ \midrule
+\multicolumn{5}{l}{\bfseries Negative controls: pairs expected \emph{not} to inform each other}\\ \midrule
+C1 & Learn from \textbf{Amyloidosis}\newline to predict for \textbf{Hodgkin lymphoma (HL)} & all outcomes & \viewfield{C1} & \commentfield{C1} \\ \midrule
+C2 & Learn from \textbf{Anaplastic large-cell lymphoma (ALCL)}\newline to predict for \textbf{Solitary plasmacytoma} & all outcomes & \viewfield{C2} & \commentfield{C2} \\ \midrule
+C3 & Learn from \textbf{Transformed follicular lymphoma (tFL)}\newline to predict for \textbf{Hairy-cell leukaemia (HCL)} & disease course and later malignancy & \viewfield{C3} & \commentfield{C3} \\ \midrule
+\end{longtable}}
+
+\textbf{Pairs we have missed} (learn from which disease, to predict which outcomes in which
+disease, and why):\par
+\TextField[name=missed_pairs,multiline=true,width=\linewidth,height=3.2cm,
+  bordercolor={0.7 0.7 0.7},charsize=9pt]{}\par\medskip
+\textbf{Other comments:}\par
+\TextField[name=other_comments,multiline=true,width=\linewidth,height=2.4cm,
+  bordercolor={0.7 0.7 0.7},charsize=9pt]{}
+
+\newpage
+{\large\bfseries The 24 diseases}\par
+\begin{itemize}[leftmargin=0pt,itemsep=2pt,topsep=2pt]
+\item[] \textbf{Large B-cell lymphomas}: Diffuse large B-cell lymphoma (DLBCL); Richter transformation (RT); Transformed follicular lymphoma (tFL)
+\item[] \textbf{Burkitt and lymphoblastic lymphomas}: Burkitt lymphoma (BL); Lymphoblastic lymphoma (LBL)
+\item[] \textbf{Mantle-cell lymphoma}: Mantle-cell lymphoma (MCL)
+\item[] \textbf{Indolent B-cell lymphomas}: Follicular lymphoma (FL); Lymphoplasmacytic lymphoma (LPL); Extranodal marginal-zone lymphoma (EMZL); Splenic marginal-zone lymphoma (SMZL); Nodal marginal-zone lymphoma (NMZL); B-cell lymphoma, unspecified (BCL)
+\item[] \textbf{CLL and SLL}: Chronic lymphocytic leukaemia (CLL); Small lymphocytic lymphoma (SLL)
+\item[] \textbf{Hairy-cell leukaemia}: Hairy-cell leukaemia (HCL)
+\item[] \textbf{Hodgkin lymphoma}: Hodgkin lymphoma (HL)
+\item[] \textbf{T-cell lymphomas}: Peripheral T-cell lymphoma, NOS (PTCL); Angioimmunoblastic T-cell lymphoma (AITL); Anaplastic large-cell lymphoma (ALCL); T-cell lymphoma, unspecified (TCL)
+\item[] \textbf{Plasma-cell neoplasms}: Multiple myeloma (MM); Plasma-cell leukaemia (PCL); Solitary plasmacytoma
+\item[] \textbf{Amyloidosis}: AL amyloidosis
+\end{itemize}
+
+{\large\bfseries The 69 outcomes, by clinical domain}\par
+Each outcome is predicted at 30, 60 and 90 days and at 6, 12 and 24 months after the start of
+first-line treatment. Laboratory grades are based on the CTCAE laboratory thresholds; pairs can name a
+whole domain or ``all outcomes''.
+\begin{itemize}[leftmargin=0pt,itemsep=2pt,topsep=2pt]
+\item[] \textbf{Disease course and later malignancy}: overall survival; second-line treatment; treatment failure; treatment failure or transformation; new haematological malignancy; new malignancy (any)
+\item[] \textbf{Infection and antimicrobial use}: sepsis; serious infection (including invasive fungal infection and pneumocystosis); antibiotic treatment; intravenous antimicrobial use; prescription antimicrobial use; infection diagnosis or antimicrobial use
+\item[] \textbf{Erythroid findings and transfusion}: anaemia grade 2 and 3; red-cell transfusion; any transfusion; haptoglobin decreased
+\item[] \textbf{Neutrophil, white-cell and platelet findings}: neutropenia grade 2 and 3; leukopenia grade 2 and 3; thrombocytopenia grade 2 and 3; platelet transfusion; severe cytopenia
+\item[] \textbf{Lymphocyte and eosinophil counts}: lymphocytosis grade 2 and 3; eosinophilia
+\item[] \textbf{Renal injury and support}: acute kidney injury; creatinine increased grade 2 and 3; creatinine rise above 1.5 times the pre-treatment value; dialysis
+\item[] \textbf{Liver injury and coagulation}: ALT increased grade 2 and 3; alkaline phosphatase elevation, two levels; bilirubin increased grade 2 and 3; hepatotoxicity; INR increased grade 2 and 3
+\item[] \textbf{Sodium and potassium}: hyponatraemia grade 2; sodium below 125 mmol/L; potassium below 3.0 mmol/L; hypernatraemia grade 2 and 3; hyperkalaemia grade 2 and 3
+\item[] \textbf{Calcium and magnesium}: hypercalcaemia grade 2 and 3; hypocalcaemia grade 2 and 3; hypomagnesaemia grade 2
+\item[] \textbf{Metabolic and cell-turnover markers}: hypertriglyceridaemia grade 2 and 3; hypoalbuminaemia grade 2 and 3; hyperphosphataemia; hyperuricaemia; LDH increased
+\item[] \textbf{Cardiovascular and thrombotic events}: atrial fibrillation; heart failure; stroke or transient ischaemic attack; venous thromboembolism
+\item[] \textbf{Acute care and other events}: acute hospitalisation; emergency department stay; respiratory support; bone fracture
+\end{itemize}
+\end{Form}
+\end{document}

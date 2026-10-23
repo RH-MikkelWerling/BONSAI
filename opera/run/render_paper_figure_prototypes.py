@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from opera.evaluation.decision_curves import figure_decision_curve
+
 from opera.visualization import paper_figures as figures
 from opera.visualization.outcome_names import outcome_display_name
 from opera.visualization.style import save_fig
@@ -204,6 +206,114 @@ def synthetic_routes(rng):
     return pd.DataFrame(rows), disease_groups, outcome_groups
 
 
+def synthetic_borrowing(rng):
+    """Borrowing tables with modest, plausible structure, through the real
+    pooling and claim code: about zero across lineages, a little within a
+    lineage, the prespecified pairs a few tenths of an AUC point in their
+    domain; noise and estimable cells set by each target's size; leaving a
+    source out costs less within a lineage (related sources stand in). The true
+    sizes are unknown until the tuning run. Returns the map, the prespecified
+    pairs, the three levels (with all diseases) and the aggregate test."""
+    from opera.run.source_removal import (
+        borrowing_map, disease_groups, disease_sizes, hypothesis_table, hypothesis_test,
+        lineage_summary)
+
+    groups, sizes = disease_groups(), disease_sizes()
+    plan = yaml.safe_load((REPO / "opera/configs/borrowing_hypotheses.yaml").read_text())
+    boost = {(h["target"], h["source"], h["domain"]): rng.uniform(0.2, 0.5)
+             for h in plan["hypotheses"]}
+    domains = list(yaml.safe_load(
+        (REPO / "opera/configs/outcome_display_groups_paper_v1.yaml").read_text()))
+    rows, levels, effects, draws = [], [], {}, {}
+    shared = {}  # one patient resample moves all of a target's pairs alike
+    for target, n in sizes.items():
+        cells = min(n // 8, 400)
+        if not cells:
+            continue  # nothing estimable in the test period
+        se = (0.03 + 0.4 / np.sqrt(n / 50))  # per domain
+        for source in sizes:
+            if target == source:
+                continue
+            base = 0.10 if groups[target] == groups[source] else 0.01
+            infection_across = 0.04 if groups[target] != groups[source] else 0.0
+            masked = 0.4 if groups[target] == groups[source] else 0.9
+            alone, left_out = [], []
+            for domain in [*domains, "All outcomes"]:
+                if domain == "All outcomes":
+                    a, o = np.mean(alone), np.mean(left_out)
+                    err = se / np.sqrt(len(domains))
+                else:
+                    true = base + boost.get((target, source, domain), 0.0) \
+                        + 0.8 * boost.get((target, source, "All outcomes"), 0.0) \
+                        + (infection_across if domain.startswith("Infection") else 0.0)
+                    a = true + rng.normal(0, se)
+                    o = masked * true + rng.normal(0, se)
+                    alone.append(a)
+                    left_out.append(o)
+                    err = se
+                noise = shared.setdefault((target, domain), rng.normal(0, 1, 400))
+                effects[(target, source, domain)] = a
+                draws[(target, source, domain)] = (a + err * (0.6 * noise
+                                                   + 0.8 * rng.normal(0, 1, 400)))
+                rows.append({"target": target, "source": source, "endpoint_group": domain,
+                             "in_effect": a, "in_lower": a - 1.96 * err,
+                             "in_upper": a + 1.96 * err, "in_se": err, "in_p_value": np.nan,
+                             "in_n_cells": cells if domain == "All outcomes"
+                             else max(1, cells // len(domains)),
+                             "out_effect": o, "out_lower": o - 1.96 * err,
+                             "out_upper": o + 1.96 * err})
+        dependence = 0.3 + 1.2 * (50 / n) ** 0.35
+        for contrast, true, factor in (("dependence", dependence, 1.0),
+                                       ("trained_borrowing", 0.6 * dependence, 1.6),
+                                       ("routing", 0.4 * dependence, 1.6)):
+            err = factor * se / 2
+            est = true + rng.normal(0, err)
+            levels.append({"contrast": contrast, "metric": "auc", "target": target,
+                           "endpoint_group": "All outcomes", "effect": est,
+                           "lower": est - 1.96 * err, "upper": est + 1.96 * err,
+                           "target_group": groups[target], "n_patients": n})
+    raw = pd.DataFrame(rows)
+    levels = pd.DataFrame(levels)
+    overall = (levels.groupby("contrast")
+               .agg(effect=("effect", "mean"),
+                    half=("upper", lambda u: 0.0))  # filled below
+               .reset_index())
+    for row in overall.itertuples():
+        part = levels.loc[levels.contrast == row.contrast]
+        err = np.sqrt((((part.upper - part.lower) / 3.92) ** 2).sum()) / len(part)
+        levels = pd.concat([levels, pd.DataFrame([{
+            "contrast": row.contrast, "metric": "auc", "target": "All diseases",
+            "endpoint_group": "All outcomes", "effect": row.effect,
+            "lower": row.effect - 1.96 * err, "upper": row.effect + 1.96 * err,
+            "target_group": None, "n_patients": np.nan}])], ignore_index=True)
+    # By outcome domain, all diseases: borrowing helps most where an outcome's
+    # meaning differs between diseases (disease course), least where the biology
+    # is shared (cytopenia).
+    overall = levels.loc[(levels.contrast == "dependence")
+                         & (levels.target == "All diseases")].iloc[0]
+    shift = {"Disease course and later malignancy": 0.35, "Infection and antimicrobial use": 0.15,
+             "Neutrophil, white-cell and platelet findings": -0.3,
+             "Erythroid findings and transfusion": -0.2}
+    for domain in domains:
+        est = overall.effect + shift.get(domain, 0.0) + rng.normal(0, 0.08)
+        err = (overall.upper - overall.lower) / 3.92 * 2.2
+        levels = pd.concat([levels, pd.DataFrame([{
+            "contrast": "dependence", "metric": "auc", "target": "All diseases",
+            "endpoint_group": domain, "effect": est, "lower": est - 1.96 * err,
+            "upper": est + 1.96 * err, "target_group": None, "n_patients": np.nan}])],
+            ignore_index=True)
+    # IPA (secondary): the same pattern, noisier and on its own scale.
+    ipa = levels.assign(metric="ipa")
+    noise = rng.normal(0, 0.15, len(ipa)) * (ipa.upper - ipa.lower)
+    ipa = ipa.assign(effect=1.5 * ipa.effect + noise, lower=1.5 * ipa.lower + noise - 0.2,
+                     upper=1.5 * ipa.upper + noise + 0.2)
+    levels = pd.concat([levels, ipa], ignore_index=True)
+    sparse = {t for t, n in sizes.items() if min(n // 8, 400) < 24}
+    return (borrowing_map(raw, groups), hypothesis_table(raw, plan), levels,
+            hypothesis_test(raw, plan, permutations=2000),
+            lineage_summary(effects, draws, groups, exclude=sparse))
+
+
 def synthetic_calibration(cells, rng):
     base = cells.loc[(cells.contrast == "J-S") & (cells.metric == "auc")
                      & (cells.horizon_days == 365)]
@@ -264,6 +374,27 @@ def synthetic_risk_patients(rng, n=1600):
         "model_risk": np.clip(risk + rng.normal(0, 0.04, n), 0, 1), "age": age,
         "ipi_score": np.where(available, ipi + 1, np.nan),  # category rank
         "ipi_group": np.where(available, np.array(ipi_order)[ipi], None)})
+
+
+def synthetic_decision_curves(rng):
+    """Decision curves from synthetic patients with an IPI recorded, through
+    the real analysis (IPCW net benefit, tuning-observed index risks)."""
+    from opera.evaluation.decision_curves import decision_curves
+
+    def patients(n):
+        frame = synthetic_risk_patients(rng, n=n)
+        frame = frame.loc[frame.ipi_group.notna()].reset_index(drop=True)
+        # A tuned tabular model: the same signal, a little noisier.
+        frame["xgboost"] = np.clip(frame.model_risk + rng.normal(0, 0.07, len(frame)), 0, 1)
+        return frame
+
+    return decision_curves(patients(3200), patients(1200), 730,
+                           sorted(set(np.round(np.arange(0.05, 0.401, 0.01), 2))
+                                  | set(SYNTHETIC_DCA_POINTS.values())),
+                           comparators=["xgboost"], n_boot=300)
+
+
+SYNTHETIC_DCA_POINTS = {"Low-risk cutoff": 0.083, "High-risk cutoff": 0.317}
 
 
 def synthetic_subgroups(rng):
@@ -724,6 +855,7 @@ def main():
     known, labels = figures._known_status(tuning_patients.loc[tuning_patients.ipi_group.notna()], 730)
     specificity = float((known.loc[labels == 0, "ipi_score"] < len(IPI_ORDER)).mean())
     locked_threshold = float(np.quantile(known.loc[labels == 0, "model_risk"], specificity))
+    borrowing = synthetic_borrowing(np.random.default_rng(29))
     renders = {
         "supp_clinical_score_age": figures.figure_clinical_score_age(
             risk_patients, outcome_label="Overall survival", ipi_label="IPI", ipi_order=IPI_ORDER, thresholds=RISK_THRESHOLDS,
@@ -747,7 +879,13 @@ def main():
             mark=mark),
         "supp_routing": figures.figure_routing(cells, synthetic_gate(), mark=mark),
         "supp_router_usage": figures.figure_router_usage(*synthetic_routes(rng), mark=mark),
+        "fig_borrowing_map": figures.figure_borrowing_map(*borrowing[:4], mark=mark),
+        "supp_borrowing_detail": figures.figure_borrowing_detail(
+            borrowing[0], borrowing[1], borrowing[2], mark=mark),
         "supp_horizons": figures.figure_horizons(cells, mark=mark),
+        "fig_decision_curve": figure_decision_curve(
+            synthetic_decision_curves(np.random.default_rng(17)),
+            labels={"xgboost": "XGBoost"}, mark=mark, points=SYNTHETIC_DCA_POINTS),
         "fig_calibration": figures.figure_calibration(*synthetic_calibration(cells, rng),
                                                       mark=mark),
         "fig_benchmarks": figures.figure_benchmarks(

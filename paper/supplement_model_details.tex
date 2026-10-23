@@ -83,10 +83,11 @@ environment from the configurations in the ehr2meds repository.
 before it, with every event's time encoded by a scaled Time2Vec representation
 \citep{kazemi2019time2vec} (\cref{tab:model-spec}). It was pretrained on the
 histories before 1 January 2022 of the pretraining population, every DALY-CARE
-patient with a lymphoid cancer diagnosis (78,668), for 10 epochs, the budget of
-the national encoder. An encoder twice as wide was considered before the
-analysis was locked and not adopted: fine-tuned as the joint model, it improved
-tuning AUC by 0.003, short of the prespecified 0.01. This encoder initialised
+patient with a haematological diagnosis, including precursor conditions
+(78,668), for 10 epochs, the budget of the national encoder. An encoder twice as
+wide was considered before the analysis was locked and not adopted: fine-tuned
+as the joint model, it improved tuning AUC by 0.003, within the difference
+between two fits of the same model, so the narrower encoder was kept. This encoder initialised
 every supervised model, each trained, tuned and tested on the final
 cohort (37,531 patients).
 
@@ -119,11 +120,9 @@ treating the grade variants and nested definitions of one finding as one
 endpoint (69 outcomes, 52 endpoints), so that a finding defined at two grades
 did not count twice.
 
-\paragraph{Supervision scopes.} The four scopes differed only in which cells of
-the disease-by-outcome grid provided labels (\cref{fig:supervision-grid}): a
-specialist learned one outcome in one disease, a disease-pooled model one
-outcome across all diseases, an outcome-pooled model all outcomes in one
-disease, and the joint model all outcomes in all diseases. Every model
+\paragraph{Supervision scopes.} The four scopes, described in Methods, differed
+only in which cells of the disease-by-outcome grid provided labels
+(\cref{fig:supervision-grid}). Every model
 predicted all six horizons and was trained with the same settings
 (\cref{tab:model-spec}) on the same target patients, labels and horizons. Each
 selected its checkpoint on the tuning labels within its own scope, so a
@@ -137,14 +136,18 @@ routed models. Because equal epochs do not mean equal computation,
 optimisation steps and compute are reported for each scope.
 
 \operasubsection{Outcome panel}
-We predicted 69 outcomes covering disease course (second-line treatment,
-treatment failure, transformation, new malignancy and death), infection,
-haematological toxicity and transfusion, kidney, liver and coagulation
-toxicity, electrolyte and metabolic disturbances, cardiovascular events and
-acute care, each at 30, 60, 90, 180, 365 and 730 days. Laboratory outcomes used
-grading thresholds aligned with, but not identical to, the Common Terminology
-Criteria for Adverse Events \citep{nci2025ctcae}, with thresholds relative to
-the patient's own pre-treatment value where that was already abnormal.
+We predicted 69 outcomes, each at 30, 60, 90, 180, 365 and 730 days, in 12
+clinical domains (definitions supplement): disease course and later malignancy
+(including second-line treatment, treatment failure, transformation, new
+malignancy and death); infection and antimicrobial use; erythroid findings and
+transfusion; neutrophil, white-cell and platelet findings; lymphocyte and
+eosinophil counts; renal injury and support; liver injury and coagulation;
+sodium and potassium; calcium and magnesium; metabolic and cell-turnover
+markers; cardiovascular and thrombotic events; and acute care and other events.
+Laboratory outcomes were defined with reference to the CTCAE laboratory
+criteria; for each outcome, the definitions supplement states whether it equals a
+CTCAE grade, follows one with a stated difference, or has no counterpart
+\citep{nci2017ctcae}.
 Infection was also captured through antimicrobial treatment, labelled as such.
 A patient contributed to an outcome only if it could be ascertained for them,
 for example if laboratory follow-up was available, and was otherwise left out
@@ -221,7 +224,11 @@ as a limitation.
 The national encoder was pretrained for 10 epochs with a 1 January 2022
 cutoff. Continued pretraining on the pretraining population (adaptation) and
 pretraining on it from scratch ran for the same 10 epochs; on tuning data,
-encoders pretrained for 10 and 20 epochs gave the same fine-tuned performance.
+encoders pretrained for 10 and 20 epochs gave fine-tuned performance within the
+difference between two fits of the same model. As references, a randomly
+initialised encoder of the same architecture was trained with the same
+supervised protocol, and the pretrained cohort encoder was kept frozen while
+only the prediction head was trained.
 Patients, tokens and optimisation steps are reported separately, because equal
 epochs do not guarantee equal exposure. \placeholder{National training
 population, observation years, events and tokens, encoder version and PHAIR
@@ -302,10 +309,10 @@ resamples.
 
 \operasubsection{Routing formulation and selection}
 To test whether a joint model benefits from conditioning its predictions on
-disease and outcome beyond ordinary shared learning, we compared it with a
-routed model trained on the same panel. In the routed model, the patient
-representation $h_i$ is adjusted for each target outcome $k$ by a weighted
-combination of small residual adapters, one per disease and one per outcome:
+disease beyond ordinary shared learning, we compared it with a routed model
+trained on the same panel. In the routed model, the patient representation $h_i$
+is adjusted for each target outcome $k$ by a weighted combination of small
+residual adapters, one per source $s$:
 \begin{equation}
  \begin{aligned}
  h_{ik}&=h_i+\lambda\sum_s\pi_{iks}\,c_s\,A_s(h_i),\\
@@ -314,33 +321,60 @@ combination of small residual adapters, one per disease and one per outcome:
  \end{aligned}
  \label{eq:router}
 \end{equation}
-where $A_s$ is a low-rank adapter for source $s$, the weights $\pi_{iks}$ are
-computed from the patient, the patient's disease and the target outcome, and
-$c_s$ shrinks the contribution of sources with few training events $e_s$. The
-adapted representation enters the same linear head as in the joint model, and
-each adapter was updated only by the supervision of its own disease or outcome.
-The approach relates to mixtures of experts and parameter-efficient adapters
+Here $A_s$ is a low-rank adapter, $\lambda=0.7$ a fixed residual scale and $c_s$ shrinks sources with few training events $e_s$
+($\tau=10$ events). The weights $\pi_{iks}$ come from a softmax over
+the sources and one further slot that applies no adapter (its logit starting at 0), so the router can
+leave the shared representation unchanged; they depend on the patient, the
+patient's disease and the target outcome, and the patient's own disease always
+receives at least a floor weight of 0.05. The adapted representation
+enters the same linear head as in the joint model. Each adapter is updated only
+by the supervision of its own source; when another disease borrows it, its
+parameters are used but not updated. The sources can be diseases, outcomes or
+both; the locked routed model uses diseases only. The approach relates to
+mixtures of experts and parameter-efficient adapters
 \citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion,hu2022lora}.
 
-The router was configured on the tuning set in a short prespecified sequence:
-which adapter banks to include (none, disease, outcome or both), then the
-adapter rank (8, 16 or 32), then the form of the routing query (additive, or
-interacting with width 128 or 512). Each step chose the option with the highest
-tuning AUC, averaged over diseases, outcomes and all six horizons; options
-within the difference between two fits of the same model were treated as tied,
-and the simplest was chosen, and an option whose IPA was clearly worse was not
-eligible. That difference came from a router with every source switched off,
-which computes exactly the joint model's prediction but is initialised
-differently; it was expected to lie within 0.005 of the joint model's tuning
-AUC, confirming that the routing machinery changes nothing by itself. Capacity
-without borrowing is tested separately, by models restricted to the patient's
-own disease or outcome adapter. \placeholder{Insert the selected configuration.}
-Route weights describe how the model allocates corrections and are not
-interpreted as relationships between diseases.
+The router was configured on the tuning set in three steps, each ordered from
+the simplest option: which sources (disease only, outcome only, both), the
+adapter rank (8, 16, 32), and the routing query (additive with width 128,
+interacting with width 128, interacting with width 512). Each step chose the
+option with the highest panel AUC: the AUC difference averaged over estimable
+cells (at least five cases and five controls), each disease weighing equally,
+each outcome equally within a disease and each of the six horizons equally.
+Options whose panel AUC lay within the noise floor of the best were treated as
+tied and the simplest of them was chosen; an option whose panel IPA was worse
+than the simplest option's by more than the IPA noise floor was not eligible.
+The noise floor is the difference between two fits of the same model: the
+router trained with every source masked, which computes exactly the joint
+model's prediction from a different initialisation, against the joint model
+(\placeholder{about 0.004} tuning AUC); a difference within 0.005 also confirms
+that the routing machinery changes nothing by itself. The 0.01 margin applies
+only to claims on the test set, not to these choices. The source step chose
+disease adapters only; \placeholder{the rank and query steps chose X and Y}.
+\opera{} was then chosen among the scopes, routing and encoders by the same rule,
+with the joint model simpler than the routed one and the cohort encoder simpler
+than the national.
+
+Three controls separate borrowing from simpler explanations. The joint model
+told the patient's disease adds a learned, zero-initialised shift per disease to
+the representation, so it can express disease-specific baseline risks but
+borrows nothing. The own-disease router and the own-outcome router are routed
+models whose router may use only the patient's own disease adapter, or only the
+target outcome's own adapter, so they add the adapters' capacity without
+borrowing. All controls are trained with the same protocol as the routed
+model. On the tuning set the locked router kept almost no weight on the slot
+that applies no adapter and spread the rest nearly evenly over the diseases
+(\placeholder{route entropy 3.18 of a possible 3.30}); a sensitivity fit, added
+before stage two, starts that slot with most of the weight (logit 3.0, the
+code's default, against 0) and is otherwise identical, to test whether a router
+that starts from the shared representation borrows more selectively. Route weights describe how the model allocates corrections and are not
+interpreted as relationships between diseases; what each source contributes is
+measured by removing it (Supplementary Methods, borrowing map).
 
 \operasubsection{Hierarchy for effect heterogeneity}
-The primary evidence is the paired effect in each disease--outcome cell with
-its patient-bootstrap interval. Many cells are small, so their raw estimates
+Claims rest on the pooled paired-bootstrap differences and their labels
+(\cref{tab:panel-effects}); the hierarchical model is descriptive. Many cells
+are small, so their raw estimates
 are noisy and rankings of individual cells are unreliable. We therefore also
 fit a simple Bayesian hierarchical model for partial pooling: each cell's
 effect is the panel mean plus a disease effect, an outcome effect and a
@@ -362,7 +396,7 @@ reported combination is an exact sum and all are mutually consistent. Priors
 are weakly informative on each metric's scale and checked by prior predictive
 simulation; convergence and posterior predictive checks are reported, and
 posterior probabilities of benefit, harm and practical equivalence use a
-prespecified tolerance. Raw paired estimates are always shown alongside.
+prespecified tolerance and are descriptive, not claim labels. Raw paired estimates are always shown alongside.
 \placeholder{Insert locked priors, tolerances, support-bin edges and sampling
 diagnostics.}
 

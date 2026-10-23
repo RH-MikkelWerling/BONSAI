@@ -49,3 +49,5 @@ paper/render/
 # scripts/
 # audit*
 # paper/
+paper/. opera*/
+talk/

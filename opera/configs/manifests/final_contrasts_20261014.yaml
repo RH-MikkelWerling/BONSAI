@@ -64,10 +64,21 @@ essential_contrasts:
     C3: gain(RD_L,RDH_L)   # borrowing from other diseases
     C4: gain(ROH_L,N_L)    # own-outcome adapter capacity
     C5: gain(RO_L,ROH_L)   # borrowing from other outcomes
+    RS1: gain(RSI_L,R_L)   # sensitivity: shared slot started at logit 3.0 vs locked router
   data_efficiency:   # national + local vs local joint model on a share of training patients
     N10: gain(J_EA_F10,J_L_F10)
     N25: gain(J_EA_F25,J_L_F25)
     N50: gain(J_EA_F50,J_L_F50)
+  label_savings:   # added 2026-10-22: a share of the training patients vs all of them
+    LS10: gain(J_L_F10,S_L)    # cohort-encoder joint model on 10% vs specialists on 100%
+    LS25: gain(J_L_F25,S_L)
+    LS50: gain(J_L_F50,S_L)
+    LSE10: gain(J_EA_F10,S_L)  # adapted national joint model on 10% vs specialists on 100%
+    LSE25: gain(J_EA_F25,S_L)
+    LSE50: gain(J_EA_F50,S_L)
+    FD10: gain(J_EA_F10,J_L)   # adapted national on 10% vs cohort joint model on 100%
+    FD25: gain(J_EA_F25,J_L)
+    FD50: gain(J_EA_F50,J_L)
   pretraining_control:
     P0: gain(J_L,J_RI) # local pretraining vs no pretraining (random initialisation)
     P7: gain(J_L,J_FZ) # fine-tuning the encoder vs training only the readout on it

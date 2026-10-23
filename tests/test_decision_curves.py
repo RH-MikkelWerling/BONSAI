@@ -66,3 +66,28 @@ def test_a_perfect_model_beats_the_index_and_the_figure_renders():
     assert set(table.strategy) >= {"model", "index", "X", "treat_all", "treat_none",
                                    "model_minus_X"}
     figure_decision_curve(table, labels={"X": "XGBoost"})
+
+
+def test_operating_points_are_computed_exactly_and_drawn():
+    import pytest
+    from opera.evaluation.decision_curves import operating_point_rows
+
+    rng = np.random.default_rng(2)
+
+    def patients(n):
+        dead = rng.uniform(size=n) < 0.3
+        return pd.DataFrame({"model_risk": np.clip(np.where(dead, 0.6, 0.15)
+                                                   + rng.normal(0, 0.1, n), 0, 1),
+                             "ipi_group": rng.choice(["low", "high"], n),
+                             "time_days": np.where(dead, 100.0, 900.0),
+                             "event": dead.astype(int)})
+
+    points = {"Low-risk cutoff": 0.137, "High-risk cutoff": 0.4123}
+    table = decision_curves(patients(500), patients(200), 730,
+                            sorted({0.1, 0.2, 0.3, *points.values()}), n_boot=50)
+    rows = operating_point_rows(table, points)
+    assert set(rows.operating_point) == set(points)
+    assert np.allclose(sorted(rows.threshold.unique()), sorted(points.values()))
+    with pytest.raises(ValueError, match="not in the curve"):
+        operating_point_rows(table, {"Elsewhere": 0.25})
+    figure_decision_curve(table, points=points)

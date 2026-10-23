@@ -1,0 +1,151 @@
+# Prespecified source-removal hypotheses for the borrowing map (Paper III).
+# DRAFT 2026-10-22, pending review by the study haematologists; must be fixed
+# before the test set is opened.
+#
+# Each entry: target disease, the source disease whose adapter is switched off,
+# a clinical domain (one of the 12, or "All outcomes"), the expected effect
+# (a loss of AUC when the source is removed), its expected strength, the
+# clinical rationale and the evidence behind it. Strength: strong (shared
+# biology and treatment), moderate (shared treatment or complication, with
+# known differences), exploratory (plausible, era- or treatment-dependent).
+# Negative controls are pairs with no shared biology, treatment or complication
+# profile; the expected effect is about zero.
+#
+# Primary claim: the hypotheses as a set gain more from their source alone than
+# the other pairs of their domains (permutation test); the negative controls
+# should not. Per pair: AUC gain of the source alone (own disease + source vs own
+# disease only), labelled better / worse / equivalent / inconclusive against the
+# practical margin below. The model-comparison margin (1 point) is too wide
+# here: a single source's share is a fraction of the routing gain, so a real
+# contribution of a few tenths of a point would be called "equivalent".
+# DRAFT value; to be fixed with the pairs, before the test set is opened.
+margin_points: 0.25
+hypotheses:
+  - target: SLL
+    source: CLL
+    domain: "All outcomes"
+    strength: strong
+    rationale: >-
+      One disease in two presentations (blood vs lymph nodes), managed by the same
+      criteria and treatments.
+    evidence: ["WHO 5th edition classification (Alaggio et al., Leukemia 2022)"]
+  - target: PCL
+    source: MM
+    domain: "Disease course and later malignancy"
+    strength: strong
+    rationale: >-
+      Plasma-cell leukaemia is the leukaemic form of myeloma; the 2021 IMWG
+      definition (>=5% circulating plasma cells in otherwise symptomatic myeloma)
+      places it on the myeloma spectrum, and it is treated with myeloma induction
+      and autologous transplant, with a worse prognosis.
+    evidence: ["Fernandez de Larrea et al., Blood Cancer J 2021 (IMWG consensus)",
+               "PMC12785085 (pPCL outcomes under the IMWG 2021 definition)"]
+  - target: SMZL
+    source: EMZL
+    domain: "Disease course and later malignancy"
+    strength: strong
+    rationale: >-
+      The marginal-zone lymphomas share prognostic factors: the MZL-IPI (LDH,
+      haemoglobin, lymphocyte and platelet counts, subtype) was built for and
+      validated across all subtypes, and they are treated with the same regimens.
+    evidence: ["Arcaini et al., EClinicalMedicine 2024, doi:10.1016/j.eclinm.2024.102592"]
+  - target: TRANSFORMED_FL
+    source: DLBCL
+    domain: "Disease course and later malignancy"
+    strength: strong
+    rationale: >-
+      Transformed follicular lymphoma is treated as DLBCL (R-CHOP); in the
+      rituximab era its response and survival approach de novo DLBCL in patients
+      with limited prior therapy.
+    evidence: ["Guirguis et al., Ann Hematol 2014, doi:10.1007/s00277-013-1991-y",
+               "Link et al., J Clin Oncol 2013 (post-transformation survival)"]
+  - target: RT
+    source: DLBCL
+    domain: "Disease course and later malignancy"
+    strength: moderate
+    rationale: >-
+      Richter transformation of DLBCL type is treated with R-CHOP, but ~80% is
+      clonally related to the CLL and does much worse than de novo DLBCL, so
+      reliance on DLBCL is expected but weaker than for transformed FL.
+    evidence: ["Frontiers in Oncology 2022, doi:10.3389/fonc.2022.829983 (review)"]
+  - target: RT
+    source: CLL
+    domain: "Infection and antimicrobial use"
+    strength: moderate
+    rationale: >-
+      Patients with Richter transformation carry the immune deficiency of the
+      underlying CLL (hypogammaglobulinaemia, prior CLL therapy).
+    evidence: ["Frontiers in Immunology 2016, doi:10.3389/fimmu.2016.00317 (secondary antibody deficiency)"]
+  - target: CLL
+    source: MM
+    domain: "Infection and antimicrobial use"
+    strength: moderate
+    rationale: >-
+      Both cause secondary humoral immune deficiency (hypogammaglobulinaemia in
+      up to 85% of CLL during the disease course, and intrinsic or
+      treatment-related in myeloma), with the same immunoglobulin-replacement
+      indications.
+    evidence: ["Frontiers in Immunology 2014, doi:10.3389/fimmu.2014.00626",
+               "Frontiers in Immunology 2016, doi:10.3389/fimmu.2016.00317"]
+  - target: MM
+    source: CLL
+    domain: "Infection and antimicrobial use"
+    strength: moderate
+    rationale: "The same, in the other direction."
+    evidence: ["As above"]
+  - target: AMYLOIDOSIS
+    source: MM
+    domain: "Renal injury and support"
+    strength: moderate
+    rationale: >-
+      AL amyloidosis is a plasma-cell disorder with frequent renal involvement,
+      treated with myeloma drugs (bortezomib, cyclophosphamide, dexamethasone,
+      daratumumab); myeloma also injures the kidney (light-chain cast nephropathy).
+    evidence: ["Kastritis et al., N Engl J Med 2021 (ANDROMEDA)"]
+  - target: LBL
+    source: BL
+    domain: "Neutrophil, white-cell and platelet findings"
+    strength: moderate
+    rationale: >-
+      Both receive short, highly intensive regimens (CODOX-M/IVAC, hyper-CVAD,
+      ALL-type protocols) with marked myelosuppression despite growth-factor
+      support.
+    evidence: ["Reviews of adult Burkitt lymphoma treatment (hyper-CVAD, CODOX-M/IVAC toxicity)"]
+  - target: LBL
+    source: BL
+    domain: "Metabolic and cell-turnover markers"
+    strength: moderate
+    rationale: >-
+      Rapid tumour turnover and intensive induction put both at risk of tumour
+      lysis (potassium, phosphate, urate, creatinine).
+    evidence: ["Reviews of adult Burkitt lymphoma treatment (tumour lysis precautions)"]
+  - target: TCL
+    source: PTCL
+    domain: "Disease course and later malignancy"
+    strength: moderate
+    rationale: >-
+      Unspecified T-cell lymphoma is managed like peripheral T-cell lymphoma, not
+      otherwise specified (CHOP-based therapy), with a similarly poor course.
+    evidence: ["WHO 5th edition classification (Alaggio et al., Leukemia 2022)"]
+  - target: LPL
+    source: CLL
+    domain: "Cardiovascular and thrombotic events"
+    strength: exploratory
+    rationale: >-
+      BTK inhibitors, used in CLL and in Waldenstrom macroglobulinaemia, cause
+      atrial fibrillation and bleeding; reliance depends on how often first-line
+      BTK inhibitors were used in each disease during the study period.
+    evidence: ["Brown et al., Haematologica 2017 (pooled AF in ibrutinib trials), PMC5622864"]
+negative_controls:
+  - target: HL
+    source: AMYLOIDOSIS
+    domain: "All outcomes"
+    rationale: "No shared biology, treatment or complication profile."
+  - target: SolM
+    source: ALCL
+    domain: "All outcomes"
+    rationale: "No shared biology, treatment or complication profile."
+  - target: HCL
+    source: TRANSFORMED_FL
+    domain: "Disease course and later malignancy"
+    rationale: "No shared biology or course."

@@ -15,6 +15,8 @@ required_figures:
 - fig_external
 - supp_routing
 - supp_router_usage
+- fig_borrowing_map
+- supp_borrowing_detail
 - supp_horizons
 - fig_calibration
 - supp_coverage
@@ -76,6 +78,19 @@ figures:
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
     gate: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gate_effects.csv
+- id: fig_borrowing_map
+  function: figure_borrowing_map
+  tables:
+    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_map.csv
+    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypotheses.csv
+    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_levels.csv
+    test: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypothesis_test.csv
+- id: supp_borrowing_detail
+  function: figure_borrowing_detail
+  tables:
+    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_map.csv
+    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypotheses.csv
+    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_levels.csv
 - id: supp_router_usage
   function: figure_router_usage
   tables:

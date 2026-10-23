@@ -66,6 +66,8 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
     return result
 
 
+SENSITIVITY_SHARED_LOGIT = 3.0  # control_RSI: shared slot starts with most weight
+
 ROUTER_CONTROLS = {
     # alias: (source bank, borrowing, disease embedding)
     "JDE": ("none", True, True),           # joint + disease identity only
@@ -259,6 +261,23 @@ def build_bundle(
                     "phase": "router_controls", "origin": "L", "seed": seed,
                     "condition": {}, "config": config,
                 })
+            # Sensitivity (added 2026-10-22): on tuning the locked router kept almost
+            # no weight on the shared slot and spread the rest nearly evenly; this
+            # fit starts the shared slot at the code default (logit 3.0) to see
+            # whether a router that starts from the shared path borrows selectively.
+            config = router_config(
+                shared, reference, source_mode=selected_router["source_mode"],
+                rank=int(selected_router["rank"]),
+                query_mode=selected_router["query_mode"],
+                query_width=int(selected_router["query_width"]),
+            )
+            config["competing_risk"]["adapter_shared_logit_init"] = SENSITIVITY_SHARED_LOGIT
+            entries.append({
+                "name": f"seed{seed}/L/control_RSI",
+                "phase": "router_controls", "origin": "L", "seed": seed,
+                "condition": {"adapter_shared_logit_init": SENSITIVITY_SHARED_LOGIT},
+                "config": config,
+            })
         if selected_router is not None:
             for source in ("none", "disease_only", "outcome_only", "both"):
                 config = router_config(

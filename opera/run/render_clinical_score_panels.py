@@ -562,17 +562,24 @@ def main():
                 # Net benefit of acting on the model, the index and comparators,
                 # at thresholds and for an action fixed before testing.
                 from opera.evaluation.decision_curves import (
-                    decision_curves, figure_decision_curve)
+                    decision_curves, figure_decision_curve, operating_point_rows)
 
                 dca = spec["decision_curve"]
                 comparators = list(dca.get("comparators", []))
                 paired, dropped = with_comparators(held, predictions, spec, comparators)
+                # The model's risk-group cutoffs (fixed on tuning data) are the
+                # prespecified operating points: net benefit is computed there.
+                points = {"Low-risk cutoff": float(cuts[0]),
+                          "High-risk cutoff": float(cuts[-1])}
+                thresholds = sorted(set(map(float, dca.get(
+                    "thresholds", DEFAULT_DCA_THRESHOLDS))) | set(points.values()))
                 curves = decision_curves(
-                    paired, tuning, spec["horizon_days"],
-                    dca.get("thresholds", DEFAULT_DCA_THRESHOLDS),
+                    paired, tuning, spec["horizon_days"], thresholds,
                     comparators=comparators, n_boot=dca.get("n_boot", 1000))
                 curves.insert(0, "score_id", spec["id"])
                 curves.to_csv(directory / "decision_curve.csv", index=False)
+                operating_point_rows(curves, points).to_csv(
+                    directory / "decision_curve_operating_points.csv", index=False)
                 decision_tables.append(curves)
                 record.update(dca_patients=len(paired), dca_dropped_no_comparator=dropped,
                               dca_action=dca.get("action", ""))
@@ -580,7 +587,7 @@ def main():
                     curves, index_label=spec["score_label"],
                     labels=dca.get("labels", {}),
                     outcome_label=dca.get("outcome_label", spec["outcome_label"].lower()),
-                    horizon_days=spec["horizon_days"])
+                    horizon_days=spec["horizon_days"], points=points)
                 save_fig(fig, str(directory / "decision_curve.png"))
                 if spec.get("manuscript_figures"):
                     save_fig(fig, str(args.output_dir / (MANUSCRIPT_NAMES["decision_curve"] + ".png")))

@@ -121,12 +121,24 @@ def evaluation_command(path, checkpoint, output, args, flags=None):
         command.append("--export-routes")
     if flags.get("export_embeddings"):
         command.append("--export-embeddings")
+    if flags.get("borrowing_design"):
+        command.append("--borrowing-design")
     return command
 
 
-def evaluate_row(row, path, config, args, aliases=()):
+def removal_directory(output_dir, run_directory, split):
+    """The borrowing-design evaluation, beside (never inside) the fit's ordinary
+    evaluation: <run>/<split>_source_removal."""
+    return Path(output_dir) / run_directory / f"{split}_source_removal"
+
+
+def evaluate_row(row, path, config, args, aliases=(), borrowing_design=False):
+    """Evaluate one fit; ``borrowing_design`` also writes the CIF of every
+    source-removal variant (one pass, its own directory)."""
     run = Path(args.runs_dir) / row["run_directory"]
     output = Path(args.output_dir) / row["run_directory"] / args.split
+    if borrowing_design:
+        output = removal_directory(args.output_dir, row["run_directory"], args.split)
     checkpoint = run / "best.ckpt"
     result = {
         "name": row["name"],
@@ -136,6 +148,8 @@ def evaluate_row(row, path, config, args, aliases=()):
         "split": args.split,
         "paper_models": list(aliases),
     }
+    if borrowing_design:
+        result["borrowing_design"] = True
     if args.split == "held_out" and not aliases:
         # Held-out labels are only opened for locked paper models; tuning-only
         # screening candidates are never scored on held-out patients.
@@ -159,7 +173,8 @@ def evaluate_row(row, path, config, args, aliases=()):
         "config_sha256": row["config_sha256"],
         "split": args.split,
         "horizons": args.horizons,
-        **export_flags(aliases, args),
+        **(export_flags(aliases, args) if not borrowing_design
+           else {"borrowing_design": "drop_source_term_v1"}),
     }
     output.mkdir(parents=True, exist_ok=True)
     with (output / ".evaluation.lock").open("w") as lock:
@@ -183,13 +198,16 @@ def evaluate_row(row, path, config, args, aliases=()):
                 f"Untracked evaluation directory already exists: {output}"
             )
         intent.write_text(json.dumps(signature, indent=2) + "\n")
-        command = evaluation_command(path, checkpoint, output, args,
-                                     export_flags(aliases, args))
+        flags = (export_flags(aliases, args) if not borrowing_design
+                 else {"borrowing_design": True})
+        command = evaluation_command(path, checkpoint, output, args, flags)
         with (output / "evaluation.log").open("a") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
         predictions = output / "direct_cr_predictions.parquet"
         if not predictions.is_file():
             raise RuntimeError("Evaluation did not produce predictions")
+        if borrowing_design and not (output / "source_removal" / "design.json").is_file():
+            raise RuntimeError("Evaluation did not produce the borrowing design")
         marker.write_text(
             json.dumps(
                 {
@@ -202,6 +220,19 @@ def evaluate_row(row, path, config, args, aliases=()):
             + "\n"
         )
     return result | {"status": "evaluated"}
+
+
+def removal_report(rows, bundle, args):
+    fits = [(row, path, config, aliases) for row, path, config in rows
+            for aliases in [canonical_models(row, config, bundle)]
+            if args.removal_model in aliases]
+    if len(fits) != 1:
+        raise ValueError(f"Expected one fit for {args.removal_model}, found {len(fits)}; "
+                         "source removal needs the stage-2 bundle")
+    row, path, config, aliases = fits[0]
+    if config["competing_risk"].get("adapter_source_mode") not in ("disease_only", "both"):
+        raise ValueError(f"{args.removal_model} has no disease sources to remove")
+    return [evaluate_row(row, path, config, args, aliases, borrowing_design=True)]
 
 
 def main():
@@ -221,6 +252,11 @@ def main():
     parser.add_argument("--only", action="append", default=[],
                         help="Evaluate only these phases, e.g. source_screen or "
                              "supervision:J (repeatable)")
+    parser.add_argument("--source-removal", action="store_true",
+                        help="Borrowing design of the locked router: every disease "
+                             "source dropped, kept alone and left out, in one pass")
+    parser.add_argument("--removal-model", default="R_L",
+                        help="--source-removal: the locked routed model")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
@@ -239,13 +275,17 @@ def main():
                 or f"{item[0]['phase']}:{item[0].get('regime')}" in args.only]
     if args.split == "held_out":
         rows = [item for item in rows if canonical_models(item[0], item[2], bundle)]
-    rows = rows[args.shard_index :: args.shard_count]
-    if args.max_runs:
-        rows = rows[: args.max_runs]
-    report = [
-        evaluate_row(row, path, config, args, canonical_models(row, config, bundle))
-        for row, path, config in rows
-    ]
+    if not args.source_removal:
+        rows = rows[args.shard_index :: args.shard_count]
+        if args.max_runs:
+            rows = rows[: args.max_runs]
+    if args.source_removal:
+        report = removal_report(rows, bundle, args)
+    else:
+        report = [
+            evaluate_row(row, path, config, args, canonical_models(row, config, bundle))
+            for row, path, config in rows
+        ]
     if args.status:
         from collections import Counter
 
@@ -262,7 +302,9 @@ def main():
         print(json.dumps(report, indent=2))
     if args.execute:
         destination = (
-            Path(args.output_dir) / f"queue_{args.split}_shard{args.shard_index}.json"
+            Path(args.output_dir)
+            / f"queue_{'removal_' if args.source_removal else ''}{args.split}"
+              f"_shard{args.shard_index}.json"
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(report, indent=2) + "\n")

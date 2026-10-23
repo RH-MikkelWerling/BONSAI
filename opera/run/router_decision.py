@@ -42,14 +42,17 @@ DEFAULT_RANK, DEFAULT_QUERY = 8, ("interacting", 128)  # used by the source and 
 HORIZONS = (30, 60, 90, 180, 365, 730)
 
 
-def panel(contrasts, draws, contrast, metric, *, minimum=5):
-    """Equal-weight panel over estimable cells: disease, then outcome, then horizon."""
+def panel(contrasts, draws, contrast, metric, *, minimum=5, return_draws=False):
+    """Equal-weight panel over estimable cells: disease, then outcome, then horizon.
+
+    ``return_draws`` adds the per-replicate panel gains (``draws``).
+    """
     rows = contrasts.loc[(contrasts.contrast == contrast) & (contrasts.metric == metric)]
     rows = rows.loc[np.isfinite(rows.gain) & (rows.n_cases >= minimum)
                     & (rows.n_controls >= minimum)].copy()
     if rows.empty:
         return {"gain": np.nan, "lower": np.nan, "upper": np.nan, "n_cells": 0,
-                "n_diseases": 0}
+                "n_diseases": 0, **({"draws": np.array([])} if return_draws else {})}
     diseases = rows.cohort.nunique()
     outcomes = rows.groupby("cohort").outcome.transform("nunique")
     horizons = rows.groupby(["cohort", "outcome"]).horizon_days.transform("nunique")
@@ -68,7 +71,7 @@ def panel(contrasts, draws, contrast, metric, *, minimum=5):
     interval = _interval(weighted)
     return {"gain": float((rows.gain * rows.weight).sum()), "lower": interval["lower"],
             "upper": interval["upper"], "n_cells": int(len(rows)),
-            "n_diseases": int(diseases)}
+            "n_diseases": int(diseases), **({"draws": weighted} if return_draws else {})}
 
 
 def decide(predictions, *, joint, null, options, gate_tolerance=0.005,

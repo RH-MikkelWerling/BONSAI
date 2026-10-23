@@ -103,58 +103,111 @@ def decision_curves(held, tuning, horizon_days, thresholds, comparators=(),
 
 
 STRATEGY_STYLE = {
+    # The paper's model colours (paper_figures.MODEL_STYLE): OPERA as the joint
+    # model's navy, tabular models as XGBoost's teal; the index in brick.
     "model": ("#2D3A8C", "-", "Model"),
     "index": ("#B5451B", "-", "Index"),
     "treat_all": ("#9B9B9B", "--", "Act for everyone"),
-    "treat_none": ("#2B2B2B", ":", "Act for no one"),
+    "treat_none": ("#5F6670", ":", "Act for no one"),
 }
-COMPARATOR_COLOURS = ["#408579", "#8974AC", "#7189BC"]
+COMPARATOR_COLOURS = ["#408579", "#7189BC", "#8974AC"]
+
+
+def operating_point_rows(table, points):
+    """Net benefit of every strategy at named thresholds (``points``: label ->
+    threshold, e.g. the model's low- and high-risk cutoffs fixed on tuning)."""
+    rows = []
+    for label, threshold in points.items():
+        at = table.loc[(table.threshold - threshold).abs() < 1e-9]
+        if at.empty:
+            raise ValueError(f"Threshold {threshold} for {label!r} is not in the curve")
+        rows.append(at.assign(operating_point=label))
+    return pd.concat(rows, ignore_index=True) if rows else table.iloc[:0]
 
 
 def figure_decision_curve(table, *, index_label="IPI", model_label="OPERA",
-                          labels=None, outcome_label="death", horizon_days=730):
-    """A: net benefit of each strategy. B: the model minus the index and each comparator."""
-    import matplotlib.pyplot as plt
+                          labels=None, outcome_label="death", horizon_days=730,
+                          mark=None, points=None):
+    """A: net benefit of each strategy. B: the model minus the index and each comparator.
 
-    from opera.visualization.style import add_panel_label, despine, setup_style
+    Both panels in net true positives per 1,000 patients; type, panel titles
+    and keys as in the other paper figures (``paper_figures``). ``points``
+    (label -> threshold) are marked as dotted vertical lines, e.g. the model's
+    risk-group cutoffs fixed on tuning data.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MaxNLocator
+
+    from opera.visualization.paper_figures import _key_legend, _panel_title, watermark
+    from opera.visualization.style import PALETTE, despine, setup_style
 
     setup_style()
     labels = {"model": model_label, "index": index_label, **(labels or {})}
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.09, 3.2))
+    per = 1000
+    fig = plt.figure(figsize=(7.2, 3.5))
+    a = fig.add_axes([0.085, 0.3, 0.38, 0.6])
+    b = fig.add_axes([0.6, 0.3, 0.38, 0.6])
     strategies = [s for s in table.strategy.unique() if not s.startswith("model_minus_")]
     extra = iter(COMPARATOR_COLOURS)
-    colours = {}
+    styles = {}
     for name in strategies:
-        colour, style, label = (STRATEGY_STYLE[name] if name in STRATEGY_STYLE
-                                else (next(extra), "-", name))
-        colours[name] = colour
+        colour, line, label = (STRATEGY_STYLE[name] if name in STRATEGY_STYLE
+                               else (next(extra), "-", name))
+        styles[name] = (colour, line, labels.get(name, label))
+    handles = []
+    # References first, so the strategies are drawn on top of them.
+    order = ([s for s in ("treat_none", "treat_all") if s in strategies]
+             + [s for s in strategies if s not in ("treat_none", "treat_all", "model")]
+             + (["model"] if "model" in strategies else []))
+    for name in order:
+        colour, line, label = styles[name]
         part = table[table.strategy == name]
-        a.plot(part.threshold * 100, part.net_benefit, style, color=colour, lw=1.5,
-               label=labels.get(name, label))
+        a.plot(part.threshold * 100, part.net_benefit * per, line, color=colour,
+               lw=1.8 if name == "model" else (1.0 if name.startswith("treat") else 1.4),
+               zorder=3 if name == "model" else 2)
     model = table[table.strategy == "model"]
-    a.fill_between(model.threshold * 100, model.lower, model.upper,
-                   color=colours["model"], alpha=0.13, lw=0)
-    top = table[table.strategy.isin(strategies)].net_benefit.max()
-    a.set_ylim(-0.1 * top, 1.1 * top)
-    a.set(xlabel="Threshold probability (%)", ylabel="Net benefit")
-    a.legend(frameon=False, fontsize=7.5)
+    a.fill_between(model.threshold * 100, model.lower * per, model.upper * per,
+                   color=styles["model"][0], alpha=0.12, lw=0, zorder=1)
+    top = table[table.strategy.isin(strategies)].net_benefit.max() * per
+    a.set_ylim(-0.08 * top, 1.08 * top)
+    a.set_xlim(table.threshold.min() * 100, table.threshold.max() * 100)
+    a.set_xlabel("Threshold probability (%)")
+    a.set_ylabel("Net benefit\n(true positives per 1,000)")
+    a.yaxis.set_major_locator(MaxNLocator(5))
+    despine(a, "y")
+    _panel_title(a, "A", "Net benefit")
+    for name in ["model", *[s for s in order if s != "model"][::-1]]:
+        colour, line, label = styles[name]
+        handles.append(Line2D([], [], color=colour, ls=line, lw=1.6, label=label))
+    _key_legend(a, handles, y=-0.22, ncol=3)
+
+    keys = []
     for name in [s for s in table.strategy.unique() if s.startswith("model_minus_")]:
         other = name.removeprefix("model_minus_")
-        if other == "treat_all":
+        if other == "treat_all" or other not in styles:
             continue
+        colour, _, label = styles[other]
         part = table[table.strategy == name]
-        b.plot(part.threshold * 100, part.net_benefit * 1000, color=colours[other], lw=1.5,
-               label=f"vs {labels.get(other, STRATEGY_STYLE.get(other, ('', '', other))[2])}")
-        b.fill_between(part.threshold * 100, part.lower * 1000, part.upper * 1000,
-                       color=colours[other], alpha=0.13, lw=0)
-    b.axhline(0, color="#2B2B2B", lw=0.8)
-    b.set(xlabel="Threshold probability (%)",
-          ylabel="Difference in net benefit\n(net true positives per 1,000)")
-    b.legend(frameon=False, fontsize=7.5)
-    for ax, letter in ((a, "A"), (b, "B")):
-        despine(ax)
-        add_panel_label(ax, letter)
-    years = horizon_days // 365
-    fig.suptitle(f"Acting on predicted {outcome_label} within {years} years", fontsize=10)
-    fig.tight_layout()
+        b.fill_between(part.threshold * 100, part.lower * per, part.upper * per,
+                       color=colour, alpha=0.1, lw=0)
+        b.plot(part.threshold * 100, part.net_benefit * per, color=colour, lw=1.6)
+        keys.append(Line2D([], [], color=colour, lw=1.6, label=f"{model_label} vs {label}"))
+    b.axhline(0, color=PALETTE["zero_line"], lw=0.8)
+    b.set_xlim(table.threshold.min() * 100, table.threshold.max() * 100)
+    b.set_xlabel("Threshold probability (%)")
+    b.set_ylabel("Difference in net benefit\n(per 1,000; 95% CI)")
+    b.yaxis.set_major_locator(MaxNLocator(5))
+    despine(b, "y")
+    _panel_title(b, "B", f"{model_label} against each")
+    for label, threshold in (points or {}).items():
+        x = threshold * 100
+        if not table.threshold.min() * 100 <= x <= table.threshold.max() * 100:
+            continue
+        for ax in (a, b):
+            ax.axvline(x, color=PALETTE["ink_muted"], lw=0.8, ls=(0, (1, 2)), zorder=0)
+        a.text(x, 0.03, label + " ", transform=a.get_xaxis_transform(), rotation=90,
+               va="bottom", ha="right", fontsize=6.3, color=PALETTE["ink_secondary"])
+    _key_legend(b, keys, y=-0.22, ncol=2)
+    watermark(fig, mark)
     return fig

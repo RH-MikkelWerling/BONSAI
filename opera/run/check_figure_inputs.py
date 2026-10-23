@@ -61,6 +61,8 @@ def producer(path: Path, analysis_root: Path) -> str:
         return "clinical-scores"
     if "/attributions/" in text:
         return "attributions, then attribution-summary"
+    if "/source_removal/" in text:
+        return "source-removal (one pass of the locked router per source disease), then borrowing-map"
     if "/input_restrictions/" in text:
         return "input-restrictions (after attributions)"
     if "synthetic_patient_episodes" in text:

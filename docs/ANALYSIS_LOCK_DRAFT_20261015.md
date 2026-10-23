@@ -10,8 +10,9 @@ Fixed before any held-out evaluation. When agreed, these values are written into
   death from other causes is a non-event (competing risk).
 - Test set: patients treated from 2023, evaluated once. Tuning set (2022) used for
   every choice. Training through 2021.
-- Sensitivity: known-status unweighted estimand; excluding late-assigned
-  subtypes; size-matched clinical cutoffs.
+- Sensitivity: known-status unweighted estimand; excluding the 209 patients
+  whose disease was assigned after day 14 (late-assigned subtypes);
+  size-matched clinical cutoffs.
 - Stratum without a dedicated prognostic index (no multivariable index derived
   for the entity and externally validated; borrowed or family-level indices do
   not count): RT, tFL, LBL, NMZL, HCL, ALCL, PCL, solitary plasmacytoma, BCL and
@@ -101,6 +102,67 @@ Fixed before any held-out evaluation. When agreed, these values are written into
 - No p-value correction: interval estimates, hierarchical shrinkage, every cell
   reported.
 
+## Source removal: which diseases the router borrows from (added 2026-10-22, design revised the same day)
+- Within the locked router (R_L) only, no retraining and no comparison with a
+  separately fitted model: a fit-to-fit comparison carries the noise floor
+  (~0.004 AUC on tuning), as large as the per-source effects.
+- The readout is a sum of routed corrections, one per source disease, and the
+  risk head is linear, so a source is dropped by removing its term; no other
+  weight changes (no renormalisation, which would inflate the other sources).
+- One evaluation writes every variant: full; none (own disease only, no
+  borrowing); in:X (own disease and X); out:X (every source but X).
+- Effects, AUC points on the IPCW estimand, one paired patient bootstrap shared
+  by all variants: total borrowing = full - none; source alone (leave-one-in,
+  primary) = in:X - none; source left out (leave-one-out) = full - out:X. The
+  two are the extremes of the source's Shapley value. Reading: both above 0,
+  main source; alone only, redundant with related sources; left out only,
+  useful in combination.
+- Pooling per target, source and clinical domain (the paper's 12 groups):
+  estimable cells only (>= 5 cases and >= 5 controls), each outcome equal and
+  each horizon equal within an outcome; "All outcomes" pools every outcome the
+  same way.
+- Map (descriptive, main figure): source alone with adaptive shrinkage
+  (Stephens 2017; zero-centred normal scale mixture fitted per clinical domain
+  over all off-diagonal pairs). Lineage is not used in the pooling, so a
+  lineage pattern cannot be produced by it. Dots: pooled 95% interval above 0
+  (on synthetic data the unpooled intervals marked about half false dots, the
+  pooled ones almost none). Unshrunk estimates and the source left out kept
+  alongside; every pair shown. Targets with few estimable cells are labelled
+  grey and do not set the colour scale.
+- Context (supplementary figure): three levels per target, same bootstrap:
+  routing (R_L - J_L), borrowing as trained (R_L - RDH_L), dependence (full -
+  none), the last also against disease size.
+- Primary borrowing claim (added 2026-10-22): the prespecified pairs as a set.
+  Statistic: mean unshrunk source-alone gain of the pairs minus the mean of the
+  other off-diagonal pairs of their clinical domains; null: 10,000 random draws
+  of the same number of pairs from the same domains (one-sided permutation).
+  The same for the negative controls (expected: no difference). IPA computed
+  the same way as a secondary metric; three levels also over all diseases
+  (each disease equal).
+- Main figure 7, kept simple: map (A); each disease's total gain from
+  borrowing (dependence) on the same rows, all diseases dashed (B); the expected
+  pairs and controls against the typical pair (mean of the other pairs of the
+  same domains), test in the caption (C); total gain by clinical domain, all
+  diseases equal (D). Supplement: the
+  three levels per disease, by disease size, pairs alone vs left out, all 12
+  domain maps by group. Disease groups order the map for reading only; no
+  claim that borrowing follows lineage. `borrowing_lineage.csv` (within vs
+  across groups per domain, paired intervals) is descriptive and not reported.
+- Named claims: only the pairs in `opera/configs/borrowing_hypotheses.yaml`
+  (clinically motivated and literature-referenced, graded strong / moderate /
+  exploratory, with three negative controls), on the unshrunk source-alone
+  estimate, with the prespecified claim labels and a 0.25 AUC point margin
+  (`margin_points` in the hypotheses file; the 1 point model-comparison margin
+  would call a real contribution of a few tenths "equivalent"); the source left
+  out reported with each. Fixed before the test set is opened.
+  DRAFT pending haematologist review.
+- Interpretation: the fitted model's use of a source, not biology.
+- Code: `run_paper_experiments.sh source-removal --split <split>` (one GPU
+  evaluation, `predictions/<R_L run>/<split>_source_removal/`), then
+  `borrowing-map --split <split>` (`opera/run/source_removal.py`; needs the
+  ordinary `evaluate` predictions of J_L and RDH_L on the same split for the
+  routing and trained-borrowing levels).
+
 ## Bayesian layer (very weak priors)
 | Metric | Mean effect | Between-cell SD | Support slope |
 | --- | --- | --- | --- |
@@ -117,7 +179,9 @@ tuning predictions and applied unchanged to test patients with known status:
 tuning event rate (equal alert rate across models), Youden, maximum MCC, and
 specificity 0.80, 0.90 and 0.95. Reported: threshold, TP/FP/FN/TN, sensitivity,
 specificity, PPV, NPV, MCC and flagged share, with 95% intervals from the shared
-patient bootstrap, and paired differences J_L-X, J_L-S_L and R_L-J_L.
+patient bootstrap, and paired differences OPERA-X, J_L-S_L and R_L-J_L (OPERA-X
+  replaces J_L-X on 2026-10-22 so the text's 'OPERA' matches; the dp90 macros
+  must follow OPERA's arm once it is selected).
 Exported confusion counts below 5 are suppressed; full counts stay internal.
 No decision-point metric is a primary or key secondary endpoint.
 
@@ -130,3 +194,42 @@ cutoffs `risk_matched_low` on tuning data; top 5%/10% observed risk reported.
 - [x] IPCW AUC primary; IPA key secondary
 - [ ] ±0.01 margins
 - [ ] outcome for treatment failure and `manuscript.index` in the score config
+
+## Label savings (added 2026-10-22)
+- LS10/25/50: joint model (cohort encoder) on 10/25/50% of training patients vs
+  specialists on all of them; LSE10/25/50: the same from the adapted national
+  encoder; FD10/25/50: adapted national joint model on a share vs the cohort
+  joint model on all patients (the "matched the full-data model with X%"
+  claim; matched = claim label equivalent or better). Contrasts in
+  `opera/configs/manifests/final_contrasts_20261014.yaml` (label_savings).
+
+## Borrowing: mean ablation (added 2026-10-22)
+- Switched-off sources are replaced by their tuning-set mean term per target
+  disease and outcome (mean ablation; primary); zero ablation is a
+  sensitivity. Reason: on tuning the router kept almost no weight on the shared
+  slot (0.05, from 0.037 at initialisation) and spread the rest nearly evenly
+  (route entropy 3.18 of a maximum ln 27 = 3.30; effective residual 0.66
+  log-hazard), so zeroing borrowed terms would remove most of the correction
+  mass and confound lost information with distortion. Means use tuning
+  patients only; diseases without tuning patients use the all-patient mean.
+- Implemented in `evaluate_direct_competing_risk --borrowing-design` (both
+  ablations written, `source_removal/{mean,zero}/`) and
+  `opera.run.source_removal --ablation {mean,zero}`.
+
+## Router sensitivity fit (added 2026-10-22, before stage 2)
+- control_RSI (alias RSI_L): the locked router configuration with
+  `adapter_shared_logit_init` = 3.0 (code default; the locked runs use 0.0),
+  otherwise identical; one fit, stage 2, router_controls phase. Contrast RS1 =
+  gain(RSI_L, R_L), descriptive; route entropy and shared weight reported for
+  both. Motivation: tuning route entropy 3.18 of max ln 27 = 3.30 and shared
+  weight 0.05, i.e. near-uniform routing. Decided after seeing these tuning
+  diagnostics and before any test-set result.
+
+## Decision curves (added 2026-10-23)
+- Action: closer monitoring and supportive care for patients above the
+  threshold; outcome: death within two years in DLBCL; range 5-40%.
+- Prespecified operating points: the model's low- and high-risk cutoffs from the
+  risk-group rule (risk_matched_low: low = largest low-risk group with observed
+  risk no higher than the IPI low-risk group; high = the IPI high-risk group's
+  specificity), both fixed on tuning data. Net benefit there is written to
+  `decision_curve_operating_points.csv` and marked on the figure.

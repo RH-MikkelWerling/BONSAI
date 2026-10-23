@@ -38,6 +38,45 @@ def _device(value: str) -> torch.device:
     return torch.device(value)
 
 
+def _tuning_source_means(model, data_module, cohort_configs, parent_index, collate,
+                         device, args):
+    """Each disease source's mean hazard term per target disease and outcome,
+    over tuning patients; targets without tuning patients get the mean over
+    all tuning patients."""
+    sums, counts, total, n_total = None, None, None, 0
+    n_fine = len(model.source_adapter_readout.fine_names)
+    for cohort_name, cohort_cfg in cohort_configs.items():
+        dataset = data_module._build_dataset_for_cohort(cohort_name, cohort_cfg, "tuning")
+        if dataset is None:
+            continue
+        if parent_index is not None:
+            _set_dataset_cohort_index(dataset, parent_index)
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
+                            drop_last=False, num_workers=args.num_workers,
+                            collate_fn=collate)
+        with torch.inference_mode():
+            for raw_batch in loader:
+                batch = _move(raw_batch, device)
+                pooled = model.get_objective_representations(batch)
+                fine = batch["cohort_fine_index"].long().reshape(-1)
+                _, terms = model.borrowing_hazard_terms(pooled, fine)
+                if sums is None:
+                    sums = torch.zeros((n_fine, *terms.shape[1:]), device=terms.device)
+                    counts = torch.zeros(n_fine, device=terms.device)
+                    total = torch.zeros(terms.shape[1:], device=terms.device)
+                valid = (fine >= 0) & (fine < n_fine)
+                sums.index_add_(0, fine[valid], terms[valid].float())
+                counts.index_add_(0, fine[valid], torch.ones(int(valid.sum()), device=terms.device))
+                total += terms[valid].float().sum(0)
+                n_total += int(valid.sum())
+    if sums is None or n_total == 0:
+        raise ValueError("Mean ablation needs tuning patients")
+    overall = total / n_total
+    means = torch.where(counts[:, None, None, None] > 0,
+                        sums / counts.clamp_min(1)[:, None, None, None], overall[None])
+    return {"means": means, "counts": counts}
+
+
 def _move(batch: dict, device: torch.device) -> dict:
     return {
         key: value.to(device) if isinstance(value, torch.Tensor) else value
@@ -111,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-routed-outcome", default=None,
                         help="Export shared and post-router patient vectors for this one target outcome.")
     parser.add_argument("--remove-source", action="append", default=[], help="Diagnostic route ablation, e.g. disease:DLBCL.")
+    parser.add_argument("--borrowing-design", action="store_true",
+                        help="Also write the CIF with disease-source terms dropped: no "
+                             "borrowing, each source alone and each source left out "
+                             "(source_removal/<variant>.parquet; one encoder pass).")
     parser.add_argument("--hide-prefixes", default="",
                         help="Input restriction: hide events whose code starts with these "
                              "comma-separated prefixes, e.g. LABTEST,MEDICATION.")
@@ -266,8 +309,16 @@ def main() -> None:
             *("disease:" + name for name in model.source_adapter_readout.fine_names),
             *("outcome:" + name for name in model.source_adapter_readout.outcome_names),
         ]
-    if (args.export_routes or args.remove_source or args.export_routed_outcome) and not source_names:
+    design_labels, design_cif = None, []
+    if (args.export_routes or args.remove_source or args.export_routed_outcome
+            or args.borrowing_design) and not source_names:
         raise ValueError("Route export and removal require a source-adapter checkpoint")
+    borrowing_means = None
+    if args.borrowing_design:
+        # Mean ablation: each source's average hazard term per target disease and
+        # outcome, from tuning patients only (also when evaluating held-out).
+        borrowing_means = _tuning_source_means(
+            model, data_module, cohort_configs, parent_index, collate, device, args)
     for cohort_name, cohort_cfg in cohort_configs.items():
         dataset = data_module._build_dataset_for_cohort(
             cohort_name, cohort_cfg, args.split
@@ -311,6 +362,30 @@ def main() -> None:
                 hazards, routes = model.competing_risk_log_hazards(
                     representations, batch.get("cohort_fine_index"), return_routes=True
                 )
+                variant_cif = None
+                if args.borrowing_design:
+                    from opera.modules.networks.source_anchored_readout import borrowing_design
+
+                    design_labels, masks = borrowing_design(
+                        model.source_adapter_readout.fine_names, batch["cohort_fine_index"])
+                    masks = masks.to(device)
+                    variants = torch.cat([
+                        # Mean ablation (primary), then zero ablation (sensitivity).
+                        model.competing_risk_log_hazard_masks(
+                            representations, batch["cohort_fine_index"], masks,
+                            means=borrowing_means["means"]),
+                        model.competing_risk_log_hazard_masks(
+                            representations, batch["cohort_fine_index"], masks),
+                    ])
+                    n_variants, n_batch = variants.shape[:2]
+                    variant_cif = piecewise_exponential_cif(
+                        variants.flatten(0, 1)[:, active_outcome_indices],
+                        objective.boundaries * objective.time_scale_days,
+                        horizons,
+                        time_scale_days=objective.time_scale_days,
+                        no_competing_outcome_mask=no_competing,
+                    ).reshape(n_variants, n_batch, len(active_outcome_indices), -1)
+                    variant_cif = variant_cif.float().cpu().numpy()
                 removed_cif = None
                 if args.remove_source:
                     removed_hazards = model.competing_risk_log_hazards(
@@ -357,6 +432,8 @@ def main() -> None:
                                     removed_cif[row_index, outcome_index, horizon_index]
                                 )
                         prediction_rows.append(row)
+                        if variant_cif is not None:
+                            design_cif.append(variant_cif[:, row_index, outcome_index, :])
                         if args.export_routes and routes is not None:
                             target_index = active_outcome_indices[outcome_index]
                             weights = routes[row_index, target_index].detach().cpu().tolist()
@@ -451,6 +528,34 @@ def main() -> None:
         )
     if route_rows:
         pd.DataFrame(route_rows).to_parquet(output_dir / "source_route_weights.parquet", index=False)
+    if args.borrowing_design:
+        # One file per variant, rows aligned with direct_cr_predictions.parquet.
+        values = np.stack(design_cif)  # (rows, 2 x variant, horizon)
+        directory = output_dir / "source_removal"
+        n_labels = len(design_labels)
+        for offset, ablation in ((0, "mean"), (n_labels, "zero")):
+            (directory / ablation).mkdir(parents=True, exist_ok=True)
+            for index, label in enumerate(design_labels):
+                frame = predictions[["subject_id", "outcome"]].copy()
+                for horizon_index, horizon in enumerate(horizons):
+                    frame[f"cif_{int(horizon)}d"] = values[:, offset + index, horizon_index]
+                frame.to_parquet(directory / ablation / f"{label.replace(':', '_')}.parquet",
+                                 index=False)
+        np.savez_compressed(directory / "tuning_source_means.npz",
+                            means=borrowing_means["means"].cpu().numpy(),
+                            counts=borrowing_means["counts"].cpu().numpy(),
+                            fine_names=np.array(model.source_adapter_readout.fine_names))
+        (directory / "design.json").write_text(json.dumps({
+            "variants": design_labels,
+            "ablations": {
+                "mean": "a switched-off source's term replaced by its tuning-set mean "
+                        "for the patient's disease and outcome (primary)",
+                "zero": "a switched-off source's term set to zero (sensitivity)"},
+            "other_weights": "unchanged (no renormalisation)",
+            "means_from": "tuning split; diseases without tuning patients use the "
+                          "mean over all tuning patients",
+            "horizons_days": [int(h) for h in horizons],
+        }, indent=2) + "\n")
     metrics.to_csv(output_dir / "direct_cr_metrics.csv", index=False)
     pooled_metrics.to_csv(output_dir / "direct_cr_pooled_metrics.csv", index=False)
     family_summary.to_csv(output_dir / "direct_cr_family_metrics.csv", index=False)

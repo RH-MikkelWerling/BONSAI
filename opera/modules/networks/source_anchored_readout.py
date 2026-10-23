@@ -235,3 +235,47 @@ class SourceAnchoredReadout(nn.Module):
             shift = self.disease_embedding(fine.clamp(0, self.n_disease - 1))
             output = output + (known[:, None] * shift)[:, None, :].to(output.dtype)
         return (output, weights) if return_weights else output
+
+    def disease_terms(
+        self, patient: torch.Tensor, fine_index: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """The readout split into its disease-source terms (evaluation only).
+
+        Returns ``base`` (batch, outcome, hidden) and ``terms`` (batch, outcome,
+        disease, hidden) with ``base + terms.sum(2)`` equal to the forward
+        output. A term is the source's routed correction, weight x adapter
+        output; the home disease's term uses the same adapter values as its live
+        correction. Dropping a term removes that source's contribution and
+        changes nothing else (no renormalisation of the other weights).
+        """
+        if not self.use_disease_sources:
+            raise ValueError("This readout has no disease sources")
+        output, weights = self(patient, fine_index, return_weights=True)
+        n = self.n_disease
+        hidden = F.gelu(torch.einsum("bh,srh->bsr", patient, self.down[:n]))
+        correction = torch.einsum("bsr,shr->bsh", hidden, self.up[:n])
+        correction = correction * self.source_shrinkage[None, :n, None]
+        terms = self.residual_scale * (
+            weights[..., 1:1 + n, None].float() * correction[:, None].float())
+        return output - terms.sum(2).to(output.dtype), terms
+
+
+def borrowing_design(fine_names: Sequence[str], fine_index: torch.Tensor):
+    """Source masks of the borrowing design, (variant, batch, disease).
+
+    ``full``: every source; ``none``: the patient's own disease only (no
+    borrowing); ``in:X``: own disease and X (what X adds alone); ``out:X``:
+    every source but X (what only X provides).
+    """
+    names = list(fine_names)
+    n = len(names)
+    fine_index = fine_index.long().reshape(-1)
+    known = (fine_index >= 0) & (fine_index < n)
+    own = F.one_hot(fine_index.clamp(0, n - 1), n).float() * known[:, None]
+    eye = torch.eye(n, device=fine_index.device)
+    full = torch.ones_like(own)
+    masks = [full, own,
+             *((own + eye[i]).clamp(max=1) for i in range(n)),
+             *(full - eye[i] for i in range(n))]
+    labels = ["full", "none", *(f"in:{x}" for x in names), *(f"out:{x}" for x in names)]
+    return labels, torch.stack(masks)

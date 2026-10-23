@@ -1,42 +1,46 @@
 % OPERA manuscript body, shared by the article (opera_manuscript.tex) and the
 % thesis (Paper III). Edit here; both pick it up.
 \begin{abstract}
-Medicine has learned to tell diseases apart, and its prognostic tools have
-followed: each is built for one disease and one outcome. The price is paid in
-data. A model that learns only from its own patients has too few events for many
-clinical questions, and what neighbouring diseases and related outcomes could
-teach it goes unused. Learning across tasks can recover that signal, but how
-much comes from other diseases, how much from other outcomes, and whether a
-model can learn what to borrow, and from whom, is largely unknown. We studied
-this across haematology, a specialty of many small diseases and many important
-but individually rare complications, still served by simple prognostic indices.
+Prognostic tools are built for one disease and one outcome, so each learns only
+from the events of its own patients, which for many clinical questions are few.
+Learning across related diseases and outcomes could recover the signal this
+leaves unused, but how much comes from other diseases, how much from other
+outcomes, and whether a model can learn what to borrow, and from whom, is largely
+unknown. We studied this in the lymphoid cancers, many small diseases with many
+important but individually rare complications, still served by simple prognostic
+indices.
 In 37,531 Danish adults starting first-line treatment for one of 24 lymphoid
 cancers, including plasma-cell neoplasms, sequence models read each patient's
 records before treatment and predicted 69 outcomes over 30 days to two years.
 Viewing the tasks as a grid of diseases by outcomes, we compared otherwise
 identical models that learned from a single cell, from one outcome across all
 diseases, from all outcomes of one disease, or from the whole grid; a router
-that learns, for each patient and outcome, how much to draw on every disease and
-outcome; and encoders pretrained on the records of the entire Danish population.
+that learns, for each patient and outcome, how much to draw on each disease; and
+encoders pretrained on the records of the entire Danish population.
 More than \result{n_neural_fits}{1,750} sequence and
 \result{n_tabular_fits}{20,000} tabular models were evaluated on patients
 treated from 2023, against gradient-boosted trees trained and tuned for every
 task and against the prognostic indices in clinical use. \opera{},
-\placeholder{the configuration: scope, routing and encoder}, outperformed the
-tuned trees in \result{T2_better}{X of Y} predictions (median AUC difference
-\result{T2_median}{Z}), in place of \result{narrow_fits}{N} separately trained
+\placeholder{the configuration: scope, routing and encoder}, differed from the
+tuned trees by \result{T2_auc}{X} in AUC over all cells and horizons
+\placeholder{(claim label)} and had the higher AUC in \result{T2_better}{X of Y}
+disease--outcome cells, in place of \result{narrow_fits}{N} separately trained
 models. Learning from other diseases changed AUC by \result{P1_auc}{X}, from
 other outcomes by \result{P2_auc}{Y}, learning what to borrow by
 \result{R1_auc}{Z}, and population pretraining by \result{E1_auc}{W}
 \placeholder{, which matched the cohort-pretrained model with X\% of the
 labelled patients}; \placeholder{the gains were largest where a prediction had
-least data of its own}. Ten of the 24 diseases have no validated prognostic
+least data of its own}. \placeholder{Switching diseases off in the fitted model
+showed what it borrowed: pairs of diseases expected to share signal, such as
+chronic lymphocytic leukaemia and myeloma for infection, added X AUC points more
+than a typical pair (P = Y), negative controls did not, and borrowing mattered
+most for Z outcomes.} Ten of the 24 diseases have no validated prognostic
 index, and the index was missing for 58\% of test patients; \opera{} predicted
 every outcome for every patient \placeholder{and, where an index was recorded,
 placed X more per 1,000 patients at low risk with no higher observed risk}.
 \placeholder{Concrete attribution finding, e.g. which pre-treatment findings
 drove infection risk and which drove treatment failure.} \placeholder{If the
-results hold: prognosis in haematology need not be built one disease and one
+results hold: prognosis in lymphoid cancers need not be built one disease and one
 outcome at a time, and a model pretrained on the whole population opens the same
 route to every specialty that shares the national registers.}
 \end{abstract}
@@ -44,24 +48,29 @@ route to every specialty that shares the national registers.}
 \noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{%
 \small\textbf{Key findings} \placeholder{(confirm each against the locked test-set analysis)}
 \begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=3pt]
-  \item One model predicted 69 outcomes in 24 lymphoid cancer subtypes and was
-  more accurate than per-task XGBoost in \result{T2_better}{X of Y}
-  disease--outcome predictions, covering the tasks of
-  \result{narrow_fits}{N} separately trained models.
-  \item \placeholder{Learning across diseases and across outcomes each improved
-  prediction, the two added up, letting the model learn what to borrow added
-  more, and the gains were largest where data were scarcest.}
-  \item In DLBCL, at the specificity of the IPI, it identified
-  \result{ipi_extra_per1000}{N} more per 1,000 of the patients who died within
-  two years and placed \result{ipi_low_extra_per1000}{M} more at low risk with
-  an observed risk no higher than the IPI low-risk group.
-  \item \placeholder{Nation-scale pretraining improved specialised prediction
+  \item One model predicted 69 outcomes in 24 lymphoid cancers, differed from
+  per-task XGBoost by \result{T2_auc}{X} in AUC \placeholder{(claim label)} and
+  had the higher AUC in \result{T2_better}{X of Y} disease--outcome cells,
+  covering the tasks of \result{narrow_fits}{N} separately trained models.
+  \item \placeholder{What learning across diseases, learning across outcomes and
+  learning what to borrow each added, with their claim labels, and where the
+  gains were largest.}
+  \item \placeholder{Switching each source disease off in the fitted model showed
+  what it borrowed: pairs expected to share signal from shared biology, treatment
+  or complications, listed before testing (such as CLL and myeloma for
+  infection), added more than a typical pair, negative controls did not, and
+  borrowing mattered most for X outcomes.}
+  \item In DLBCL, per 1,000 patients, it flagged \result{ipi_extra_per1000}{N}
+  more of the patients who died within two years at the specificity of the IPI
+  high-risk group, and, at a cutoff matched to the IPI low-risk group's observed
+  risk, placed \result{ipi_low_extra_per1000}{M} more at low risk.
+  \item \placeholder{National pretraining improved specialised prediction
   directly / after adaptation to the cohort, and reached the full-data
   cohort-pretrained model within the prespecified margin using X\% of its
   labelled training patients.}
-  \item It relied on findings clinicians recognise, read differently for each
-  complication, and can explain each patient's risks by the episodes of care
-  behind them.
+  \item \placeholder{It relied on findings clinicians recognise, read
+  differently for each complication, and can show which episodes of care each
+  patient's risks rest on.}
   \item All results are from one evaluation of patients treated from 2023, after
   every modelling decision had been fixed and while first-line treatment was
   changing.
@@ -139,8 +148,8 @@ they need \citep{wornow2023ehrshot}. It remains largely unknown how much is
 gained by learning across diseases, how much by learning across outcomes, and
 whether a model can learn how much to draw on each.
 
-Haematological cancers are a fitting place to ask. Lymphoid cancers comprise
-dozens of entities \citep{alaggio2022who}, each uncommon \citep{sant2010haemacare}:
+The lymphoid cancers are a fitting place to ask. They comprise dozens of
+entities \citep{alaggio2022who}, each uncommon \citep{sant2010haemacare}:
 in the cohort studied here, 24 diseases range from almost 10,000 patients with
 diffuse large B-cell lymphoma (DLBCL) to fewer than 50 with amyloidosis, and even
 the most common offers few events for most questions. A complication with a
@@ -166,7 +175,7 @@ lymphoid cancers have examined single outcomes \citep{parviz2026dacll}, but thes
 models share the indices' basic limitation: one disease, one outcome. For many
 complications and diseases, no dedicated predictor exists.
 
-DALY-CARE makes it possible to study haematology as a whole. The resource links
+DALY-CARE makes it possible to study the lymphoid cancers as a whole. The resource links
 ten nationwide registers, electronic health records and laboratory data for all
 Danish adults registered with a lymphoid cancer since 2002, including the
 plasma-cell neoplasms and their precursors \citep{brieghel2025dalycare}. The
@@ -190,8 +199,6 @@ could build on it rather than pretrain their own. Whether it can is an open
 question, because a general encoder may not fit a specialised population. The
 established remedy is domain adaptation, continued pretraining on the target
 population \citep{gururangan2020dont,guo2024multicenter,lemmon2023pediatric}.
-Here the national population already contains the cohort, so adaptation adds no
-new patients; it only refocuses the encoder on the patients that matter.
 
 We therefore asked how much each of these sources of signal is worth for the
 questions a haematologist faces at the start of treatment: other diseases, other
@@ -205,13 +212,10 @@ learning, and sequence models pretrained across the cohort, the current
 instantiation of learning across diseases and outcomes. To isolate what the
 additional information adds, we compared specialist models, each trained on one
 disease and one outcome, with models trained across diseases, across outcomes or
-both, with a router that learns how much to draw on each disease and outcome,
-and with encoders pretrained on the whole Danish population. To our knowledge,
-this is the first study to separate the contributions of learning across
-diseases and across outcomes within a whole clinical specialty, to test whether
-a model can learn how much to borrow from each, and to evaluate population-scale
-pretraining for specialised prediction, against both the tools in clinical use
-and tuned task-specific models, on outcomes chosen for their clinical relevance.
+both, with a router that learns how much to draw on each disease, and with
+encoders pretrained on the whole Danish population. Finally, we asked whether
+what the model learns to borrow follows clinical knowledge, against pairs of
+diseases expected to share signal and negative controls fixed before testing.
 
 \clearpage
 \begin{figure}[H]
@@ -219,7 +223,7 @@ and tuned task-specific models, on outcomes chosen for their clinical relevance.
   \resizebox{\textwidth}{!}{\input{figures/modeling_paradigms}}\par\vspace{3mm}
   \resizebox{\textwidth}{!}{\input{figures/information_axes}}
   \caption{\textbf{Approaches to risk prediction and the information each
-  can use.} Top, three approaches for haematological risk prediction.
+  can use.} Top, three approaches to risk prediction in lymphoid cancers.
   \textbf{A}, clinical risk scores combine a small diagnostic snapshot with a
   fixed rule into broad risk strata. \textbf{B}, classical machine learning
   uses a wider history, aggregated over time into a task-specific feature
@@ -241,14 +245,20 @@ We included adults in DALY-CARE who started first-line treatment for a lymphoid
 or plasma-cell malignancy \citep{brieghel2025dalycare}. Every prediction was made
 at the start of first-line treatment, from the diagnoses, procedures, pathology,
 medication, laboratory results and hospital contacts recorded before it, with
-age and sex (\cref{fig:model-inputs}). The study was approved by the Danish
+age, sex and the region and specialty of care (\cref{fig:model-inputs}). The study was approved by the Danish
 Health Data Authority (P-2020-561) and the National Ethics Committee (1804410).
 
 We predicted 69 outcomes at six horizons from 30 days to two years, spanning
 disease course, infection, cytopenia, organ toxicity, cardiovascular events and
-acute care, with death as a competing event. Laboratory outcomes were graded by
-the Common Terminology Criteria for Adverse Events \citep{nci2025ctcae} and
-counted only in patients whose blood was monitored, so that time without testing
+acute care, with death as a competing event. Laboratory outcomes were defined
+with reference to the laboratory criteria of the Common Terminology Criteria for
+Adverse Events \citep{nci2017ctcae,nci2025ctcae}: 13 equal the thresholds of a
+CTCAE grade, 13 follow a grade with a stated difference (for example, a value
+exactly at a cut-off counted in the more severe grade, or a baseline arm not
+applied), and three, including acute kidney injury, have no CTCAE counterpart;
+symptoms and interventions, required by some grades, are not recorded. The
+correspondence of every outcome is listed in the Supplementary Methods. Laboratory outcomes were counted
+only in patients whose blood was monitored, so that time without testing
 did not pass as event-free. Outcome definitions, disease assignment, treatment
 lines and ascertainment rules are given in the Supplementary Methods.
 
@@ -263,7 +273,11 @@ Every sequence model in this study has the same backbone: a causal transformer,
 building on CORE-BEHRT \citep{odgaard2024core}, pretrained to predict each next
 event in a patient's record and fine-tuned to give the cumulative incidence of
 every outcome at every horizon, with death competing
-\citep{gensheimer2019nnetsurvival,lee2018deephit}. What differs is what each
+\citep{gensheimer2019nnetsurvival,lee2018deephit}. Models were trained with a
+binary cross-entropy at each of the six horizons, over the patients whose status
+at that horizon was known, averaged within each outcome and then equally over
+its 52 endpoints (grade variants of one finding together), and were evaluated on
+the full risk set with censoring weights (Evaluation). What differs is what each
 model learns from (\cref{fig:supervision-grid}). Arranged as a grid of diseases
 by outcomes, a specialist learns from a single cell, a disease-pooled model from
 one column (one outcome in every disease), an outcome-pooled model from one row
@@ -274,24 +288,42 @@ outcomes and from both.
 Sharing the whole grid has a cost: the joint model represents each patient once,
 so every disease and every outcome must make do with the same representation.
 The routed model keeps that shared representation and lets each prediction
-adjust it, in the spirit of partial pooling (\cref{fig:source-router}). Every
-disease and every outcome has an adapter, a small correction learned only from
-its own labels and shrunk towards zero when it has few events. For every patient
-and target outcome, a router decides how much of each adapter to apply, from the
-patient's own disease and the target outcome as well as from other diseases and
-outcomes \citep{ma2018mmoe,houlsby2019adapters,hu2022lora}. The model thus
-learns what to borrow, and from whom: a prediction of infection in chronic
-lymphocytic leukaemia can draw on what was learned about infection in myeloma,
-and leave aside what was learned about relapse in aggressive lymphoma.
+adjust it, in the spirit of partial pooling (\cref{fig:source-router}). Each
+disease has an adapter, or expert: a small correction learned only from its own
+patients' labels and shrunk towards zero when it has few events. For every
+patient and target outcome, a router decides how much of each disease's adapter
+to apply, the patient's own and those of other diseases
+\citep{ma2018mmoe,houlsby2019adapters,hu2022lora}. The model thus learns what to
+borrow, and from whom. The joint model knows the patient's disease from the
+record, but everything it learns about a disease must be built into one encoder
+that all diseases share and the largest dominate, and at the readout every
+outcome has parameters of its own but no disease has. A disease adapter adds a
+patient-by-disease-by-outcome term that the router turns up or down for each
+patient. Outcome adapters, which add little to an outcome's own output layer,
+were screened as well.
 
-We expected the disease adapters to matter more than the outcome adapters. The
-joint model already gives every outcome parameters of its own, its output
-layer, but no disease any: it can see the diagnosis in the record, yet a finding
-must weigh the same in every disease. Two controls separate borrowing from
-simpler explanations. A joint model told the patient's disease tests whether
-knowing the diagnosis is enough, and a routed model limited to the patient's own
-disease and the target outcome tests whether the adapters help through their own
-parameters, without borrowing.
+The router was configured on the tuning set in three steps: which adapters
+(disease only, outcome only or both), their size (rank 8, 16 or 32), and how the
+router combines patient, disease and outcome (additive, or interacting with a
+width of 128 or 512). Each step took the option with the highest tuning AUC,
+averaged over estimable cells with each disease weighing equally, each outcome
+equally within a disease and all six horizons. Options within the difference
+between two fits of the same model counted as tied and went to the simplest;
+that difference was measured as the router trained with every source masked,
+which computes the joint model, against the joint model itself. An option whose
+IPA fell short of the simplest option's by more than the same kind of noise
+floor was not eligible. The screen chose disease adapters only
+\placeholder{rank and interaction}. The sources were screened at the smallest
+rank, and the choice may differ at another rank or query; the four adapter banks
+(none, disease, outcome, both) are therefore all trained with the locked rank
+and query and compared on the test set as a secondary analysis. Three
+controls separate borrowing from simpler explanations: a joint model told the
+patient's disease, which tests whether disease-specific baseline risks explain
+the gain, and routers limited to the patient's own disease adapter (the
+own-disease router) or own outcome adapter, which test whether corrections help
+through their own parameters, without borrowing. A sensitivity fit starts the
+router with most of its weight on the shared representation (Supplementary
+Methods).
 
 The widest grid is the whole population. A model pretrained on the registers of
 every Danish resident has learned to read records from far more patients,
@@ -303,8 +335,10 @@ delivered or after continued pretraining on the cohort's records
 comparison measures what the rest of the population adds, and the second what
 refocusing on the cohort adds. If the population supplies much of what a model
 needs, the model should also need fewer labelled patients: we retrained the
-joint model from both encoders on 10\%, 25\% and 50\% of the training patients
-and compared it with specialists trained on all of them. Randomly initialised
+joint model from the cohort encoder and the adapted national encoder on 10\%,
+25\% and 50\% of the training patients, and compared the two encoders at each
+share and each with the joint model and the specialists trained on all
+patients. Randomly initialised
 and frozen encoders are references for pretraining and fine-tuning;
 architecture, training and the national data are described in the
 Supplementary Methods.
@@ -312,7 +346,8 @@ Supplementary Methods.
 \opera{} (\modelname) is the configuration of scope, routing and encoder with
 the highest AUC on the tuning set, averaged over diseases, outcomes and all six
 horizons; configurations within the difference between two fits of the same
-model counted as tied, and the simplest was chosen \placeholder{selected
+model counted as tied, and the simplest was chosen, the joint before the routed
+model and the cohort before the national encoder \placeholder{selected
 configuration}. It is the model compared with tabular models and clinical
 indices. The contrasts between scopes, routing and encoders use their fixed
 arms.
@@ -337,20 +372,26 @@ index's low-risk observed risk and high-risk specificity.
 The primary metric was the time-dependent area under the ROC curve (AUC) at each
 of the six horizons. Reported differences and \cref{tab:panel-effects} pool all
 six horizons, each disease--outcome--horizon cell weighing equally; the main
-figures show one year, and every horizon is in the Supplement. The index of
+figures show one year, except the borrowing analysis, which pools horizons, and
+every horizon is in the Supplement. The index of
 prediction accuracy (IPA), Brier score and calibration measured probability
 accuracy
 \citep{blanche2013competingauc,gerds2006brier,schoop2011competing,kattan2018ipa}.
 Every contrast was paired on the same patients, with intervals from 1,000
 patient resamples within disease, shared across models, outcomes and horizons.
-Across disease--outcome cells, effects were summarised by hierarchical models
-that estimate the typical effect, its variation between diseases and outcomes,
+Each pooled difference was labelled by a rule fixed before testing: better (or
+worse) if its 95\% interval lay above (below) zero, noted as beyond the practical
+margin when the difference exceeded 0.01 AUC; otherwise equivalent if the
+interval lay within $\pm$0.01; otherwise inconclusive; each with a paired
+bootstrap $P$ value. Across disease--outcome cells, effects were also summarised,
+descriptively, by hierarchical models that estimate the typical effect, its variation between diseases and outcomes,
 and its relation to the number of training events; estimates for individual
 cells are shown in the Supplementary figures. Decision curves compare the net
 benefit of acting on \opera{}, the IPI and XGBoost when patients above a
 predicted two-year risk of death receive closer monitoring and supportive care,
-across thresholds from 5\% to 40\% \citep{vickers2006dca} \placeholder{confirm
-action and range}. Training time, compute and storage are reported for one
+across thresholds from 5\% to 40\% \citep{vickers2006dca}, and at two
+prespecified points: the model's low- and high-risk cutoffs, fixed on tuning
+data by matching the IPI's low-risk observed risk and high-risk specificity. Training time, compute and storage are reported for one
 \opera{} model and for the separately trained models it replaces. Integrated
 gradients \citep{sundararajan2017ig} describe what \opera{} relies on, by
 source, time and clinical finding and for individual patients, checked by event
@@ -359,15 +400,44 @@ before the test set was evaluated are listed in the Supplementary Methods
 (Prespecification). Reporting follows TRIPOD+AI \citep{collins2024tripodai}
 \placeholder{checklist in the Supplement}.
 
+\operasubsection{Which diseases the model borrows from}
+The routed model's readout adds one routed correction per source disease and its
+risk head is linear, so a source can be switched off exactly, with every other weight
+as trained: its correction is replaced by its average over tuning patients with the
+same disease and outcome, which removes what the source says about the
+individual patient but keeps the average shift the model was trained with
+(mean ablation; setting it to zero is a sensitivity analysis; Supplementary
+Methods). One evaluation of the locked model scored, on
+the same test patients, the model with all sources, with only the patient's own
+disease (no borrowing), with the own disease and one other (the source alone)
+and with all sources but one (the source left out). The source alone shows what
+a disease contributes on its own, which similar diseases cannot mask; the source
+left out shows what only that disease provides, so a disease that adds alone
+but costs little when left out shares its information with others. How much the
+model relies on borrowing overall is the AUC it loses when all borrowed
+corrections are switched off, for each disease, each clinical domain and over all
+diseases. Within one fitted model this carries no noise of refitting, but it
+measures what the fitted model uses, not what borrowing adds when a model is
+trained without it; that is the comparison with the own-disease router. Before the test set was
+opened, we listed pairs of diseases with a clinical reason to share signal for a
+domain of outcomes, from shared biology, treatment or complications in the
+literature, and negative controls with none (Supplementary Methods). The primary
+test asked whether these pairs, as a set, gained more from their source alone
+than the typical pair, the mean of the other pairs of the same domains
+(permutation test). The map of all pairs is descriptive and partially pooled.
+AUC differences were primary and IPA secondary. The analysis concerns borrowing
+at the readout; sharing through the common encoder is measured by the joint
+against the specialist models.
+
 % Result macros (T2, T9, ipi_*, ig_*) must be computed for the selected OPERA
 % configuration; the scope contrasts (P*, R*, E*) use the fixed arms.
 \FloatBarrier
 \operasection{Results}
 
 \operasubsection{Cohort characteristics and outcomes}
-The pretraining population comprised all 78,668 adults in DALY-CARE with a
-lymphoid cancer diagnosis, whose records before 2022 pretrained the cohort
-encoder. Of these, 37,531 started first-line treatment with an assigned disease
+The pretraining population comprised all 78,668 patients in DALY-CARE with a
+haematological diagnosis, including precursor conditions, whose records before
+2022 pretrained the cohort encoder. Of these, 37,531 started first-line treatment with an assigned disease
 and form the final cohort (\cref{fig:cohort-flow,tab:characteristics}): 29,105
 treated through 2021, 1,980 in 2022 and 6,446 from 2023. The median age was 69
 years (IQR 60--77), 41.7\% were women, and the largest diseases were diffuse
@@ -414,10 +484,11 @@ diseases} (\cref{fig:supp-atlas-matrix}).
 
 \FloatBarrier
 \operasubsection{Does one model outperform the methods in use?}
-\opera{} had the higher AUC in \result{T2_better}{X of Y} disease--outcome--horizon predictions against per-task XGBoost (median difference \result{T2_median}{Z}), in \result{T9_better}{X of Y} against XGBoost given the quality-registry variables, and in \result{P5_better}{X of Y} against the specialist trained on each cell alone (\cref{fig:headline}A--B, \cref{tab:panel-effects}). Pooled over cells, its difference from per-task XGBoost was \result{T2_auc}{X} in AUC and \result{T2_ipa}{Y} in IPA. \placeholder{Its median gain
+Pooled over cells and horizons, \opera{} differed from per-task XGBoost by \result{T2_auc}{X} in AUC and \result{T2_ipa}{Y} in IPA \placeholder{(claim labels)}. It had the higher AUC in \result{T2_better}{X of Y} disease--outcome--horizon cells (median difference \result{T2_median}{Z}) and in \result{T9_better}{X of Y} against XGBoost given the quality-registry variables, and the joint model had the higher AUC than the specialist trained on each cell alone in \result{P5_better}{X of Y} (\cref{fig:headline}A--B, \cref{tab:panel-effects}). \placeholder{Its median gain
 over XGBoost was positive / not at every horizon from 30 days to two years}
-(\cref{fig:headline}D) \placeholder{and did / did not differ with the number of
-events recorded before treatment} (\cref{fig:headline}E). \placeholder{At the
+(\cref{fig:headline}D) \placeholder{and its patient-level Brier improvement did
+/ did not differ with the number of events recorded before treatment}
+(\cref{fig:headline}E). \placeholder{At the
 specificity of each clinical index's high-risk category, the model's high-risk
 group contained X to Y percentage points more of the patients with the event}
 (\cref{fig:headline}C).
@@ -482,7 +553,7 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
   \label{fig:headline}
 \end{figure}
 
-Against XGBoost trained and tuned for each disease, outcome and horizon on the same patients, \opera{}'s AUC, averaged over all horizons, differed by \result{T2_auc}{X} and its IPA by \result{T2_ipa}{Y} (\cref{fig:tabular}). This gain has two parts. The change from tabular summaries to the sequence model itself, with no sharing, is the specialist against XGBoost on the same task: \result{T3_auc}{X} in AUC. Sharing adds the rest: the joint model against the specialist, \result{P5_auc}{Y} (\cref{tab:panel-effects}). Pooling helped the tabular models less: XGBoost pooled across diseases differed from per-disease XGBoost by \result{T7_auc}{Y}, and \opera{} from pooled XGBoost by \result{T6_auc}{X}. XGBoost differed from logistic regression by \result{T4_auc}{Y}. \placeholder{Clinical domains and diseases in which XGBoost remained better.}
+Against XGBoost trained and tuned for each disease, outcome and horizon on the same patients, \opera{}'s AUC, averaged over all horizons, differed by \result{T2_auc}{X} and its IPA by \result{T2_ipa}{Y} (\cref{fig:tabular}). Most of this comes in two steps. The change from tabular summaries to the sequence model itself, with no sharing, is the specialist against XGBoost on the same task: \result{T3_auc}{X} in AUC. Sharing is the joint model against the specialist, \result{P5_auc}{Y}; routing and the choice of encoder make up the rest (\cref{tab:panel-effects}). Pooling helped the tabular models less: XGBoost pooled across diseases differed from per-disease XGBoost by \result{T7_auc}{Y}, and \opera{} from pooled XGBoost by \result{T6_auc}{X}. XGBoost differed from logistic regression by \result{T4_auc}{Y}. \placeholder{Clinical domains and diseases in which XGBoost remained better.}
 At a specificity of 90\% fixed on tuning data, \opera{}'s median sensitivity was \result{dp90_sens_joint}{X} against \result{dp90_sens_xgb}{Y} for XGBoost, and its median MCC \result{dp90_mcc_joint}{X} against \result{dp90_mcc_xgb}{Y}. \placeholder{Whether the ordering held at the other decision points.} Adding the quality-registry variables changed XGBoost's AUC by \result{T10_auc}{X}, and \opera{}, without them, differed from this reference by \result{T9_auc}{Y}.
 \placeholder{Calibration slopes and calibration-in-the-large by model and
 clinical domain} (\cref{fig:tabular}B, \cref{fig:calibration}).
@@ -522,14 +593,13 @@ dedicated, externally validated index (\cref{tab:index-availability});
 recorded for at least 50 patients of a disease, each compared in its own
 population and on the endpoint it was developed for, the model's risk groups
 separated outcomes more clearly than the index in X of N
-(\cref{fig:score-overview}); at each index's high-risk specificity, the model
-placed X more per 1,000 patients at low risk, with an observed risk no higher
-than the index's low-risk group.}
+(\cref{fig:score-overview}); at a cutoff matched to each index's low-risk
+observed risk, the model placed X more per 1,000 patients at low risk.}
 
 The IPI in DLBCL shows the comparison in detail. \placeholder{N of N patients
 with DLBCL had a recorded IPI; how they differed from those without.} Per 1,000
 patients, using a threshold matched on tuning data to the IPI high-risk
-category's specificity, \opera{} identified \result{ipi_extra_per1000}{N} more of the patients who died within two years, and placed \result{ipi_low_extra_per1000}{M} more at low risk, with an observed risk of \result{ipi_low_risk_model}{X\%} against \result{ipi_low_risk_index}{Y\%} in the IPI low-risk group (\cref{fig:risk-groups}). Its highest-risk 5\% had an observed two-year risk of \result{top5_risk_model}{X\%}, against \result{ipi_high_risk_index}{Y\%} in the IPI high-risk group. \placeholder{At that operating point, recall and
+category's specificity, \opera{} identified \result{ipi_extra_per1000}{N} more of the patients who died within two years, and, at a cutoff matched separately to the IPI low-risk group's observed risk, placed \result{ipi_low_extra_per1000}{M} more at low risk, with an observed risk of \result{ipi_low_risk_model}{X\%} against \result{ipi_low_risk_index}{Y\%} in the IPI low-risk group (\cref{fig:risk-groups}). Its highest-risk 5\% had an observed two-year risk of \result{top5_risk_model}{X\%}, against \result{ipi_high_risk_index}{Y\%} in the IPI high-risk group. \placeholder{At that operating point, recall and
 precision were X and Y for the model and A and B for the IPI, and average precision across thresholds was X versus Y} (\cref{fig:clinical-score}).
 \placeholder{Outcomes of the patients the two systems classified differently,
 including older patients whom the model placed at low risk}
@@ -570,20 +640,25 @@ the specialist.} Over the cells evaluable for every model, disease pooling chang
 
 \placeholder{The gain was associated with / not related to the data a
 prediction had of its own: shape of the support curve with its interval}
-(\cref{fig:pooling}C--D). This curve covers the tasks in which a specialist
+(\cref{fig:pooling}C). This curve covers the tasks in which a specialist
 could be trained; the sparsest tasks, where it could not, appear as added
-coverage below. \placeholder{Trained on X\% of the training patients, the joint
-model matched / did not match specialists trained on all of them.} In the subtypes with fewer than 500 training patients,
+coverage below. Trained on 10\%, 25\% and 50\% of the training patients, the joint
+model differed from specialists trained on all of them by \result{LS10_auc}{X},
+\result{LS25_auc}{Y} and \result{LS50_auc}{Z} in AUC, and started from the
+adapted national encoder by \result{LSE10_auc}{X}, \result{LSE25_auc}{Y} and
+\result{LSE50_auc}{Z}. In the subtypes with fewer than 500 training patients,
 \opera{}'s AUC differed from per-task XGBoost by
-\result{T2_auc_rare}{X}, from pooled XGBoost by \result{T6_auc_rare}{Y} and
-from the specialist by \result{P5_auc_rare}{Z} (\cref{tab:panel-effects}). In
+\result{T2_auc_rare}{X} and from pooled XGBoost by \result{T6_auc_rare}{Y}, and
+the joint model's from the specialist by \result{P5_auc_rare}{Z}
+(\cref{tab:panel-effects}). In
 the ten subtypes without a dedicated, externally validated index
 (\cref{tab:index-availability}), which are assessed today with an index borrowed
-from another disease, most often the IPI \citep{IPI1993}, the differences were
-\result{T2_auc_noindex}{X}, \result{T6_auc_noindex}{Y} and
-\result{P5_auc_noindex}{Z} over \result{T2_cells_noindex}{N} cells, and the IPI
+from another disease, most often the IPI \citep{IPI1993}, \opera{} differed from
+the two XGBoost models by \result{T2_auc_noindex}{X} and \result{T6_auc_noindex}{Y},
+and the joint model from the specialist by \result{P5_auc_noindex}{Z}, over
+\result{T2_cells_noindex}{N} cells, and the IPI
 computed from its registry components was compared with \opera{} on the same
-patients \placeholder{result} (\cref{fig:score-overview}). \placeholder{Number and
+patients \placeholder{result} (\placeholder{Supplementary Table}). \placeholder{Number and
 share of cells in which sharing was worse than the specialist, with examples.}
 Pooled models also predicted \placeholder{N} cells for which no specialist could
 be trained, including every outcome in nodal marginal-zone lymphoma, which had
@@ -615,22 +690,76 @@ no patients in the tuning year and so no model of its own, with \placeholder{abs
 % Claim heading once results are in, e.g. "Letting the model choose its sources
 % keeps the gains of sharing and avoids its costs".
 The joint model gives every prediction the same shared signal. The routed model
-learns, for each patient and target, which diseases and outcomes to draw on
-(\cref{fig:source-router}). Routing changed AUC by \result{R1_auc}{X}
-and IPA by \result{R1_ipa}{Y} relative to the joint model, and had the higher
-AUC in \result{R1_better}{N of M} cells (\cref{fig:routing}A). The joint model
-and the router with every source switched off, two fits of the same model,
-differed by \result{R0_auc}{X}, which sets the noise floor for these
-comparisons. \placeholder{The gain was not knowing the diagnosis or the
-adapters' added capacity: a joint model told the disease, and models restricted to
-the patient's own disease or outcome adapter, accounted for X and Y of the
-routing gain, so Z came from borrowing from other diseases and outcomes.}
-\placeholder{Disease adapters, outcome adapters and both changed AUC by X, Y and
-Z} (\cref{fig:routing}B). \placeholder{In cells where the joint model had been
+learns, for each patient and target, which diseases to draw on
+(\cref{fig:source-router}); on the tuning set, disease adapters were chosen over
+outcome adapters and both. Routing changed AUC by \result{R1_auc}{X} and IPA by
+\result{R1_ipa}{Y} relative to the joint model \placeholder{(claim labels)}, and
+had the higher AUC in \result{R1_better}{N of M} cells (\cref{fig:routing}A).
+The joint model and the router trained with every source masked, two fits of
+the same model, differed by \result{R0_auc}{X}, which sets the noise floor for
+these comparisons. \placeholder{The gain was not knowing the diagnosis or the
+adapters' added capacity: the joint model told the disease and the own-disease
+router accounted for X and Y of the routing gain, so Z came from borrowing from
+other diseases.} \placeholder{On the test set, at the locked rank and query, disease adapters,
+outcome adapters and both changed AUC by X, Y and Z, so the tuning choice did /
+did not hold} (\cref{fig:routing}B). \placeholder{In cells where the joint model had been
 worse than the specialist on the tuning set, routing changed test AUC by X}
 (\cref{fig:supp-rescue}), \placeholder{so learning what to borrow recovered
 where sharing everything had hurt.} \placeholder{Routing weights concentrated on
 the patient's own disease / related diseases} (\cref{fig:supp-router-usage}).
+
+\FloatBarrier
+\operasubsection{From whom does the model borrow?}
+% Claim heading once results are in, e.g. "The model borrows most where
+% clinicians would expect shared signal".
+Switching source diseases off in the fitted router shows what it borrows
+(\cref{fig:borrowing-map}). \placeholder{Most pairs of diseases added little; the
+largest gains from a single source were for X from Y}
+(\cref{fig:borrowing-map}A). \placeholder{With borrowing switched off, the fitted
+router lost X AUC points over all diseases, from Y in DLBCL to Z in amyloidosis}
+(\cref{fig:borrowing-map}B); \placeholder{this loss was larger / smaller than the gain over the own-disease router (X) and over the joint model
+(Y), which compare separately trained models} (\cref{fig:supp-borrowing-detail}A), and \placeholder{it was / was not
+larger in the smaller diseases} (\cref{fig:supp-borrowing-detail}B). The pairs
+listed before testing as expected to share signal gained \placeholder{X AUC
+points} more from their source alone than the typical pair (permutation
+\placeholder{P}), and the negative controls \placeholder{did not differ (P)}
+(\cref{fig:borrowing-map}C). \placeholder{Of the N pairs, M gained with an
+interval above zero; where leaving the source out cost less than the source
+alone added, other sources carried overlapping information}
+(\cref{fig:supp-borrowing-detail}C). \placeholder{Borrowing mattered most for X
+outcomes and least for Y} (\cref{fig:borrowing-map}D), \placeholder{and IPA
+agreed / differed} (\placeholder{Supplementary Table}).
+
+\begin{figure}[H]
+  \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
+    {A: what each source disease adds to each target disease. B: how much each
+    disease depends on borrowing. C: pairs expected to share signal, and negative
+    controls. D: AUC lost without borrowing, by clinical domain.}
+  \caption{\textbf{What the model borrows from other diseases.} The routed
+  model's readout adds one correction per source disease, so sources can be
+  switched off in the trained model without retraining or changing anything else. Each comparison scores the same test patients over all outcomes and
+  horizons (AUC points; 95\% intervals from paired patient resampling).
+  \textbf{A}, The gain for each target disease (rows, with its number of
+  patients) when one other disease (columns) is added to its own, partially
+  pooled across pairs. Dots mark gains whose interval lies above zero; the
+  diagonal is grey; diseases are grouped by lineage for reading only, and grey
+  labels mark diseases with few estimable outcomes. AL, amyloidosis; SP,
+  solitary plasmacytoma; tFL, transformed follicular lymphoma. \textbf{B}, On the
+  same rows, the AUC the trained model loses when all its borrowed corrections
+  are switched off; dashed line, all diseases weighing equally. \textbf{C}, Pairs listed before the test set was
+  opened because they share biology, treatment or complications in a domain of
+  outcomes (purple), and negative controls with no such reason (grey), with the
+  gain from the source alone. The dashed line is the typical pair, the mean of
+  all other pairs in the same domains. As a set, the expected pairs gained
+  \placeholder{X} points more than the typical pair (permutation test,
+  \placeholder{P}) and the negative controls \placeholder{Y (P)}. \textbf{D},
+  The AUC lost without borrowing, as in B, by clinical domain, all diseases
+  weighing equally; dashed line, all outcomes. This loss beside the gains over
+  separately trained models, by disease size, the source left out and every clinical domain
+  are in \cref{fig:supp-borrowing-detail}. The figure shows
+  how the fitted model uses its corrections, not how diseases are related.}
+  \label{fig:borrowing-map}
+\end{figure}
 
 \FloatBarrier
 \operasubsection{Can population-scale pretraining extend the shared signal?}
@@ -645,9 +774,10 @@ patient's history covered by the national vocabulary, by training events and by
 disease} (\cref{fig:encoder-transfer}C--D, \cref{fig:supp-national-where}).
 With 10\%, 25\% and 50\% of the training patients, the adapted national encoder
 differed from the cohort encoder by \result{N10_auc}{A}, \result{N25_auc}{B} and
-\result{N50_auc}{C} (\cref{fig:encoder-transfer}B). \placeholder{The smallest
-fraction that reached the full-data cohort-encoder model within the
-prespecified margin, or that this was not reached.} As references, pretraining
+\result{N50_auc}{C} (\cref{fig:encoder-transfer}B). Against the cohort-encoder joint model trained on all patients, the
+adapted national encoder differed by \result{FD10_auc}{X}, \result{FD25_auc}{Y}
+and \result{FD50_auc}{Z} with 10\%, 25\% and 50\% of them, \placeholder{so the
+smallest share that matched it (claim label equivalent or better) was X\%} As references, pretraining
 on the cohort changed the joint model's AUC by \result{P0_auc}{X} over random
 initialisation, and fine-tuning by \result{P7_auc}{Y} over a frozen encoder.
 
@@ -764,33 +894,29 @@ before treatment the risk of severe neutropenia.
 
 \FloatBarrier
 \operasubsection{How does performance vary over time, across regions and between patients?}
-The held-out test set spans patients treated from 2023, a period in which first-line treatment and register coverage changed. \placeholder{One-year AUC and calibration-in-the-large of \opera{} and XGBoost in each calendar year of treatment, and whether the gain was stable from the first to the last year.} \placeholder{The gain did / did not depend on characteristics known at the start of treatment: amount of recorded history, age, sex, region and recorded prognostic index} (\cref{fig:who-benefits,fig:supp-regions}). \placeholder{Results with the known-status estimand, with disease evidence restricted to the prediction date, with size-matched clinical cutoffs, and with equal weight per clinical domain.}
+The held-out test set spans patients treated from 2023, a period in which first-line treatment and register coverage changed. \placeholder{One-year AUC and calibration-in-the-large of \opera{} and XGBoost in each calendar year of treatment, and whether the gain was stable from the first to the last year.} \placeholder{The joint model's patient-level Brier gain did / did not depend on characteristics known at the start of treatment: amount of recorded history, age, sex, region and recorded prognostic index} (\cref{fig:who-benefits,fig:supp-regions}). \placeholder{Results with the known-status estimand, excluding the 209 patients whose disease was assigned after day 14, with size-matched clinical cutoffs, and with equal weight per clinical domain.}
 
 \FloatBarrier
 \operasection{Discussion}
-Haematology has built its prognostic tools one disease and one outcome at a
-time. A single model that learned across 24 lymphoid cancers and 69 outcomes
-\placeholder{was more accurate than gradient-boosted trees trained and tuned for
+A single model that learned across 24 lymphoid cancers and 69 outcomes
+\placeholder{discriminated better than gradient-boosted trees trained and tuned for
 every disease, outcome and horizon in X of Y predictions, separated outcomes
 more clearly than the prognostic indices in their own populations and on their
 own endpoints, and gave predictions for diseases and complications that no index
 covers}, and it did so as one model in place of \result{narrow_fits}{N}.
 \placeholder{Principal findings with uncertainty: what other diseases, other
 outcomes, learning how much to borrow and population pretraining each added;
-where the gains were largest; and the most informative null or harmful result.}
-To our knowledge, this is the first study in haematology to learn across the
-diseases and outcomes of the whole specialty, and the first to separate how much
+where the gains were largest; whether what the model borrowed followed clinical
+expectation; and the most informative null or harmful result.}
+To our knowledge, this is the first study to learn across the diseases and
+outcomes of the lymphoid cancers as a whole, and the first to separate how much
 is gained from other diseases, from other outcomes, from learning how much to
 draw on each and from population pretraining, against both tuned task-specific
 models and the indices used in the clinic. The principles come from multi-task
 learning and pretraining; what this study shows is how much they are worth for
-the questions a haematologist faces at the start of treatment. A foundation
-model of US claims recently outperformed disease-specific gradient boosting
-across more than a thousand disease-onset tasks, most for rare diseases
-\citep{ma2026reclaim}, and within haematology a laboratory-trajectory
-transformer has predicted many complications jointly in myeloma and ovarian
-cancer, diverging between the two mainly for disease-specific complications
-\citep{lubberstedt2026labs}. Our results carry this from the onset of disease to
+the questions a haematologist faces at the start of treatment. Recent work has shown the value of shared models for disease onset across
+claims \citep{ma2026reclaim} and for complications in myeloma and ovarian cancer
+\citep{lubberstedt2026labs}; our results carry this from the onset of disease to
 the outcomes of its treatment, across every lymphoid cancer and the full record,
 against the clinical tools of the specialty, and show where the gain comes
 from.
@@ -801,10 +927,11 @@ encoder the patient's underlying vulnerability; the two can complement each
 other, repeat the same information or conflict. \placeholder{Which pattern
 occurred here, and how the gain varied with the data a prediction had of its
 own.} The asymmetry between the axes matters for how such models should be
-built: the joint model already gives every outcome parameters of its own but no
-disease any, so \placeholder{if disease adapters added more than outcome
-adapters, as expected,} the room for improvement lies in letting each disease
-adjust a shared representation rather than in pooling more outcomes. Sharing
+built: as described in Methods, the joint model gives every outcome parameters
+of its own but no disease any, and disease adapters were chosen on the tuning set
+\placeholder{and added more on the test set}, so the room for improvement
+lies in letting each disease adjust a shared representation rather than in
+pooling more outcomes. Sharing
 everything is not guaranteed to help: multi-task studies of health records have
 reported uneven benefits and negative transfer
 \citep{harutyunyan2019multitask,mcdermott2020mtl,ding2019phenotyping}, and
@@ -822,7 +949,10 @@ and biology. \placeholder{If the results hold: but for predicting what happens
 to a patient after treatment starts, the patients of other diseases were
 informative, and a prediction for one disease improved when the model learned
 from all of them, also in the common diseases, where a specialised model had
-the most data of its own.} The boundaries that matter for diagnosis and
+the most data of its own.} \placeholder{If the borrowing analysis agrees: what
+the model drew on included diseases far apart in the classification that share
+complications or treatment, such as chronic lymphocytic leukaemia and myeloma for
+infection (\cref{fig:borrowing-map}C).} The boundaries that matter for diagnosis and
 treatment need not be the boundaries that matter for prediction, and treating
 them as such leaves information unused, most of all in the diseases with the
 fewest patients.
@@ -831,20 +961,28 @@ Routing is one way to let a model learn how much to borrow; meta-learning
 \citep{zhang2019metapred}, automated task grouping \citep{cui2024autodp},
 mixtures of experts \citep{lee2022residualmoe,wang2025moehealth} and priors over
 related tasks are others. The routing
-controls locate the gain: it did not come from knowing the diagnosis or from the
-adapters' added capacity, but from borrowing \placeholder{if the results hold},
-so the principle, not only this mechanism, improved prediction. Where it helped
-is as informative as how much. The gain should be largest for outcomes whose
-meaning differs between diseases, such as progression, second-line treatment
-and transformation, which depend on each disease's course and treatment, and
-smallest for complications whose biology is shared, such as cytopenia after
-chemotherapy. \placeholder{Whether the routing gain concentrated in the
-disease-course outcomes.} Which diseases drew on which describes how the model
-allocates its corrections rather than biology, but where it follows clinical
-knowledge, such as infection risk drawn between chronic lymphocytic leukaemia
-and myeloma, it suggests that the model found shared prognostic signal, and
-where it does not, it points to hypotheses worth testing
-\placeholder{examples from the route weights}.
+controls locate the gain \placeholder{if the results hold}: it did not come from
+knowing the diagnosis or from the adapters' added capacity, but from borrowing
+\placeholder{(with its claim label)}. Where it helped is as informative as how
+much, and two mechanisms predict different places. A disease's own correction
+should matter most for outcomes whose meaning differs between diseases, such as
+progression, second-line treatment and transformation; borrowing from other
+diseases should matter most where complications are shared, such as infection
+and cytopenia after similar treatment. \placeholder{Which domains relied most
+on borrowing} (\cref{fig:borrowing-map}D, \cref{fig:supp-borrowing-detail}D). Switching sources off in
+the fitted model goes further than route weights, which show where the router sends
+weight but not what that weight contributes. That what the model borrowed
+\placeholder{followed} the pairs expected from biology, treatment and
+complications, tested as a set against expectations fixed before the test set
+was opened and against negative controls, \placeholder{suggests that it found
+shared prognostic signal rather than arbitrary correlation}; pairs it relied on
+that clinicians would not have predicted \placeholder{examples} are hypotheses
+worth testing, not findings about the diseases. Borrowing at the readout is also
+only part of the sharing: \placeholder{the fitted router depended on its
+borrowed corrections by X AUC points, against Y for pooling across diseases
+(the disease-pooled against the specialist models)}, so most of what diseases share is carried by the common
+representation, and routing adds a targeted layer on top \placeholder{if the
+results hold}.
 
 The most consequential change may be in coverage. Prognostic tools in
 haematology exist where a disease is common enough to have one and where its
@@ -857,7 +995,10 @@ five training patients and none in the tuning year, so that no model of its own
 could even be fitted, and \result{cells_low_support}{N} disease--outcome
 combinations with fewer than 20 training events. \placeholder{Performance in
 these cells, and in the diseases without an index
-(\cref{tab:panel-effects,fig:supp-pooling-cells}).} For such questions the
+(\cref{tab:panel-effects,fig:supp-pooling-cells}).} \placeholder{If the smallest
+diseases also gained most from borrowing (\cref{fig:borrowing-map}B,
+\cref{fig:supp-borrowing-detail}B), their predictions rest on what other diseases
+taught the model rather than on their own few events.} For such questions the
 choice is not between a shared model and a better specialised one, because the
 specialised one cannot be built.
 
@@ -901,7 +1042,7 @@ pretraining, and whether the finer vocabulary compensated.} Shared models also
 change the cost of prediction. One \opera{} model replaced
 \result{narrow_fits}{N} specialists \placeholder{and N tabular models, at X of
 their combined compute and storage}, and is one pipeline to validate, monitor
-and update rather than thousands; a new outcome becomes a new adapter rather
+and update rather than thousands; a new outcome needs a new output head rather
 than a new project. Because the registers are national, one model could serve
 every hospital if it works equally well in every region, which it
 \placeholder{did / did not} (\cref{fig:supp-regions}).
@@ -954,16 +1095,21 @@ delivered rather than scale alone. Region was an input, and two regions
 contribute richer hospital data, so region partly marks which data a patient
 has; performance is reported within each region. The models predict risk under
 the care patients received, not the effect of changing it \citep{vanGeloven2020},
-and attributions describe the fitted model, not causes. Finally, the study does
+and attributions describe the fitted model, not causes. Likewise, the borrowing
+analysis describes how the fitted model uses each source at its readout:
+removing a source alters a model trained with all of them rather than retraining
+without it, sharing through the encoder is not resolved by disease, and pairs
+involving the smallest diseases are imprecise. Finally, the study does
 not measure whether decisions or outcomes improve when the predictions are used;
 a model deployed in practice would also need its inputs from hospital systems at
 the time of the decision rather than from registers updated with a delay
 \citep{Agius2024clltim}.
 
-\placeholder{Conclusion. Draft if the results hold: haematology does not have to
-build its prognostic tools one disease and one outcome at a time. One model that
-learned across the diseases and outcomes of the specialty, and how much to draw
-on each, was more accurate than models tuned for each task, gave predictions
+\placeholder{Conclusion. Draft if the results hold: prognosis in the lymphoid
+cancers does not have to be built one disease and one outcome at a time. One
+model that learned across their diseases and outcomes, and how much to draw on
+each, borrowed most where clinicians would expect shared signal, discriminated
+better than models tuned for each task, gave predictions
 where no tool exists, and held up over a period of changing treatment and
 registers. A model pretrained on the whole population improved it further,
 which opens the same route to every specialty that shares the national

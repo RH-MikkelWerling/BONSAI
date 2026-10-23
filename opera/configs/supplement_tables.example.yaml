@@ -39,3 +39,10 @@ tables:
     source: plot_tables/compute_summary.csv
     caption: Model size and computational resources.
     columns: [model, origin, total_parameters, gpu_hours, peak_memory_gb, inference_seconds]
+  - id: borrowing_ipa
+    optional: true
+    source: ../source_removal/held_out/borrowing_ipa_table.csv
+    caption: Borrowing in discrimination and in probability accuracy. AUC and IPA differences in points with paired patient-bootstrap 95% intervals, over all outcomes and horizons; switching borrowing off uses mean ablation. Pairs give the gain from the source alone.
+    columns: [section, comparison, auc, ipa]
+    labels: {section: Group, comparison: Comparison, auc: AUC (points), ipa: IPA (points)}
+

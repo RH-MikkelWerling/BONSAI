@@ -2211,6 +2211,50 @@ class OperaContrastiveModel(nn.Module):
         )
         return (hazards, routes) if return_routes else hazards
 
+    def borrowing_hazard_terms(
+        self, pooled: torch.Tensor, fine_index: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Direct hazards split into a base and one term per disease source.
+
+        Returns ``base`` (batch, outcome, 2 * interval) and ``terms`` (batch,
+        outcome, disease, 2 * interval): the risk head is linear, so the
+        log-hazards are ``base + terms.sum(2)``.
+        """
+        readout = self.source_adapter_readout
+        if readout is None:
+            raise ValueError("Source terms require a source-adapter readout")
+        base, terms = readout.disease_terms(pooled, fine_index)
+        n_outcomes = len(self.contrastive_loss.outcome_names)
+        head = self.competing_risk_head
+        outputs = head.weight.shape[0] // n_outcomes
+        weight = head.weight.reshape(n_outcomes, outputs, -1).float()
+        bias = head.bias.reshape(n_outcomes, outputs).float()
+        flat = torch.einsum("boh,okh->bok", base.float(), weight) + bias[None]
+        return flat, torch.einsum("bodh,okh->bodk", terms, weight)
+
+    def competing_risk_log_hazard_masks(
+        self, pooled: torch.Tensor, fine_index: torch.Tensor, masks: torch.Tensor,
+        means: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Direct hazards with disease-source terms kept by ``masks``.
+
+        ``masks`` is (variant, batch, disease); returns (variant, batch,
+        outcome, 2, interval). A dropped term is replaced by zero, or, given
+        ``means`` (target disease, outcome, disease, 2 * interval), by that
+        source's average term for the patient's disease and the outcome (mean
+        ablation: the patient-specific part is removed, the average shift kept).
+        """
+        flat, per_source = self.borrowing_hazard_terms(pooled, fine_index)
+        masks = masks.float()
+        out = flat[None] + torch.einsum("vbd,bodk->vbok", masks, per_source)
+        if means is not None:
+            index = fine_index.long().reshape(-1).clamp(0, means.shape[0] - 1)
+            fill = means.to(per_source)[index]  # (batch, outcome, disease, k)
+            out = out + torch.einsum("vbd,bodk->vbok", 1.0 - masks, fill)
+        n_outcomes = len(self.contrastive_loss.outcome_names)
+        return out.reshape(len(masks), pooled.shape[0], n_outcomes, 2,
+                           self.competing_risk_loss.n_intervals)
+
     def get_embeddings(
         self,
         batch: dict,

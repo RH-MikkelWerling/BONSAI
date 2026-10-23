@@ -5,14 +5,89 @@ and the test set (patients treated from 2023) was evaluated once, after the
 analysis plan had been locked \placeholder{lock date; the plan as a
 supplementary file}. Fixed before testing were: the outcomes, horizons and
 estimand; the primary and secondary metrics; the paired resampling scheme and
-the hierarchical models with their priors; the practical margin (0.01 in AUC
-and IPA) and the labels better, worse, equivalent and inconclusive, with the
-paired bootstrap test; the router
-configuration, chosen by a short sequence of rules on tuning data (Supplementary
-Methods, model details); the selection of \opera{}; the risk-group cut-offs for
-the comparison with clinical indices; the action and threshold range of the
-decision curves; and the sensitivity analyses (known-status estimand, disease
-assigned only from diagnoses before treatment, size-matched cut-offs).
+the hierarchical models with their priors; the practical margin (0.01 AUC and
+0.01 IPA, one point on the scale of 100 used in the figures) and the labels
+better, worse, equivalent and inconclusive, with the paired bootstrap test; the
+rules by which the router configuration was chosen on tuning data
+(Supplementary Methods, model details); the selection of \opera{}; the
+risk-group cut-offs for the comparison with clinical indices; the design of the
+borrowing analysis and its prespecified pairs (below); and the sensitivity
+analyses (known-status estimand, excluding the 209 patients whose disease was
+assigned after day 14, size-matched cut-offs, equal weight per clinical domain,
+and the stratum without a dedicated index without nodal marginal-zone lymphoma
+and with angioimmunoblastic and Burkitt lymphoma added). The action and
+threshold range of the decision curves were fixed before testing: closer
+monitoring and supportive care for patients above the threshold, from 5\% to
+40\%, with the model's risk-group cutoffs as the two prespecified operating
+points.
+
+The router rule was revised once, on 21 October 2026, after rough source-screen
+estimates had been seen and before the test set was opened; all four source
+banks are compared on the test set, and the rank, query and \opera{} results had
+not been seen.
+
+\operasubsection{Weighting of summaries}
+Summaries over cells weigh them in one of three ways, each fixed before testing.
+Headline differences and \cref{tab:panel-effects} weigh every
+disease--outcome--horizon cell equally. Panel summaries and the hierarchical
+models weigh every disease equally and, within a disease, every loss endpoint
+(the grade variants of one finding together; 52 endpoints) equally; a
+sensitivity analysis weighs every clinical domain equally. Router choices and
+the borrowing analysis weigh every disease equally, every outcome equally within
+a disease and every horizon equally within an outcome. Only estimable cells
+enter a summary: at least five cases and five controls, and at least 80\% of
+bootstrap replicates with a finite estimate; other cells are shown but not
+pooled.
+
+\operasubsection{Borrowing map}
+The routed readout adds to the shared patient representation one routed
+correction per source disease (routing weight times that disease's adapter
+output), and the risk head is linear, so each source's contribution to every
+hazard can be switched off exactly while all other weights stay as trained; no weight
+is renormalised. A switched-off source's term is replaced by its mean over tuning
+patients for the same target disease and outcome (mean ablation); diseases
+without tuning patients use the mean over all tuning patients. The router spreads
+its weight over many sources, so setting terms to zero would move the
+representation far from anything seen in training; the mean keeps the average
+shift and removes only what the source contributes for the individual patient.
+Zero ablation is reported as a sensitivity analysis. One evaluation of the locked model scored, on the same
+patients, the full model, the model without borrowing (the patient's own disease
+only), each source alone (own disease plus that source) and each source left
+out (all sources but that one). Differences in AUC used one paired patient
+bootstrap shared by all variants: the AUC lost without borrowing (full minus
+none), the source alone (alone minus none; primary) and the source left out (full
+minus left out). The source alone is what a disease adds with no other source,
+the source left out what it adds with all the others present. The loss without
+borrowing measures what the fitted model uses; it can exceed the gain over a model
+trained without borrowing (the own-disease router), because the encoder was
+trained alongside the borrowed corrections. Per target disease, source and clinical domain, differences were
+averaged over estimable cells (at least five events and five non-events), each
+outcome weighing equally and each horizon equally within an outcome. The map
+shows the source alone with adaptive shrinkage \citep{stephens2017ash}: within
+each clinical domain all pairs share one prior, a mixture of normal
+distributions centred on no borrowing with weights fitted to the data, so that
+the many near-null pairs are pulled towards zero while large, precisely
+estimated ones are kept. Disease groups are not used in the pooling; they
+order the map for reading only. Dots mark pairs whose pooled 95\%
+interval lies above zero. The AUC lost without borrowing (full against no
+borrowing in the fitted router) was estimated per target disease, per outcome
+domain and over all diseases, each disease weighing equally
+(\cref{fig:borrowing-map}B, D), with the same bootstrap, and set beside routing
+(routed against joint model) and borrowing as trained (routed model against the
+router trained with its own disease adapter only), and against disease size
+(\cref{fig:supp-borrowing-detail}A--B). The primary
+borrowing claim concerned \placeholder{13} pairs prespecified from clinical
+reasoning and the literature and \placeholder{three} negative controls
+(\cref{tab:borrowing-pairs}): the mean
+unshrunk source-alone gain of the pairs minus that of the typical pair (the mean
+of the other off-diagonal pairs of their clinical domains), against 10,000 random draws of the same number
+of pairs from the same domains (one-sided permutation test), and the same for
+the negative controls. Individual pairs were labelled with the prespecified
+labels and a margin of \placeholder{0.25} AUC points; the model-comparison
+margin of one point is too wide for the share of a single source. IPA
+differences were computed in the same way as a secondary metric.
+
+\input{tables/borrowing_pairs}
 
 \operasubsection{Sample size and precision}
 The cohort was not sized for this study. It comprises every eligible patient in
@@ -154,7 +229,7 @@ disclosure rules of the secure environment.
 
 \operasubsection{Numerical tables}
 The printed supplementary tables summarise the comparisons that the figures
-show: the panel-level comparisons behind Table~2, paired differences by
+show: the panel-level comparisons behind \cref{tab:panel-effects}, paired differences by
 comparison and clinical domain, calibration by model and domain, the evaluated
 cells, events and non-events by domain and horizon, threshold metrics at the
 six decision points, and, where available, the comparisons with each index on
