@@ -634,6 +634,7 @@ def main(cfg: DictConfig) -> None:
         encoder_lr_multiplier=cfg.training.encoder_lr_multiplier,
         optimizer_epsilon=cfg.training.optimizer_epsilon,
         adapter_optimizer_epsilon=cfg.training.get("adapter_optimizer_epsilon"),
+        adapter_epsilon_scope=str(cfg.training.get("adapter_epsilon_scope", "matrices")),
         checkpoint_selection_metric=str(cfg.training.get("eval_monitor_metric", "val/loss")),
         scheduler_warmup_epochs=cfg.training.scheduler_warmup_epochs,
         dapt_anchor_weight=cfg.model.get("dapt_anchor_weight", 0.2),

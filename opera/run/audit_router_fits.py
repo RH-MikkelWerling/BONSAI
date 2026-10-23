@@ -78,7 +78,11 @@ def optimizer_check(checkpoint):
             out[name] = {"lr": group["lr"], "eps": group["eps"],
                          "weight_decay": group.get("weight_decay"),
                          "median_sqrt_v": float(root.median()),
-                         "share_below_eps": float((root < group["eps"]).float().mean())}
+                         "p10_sqrt_v": float(root.quantile(0.1)) if root.numel() > 1 else float(root[0]),
+                         "share_below_eps": float((root < group["eps"]).float().mean()),
+                         # Candidate epsilons: the share of entries each would damp.
+                         **{f"share_below_{c:.0e}": float((root < c).float().mean())
+                            for c in (1e-8, 1e-10, 1e-12)}}
         break
     return out or {"note": "router tensors not found in the optimizer state"}
 
@@ -154,7 +158,9 @@ def main():
         for name, o in r.get("optimizer", {}).items():
             if isinstance(o, dict):
                 print(f"{'':<16}{name:<22} lr={o['lr']:.2e} eps={o['eps']:.0e} "
-                      f"median sqrt(v)={o['median_sqrt_v']:.1e} below eps={o['share_below_eps']:.0%}")
+                      f"median sqrt(v)={o['median_sqrt_v']:.1e} p10={o['p10_sqrt_v']:.1e} "
+                      f"below: eps {o['share_below_eps']:.0%}, 1e-8 {o['share_below_1e-08']:.0%}, "
+                      f"1e-10 {o['share_below_1e-10']:.0%}, 1e-12 {o['share_below_1e-12']:.0%}")
             else:
                 print(f"{'':<16}{o}")
     if args.output:

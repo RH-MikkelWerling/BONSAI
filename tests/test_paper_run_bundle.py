@@ -268,3 +268,19 @@ def test_probe_curves_report_the_loss_minimum_one_based(tmp_path):
     report = curves(tmp_path)["w512_e10"]
     assert report["best_epoch_by_loss"] == 2 and report["auc_at_best"] == 0.69
     assert report["epochs_validated"] == 3
+
+
+@pytest.mark.parametrize("epsilon", [1e-8, None])
+def test_every_router_fit_puts_all_router_parameters_on_the_adapter_epsilon(epsilon):
+    ref = reference()
+    ref["training"]["adapter_optimizer_epsilon"] = epsilon
+    entries = build_bundle(base_config(), ref, {"L": "/future/best.ckpt"}, seeds=(42,))
+    routers = [e for e in entries if e["config"]["competing_risk"].get("readout_mode")
+               == "source_anchored_adapters"]
+    assert routers
+    for entry in routers:
+        training = entry["config"]["training"]
+        assert training["adapter_epsilon_scope"] == "router"
+        assert training["adapter_optimizer_epsilon"] == 1e-8
+    assert all("adapter_epsilon_scope" not in e["config"]["training"]
+               for e in entries if e not in routers)

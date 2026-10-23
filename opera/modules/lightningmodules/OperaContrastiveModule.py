@@ -67,6 +67,7 @@ class OperaContrastiveModule(L.LightningModule):
         selection_min_controls: int = 20,
         checkpoint_metadata: dict = None,
         adapter_optimizer_epsilon: float = None,
+        adapter_epsilon_scope: str = "matrices",
         checkpoint_selection_metric: str = "val/cr_cif_auc_endpoint_group_macro",
     ):
         super().__init__()
@@ -94,6 +95,13 @@ class OperaContrastiveModule(L.LightningModule):
         ):
             raise ValueError("adapter_optimizer_epsilon must be finite and positive")
         self.adapter_optimizer_epsilon = adapter_optimizer_epsilon
+        # "matrices": only the source down/up matrices use the adapter epsilon
+        # (the original setting). "router": every router parameter does (keys,
+        # queries, query interaction, shared logit), whose gradients are also far
+        # below the default epsilon and are otherwise damped.
+        if adapter_epsilon_scope not in {"matrices", "router"}:
+            raise ValueError("adapter_epsilon_scope must be 'matrices' or 'router'")
+        self.adapter_epsilon_scope = adapter_epsilon_scope
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
         self.gradient_cache = bool(gradient_cache)
         self.probe_every_n_epochs = max(1, int(probe_every_n_epochs))
@@ -679,16 +687,18 @@ class OperaContrastiveModule(L.LightningModule):
                 continue
             if name.startswith("encoder."):
                 encoder_params.append(param)
-            elif self.adapter_optimizer_epsilon is not None and name in {
-                "source_adapter_readout.down", "source_adapter_readout.up",
-            }:
+            elif self.adapter_optimizer_epsilon is not None and (
+                name.startswith("source_adapter_readout.")
+                if self.adapter_epsilon_scope == "router"
+                else name in {"source_adapter_readout.down", "source_adapter_readout.up"}
+            ):
                 adapter_params.append(param)
             else:
                 head_params.append(param)
 
         param_groups = [{"params": head_params, "lr": self.learning_rate}]
         if self.adapter_optimizer_epsilon is not None:
-            if len(adapter_params) != 2:
+            if len(adapter_params) < 2:
                 raise ValueError("Adapter epsilon requires both source down/up matrices")
             param_groups.append({"params": adapter_params, "lr": self.learning_rate,
                                  "eps": float(self.adapter_optimizer_epsilon)})

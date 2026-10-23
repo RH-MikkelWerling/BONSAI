@@ -57,15 +57,19 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
     )
     result["adapter_initialization"] = "dapt_fresh"
     result["source_opera_ckpt"] = None
+    # Every router parameter (adapters, keys, queries, query interaction, shared
+    # logit) uses the small adapter epsilon: their gradients sit far below the
+    # default 1e-6, which otherwise damps their updates (router_fit_audit,
+    # 2026-10-23; the interaction's first layer had 99.6% of entries below it).
     epsilon = reference.get("training", {}).get("adapter_optimizer_epsilon")
-    if epsilon is not None:
-        result["training"]["adapter_optimizer_epsilon"] = epsilon
-    else:
-        result["training"].pop("adapter_optimizer_epsilon", None)
+    result["training"]["adapter_optimizer_epsilon"] = (
+        ROUTER_EPSILON if epsilon is None else min(float(epsilon), ROUTER_EPSILON))
+    result["training"]["adapter_epsilon_scope"] = "router"
     validate_direct_cr_config(result)
     return result
 
 
+ROUTER_EPSILON = 1e-8  # Adam epsilon for every router parameter (PyTorch's default)
 SENSITIVITY_SHARED_LOGIT = 3.0  # control_RSI: shared slot starts with most weight
 
 ROUTER_CONTROLS = {
