@@ -37,6 +37,52 @@ def readout_state(checkpoint):
     return {k[len(prefix):]: v for k, v in state.items() if k.startswith(prefix)}
 
 
+def optimizer_check(checkpoint):
+    """Learning rate and epsilon each router tensor trained with, against its gradient scale.
+
+    Adam's step is m / (sqrt(v) + eps): where sqrt(v) (the running gradient
+    size) is far below eps, eps damps the step. The optimizer state stores no
+    names, so the router tensors are found by registration order and shape:
+    source_keys (d + o, h), shared_logit (), patient_query (h, h), fine_query
+    (d, h), target_query (o, h), then the interaction layers if present.
+    """
+    import torch
+
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    if not saved.get("optimizer_states"):
+        return {"note": "checkpoint has no optimizer state"}
+    optimizer = saved["optimizer_states"][0]
+    state = saved.get("state_dict", saved)
+    d, h = next(v.shape for k, v in state.items() if k.endswith("fine_query.weight"))
+    o = next(v.shape[0] for k, v in state.items() if k.endswith("target_query.weight"))
+    width = next((v.shape[0] for k, v in state.items()
+                  if k.endswith("query_interaction.0.weight")), None)
+    names = ["source_keys", "shared_logit", "patient_query", "disease_query", "outcome_query"]
+    if width:
+        names += ["interaction.0.weight", "interaction.0.bias",
+                  "interaction.2.weight", "interaction.2.bias"]
+    out = {}
+    for group in optimizer["param_groups"]:
+        ids = group["params"]
+        shapes = [tuple(optimizer["state"][i]["exp_avg_sq"].shape) if i in optimizer["state"]
+                  else None for i in ids]
+        start = next((j for j in range(len(shapes) - 4)
+                      if shapes[j:j + 5] == [(d + o, h), (), (h, h), (d, h), (o, h)]), None)
+        if start is None:
+            continue
+        for k, name in enumerate(names):
+            entry = optimizer["state"][ids[start + k]]
+            step = float(entry.get("step", 1))
+            v_hat = entry["exp_avg_sq"] / (1 - 0.999 ** max(step, 1))
+            root = v_hat.sqrt().flatten()
+            out[name] = {"lr": group["lr"], "eps": group["eps"],
+                         "weight_decay": group.get("weight_decay"),
+                         "median_sqrt_v": float(root.median()),
+                         "share_below_eps": float((root < group["eps"]).float().mean())}
+        break
+    return out or {"note": "router tensors not found in the optimizer state"}
+
+
 def audit(row, config, runs_dir):
     run = Path(runs_dir) / row["run_directory"]
     risk = config["competing_risk"]
@@ -61,12 +107,18 @@ def audit(row, config, runs_dir):
         "query_mode": "interacting" if width else "additive",
         "query_width": width,
         "shared_logit": float(state["shared_logit"]),
+        # Routing sharpness: scores are query . key / sqrt(hidden); keys start at std 0.02
+        # and the disease/outcome queries at zero, so small norms mean near-uniform routing.
+        "source_keys_norm": float(state["source_keys"].norm()),
+        "disease_query_norm": float(state["fine_query.weight"].norm()),
+        "outcome_query_norm": float(state["target_query.weight"].norm()),
     }
     if width:
         last = state["query_interaction.2.weight"]
         out["checkpoint"]["interaction_last_layer_norm"] = float(last.norm())
         out["checkpoint"]["interaction_last_bias_norm"] = float(state["query_interaction.2.bias"].norm())
         out["checkpoint"]["patient_query_norm"] = float(state["patient_query.weight"].norm())
+    out["optimizer"] = optimizer_check(run / selection.get("best_checkpoint", "best.ckpt"))
     expected = (risk.get("adapter_bottleneck"), risk.get("adapter_query_mode"),
                 risk.get("adapter_query_hidden_dim") if risk.get("adapter_query_mode") == "interacting" else None)
     found = (out["checkpoint"]["rank"], out["checkpoint"]["query_mode"], width)
@@ -94,8 +146,17 @@ def main():
               f"{c.get('query_mode')}{c.get('query_width') or ''} "
               f"match={r.get('checkpoint_matches_name')} cfg={r.get('config_matches')} "
               f"epoch={r.get('selected', {}).get('best_epoch')} "
-              f"|interaction|={c.get('interaction_last_layer_norm', '-')}"
+              f"|interaction|={c.get('interaction_last_layer_norm', '-')} "
+              f"|keys|={c.get('source_keys_norm', float('nan')):.2f} "
+              f"|disease q|={c.get('disease_query_norm', float('nan')):.2f} "
+              f"|outcome q|={c.get('outcome_query_norm', float('nan')):.2f}"
               + (f" same run as {r['same_run_as']}" if r["same_run_as"] else ""))
+        for name, o in r.get("optimizer", {}).items():
+            if isinstance(o, dict):
+                print(f"{'':<16}{name:<22} lr={o['lr']:.2e} eps={o['eps']:.0e} "
+                      f"median sqrt(v)={o['median_sqrt_v']:.1e} below eps={o['share_below_eps']:.0%}")
+            else:
+                print(f"{'':<16}{o}")
     if args.output:
         args.output.write_text(json.dumps(results, indent=2, default=str) + "\n")
         print(f"Written: {args.output}")
