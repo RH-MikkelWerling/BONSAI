@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import inspect
 import json
+import os
+import shutil
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -137,6 +142,62 @@ def _canonical_tabular_risk_set(prediction_path, job, split):
     )
 
 
+def _stat_key(path):
+    """Identity of an input file without reading it: path, size, modification time."""
+    if not path:
+        return None
+    path = Path(path).resolve()
+    stat = path.stat()
+    return [str(path), stat.st_size, stat.st_mtime_ns]
+
+
+def tabular_code_version():
+    """Hash of the code that turns a prediction file into a canonical table."""
+    from opera.run import train_tabular_baselines
+    source = "".join(inspect.getsource(f) for f in (
+        canonical_tabular, _canonical_tabular_risk_set, train_tabular_baselines.outcome_labels))
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
+def tabular_cache_key(prediction_path, job, split, estimand, code_version):
+    payload = {
+        "prediction": _stat_key(prediction_path), "job": job, "split": split, "estimand": estimand,
+        "inputs": {key: _stat_key(job.get(key))
+                   for key in ("population", "outcome_path", "competing_path", "eligibility")},
+        "code": code_version,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _tabular_task(task):
+    """Build (or reuse from the cache) one canonical tabular table and write it."""
+    prediction_path, job, split, estimand, destination, cache_dir, code_version = task
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    cached = None
+    if cache_dir:
+        key = tabular_cache_key(prediction_path, job, split, estimand, code_version)
+        cached = Path(cache_dir) / key[:2] / f"{key}.parquet"
+        if cached.is_file():
+            shutil.copyfile(cached, destination)
+            return "cached"
+    table = canonical_tabular(prediction_path, job, split, estimand)
+    table.to_parquet(destination, index=False)
+    if cached is not None:
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cached.with_suffix(f".{os.getpid()}.tmp")
+        shutil.copyfile(destination, temporary)
+        os.replace(temporary, cached)  # atomic: concurrent inventories never see half a file
+    return "built"
+
+
+def _outputs_unchanged(directory, saved, verify):
+    """Presence of a finished fit's outputs; their full hashes with ``verify``."""
+    if verify:
+        return all(file_hash(directory / name) == digest for name, digest in saved["outputs"].items())
+    return all((directory / name).is_file() for name in saved["outputs"])
+
+
 def build_inventory(args):
     output = Path(args.output_dir)
     if output.exists():
@@ -149,7 +210,9 @@ def build_inventory(args):
     artifacts, coverage, tabular_tables = [], [], []
     route_export = {}
     wanted_horizons = {int(x) for x in args.analysis_horizons.split(",")}
-    splits = ("tuning", "held_out")
+    splits = tuple(getattr(args, "splits", None) or ("tuning", "held_out"))
+    if not set(splits) <= {"tuning", "held_out"}:
+        raise ValueError("--splits takes tuning and/or held_out")
     for row, _, config in rows:
         aliases = canonical_models(row, config, bundle)
         if not aliases:
@@ -234,10 +297,8 @@ def build_inventory(args):
         complete = marker.is_file()
         if complete:
             saved = json.loads(marker.read_text())
-            if saved["inputs"]["job"] != job or any(
-                file_hash(directory / name) != digest
-                for name, digest in saved["outputs"].items()
-            ):
+            if saved["inputs"]["job"] != job or not _outputs_unchanged(
+                    directory, saved, getattr(args, "verify_outputs", False)):
                 raise ValueError("Tabular outputs differ from completed-fit provenance")
         for model, alias in models:
             for split in splits:
@@ -257,9 +318,6 @@ def build_inventory(args):
                     }
                 )
                 if ready:
-                    table = canonical_tabular(
-                        directory / filename, job, split, estimand
-                    )
                     destination = (
                         output
                         / "tabular"
@@ -268,7 +326,7 @@ def build_inventory(args):
                             + f"__{model}__{split}.parquet"
                         )
                     )
-                    tabular_tables.append((destination, table))
+                    tabular_tables.append((str(directory / filename), job, split, destination))
                     artifacts.append(
                         {
                             "path": str(destination.resolve()),
@@ -287,10 +345,8 @@ def build_inventory(args):
         complete = marker.is_file()
         if complete:
             saved = json.loads(marker.read_text())
-            if saved["inputs"]["job"] != job or any(
-                file_hash(directory / name) != digest
-                for name, digest in saved["outputs"].items()
-            ):
+            if saved["inputs"]["job"] != job or not _outputs_unchanged(
+                    directory, saved, getattr(args, "verify_outputs", False)):
                 raise ValueError("Pooled tabular outputs differ from fit provenance")
         for split in splits:
             filename = f"xgboost_{'tuning_predictions' if split == 'tuning' else 'predictions'}.csv"
@@ -303,10 +359,9 @@ def build_inventory(args):
                     "status": "prediction_available" if ready else "tabular_missing"})
                 if not ready:
                     continue
-                table = canonical_tabular(directory / filename, cell_job, split, estimand)
                 destination = output / "tabular" / (
                     job["relative_dir"].replace("/", "__") + f"__{fine}__xgboost_pooled__{split}.parquet")
-                tabular_tables.append((destination, table))
+                tabular_tables.append((str(directory / filename), cell_job, split, destination))
                 artifacts.append({"path": str(destination.resolve()), "format": "long",
                                   "model": "XP", "seed": job["seed"],
                                   "data_contract": args.data_contract})
@@ -350,11 +405,31 @@ def build_inventory(args):
             )
         },
     }
-    # All joins/validation precede writes.
+    # All joins/validation precede writes: tables are built into a staging
+    # directory and moved into the inventory only when every one succeeded.
+    staging = output.parent / f".{output.name}.staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+    cache_dir = getattr(args, "tabular_cache", None)
+    code_version = tabular_code_version()
+    tasks = [(path, job, split, estimand, str(staging / destination.relative_to(output)),
+              str(cache_dir) if cache_dir else None, code_version)
+             for path, job, split, destination in tabular_tables]
+    workers = max(1, int(getattr(args, "workers", 1) or 1))
+    try:
+        if workers == 1:
+            outcomes = [_tabular_task(task) for task in tasks]
+        else:
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                outcomes = list(pool.map(_tabular_task, tasks, chunksize=16))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    report["tabular_tables"] = {"built": outcomes.count("built"), "from_cache": outcomes.count("cached")}
     output.mkdir(parents=True)
-    for path, table in tabular_tables:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        table.to_parquet(path, index=False)
+    if (staging / "tabular").is_dir():
+        os.replace(staging / "tabular", output / "tabular")
+    shutil.rmtree(staging, ignore_errors=True)
     coverage_table.to_csv(output / "coverage.csv", index=False)
     (output / "analysis.yaml").write_text(yaml.safe_dump(template, sort_keys=False))
     (output / "inventory_manifest.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -379,6 +454,14 @@ def main():
     parser.add_argument("--registry-tabular-dir", type=Path,
                         help="Registry-augmented XGBoost runs (model XR), if run.")
     parser.add_argument("--tabular-horizons", default="30,60,90,180,365,730")
+    parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1),
+                        help="Processes building the canonical tabular tables")
+    parser.add_argument("--tabular-cache", type=Path,
+                        help="Cache of canonical tabular tables, keyed by every input and the code")
+    parser.add_argument("--splits", nargs="+", choices=("tuning", "held_out"),
+                        help="Splits to collect (default both; a tuning rehearsal needs only tuning)")
+    parser.add_argument("--verify-outputs", action="store_true",
+                        help="Re-hash every finished tabular fit's outputs (slow on network storage)")
     parser.add_argument(
         "--estimand",
         choices=("binary_known_status_unweighted", "cif_ipcw"),

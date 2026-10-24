@@ -403,6 +403,12 @@ def build_commands(args, env):
                 root / "tabular_runs",
                 "--registry-tabular-dir",
                 root / "tabular_runs_registry",
+                "--tabular-cache",
+                root / "tabular_inventory_cache",
+                "--workers",
+                value(env, "OPERA_PAPER_INVENTORY_WORKERS", "8"),
+                *(("--splits", *env["OPERA_PAPER_INVENTORY_SPLITS"].split(","))
+                  if env.get("OPERA_PAPER_INVENTORY_SPLITS") else ()),
                 "--template",
                 path_value(
                     env,
