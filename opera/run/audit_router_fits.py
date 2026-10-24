@@ -98,13 +98,20 @@ def audit(row, config, runs_dir):
         out["ran"] = {f: used.get(f) for f in FIELDS}
         out["config_matches"] = out["ran"] == out["bundle"]
     marker = run / "training_complete.json"
-    if not marker.is_file():
-        out["status"] = "no training_complete.json"
+    if marker.is_file():
+        selection = json.loads(marker.read_text()).get("selection", {})
+        out["status"] = "complete"
+        out["selected"] = {k: selection.get(k) for k in ("best_epoch", "best_score", "monitor")
+                           if k in selection}
+        checkpoint = run / selection.get("best_checkpoint", "best.ckpt")
+    elif (run / "last.ckpt").is_file():
+        # Cut off before finishing: audit where it got to.
+        out["status"] = "in progress (last.ckpt)"
+        checkpoint = run / "last.ckpt"
+    else:
+        out["status"] = "not started"
         return out
-    selection = json.loads(marker.read_text()).get("selection", {})
-    out["selected"] = {k: selection.get(k) for k in ("best_epoch", "best_score", "monitor")
-                       if k in selection}
-    state = readout_state(run / selection.get("best_checkpoint", "best.ckpt"))
+    state = readout_state(checkpoint)
     width = state["query_interaction.0.weight"].shape[0] if "query_interaction.0.weight" in state else None
     out["checkpoint"] = {
         "rank": int(state["down"].shape[1]),
@@ -122,7 +129,7 @@ def audit(row, config, runs_dir):
         out["checkpoint"]["interaction_last_layer_norm"] = float(last.norm())
         out["checkpoint"]["interaction_last_bias_norm"] = float(state["query_interaction.2.bias"].norm())
         out["checkpoint"]["patient_query_norm"] = float(state["patient_query.weight"].norm())
-    out["optimizer"] = optimizer_check(run / selection.get("best_checkpoint", "best.ckpt"))
+    out["optimizer"] = optimizer_check(checkpoint)
     expected = (risk.get("adapter_bottleneck"), risk.get("adapter_query_mode"),
                 risk.get("adapter_query_hidden_dim") if risk.get("adapter_query_mode") == "interacting" else None)
     found = (out["checkpoint"]["rank"], out["checkpoint"]["query_mode"], width)
@@ -146,7 +153,7 @@ def main():
     for r in results:
         r["same_run_as"] = [n for n in shared[r["run_directory"]] if n != r["name"]]
         c = r.get("checkpoint", {})
-        print(f"{r['phase']:<14} {r['name']:<45} rank={c.get('rank')} "
+        print(f"{r['phase']:<14} {r['name']:<45} [{r.get('status', '?')}] rank={c.get('rank')} "
               f"{c.get('query_mode')}{c.get('query_width') or ''} "
               f"match={r.get('checkpoint_matches_name')} cfg={r.get('config_matches')} "
               f"epoch={r.get('selected', {}).get('best_epoch')} "
