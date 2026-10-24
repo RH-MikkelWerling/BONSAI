@@ -202,6 +202,12 @@ def build_inventory(args):
     output = Path(args.output_dir)
     if output.exists():
         raise FileExistsError("Use a fresh analysis inventory directory")
+    # Fail before the long collection, not after it.
+    missing = [f"{name}: {path}" for name, path in (
+        ("template", args.template), ("patient metadata", args.patient_metadata),
+        ("cell metadata", args.cell_metadata)) if not Path(path).is_file()]
+    if missing:
+        raise FileNotFoundError("Inventory inputs missing (build them first):\n  " + "\n  ".join(missing))
     bundle, rows = bundle_runs(args.bundle_dir)
     template = yaml.safe_load(Path(args.template).read_text())
     estimand = getattr(args, "estimand", None) or template.get(
