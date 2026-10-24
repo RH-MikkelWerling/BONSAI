@@ -427,11 +427,16 @@ def progress(args):
     report, specialists = [], Counter()
     for row, bundle_dir, gate in todo(args.bundle_dir, load_decisions(args.decisions), getattr(args, "speculative", False)):
         run_dir = args.runs_dir / row["run_directory"]
+        if row["phase"] == "supervision" and row["regime"] == "S":
+            # Specialists are only counted, and only with --specialists: checking
+            # each of ~1,650 run directories on a network file system is slow.
+            if getattr(args, "specialists", False):
+                state = gate or run_state(run_dir, stale_minutes=args.stale_minutes,
+                                          max_attempts=args.max_attempts)
+                specialists[state.split(":")[0]] += 1
+            continue
         state = gate or run_state(run_dir, stale_minutes=args.stale_minutes,
                                   max_attempts=args.max_attempts)
-        if row["phase"] == "supervision" and row["regime"] == "S":
-            specialists[state.split(":")[0]] += 1
-            continue
         if state in {"complete", "not_estimable"} or state.startswith("blocked"):
             continue
         training = raw_config(bundle_dir, row)["training"]
@@ -611,6 +616,8 @@ def main():
         help="Run rank/query screen branches before their deciding choice is recorded; "
              "recorded choices still prune the excluded branches",
     )
+    parser.add_argument("--specialists", action="store_true",
+                        help="progress: also count the specialists' states (slow on network storage)")
     parser.add_argument("--worker", default=f"{socket.gethostname()}-{os.getpid()}")
     parser.add_argument(
         "--wait",

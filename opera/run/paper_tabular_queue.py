@@ -156,6 +156,10 @@ def training_command(job, args):
     return command
 
 
+# Training-log messages meaning the cell cannot be fitted by design, not a fault.
+NOT_ESTIMABLE_REASONS = ("Training labels contain fewer than two classes",)
+
+
 def run_job(job, args):
     directory = Path(args.output_dir) / job["relative_dir"]
     if not args.execute:
@@ -182,24 +186,43 @@ def run_job(job, args):
             return job | {"status": "running_elsewhere"}
         intent = directory / "intent.json"
         marker = directory / "training_complete.json"
+        not_estimable = directory / "not_estimable.json"
         if intent.exists() and json.loads(intent.read_text()) != signature:
             raise ValueError("Tabular inputs changed; use a fresh output root")
         if marker.exists():
             saved = json.loads(marker.read_text())
-            if saved["inputs"] != signature or any(
-                file_hash(directory / name) != digest
-                for name, digest in saved["outputs"].items()
-            ):
+            if saved["inputs"] != signature:
+                raise ValueError("Tabular inputs changed; use a fresh output root")
+            # Re-hashing every output of every finished cell on each pass is slow on
+            # network storage; by default check presence, hash with --verify-outputs.
+            if getattr(args, "verify_outputs", False):
+                changed = any(file_hash(directory / name) != digest for name, digest in saved["outputs"].items())
+            else:
+                changed = not all((directory / name).is_file() for name in saved["outputs"])
+            if changed:
                 raise ValueError("Tabular outputs/provenance changed")
-            return job | {"status": "reused_verified_fit"}
+            return job | {"status": "reused_verified_fit" if getattr(args, "verify_outputs", False)
+                          else "reused_fit"}
+        if not_estimable.exists() and json.loads(not_estimable.read_text()).get("inputs") == signature:
+            # Recorded on an earlier pass: the training labels cannot support a fit.
+            return job | {"status": "not_estimable"}
         intent.write_text(json.dumps(signature, indent=2, default=str) + "\n")
-        with (directory / "training.log").open("a") as log:
-            subprocess.run(
-                training_command(job, args),
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-            )
+        log_path = directory / "training.log"
+        start = log_path.stat().st_size if log_path.exists() else 0
+        with log_path.open("a") as log:
+            result = subprocess.run(training_command(job, args), stdout=log, stderr=subprocess.STDOUT)
+        if result.returncode:
+            with log_path.open("rb") as handle:
+                handle.seek(start)
+                tail = handle.read().decode(errors="replace")
+            reason = next((r for r in NOT_ESTIMABLE_REASONS if r in tail), None)
+            if reason:
+                # A fit the data cannot support (e.g. no events at this horizon):
+                # record it with its inputs, so later passes skip it.
+                not_estimable.write_text(json.dumps({"reason": reason, "inputs": signature},
+                                                    indent=2, default=str) + "\n")
+                return job | {"status": "not_estimable", "reason": reason}
+            raise subprocess.CalledProcessError(result.returncode, training_command(job, args))
         expected = [
             f"{model}_{suffix}"
             for model in job_models(job, getattr(args, "per_cell_models", ("xgboost", "logistic")))
@@ -232,6 +255,8 @@ def main():
     parser.add_argument("--feature-profile", default="sequence_matched",
                         choices=("sequence_matched", "registry_augmented"))
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--verify-outputs", action="store_true",
+                        help="Re-hash every finished cell's outputs (slow on network storage)")
     parser.add_argument("--horizons", default="30,60,90,180,365,730")
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
