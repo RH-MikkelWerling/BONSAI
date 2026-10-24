@@ -64,6 +64,7 @@ essential_contrasts:
     C3: gain(RD_L,RDH_L)   # borrowing from other diseases
     C4: gain(ROH_L,N_L)    # own-outcome adapter capacity
     C5: gain(RO_L,ROH_L)   # borrowing from other outcomes
+    C6: gain(R_L,RBH_L)    # borrowing in the locked router (both banks; added 2026-10-24)
     RS1: gain(RSI_L,R_L)   # sensitivity: shared slot started at logit 3.0 vs locked router
   data_efficiency:   # national + local vs local joint model on a share of training patients
     N10: gain(J_EA_F10,J_L_F10)

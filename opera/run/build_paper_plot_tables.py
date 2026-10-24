@@ -43,7 +43,7 @@ CONTRAST_CODES = {
     **{f"LS{f}": f"L:F{f}-S" for f in (10, 25, 50)},
     **{f"LSE{f}": f"EA:F{f}-S" for f in (10, 25, 50)},
     **{f"FD{f}": f"EA:F{f}-L" for f in (10, 25, 50)},
-    **{f"C{i}": f"C{i}" for i in range(1, 6)}, "RS1": "RS1",
+    **{f"C{i}": f"C{i}" for i in range(1, 7)}, "RS1": "RS1",
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
     **{f"R{i}": f"R{i}" for i in range(8)},

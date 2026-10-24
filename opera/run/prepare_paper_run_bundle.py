@@ -79,6 +79,10 @@ ROUTER_CONTROLS = {
     "JDE": ("none", True, True),           # joint + disease identity only
     "RDH": ("disease_only", False, False),  # own-disease adapter, no borrowing
     "ROH": ("outcome_only", False, False),  # own-outcome adapter, no borrowing
+    # The selected source bank without borrowing (own disease and own outcome
+    # adapter only): R - RBH is the borrowing of the locked router itself, whichever
+    # source bank was selected (added 2026-10-24 when the screen selected "both").
+    "RBH": ("both", False, False),
 }
 
 

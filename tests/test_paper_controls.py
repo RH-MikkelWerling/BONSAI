@@ -67,7 +67,7 @@ def test_router_decomposition_controls_come_with_the_router_lock():
                            selected_router=lock)
     controls = {e["name"].rsplit("control_", 1)[-1]: e["config"]["competing_risk"]
                 for e in entries if e["phase"] == "router_controls"}
-    assert set(controls) == {"JDE", "RDH", "ROH", "RSI"}
+    assert set(controls) == {"JDE", "RDH", "ROH", "RBH", "RSI"}
     # The sensitivity router differs from the locked one only in the shared slot's start.
     final = next(e["config"]["competing_risk"] for e in entries
                  if e["name"].endswith("final_source_both"))
