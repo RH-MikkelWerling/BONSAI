@@ -23,17 +23,29 @@ from opera.visualization.paper_taxonomy import DISPLAY_GROUPS, outcome_endpoint_
 HORIZONS = (30, 60, 90, 180, 365, 730)
 
 
+def _audit_horizon(task):
+    from opera.run.audit_cohort_outcome_support import audit_support
+    registry, training_config, horizon = task
+    return audit_support(registry, outcomes=list(training_config["outcomes"]), horizon_days=horizon,
+                         include_held_out=False, training_config=training_config)
+
+
 def build_cell_metadata(registry, training_config, *, horizons=HORIZONS,
                         groups_path=DISPLAY_GROUPS, audit=None):
     """One row per fine cohort × outcome × horizon in the training panel."""
-    if audit is None:
-        from opera.run.audit_cohort_outcome_support import audit_support as audit
     endpoint_groups = outcome_endpoint_groups(groups_path)
-    tables = [
-        audit(registry, outcomes=list(training_config["outcomes"]), horizon_days=horizon,
-              include_held_out=False, training_config=training_config)
-        for horizon in horizons
-    ]
+    if audit is None:
+        # The support audit reads every outcome's labels once per horizon; the
+        # horizons are independent, so run them side by side.
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=len(horizons)) as pool:
+            tables = list(pool.map(_audit_horizon, [(registry, training_config, h) for h in horizons]))
+    else:
+        tables = [
+            audit(registry, outcomes=list(training_config["outcomes"]), horizon_days=horizon,
+                  include_held_out=False, training_config=training_config)
+            for horizon in horizons
+        ]
     cells = pd.concat(tables, ignore_index=True)
     missing = sorted(set(cells.outcome) - set(endpoint_groups))
     if missing:

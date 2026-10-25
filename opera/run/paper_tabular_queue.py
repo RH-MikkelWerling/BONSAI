@@ -157,7 +157,12 @@ def training_command(job, args):
 
 
 # Training-log messages meaning the cell cannot be fitted by design, not a fault.
-NOT_ESTIMABLE_REASONS = ("Training labels contain fewer than two classes",)
+NOT_ESTIMABLE_REASONS = (
+    "Training labels contain fewer than two classes",
+    # No events (or no patients) in the tuning year: the model cannot be selected,
+    # as for the neural fits recorded not estimable.
+    "must be nonempty and AUROC requires both classes",
+)
 
 
 def run_job(job, args):

@@ -134,7 +134,9 @@ any outcome is labelled
 \citep{li2020behrt,rasmy2021med,odgaard2024core,steinberg2023motor,gadd2026survivehr},
 and Delphi-2M, life2vec and pan-cancer models learn across diseases and whole
 populations
-\citep{shmatko2025delphi,savcisens2024life2vec,placido2023pancreatic,Jee2024MSKCHORD,bjerregaard2025pancancer};
+\citep{shmatko2025delphi,savcisens2024life2vec,placido2023pancreatic,Jee2024MSKCHORD,bjerregaard2025pancancer},
+as do generative models of medical events trained on a whole health system's
+records \citep{waxler2025comet};
 promptable models can be asked about any outcome \citep{chandak2026everyquery}.
 Trained on the claims of more than 200 million people, one such model recently
 outperformed disease-specific gradient boosting across more than a thousand
@@ -143,8 +145,8 @@ disease-onset tasks, with the largest gains for rare diseases
 One model for many questions would be easier to build, validate and maintain,
 and could serve questions too small for a model of their own. Yet such models
 are rarely evaluated on outcomes that matter for clinical decisions
-\citep{wornow2023shaky}, against the tools in clinical use, or on how few labels
-they need \citep{wornow2023ehrshot}. It remains largely unknown how much is
+\citep{wornow2023shaky}, against the tools in clinical use
+\citep{worth2026state}, or on how few labels they need \citep{wornow2023ehrshot}. It remains largely unknown how much is
 gained by learning across diseases, how much by learning across outcomes, and
 whether a model can learn how much to draw on each.
 
@@ -919,7 +921,12 @@ claims \citep{ma2026reclaim} and for complications in myeloma and ovarian cancer
 \citep{lubberstedt2026labs}; our results carry this from the onset of disease to
 the outcomes of its treatment, across every lymphoid cancer and the full record,
 against the clinical tools of the specialty, and show where the gain comes
-from.
+from. A recent review of clinical AI found no comparison of the large models of
+medical histories with the clinical scores in use, and judged that the most
+credible progress so far is on narrowly defined tasks with clear endpoints
+\citep{worth2026state}. This study aims at both: its 69 outcomes were
+prespecified and fixed at the start of treatment, and each was compared with
+models tuned for it and, where one exists, with the index used in the clinic.
 
 The controlled comparisons show where shared signal comes from. Another disease
 can supply examples of the same complication; another outcome can teach the
@@ -1100,7 +1107,8 @@ analysis describes how the fitted model uses each source at its readout:
 removing a source alters a model trained with all of them rather than retraining
 without it, sharing through the encoder is not resolved by disease, and pairs
 involving the smallest diseases are imprecise. Finally, the study does
-not measure whether decisions or outcomes improve when the predictions are used;
+not measure whether decisions or outcomes improve when the predictions are used,
+evidence that remains rare for clinical AI in general \citep{worth2026state};
 a model deployed in practice would also need its inputs from hospital systems at
 the time of the decision rather than from registers updated with a delay
 \citep{Agius2024clltim}.
