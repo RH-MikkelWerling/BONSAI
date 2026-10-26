@@ -82,7 +82,7 @@ def attach_ipcw_weights(frame):
         group["ipcw_weight"] = weight
         group["known"] = case | control
         if "prediction_absent_zero_weight" in group:
-            placeholder = group.prediction_absent_zero_weight.fillna(False).astype(bool)
+            placeholder = group.prediction_absent_zero_weight.eq(True)  # NaN counts as False
             if (placeholder & group.known).any():
                 raise ValueError("A status-known patient lacks a real prediction")
         parts.append(group)
@@ -452,21 +452,33 @@ def _interval(values):
     }
 
 
-def paired_analysis(
-    frame,
-    contrasts,
-    *,
-    replicates=1000,
-    seed=2026,
-    draws=None,
-    patient_gain_contrasts=None,
-):
-    """Cell estimates, paired contrasts, joint draws and patient loss contributions."""
-    draws = patient_bootstrap(frame, replicates, seed) if draws is None else draws
+CELL_BATCH = 200  # cells per parallel task
+
+
+def analysis_workers():
+    """Processes for the paired analysis: OPERA_ANALYSIS_WORKERS (default 1)."""
+    import os
+
+    return max(1, int(os.environ.get("OPERA_ANALYSIS_WORKERS", "1")))
+
+
+def _with_progress(results, total):
+    import sys
+    import time
+
+    started = time.time()
+    for done, result in enumerate(results, 1):
+        if done % 5 == 0 or done == total:
+            print(f"paired analysis: {done}/{total} cell batches, "
+                  f"{(time.time() - started) / 60:.1f} min", file=sys.stderr, flush=True)
+        yield result
+
+
+def _paired_cells(batch, parsed, patient_gain_contrasts):
+    """Estimates, contrasts and draws for a batch of cells (run in parallel)."""
     estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
     model_draw_rows = []
-    parsed = {name: contrast_coefficients(expr) for name, expr in contrasts.items()}
-    for key, cell in frame.groupby(CELL, sort=True):
+    for key, cell, draws in batch:
         identity = dict(zip(CELL, key))
         models = {name: group for name, group in cell.groupby("model")}
         # All available methods must agree, even if a requested contrast is absent.
@@ -588,6 +600,55 @@ def paired_analysis(
                     }
                 )
             )
+    return estimates, differences, draw_rows, contributions, coverage, model_draw_rows
+
+
+def paired_analysis(
+    frame,
+    contrasts,
+    *,
+    replicates=1000,
+    seed=2026,
+    draws=None,
+    patient_gain_contrasts=None,
+):
+    """Cell estimates, paired contrasts, joint draws and patient loss contributions."""
+    draws = patient_bootstrap(frame, replicates, seed) if draws is None else draws
+    estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
+    model_draw_rows = []
+    parsed = {name: contrast_coefficients(expr) for name, expr in contrasts.items()}
+    batches, batch = [], []
+    for key, cell in frame.groupby(CELL, sort=True):
+        batch.append((key, cell, {key[:3]: draws[key[:3]]}))
+        if len(batch) == CELL_BATCH:
+            batches.append(batch)
+            batch = []
+    if batch:
+        batches.append(batch)
+    workers = analysis_workers()
+    if workers > 1 and len(batches) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        from collections import deque
+
+        def ordered_results(pool):
+            # At most two batches per worker in flight, results in submission order.
+            pending = deque()
+            for batch in batches:
+                pending.append(pool.submit(_paired_cells, batch, parsed, patient_gain_contrasts))
+                if len(pending) >= 2 * workers:
+                    yield pending.popleft().result()
+            while pending:
+                yield pending.popleft().result()
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            parts = list(_with_progress(ordered_results(pool), len(batches)))
+    else:
+        parts = list(_with_progress(
+            (_paired_cells(b, parsed, patient_gain_contrasts) for b in batches), len(batches)))
+    for part in parts:  # in cell order, exactly as a serial run
+        for target, rows in zip((estimates, differences, draw_rows, contributions, coverage,
+                                 model_draw_rows), part):
+            target.extend(rows)
     if not differences:
         raise ValueError("No requested contrast has all required model predictions")
     return {

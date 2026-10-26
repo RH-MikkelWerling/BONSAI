@@ -46,3 +46,26 @@ def test_models_with_cut_and_whole_follow_up_align_in_a_cell():
     import pytest
     with pytest.raises(ValueError):
         align_models({"neural": whole, "tabular": broken})
+
+
+def test_parallel_paired_analysis_equals_the_serial_one(monkeypatch):
+    from opera.evaluation import secondary_analysis as sa
+
+    rng = np.random.default_rng(3)
+    rows = []
+    for cohort in ("CLL", "DLBCL", "MM"):
+        times = rng.uniform(1, 900, 120).round()
+        events = rng.choice([0, 1, 2], 120)
+        for model, noise in (("A", 0.1), ("B", 0.2)):
+            frame = _rows(times, events, (90, 365), cut=False)
+            frame["cohort"], frame["model"], frame["data_contract"] = cohort, model, "c"
+            frame["subject_id"] = [f"{cohort}{i}" for i in frame.subject_id]
+            frame["probability"] = np.clip(0.3 + rng.normal(0, noise, len(frame)), 0.01, 0.99)
+            rows.append(frame)
+    frame, _ = sa.normalize_predictions(pd.concat(rows, ignore_index=True), "cif_ipcw")
+    monkeypatch.setattr(sa, "CELL_BATCH", 2)
+    serial = sa.paired_analysis(frame, {"d": "gain(A,B)"}, replicates=50)
+    monkeypatch.setenv("OPERA_ANALYSIS_WORKERS", "3")
+    parallel = sa.paired_analysis(frame, {"d": "gain(A,B)"}, replicates=50)
+    for name in ("estimates", "contrasts", "contrast_coverage"):
+        pd.testing.assert_frame_equal(serial[name], parallel[name])
