@@ -29,6 +29,7 @@ PHASES = (
     "pretraining_control",
     "router_controls",
     "data_efficiency",
+    "init_rule",  # router-decision only: R vs RSI on the stage-2 bundle
 )
 
 

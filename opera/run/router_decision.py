@@ -18,6 +18,16 @@ Rules (docs/ANALYSIS_LOCK_DRAFT_20261015.md, "Router decisions", 2026-10-21):
 * Options, simplest first: sources disease_only, outcome_only, both; rank 8,
   16, 32; query additive 128, interacting 128, interacting 512.
 
+Initialisation rule (``--phase init_rule``, lock addendum of 2026-10-25; stage-2
+bundle): R_L, the locked router, stays primary unless RSI_L (the same router
+with the shared logit started at 3.0) beats it by more than the noise floor in
+panel AUC and passes the IPA guard; then one more seed of each is required
+before RSI_L can be adopted. The noise floor here is N_L (the locked router with
+every source switched off) against J_L. Both routers' routing is summarised
+from their exported route weights: entropy, effective number of sources,
+shared weight, and the weight on the patient's own disease and own outcome
+versus borrowed ones. The router lock itself is never changed by this step.
+
 Decisions are written only with --write; the report is always saved.
 """
 
@@ -25,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,7 +48,7 @@ from opera.evaluation.secondary_analysis import (
     paired_analysis,
 )
 
-PHASES = ("source_screen", "rank_screen", "query_screen")
+PHASES = ("source_screen", "rank_screen", "query_screen", "init_rule")
 DEFAULT_RANK, DEFAULT_QUERY = 8, ("interacting", 128)  # used by the source and rank steps
 HORIZONS = (30, 60, 90, 180, 365, 730)
 
@@ -149,6 +160,13 @@ def alias(key):
     return f"R_{source}_r{rank}_{mode}{width}"
 
 
+def read_membership(path):
+    metadata = (pd.read_parquet(path) if path.suffix in {".parquet", ".pq"}
+                else pd.read_csv(path))
+    metadata["subject_id"] = metadata.subject_id.astype(str)
+    return metadata.drop_duplicates("subject_id")
+
+
 def load_tuning(row, prediction_dir, metadata, model, horizons):
     from opera.run.analyse_locked_predictions import read_artifact
 
@@ -164,6 +182,76 @@ def load_tuning(row, prediction_dir, metadata, model, horizons):
          "cohort_from_metadata": True, "include_horizons_days": list(horizons)},
         metadata, "cif_ipcw")
     return data
+
+
+def routing_diagnostics(path):
+    """Routing summary from one fit's exported route weights (one row per
+    patient and outcome): overall and per disease, averaged over rows."""
+    routes = pd.read_parquet(path)
+    rows = []
+    for record in routes.itertuples(index=False):
+        disease = json.loads(record.disease_weights)
+        outcome = json.loads(record.outcome_weights)
+        weights = np.array([record.shared_weight, *disease.values(), *outcome.values()])
+        positive = weights[weights > 0]
+        entropy = float(-(positive * np.log(positive)).sum())
+        own_disease = sum(w for k, w in disease.items() if _same(k, record.cohort))
+        own_outcome = sum(w for k, w in outcome.items() if _same(k, record.outcome))
+        rows.append({
+            "cohort": record.cohort,
+            "entropy": entropy,
+            "effective_sources": math.exp(entropy),
+            "shared": record.shared_weight,
+            "own_disease": own_disease,
+            "own_outcome": own_outcome,
+            "borrowed_disease": sum(disease.values()) - own_disease,
+            "borrowed_outcome": sum(outcome.values()) - own_outcome,
+            "top_weight": float(weights.max()),
+        })
+    table = pd.DataFrame(rows)
+    columns = [c for c in table if c != "cohort"]
+    return {
+        "rows": len(table),
+        "overall": table[columns].mean().round(4).to_dict(),
+        "by_disease": table.groupby("cohort")[columns].mean().round(4)
+        .reset_index().to_dict("records"),
+    }
+
+
+def _same(source_name, target):
+    """Route-export source names may carry a prefix (e.g. "disease:CLL")."""
+    return str(source_name) == str(target) or str(source_name).split(":")[-1] == str(target)
+
+
+def init_rule(args, metadata):
+    """R_L vs RSI_L on the tuning panel, with N_L vs J_L as the noise floor."""
+    from opera.run.paper_prediction_queue import bundle_runs, canonical_models
+
+    bundle, rows = bundle_runs(args.bundle_dir)
+    by_alias = {}
+    for row, _, config in rows:
+        for name in canonical_models(row, config, bundle):
+            by_alias.setdefault(name, []).append(row)
+    wanted = {}
+    for name in ("J_L", "N_L", "R_L", "RSI_L"):
+        fits = by_alias.get(name, [])
+        if len(fits) != 1:
+            raise ValueError(f"The initialisation rule needs exactly one {name} fit in "
+                             f"the stage-2 bundle; found {len(fits)}")
+        wanted[name] = fits[0]
+    frames = [load_tuning(row, args.prediction_dir, metadata, name, HORIZONS)
+              for name, row in wanted.items()]
+    predictions, _ = normalize_predictions(pd.concat(frames, ignore_index=True), "cif_ipcw")
+    result = decide(predictions, joint="J_L", null="N_L", options=["R_L", "RSI_L"],
+                    gate_tolerance=args.gate_tolerance, replicates=args.replicates)
+    outcome = {"R_L": "keep_R", "RSI_L": "second_seed_required"}[result["chosen"]]
+    diagnostics = {}
+    for name in ("R_L", "RSI_L"):
+        path = (Path(args.prediction_dir) / wanted[name]["run_directory"] / "tuning"
+                / "source_route_weights.parquet")
+        diagnostics[name] = (routing_diagnostics(path) if path.is_file() else
+                             {"missing": f"{path} (evaluate with --export-routes)"})
+    return wanted, result, outcome, diagnostics
 
 
 def main():
@@ -187,6 +275,35 @@ def main():
     args = parser.parse_args()
 
     decisions = json.loads(args.decisions.read_text()) if args.decisions.is_file() else {}
+    if args.phase == "init_rule":
+        metadata = read_membership(args.membership)
+        wanted, result, outcome, diagnostics = init_rule(args, metadata)
+        record = {"phase": "init_rule", "decided_at": datetime.now(timezone.utc).isoformat(),
+                  "fits": {name: row["name"] for name, row in wanted.items()},
+                  "rules": {"choice": "R_L primary; RSI_L only if better than R_L by more "
+                            "than the noise floor (N_L vs J_L) in panel AUC and within "
+                            "the IPA guard, and then only after a second seed of each",
+                            "replicates": args.replicates, "horizons": list(HORIZONS),
+                            "estimand": "cif_ipcw"},
+                  "outcome": outcome, **result, "routing": diagnostics}
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        report = args.output_dir / "router_decision_init_rule.json"
+        report.write_text(json.dumps(record, indent=2, default=float) + "\n")
+        rsi = next(o for o in result["options"] if o["model"] == "RSI_L")
+        print(json.dumps({
+            "outcome": outcome, "noise_floor_auc": result["noise"]["floor_auc"],
+            "noise_floor_ipa": result["noise"]["floor_ipa"],
+            "rsi_minus_r_auc": [rsi["auc"]["gain"], rsi["auc"]["lower"], rsi["auc"]["upper"]],
+            "rsi_minus_r_ipa": rsi["ipa"]["gain"], "rsi_eligible": rsi["eligible"],
+            "vs_joint_auc": {o["model"]: o["vs_joint"]["auc"]["gain"] for o in result["options"]},
+            "routing_overall": {name: d.get("overall", d) for name, d in diagnostics.items()},
+            "report": str(report)}, indent=2, default=float))
+        if args.write:
+            decisions["initialisation"] = {"outcome": outcome, "decided_at": record["decided_at"],
+                                           "report": str(report)}
+            args.decisions.write_text(json.dumps(decisions) + "\n")
+            print(f"Recorded initialisation outcome {outcome!r} in {args.decisions}")
+        return
     options = roles(args.phase, decisions)
     _, rows = bundle_runs(args.bundle_dir)
     joint = next(row for row, _, config in rows if row["phase"] == "supervision"
@@ -197,10 +314,7 @@ def main():
     wanted = {"J": joint, alias(null): routers[null],
               **{alias(key): routers[key] for key in options}}
 
-    metadata = (pd.read_parquet(args.membership) if args.membership.suffix in {".parquet", ".pq"}
-                else pd.read_csv(args.membership))
-    metadata["subject_id"] = metadata.subject_id.astype(str)
-    metadata = metadata.drop_duplicates("subject_id")
+    metadata = read_membership(args.membership)
     frames = [load_tuning(row, args.prediction_dir, metadata, name, HORIZONS)
               for name, row in wanted.items()]
     predictions, _ = normalize_predictions(pd.concat(frames, ignore_index=True), "cif_ipcw")

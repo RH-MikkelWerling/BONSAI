@@ -76,3 +76,33 @@ def test_intervals_survive_cells_without_cases_in_some_resamples():
     result = decide(rows, joint="J", null="N", options=["D", "A"], replicates=200)
     a = result["options"][1]
     assert np.isfinite(a["auc"]["lower"]) and np.isfinite(a["vs_joint"]["auc"]["upper"])
+
+
+def test_init_rule_keeps_r_unless_rsi_is_clearly_better():
+    # R_L primary, RSI_L challenger: a gain within the noise floor keeps R.
+    rows = predictions({"J": 0.2, "N": 0.25, "D": 0.2, "A": 0.199})
+    rows["model"] = rows.model.map({"J": "J_L", "N": "N_L", "D": "R_L", "A": "RSI_L"})
+    result = decide(rows, joint="J_L", null="N_L", options=["R_L", "RSI_L"], replicates=200)
+    assert result["chosen"] == "R_L"
+
+
+def test_routing_diagnostics_split_own_and_borrowed_weight(tmp_path):
+    import json
+    import math
+
+    from opera.run.router_decision import routing_diagnostics
+
+    # One patient, CLL, predicting infection: 0.1 shared, 0.6 on CLL, 0.1 on MM,
+    # 0.2 on its own outcome.
+    pd.DataFrame([{
+        "subject_id": 1, "cohort": "CLL", "split": "tuning", "outcome": "infection",
+        "fine_index": 0, "shared_weight": 0.1,
+        "disease_weights": json.dumps({"CLL": 0.6, "MM": 0.1}),
+        "outcome_weights": json.dumps({"infection": 0.2, "sepsis": 0.0}),
+    }]).to_parquet(tmp_path / "routes.parquet")
+    summary = routing_diagnostics(tmp_path / "routes.parquet")["overall"]
+    assert summary["own_disease"] == 0.6 and summary["borrowed_disease"] == 0.1
+    assert summary["own_outcome"] == 0.2 and summary["borrowed_outcome"] == 0.0
+    entropy = -sum(w * math.log(w) for w in (0.1, 0.6, 0.1, 0.2))
+    assert summary["entropy"] == pytest.approx(round(entropy, 4))
+    assert summary["effective_sources"] == pytest.approx(round(math.exp(entropy), 4))
