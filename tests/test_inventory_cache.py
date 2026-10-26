@@ -44,3 +44,17 @@ def test_the_cache_key_covers_job_split_estimand_and_code(tmp_path):
     assert base != inventory.tabular_cache_key(prediction, job, "held_out", "cif_ipcw", "v1")
     assert base != inventory.tabular_cache_key(prediction, job, "tuning", "binary_known_status_unweighted", "v1")
     assert base != inventory.tabular_cache_key(prediction, job, "tuning", "cif_ipcw", "v2")
+
+
+def test_a_split_without_patients_gives_no_table(tmp_path, monkeypatch):
+    # NMZL has no tuning patients: the table is empty, so nothing is written
+    # (also when served from the cache) and the analysis never sees it.
+    monkeypatch.setattr(inventory, "canonical_tabular",
+                        lambda path, job, split, estimand: pd.DataFrame({"probability": []}))
+    prediction = tmp_path / "xgboost_tuning_predictions.csv"
+    prediction.write_text("subject_id,probability\n")
+    cache = tmp_path / "cache"
+    for name in ("a", "b"):
+        destination = tmp_path / name / "table.parquet"
+        assert inventory._tabular_task(_task(tmp_path, prediction, destination, cache)) == "empty"
+        assert not destination.exists()

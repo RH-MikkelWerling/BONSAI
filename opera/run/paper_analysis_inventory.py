@@ -12,6 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 import yaml
 
 from opera.functional.cohort_groups import ALL_EVALUATED_FINE, fine_to_grouped
@@ -170,7 +171,10 @@ def tabular_cache_key(prediction_path, job, split, estimand, code_version):
 
 
 def _tabular_task(task):
-    """Build (or reuse from the cache) one canonical tabular table and write it."""
+    """Build (or reuse from the cache) one canonical tabular table and write it.
+
+    Returns "built" or "cached", or "empty" (no file kept) when the disease has
+    no patients in this split, e.g. NMZL on tuning."""
     prediction_path, job, split, estimand, destination, cache_dir, code_version = task
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +183,8 @@ def _tabular_task(task):
         key = tabular_cache_key(prediction_path, job, split, estimand, code_version)
         cached = Path(cache_dir) / key[:2] / f"{key}.parquet"
         if cached.is_file():
+            if pq.read_metadata(cached).num_rows == 0:
+                return "empty"
             shutil.copyfile(cached, destination)
             return "cached"
     table = canonical_tabular(prediction_path, job, split, estimand)
@@ -188,6 +194,9 @@ def _tabular_task(task):
         temporary = cached.with_suffix(f".{os.getpid()}.tmp")
         shutil.copyfile(destination, temporary)
         os.replace(temporary, cached)  # atomic: concurrent inventories never see half a file
+    if table.empty:
+        destination.unlink()
+        return "empty"
     return "built"
 
 
@@ -332,7 +341,7 @@ def build_inventory(args):
                             + f"__{model}__{split}.parquet"
                         )
                     )
-                    tabular_tables.append((str(directory / filename), job, split, destination))
+                    tabular_tables.append((str(directory / filename), job, split, destination, alias))
                     artifacts.append(
                         {
                             "path": str(destination.resolve()),
@@ -367,7 +376,7 @@ def build_inventory(args):
                     continue
                 destination = output / "tabular" / (
                     job["relative_dir"].replace("/", "__") + f"__{fine}__xgboost_pooled__{split}.parquet")
-                tabular_tables.append((str(directory / filename), cell_job, split, destination))
+                tabular_tables.append((str(directory / filename), cell_job, split, destination, "XP"))
                 artifacts.append({"path": str(destination.resolve()), "format": "long",
                                   "model": "XP", "seed": job["seed"],
                                   "data_contract": args.data_contract})
@@ -420,7 +429,7 @@ def build_inventory(args):
     code_version = tabular_code_version()
     tasks = [(path, job, split, estimand, str(staging / destination.relative_to(output)),
               str(cache_dir) if cache_dir else None, code_version)
-             for path, job, split, destination in tabular_tables]
+             for path, job, split, destination, _ in tabular_tables]
     workers = max(1, int(getattr(args, "workers", 1) or 1))
     try:
         if workers == 1:
@@ -431,7 +440,22 @@ def build_inventory(args):
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    report["tabular_tables"] = {"built": outcomes.count("built"), "from_cache": outcomes.count("cached")}
+    report["tabular_tables"] = {"built": outcomes.count("built"), "from_cache": outcomes.count("cached"),
+                                "empty_split": outcomes.count("empty")}
+    # A disease with no patients in a split (NMZL on tuning) has nothing to
+    # analyse there: keep it out of the analysis and say so in the coverage.
+    empty = [entry for entry, outcome in zip(tabular_tables, outcomes) if outcome == "empty"]
+    if empty:
+        dropped = {str(destination.resolve()) for *_, destination, _ in empty}
+        template["artifacts"] = [a for a in template["artifacts"] if a["path"] not in dropped]
+        for _, job, split, _, alias in empty:
+            row = ((coverage_table.model == alias) & (coverage_table.seed == job["seed"])
+                   & (coverage_table.split == split) & (coverage_table.cohort == job["cohort"])
+                   & (coverage_table.outcome == job["outcome"])
+                   & (coverage_table.horizon_days == job["horizon_days"]))
+            coverage_table.loc[row, "status"] = "no_patients_in_split"
+        report["n_artifacts"] = len(template["artifacts"])
+        report["coverage_counts"] = coverage_table.status.value_counts().to_dict()
     output.mkdir(parents=True)
     if (staging / "tabular").is_dir():
         os.replace(staging / "tabular", output / "tabular")
