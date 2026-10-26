@@ -1,10 +1,18 @@
-"""One-page review sheet of the prespecified borrowing pairs, for the study
-haematologists; generated from opera/configs/borrowing_hypotheses.yaml so the
-sheet and the analysis cannot drift apart."""
+"""Review sheet of the candidate borrowing pairs, for the study haematologists;
+generated from opera/configs/borrowing_hypotheses.yaml so the sheet and the
+analysis cannot drift apart.
+
+The sheet is deliberately neutral: hypotheses and negative controls appear in
+one list, in a fixed random order, without our rationale or expected strength,
+and the reviewer rates each pair. The key that maps the sheet's numbers back to
+the pairs (and to what we proposed them as) is written next to it and is not
+sent."""
 
 from __future__ import annotations
 
 import argparse
+import csv
+import random
 from pathlib import Path
 
 import yaml
@@ -75,18 +83,40 @@ OUTCOMES = [
 ]
 
 
+RATINGS = ("strong", "moderate", "weak", "none", "don't know")
+
+
+def candidates(plan: dict) -> list[dict]:
+    """Every pair the reviewers rate, numbered P1, P2, ... in a fixed random order."""
+    pairs = ([{**e, "proposed_as": "hypothesis"} for e in plan.get("hypotheses", [])]
+             + [{**e, "proposed_as": "negative control"}
+                for e in plan.get("negative_controls", [])])
+    random.Random(2026).shuffle(pairs)
+    return [{**pair, "id": f"P{i}"} for i, pair in enumerate(pairs, 1)]
+
+
+def write_key(pairs: list[dict], path: Path) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["id", "source", "target", "domain", "proposed_as"])
+        for pair in pairs:
+            writer.writerow([pair["id"], pair["source"], pair["target"], pair["domain"],
+                             pair["proposed_as"]])
+
+
 def outcome_words(domain: str) -> str:
     return "all outcomes" if domain == "All outcomes" else domain[0].lower() + domain[1:]
 
 
 def render(plan: dict) -> str:
-    def rows(entries, kind):
-        return "\n".join(
-            f"{kind}{i} & Learn from \\textbf{{{tex(disease_long_name(e['source']))}}}"
-            f"\\newline to predict for \\textbf{{{tex(disease_long_name(e['target']))}}} & "
-            f"{tex(outcome_words(e['domain']))} & "
-            f"\\viewfield{{{kind or 'H'}{i}}} & \\commentfield{{{kind or 'H'}{i}}} \\\\ \\midrule"
-            for i, e in enumerate(entries, 1))
+    rows = "\n".join(
+        f"{e['id']} & Learn from \\textbf{{{tex(disease_long_name(e['source']))}}}"
+        f"\\newline to predict for \\textbf{{{tex(disease_long_name(e['target']))}}} & "
+        f"{tex(outcome_words(e['domain']))} & "
+        f"\\viewfield{{{e['id']}}} & \\commentfield{{{e['id']}}} \\\\ \\midrule"
+        for e in candidates(plan))
+    choices = ",".join(f"{r}={r}" for r in RATINGS).replace("don't know=don't know",
+                                                             "don't know=dont_know")
 
     diseases = "\n".join(
         f"\\item[] \\textbf{{{tex(group)}}}: {tex('; '.join(members))}"
@@ -101,7 +131,7 @@ def render(plan: dict) -> str:
 \usepackage[hidelinks]{hyperref}
 % Fillable form: one exclusive choice and one comment box per pair.
 \newcommand{\viewfield}[1]{\ChoiceMenu[popdown,name=view_#1,width=2.1cm,height=1.2em,
-  bordercolor={0.6 0.6 0.6},charsize=8pt,default= ]{}{ = ,agree=agree,disagree=disagree,unsure=unsure}}
+  bordercolor={0.6 0.6 0.6},charsize=8pt,default= ]{}{ = ,""" + choices + r"""}}
 \newcommand{\commentfield}[1]{\TextField[name=comment_#1,multiline=true,width=5.2cm,
   height=1.35cm,bordercolor={0.7 0.7 0.7},charsize=8pt]{}}
 \renewcommand{\familydefault}{\sfdefault}
@@ -123,39 +153,31 @@ cytopenia, organ toxicity and hospital admission. Because the model learns from 
 once, what it learns in one disease can be used for another.
 
 \textbf{What we will test.} After the model is trained, we can switch off what it learned from one
-disease and see how much worse its predictions become for another. We want to check whether the
-model relies on other diseases \emph{where clinical knowledge says it should}. To make this a fair
-test, we must write down the expected pairs \textbf{before} we look at the results on the test
-patients. Once the test data are opened, the list can no longer be changed. Your clinical
-judgement now is therefore what makes the test meaningful.
+disease and see how much worse its predictions become for another. We want to compare this with
+clinical knowledge, and that comparison is only fair if the clinical expectations are written down
+\textbf{before} we look at the results on the test patients. Your ratings are those expectations.
 
 \textbf{What we ask of you.}
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=0pt]
-  \item For each pair below, tick \emph{agree}, \emph{disagree} or \emph{unsure}: would you
-  expect what is learned in the first disease to help predict the stated outcomes in the second?
-  Add a comment where useful. We deliberately give no reasons, so as not to steer your view.
+  \item For each pair below: how much would you expect what is learned in the first disease to
+  help predict the stated outcomes in the second? Choose \emph{strong}, \emph{moderate},
+  \emph{weak}, \emph{none} or \emph{don't know}, and add a comment where useful. The pairs are in
+  random order, and some may well deserve \emph{none}.
   \item Suggest pairs we have missed. Any disease can be paired with any other, for any group of
-  outcomes; the diseases and outcomes are listed at the end. Pairs that would not be obvious from
-  the classification alone, such as diseases that share a treatment or a typical complication, are
-  especially useful.
-  \item Check the \emph{negative controls} (the last three rows): pairs we expect \emph{not} to
-  inform each other. They show whether the method finds a signal where none should exist.
+  outcomes; the diseases and outcomes are listed at the end.
 \end{enumerate}
 
 {\small\setlength{\tabcolsep}{4pt}
 \begin{longtable}{L{0.55cm}L{4.6cm}L{2.8cm}L{2.3cm}L{5.4cm}}
 \toprule
-& Pair & For predicting & Your view & Comment\\ \midrule\endfirsthead
+& Pair & For predicting & Expected help & Comment\\ \midrule\endfirsthead
 \toprule
-& Pair & For predicting & Your view & Comment\\ \midrule\endhead
-\multicolumn{5}{l}{\bfseries Pairs expected to inform each other}\\ \midrule
-""" + rows(plan.get("hypotheses", []), "") + r"""
-\multicolumn{5}{l}{\bfseries Negative controls: pairs expected \emph{not} to inform each other}\\ \midrule
-""" + rows(plan.get("negative_controls", []), "C") + r"""
+& Pair & For predicting & Expected help & Comment\\ \midrule\endhead
+""" + rows + r"""
 \end{longtable}}
 
 \textbf{Pairs we have missed} (learn from which disease, to predict which outcomes in which
-disease, and why):\par
+disease, and how much you would expect it to help):\par
 \TextField[name=missed_pairs,multiline=true,width=\linewidth,height=3.2cm,
   bordercolor={0.7 0.7 0.7},charsize=9pt]{}\par\medskip
 \textbf{Other comments:}\par
@@ -189,7 +211,7 @@ def paper_table(plan: dict) -> str:
             out.append(
                 f"{kind}{i} & {tex(disease_long_name(e['source']))} & "
                 f"{tex(disease_long_name(e['target']))} & {tex(outcome_words(e['domain']))} & "
-                f"{tex(e.get('strength', '--'))} & "
+                f"{tex(e.get('clinician_rating', '--'))} & "
                 f"{tex(' '.join(e.get('rationale', '').split()))} ({tex(evidence)})\\\\")
         return "\n".join(out)
 
@@ -203,11 +225,10 @@ def paper_table(plan: dict) -> str:
 \caption{\textbf{Prespecified borrowing pairs and negative controls.} Fixed before the
 test set was opened and reviewed by the study haematologists. Source: the disease
 switched on alone; target: the disease predicted; outcomes: the clinical domain
-tested. Strength: strong, shared biology and treatment; moderate, shared treatment
-or complication with known differences; exploratory, plausible but dependent on
-treatment era.""" + tex(note) + r"""}\label{tab:borrowing-pairs}\\
-\toprule & Source & Target & Outcomes & Strength & Rationale (evidence)\\\midrule\endfirsthead
-\toprule & Source & Target & Outcomes & Strength & Rationale (evidence)\\\midrule\endhead
+tested. Rating: the study haematologists' expected strength, given blind to the
+rationale and to whether the pair was proposed as a hypothesis or a control.""" + tex(note) + r"""}\label{tab:borrowing-pairs}\\
+\toprule & Source & Target & Outcomes & Rating & Rationale (evidence)\\\midrule\endfirsthead
+\toprule & Source & Target & Outcomes & Rating & Rationale (evidence)\\\midrule\endhead
 \bottomrule\endfoot
 \multicolumn{6}{@{}l}{\textit{Expected to share signal}}\\
 """ + rows(plan.get("hypotheses", []), "H") + r"""
@@ -231,6 +252,7 @@ def main():
     plan = yaml.safe_load(args.plan.read_text())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(render(plan))
+    write_key(candidates(plan), args.output.with_name("borrowing_pairs_key.csv"))
     args.paper_table.write_text(paper_table(plan))
     print(f"Written: {args.output} and {args.paper_table}")
 

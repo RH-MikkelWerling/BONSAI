@@ -149,8 +149,11 @@ Fixed before any held-out evaluation. When agreed, these values are written into
   claim that borrowing follows lineage. `borrowing_lineage.csv` (within vs
   across groups per domain, paired intervals) is descriptive and not reported.
 - Named claims: only the pairs in `opera/configs/borrowing_hypotheses.yaml`
-  (clinically motivated and literature-referenced, graded strong / moderate /
-  exploratory, with three negative controls), on the unshrunk source-alone
+  (clinically motivated and literature-referenced; eligible only with at
+  least 200 training patients in the source and 50 test patients in the
+  target; rated strong / moderate / weak / none by the study haematologists,
+  blind to rationale and to which pairs were proposed as controls; pairs rated
+  strong or moderate are the hypotheses, pairs rated none the negative controls), on the unshrunk source-alone
   estimate, with the prespecified claim labels and a 0.25 AUC point margin
   (`margin_points` in the hypotheses file; the 1 point model-comparison margin
   would call a real contribution of a few tenths "equivalent"); the source left

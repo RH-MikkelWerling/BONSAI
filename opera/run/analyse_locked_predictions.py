@@ -232,7 +232,10 @@ def run(config, output_dir):
             raise ValueError("Patient metadata has duplicate subject IDs")
     inputs, audit, hashes = [], [], {}
     for specification in config["artifacts"]:
-        data, summary = read_artifact(specification, metadata, estimand)
+        try:
+            data, summary = read_artifact(specification, metadata, estimand)
+        except ValueError as error:
+            raise ValueError(f"{specification['path']}: {error}") from error
         inputs.append(data)
         audit.append({"path": specification["path"], **summary})
         hashes[specification["path"]] = file_hash(specification["path"])

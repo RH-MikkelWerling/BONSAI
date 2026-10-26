@@ -1,0 +1,13 @@
+id,source,target,domain,proposed_as
+P1,CLL,SLL,All outcomes,hypothesis
+P2,PTCL,TCL,Disease course and later malignancy,hypothesis
+P3,MM,CLL,Infection and antimicrobial use,hypothesis
+P4,CLL,MM,Infection and antimicrobial use,hypothesis
+P5,HCL,DLBCL,Disease course and later malignancy,negative control
+P6,BL,LBL,"Neutrophil, white-cell and platelet findings",hypothesis
+P7,PTCL,AITL,Disease course and later malignancy,hypothesis
+P8,ALCL,CLL,All outcomes,negative control
+P9,MM,HL,All outcomes,negative control
+P10,CLL,LPL,Cardiovascular and thrombotic events,hypothesis
+P11,BL,LBL,Metabolic and cell-turnover markers,hypothesis
+P12,EMZL,SMZL,Disease course and later malignancy,hypothesis

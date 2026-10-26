@@ -110,8 +110,14 @@ def normalize_predictions(
     missing = required - set(frame)
     if missing:
         raise ValueError(f"Missing canonical prediction fields: {sorted(missing)}")
-    if frame.empty or frame[list(required - {"label"})].isna().any().any():
-        raise ValueError("Empty predictions or missing prediction identity/probability")
+    if frame.empty:
+        raise ValueError("Empty predictions")
+    gaps = frame[sorted(required - {"label"})].isna().sum()
+    if gaps.any():
+        raise ValueError(
+            "Missing prediction identity/probability "
+            f"(rows with gaps per column, of {len(frame)}): {gaps[gaps > 0].to_dict()}"
+        )
     for key in ("model", "subject_id", "cohort", "outcome", "data_contract"):
         frame[key] = frame[key].astype(str)
         if frame[key].str.strip().eq("").any():

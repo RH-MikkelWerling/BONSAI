@@ -3,13 +3,30 @@
 # before the test set is opened.
 #
 # Each entry: target disease, the source disease whose adapter is switched off,
-# a clinical domain (one of the 12, or "All outcomes"), the expected effect
-# (a loss of AUC when the source is removed), its expected strength, the
-# clinical rationale and the evidence behind it. Strength: strong (shared
-# biology and treatment), moderate (shared treatment or complication, with
-# known differences), exploratory (plausible, era- or treatment-dependent).
-# Negative controls are pairs with no shared biology, treatment or complication
-# profile; the expected effect is about zero.
+# a clinical domain (one of the 12, or "All outcomes"), and our rationale and
+# evidence (for the supplement; never shown to the reviewing haematologists).
+#
+# Review: the haematologists see every candidate below, hypotheses and controls
+# mixed in one list in a fixed random order, without rationale or grouping, and
+# rate each as strong / moderate / weak / none / don't know
+# (paper/review/borrowing_pairs_review.pdf; the key mapping their numbers to
+# pairs is paper/review/borrowing_pairs_key.csv). Their ratings set the strength
+# (clinician_rating) and decide the final split: pairs they rate strong or
+# moderate are the hypotheses, pairs they rate none are the negative controls,
+# the rest are dropped.
+#
+# Eligibility, applied before review and blind to any result: a pair is only a
+# candidate if a single-pair estimate can be informative.
+#   - source: at least 200 training patients. With fewer, the source's
+#     correction learns little, so "no effect" would be guaranteed rather than
+#     informative (this matters most for the negative controls).
+#   - target: at least 50 test patients, and estimable test cells in the domain
+#     (estimability rule of the analysis; confirm from the cell metadata). Below
+#     ~50 patients a cell has a handful of events and a per-pair interval spans
+#     several AUC points against a 0.25-point margin, so the label would be
+#     "inconclusive" by construction.
+# Small diseases still appear in the descriptive borrowing map; they are only
+# kept out of the named claims. Excluded candidates are listed at the end.
 #
 # Primary claim: the hypotheses as a set gain more from their source alone than
 # the other pairs of their domains (permutation test); the negative controls
@@ -24,62 +41,23 @@ hypotheses:
   - target: SLL
     source: CLL
     domain: "All outcomes"
-    strength: strong
     rationale: >-
       One disease in two presentations (blood vs lymph nodes), managed by the same
       criteria and treatments.
     evidence: ["WHO 5th edition classification (Alaggio et al., Leukemia 2022)"]
-  - target: PCL
-    source: MM
-    domain: "Disease course and later malignancy"
-    strength: strong
-    rationale: >-
-      Plasma-cell leukaemia is the leukaemic form of myeloma; the 2021 IMWG
-      definition (>=5% circulating plasma cells in otherwise symptomatic myeloma)
-      places it on the myeloma spectrum, and it is treated with myeloma induction
-      and autologous transplant, with a worse prognosis.
-    evidence: ["Fernandez de Larrea et al., Blood Cancer J 2021 (IMWG consensus)",
-               "PMC12785085 (pPCL outcomes under the IMWG 2021 definition)"]
   - target: SMZL
     source: EMZL
     domain: "Disease course and later malignancy"
-    strength: strong
     rationale: >-
       The marginal-zone lymphomas share prognostic factors: the MZL-IPI (LDH,
       haemoglobin, lymphocyte and platelet counts, subtype) was built for and
-      validated across all subtypes, and they are treated with the same regimens.
+      validated across all subtypes, and advanced disease is treated with the
+      same rituximab-based regimens. First-line treatment often differs
+      (radiotherapy for localised EMZL; rituximab alone or splenectomy for SMZL).
     evidence: ["Arcaini et al., EClinicalMedicine 2024, doi:10.1016/j.eclinm.2024.102592"]
-  - target: TRANSFORMED_FL
-    source: DLBCL
-    domain: "Disease course and later malignancy"
-    strength: strong
-    rationale: >-
-      Transformed follicular lymphoma is treated as DLBCL (R-CHOP); in the
-      rituximab era its response and survival approach de novo DLBCL in patients
-      with limited prior therapy.
-    evidence: ["Guirguis et al., Ann Hematol 2014, doi:10.1007/s00277-013-1991-y",
-               "Link et al., J Clin Oncol 2013 (post-transformation survival)"]
-  - target: RT
-    source: DLBCL
-    domain: "Disease course and later malignancy"
-    strength: moderate
-    rationale: >-
-      Richter transformation of DLBCL type is treated with R-CHOP, but ~80% is
-      clonally related to the CLL and does much worse than de novo DLBCL, so
-      reliance on DLBCL is expected but weaker than for transformed FL.
-    evidence: ["Frontiers in Oncology 2022, doi:10.3389/fonc.2022.829983 (review)"]
-  - target: RT
-    source: CLL
-    domain: "Infection and antimicrobial use"
-    strength: moderate
-    rationale: >-
-      Patients with Richter transformation carry the immune deficiency of the
-      underlying CLL (hypogammaglobulinaemia, prior CLL therapy).
-    evidence: ["Frontiers in Immunology 2016, doi:10.3389/fimmu.2016.00317 (secondary antibody deficiency)"]
   - target: CLL
     source: MM
     domain: "Infection and antimicrobial use"
-    strength: moderate
     rationale: >-
       Both cause secondary humoral immune deficiency (hypogammaglobulinaemia in
       up to 85% of CLL during the disease course, and intrinsic or
@@ -90,31 +68,20 @@ hypotheses:
   - target: MM
     source: CLL
     domain: "Infection and antimicrobial use"
-    strength: moderate
     rationale: "The same, in the other direction."
     evidence: ["As above"]
-  - target: AMYLOIDOSIS
-    source: MM
-    domain: "Renal injury and support"
-    strength: moderate
-    rationale: >-
-      AL amyloidosis is a plasma-cell disorder with frequent renal involvement,
-      treated with myeloma drugs (bortezomib, cyclophosphamide, dexamethasone,
-      daratumumab); myeloma also injures the kidney (light-chain cast nephropathy).
-    evidence: ["Kastritis et al., N Engl J Med 2021 (ANDROMEDA)"]
   - target: LBL
     source: BL
     domain: "Neutrophil, white-cell and platelet findings"
-    strength: moderate
     rationale: >-
       Both receive short, highly intensive regimens (CODOX-M/IVAC, hyper-CVAD,
       ALL-type protocols) with marked myelosuppression despite growth-factor
-      support.
+      support. Holds whether or not the LBL cohort includes adult ALL (open
+      question for the haematologists).
     evidence: ["Reviews of adult Burkitt lymphoma treatment (hyper-CVAD, CODOX-M/IVAC toxicity)"]
   - target: LBL
     source: BL
     domain: "Metabolic and cell-turnover markers"
-    strength: moderate
     rationale: >-
       Rapid tumour turnover and intensive induction put both at risk of tumour
       lysis (potassium, phosphate, urate, creatinine).
@@ -122,30 +89,64 @@ hypotheses:
   - target: TCL
     source: PTCL
     domain: "Disease course and later malignancy"
-    strength: moderate
     rationale: >-
       Unspecified T-cell lymphoma is managed like peripheral T-cell lymphoma, not
       otherwise specified (CHOP-based therapy), with a similarly poor course.
     evidence: ["WHO 5th edition classification (Alaggio et al., Leukemia 2022)"]
+  - target: AITL
+    source: PTCL
+    domain: "Disease course and later malignancy"
+    rationale: >-
+      Angioimmunoblastic T-cell lymphoma (nodal T-follicular-helper lymphoma in
+      WHO 5) is treated with the same CHOP-based first-line regimens as PTCL,
+      not otherwise specified, with a similarly poor course; the two are often
+      hard to tell apart histologically.
+    evidence: ["WHO 5th edition classification (Alaggio et al., Leukemia 2022)"]
   - target: LPL
     source: CLL
     domain: "Cardiovascular and thrombotic events"
-    strength: exploratory
     rationale: >-
       BTK inhibitors, used in CLL and in Waldenstrom macroglobulinaemia, cause
-      atrial fibrillation and bleeding; reliance depends on how often first-line
-      BTK inhibitors were used in each disease during the study period.
+      atrial fibrillation and bleeding. But first-line Waldenstrom
+      treatment in Denmark has mostly been chemoimmunotherapy (e.g.
+      bendamustine-rituximab), so a null result here would be unsurprising.
     evidence: ["Brown et al., Haematologica 2017 (pooled AF in ibrutinib trials), PMC5622864"]
 negative_controls:
   - target: HL
-    source: AMYLOIDOSIS
+    source: MM
     domain: "All outcomes"
-    rationale: "No shared biology, treatment or complication profile."
-  - target: SolM
+    rationale: >-
+      No shared biology, treatment or complication profile (young patients on
+      ABVD-type therapy vs older patients on myeloma regimens); MM is the
+      second-largest source, so this also tests whether a large source helps
+      regardless of relevance.
+  - target: DLBCL
+    source: HCL
+    domain: "Disease course and later malignancy"
+    rationale: >-
+      No shared biology or course (indolent, cladribine-treated vs aggressive,
+      R-CHOP-treated).
+  - target: CLL
     source: ALCL
     domain: "All outcomes"
-    rationale: "No shared biology, treatment or complication profile."
-  - target: HCL
-    source: TRANSFORMED_FL
-    domain: "Disease course and later malignancy"
-    rationale: "No shared biology or course."
+    rationale: >-
+      No shared biology, treatment or complication profile (a T-cell lymphoma
+      treated with CHOP-type therapy vs an indolent B-cell leukaemia).
+# Candidates that fail the eligibility rule (test patients from Table 1).
+excluded_candidates:
+  - {target: TRANSFORMED_FL, source: DLBCL, domain: "Disease course and later malignancy",
+     reason: "target has 44 test patients"}
+  - {target: RT, source: DLBCL, domain: "Disease course and later malignancy",
+     reason: "target has 25 test patients"}
+  - {target: RT, source: CLL, domain: "Infection and antimicrobial use",
+     reason: "target has 25 test patients"}
+  - {target: PCL, source: MM, domain: "Disease course and later malignancy",
+     reason: "target has 38 test patients"}
+  - {target: AMYLOIDOSIS, source: MM, domain: "Renal injury and support",
+     reason: "target has 17 test patients"}
+  - {target: SolM, source: ALCL, domain: "All outcomes",
+     reason: "target has 32 test patients (was a negative control)"}
+  - {target: HL, source: AMYLOIDOSIS, domain: "All outcomes",
+     reason: "source has 22 training patients (was a negative control)"}
+  - {target: HCL, source: TRANSFORMED_FL, domain: "Disease course and later malignancy",
+     reason: "HCL has no second-line outcomes and almost no deaths, so no estimable cells (was a negative control)"}

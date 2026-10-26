@@ -31,8 +31,8 @@ class LookupModel:
 def test_overlap_ignores_order_and_counts_each_code_once():
     truth, ages = np.array([1, 2, 3, 4]), np.array([0.0, 0.0, 1.0, 1.0])
     generated = np.array([3, 1, 1, 9])  # 3 a year early, 1 twice
-    assert mc.reproduced(generated, truth, {1, 2, 3, 4}) == (2, 4)
-    on_time = mc.reproduced(generated, truth, {1, 2, 3, 4}, ages, mc.WINDOW_YEARS)
+    assert mc.count_reproduced(generated, truth, {1, 2, 3, 4}) == (2, 4)
+    on_time = mc.count_reproduced(generated, truth, {1, 2, 3, 4}, ages, mc.ON_TIME_YEARS)
     assert on_time == (1, 4)
 
 
@@ -49,10 +49,10 @@ def test_generate_backend_separates_training_from_unseen_patients():
             model, patients, x, y, pad=0, device="cpu", batch_size=7
         )
 
-    scores = mc.memorization_scores(
+    scores = mc.score_all_patients(
         generate, records, [8, 16], [1, 4, 16], 0, set(range(2, 500)), set()
     )
-    excess = mc.excess_table(scores, "train", "tuning")
+    excess = mc.excess_over_unseen(scores, "train", "tuning")
     for metric in ("exact_match", "overlap"):
         assert np.allclose(excess.filter(excess["metric"] == metric)["excess"], 1)
 
@@ -125,13 +125,32 @@ def test_bonsai_generation_is_step_by_step_and_detects_memorisation():
     def generate(patients, x, y):
         return mc.bonsai_generate(model, patients, x, y, batch_size=4)
 
-    scores = mc.memorization_scores(
+    scores = mc.score_all_patients(
         generate, {"train": train, "tuning": unseen}, [8], [8], 0, set(range(24)), set()
     )
-    excess = mc.excess_table(scores, "train", "tuning")
+    excess = mc.excess_over_unseen(scores, "train", "tuning")
     for metric in ("exact_match", "overlap", "on_time"):
         row = excess.filter(excess["metric"] == metric).row(0, named=True)
         assert row["train"] > 0.8 and row["unseen"] < 0.3 and row["excess_lower"] > 0
     losses = [mc.bonsai_losses(model, s, 24, batch_size=4) for s in (train, unseen)]
-    check = mc.loss_check(*losses).row(0, named=True)
+    check = mc.membership_from_loss(*losses).row(0, named=True)
     assert check["loss_gap_lower"] > 0 and check["membership_auc"] > 0.9
+
+
+def test_summary_only_uses_cells_with_enough_scored_patients():
+    import polars as pl
+
+    rows = []
+    for split, rare in (("train", 1.0), ("tuning", 0.0)):
+        for i in range(60):
+            # Every patient has an overlap score; only three have a rare code.
+            rows.append({"split": split, "subject_id": str(i), "prompt_events": 16,
+                         "continuation_events": 4, "exact_match": 0.0,
+                         "overlap": 0.5 + 0.001 * i, "on_time": float("nan"),
+                         "rare_codes": rare if i < 3 else float("nan")})
+    excess = mc.excess_over_unseen(pl.DataFrame(rows), "train", "tuning")
+    rare = excess.filter(pl.col("metric") == "rare_codes").row(0, named=True)
+    assert rare["patients_train"] == 3 and rare["excess"] == 1.0
+    summary = mc.write_summary(excess, None, min_patients=50)
+    assert "rare_codes   no cell has enough patients" in summary
+    assert "overlap      +0.000" in summary

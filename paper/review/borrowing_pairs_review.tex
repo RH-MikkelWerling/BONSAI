@@ -5,7 +5,7 @@
 \usepackage[hidelinks]{hyperref}
 % Fillable form: one exclusive choice and one comment box per pair.
 \newcommand{\viewfield}[1]{\ChoiceMenu[popdown,name=view_#1,width=2.1cm,height=1.2em,
-  bordercolor={0.6 0.6 0.6},charsize=8pt,default= ]{}{ = ,agree=agree,disagree=disagree,unsure=unsure}}
+  bordercolor={0.6 0.6 0.6},charsize=8pt,default= ]{}{ = ,strong=strong,moderate=moderate,weak=weak,none=none,don't know=dont_know}}
 \newcommand{\commentfield}[1]{\TextField[name=comment_#1,multiline=true,width=5.2cm,
   height=1.35cm,bordercolor={0.7 0.7 0.7},charsize=8pt]{}}
 \renewcommand{\familydefault}{\sfdefault}
@@ -27,53 +27,42 @@ cytopenia, organ toxicity and hospital admission. Because the model learns from 
 once, what it learns in one disease can be used for another.
 
 \textbf{What we will test.} After the model is trained, we can switch off what it learned from one
-disease and see how much worse its predictions become for another. We want to check whether the
-model relies on other diseases \emph{where clinical knowledge says it should}. To make this a fair
-test, we must write down the expected pairs \textbf{before} we look at the results on the test
-patients. Once the test data are opened, the list can no longer be changed. Your clinical
-judgement now is therefore what makes the test meaningful.
+disease and see how much worse its predictions become for another. We want to compare this with
+clinical knowledge, and that comparison is only fair if the clinical expectations are written down
+\textbf{before} we look at the results on the test patients. Your ratings are those expectations.
 
 \textbf{What we ask of you.}
 \begin{enumerate}[leftmargin=1.4em,itemsep=1pt,topsep=0pt]
-  \item For each pair below, tick \emph{agree}, \emph{disagree} or \emph{unsure}: would you
-  expect what is learned in the first disease to help predict the stated outcomes in the second?
-  Add a comment where useful. We deliberately give no reasons, so as not to steer your view.
+  \item For each pair below: how much would you expect what is learned in the first disease to
+  help predict the stated outcomes in the second? Choose \emph{strong}, \emph{moderate},
+  \emph{weak}, \emph{none} or \emph{don't know}, and add a comment where useful. The pairs are in
+  random order, and some may well deserve \emph{none}.
   \item Suggest pairs we have missed. Any disease can be paired with any other, for any group of
-  outcomes; the diseases and outcomes are listed at the end. Pairs that would not be obvious from
-  the classification alone, such as diseases that share a treatment or a typical complication, are
-  especially useful.
-  \item Check the \emph{negative controls} (the last three rows): pairs we expect \emph{not} to
-  inform each other. They show whether the method finds a signal where none should exist.
+  outcomes; the diseases and outcomes are listed at the end.
 \end{enumerate}
 
 {\small\setlength{\tabcolsep}{4pt}
 \begin{longtable}{L{0.55cm}L{4.6cm}L{2.8cm}L{2.3cm}L{5.4cm}}
 \toprule
-& Pair & For predicting & Your view & Comment\\ \midrule\endfirsthead
+& Pair & For predicting & Expected help & Comment\\ \midrule\endfirsthead
 \toprule
-& Pair & For predicting & Your view & Comment\\ \midrule\endhead
-\multicolumn{5}{l}{\bfseries Pairs expected to inform each other}\\ \midrule
-1 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Small lymphocytic lymphoma (SLL)} & all outcomes & \viewfield{H1} & \commentfield{H1} \\ \midrule
-2 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Plasma-cell leukaemia (PCL)} & disease course and later malignancy & \viewfield{H2} & \commentfield{H2} \\ \midrule
-3 & Learn from \textbf{Extranodal marginal-zone lymphoma (EMZL)}\newline to predict for \textbf{Splenic marginal-zone lymphoma (SMZL)} & disease course and later malignancy & \viewfield{H3} & \commentfield{H3} \\ \midrule
-4 & Learn from \textbf{Diffuse large B-cell lymphoma (DLBCL)}\newline to predict for \textbf{Transformed follicular lymphoma (tFL)} & disease course and later malignancy & \viewfield{H4} & \commentfield{H4} \\ \midrule
-5 & Learn from \textbf{Diffuse large B-cell lymphoma (DLBCL)}\newline to predict for \textbf{Richter transformation (RT)} & disease course and later malignancy & \viewfield{H5} & \commentfield{H5} \\ \midrule
-6 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Richter transformation (RT)} & infection and antimicrobial use & \viewfield{H6} & \commentfield{H6} \\ \midrule
-7 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Chronic lymphocytic leukaemia (CLL)} & infection and antimicrobial use & \viewfield{H7} & \commentfield{H7} \\ \midrule
-8 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Multiple myeloma (MM)} & infection and antimicrobial use & \viewfield{H8} & \commentfield{H8} \\ \midrule
-9 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Amyloidosis} & renal injury and support & \viewfield{H9} & \commentfield{H9} \\ \midrule
-10 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & neutrophil, white-cell and platelet findings & \viewfield{H10} & \commentfield{H10} \\ \midrule
-11 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & metabolic and cell-turnover markers & \viewfield{H11} & \commentfield{H11} \\ \midrule
-12 & Learn from \textbf{Peripheral T-cell lymphoma, NOS (PTCL)}\newline to predict for \textbf{T-cell lymphoma, unspecified (TCL)} & disease course and later malignancy & \viewfield{H12} & \commentfield{H12} \\ \midrule
-13 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Lymphoplasmacytic lymphoma (LPL)} & cardiovascular and thrombotic events & \viewfield{H13} & \commentfield{H13} \\ \midrule
-\multicolumn{5}{l}{\bfseries Negative controls: pairs expected \emph{not} to inform each other}\\ \midrule
-C1 & Learn from \textbf{Amyloidosis}\newline to predict for \textbf{Hodgkin lymphoma (HL)} & all outcomes & \viewfield{C1} & \commentfield{C1} \\ \midrule
-C2 & Learn from \textbf{Anaplastic large-cell lymphoma (ALCL)}\newline to predict for \textbf{Solitary plasmacytoma} & all outcomes & \viewfield{C2} & \commentfield{C2} \\ \midrule
-C3 & Learn from \textbf{Transformed follicular lymphoma (tFL)}\newline to predict for \textbf{Hairy-cell leukaemia (HCL)} & disease course and later malignancy & \viewfield{C3} & \commentfield{C3} \\ \midrule
+& Pair & For predicting & Expected help & Comment\\ \midrule\endhead
+P1 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Small lymphocytic lymphoma (SLL)} & all outcomes & \viewfield{P1} & \commentfield{P1} \\ \midrule
+P2 & Learn from \textbf{Peripheral T-cell lymphoma, NOS (PTCL)}\newline to predict for \textbf{T-cell lymphoma, unspecified (TCL)} & disease course and later malignancy & \viewfield{P2} & \commentfield{P2} \\ \midrule
+P3 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Chronic lymphocytic leukaemia (CLL)} & infection and antimicrobial use & \viewfield{P3} & \commentfield{P3} \\ \midrule
+P4 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Multiple myeloma (MM)} & infection and antimicrobial use & \viewfield{P4} & \commentfield{P4} \\ \midrule
+P5 & Learn from \textbf{Hairy-cell leukaemia (HCL)}\newline to predict for \textbf{Diffuse large B-cell lymphoma (DLBCL)} & disease course and later malignancy & \viewfield{P5} & \commentfield{P5} \\ \midrule
+P6 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & neutrophil, white-cell and platelet findings & \viewfield{P6} & \commentfield{P6} \\ \midrule
+P7 & Learn from \textbf{Peripheral T-cell lymphoma, NOS (PTCL)}\newline to predict for \textbf{Angioimmunoblastic T-cell lymphoma (AITL)} & disease course and later malignancy & \viewfield{P7} & \commentfield{P7} \\ \midrule
+P8 & Learn from \textbf{Anaplastic large-cell lymphoma (ALCL)}\newline to predict for \textbf{Chronic lymphocytic leukaemia (CLL)} & all outcomes & \viewfield{P8} & \commentfield{P8} \\ \midrule
+P9 & Learn from \textbf{Multiple myeloma (MM)}\newline to predict for \textbf{Hodgkin lymphoma (HL)} & all outcomes & \viewfield{P9} & \commentfield{P9} \\ \midrule
+P10 & Learn from \textbf{Chronic lymphocytic leukaemia (CLL)}\newline to predict for \textbf{Lymphoplasmacytic lymphoma (LPL)} & cardiovascular and thrombotic events & \viewfield{P10} & \commentfield{P10} \\ \midrule
+P11 & Learn from \textbf{Burkitt lymphoma (BL)}\newline to predict for \textbf{Lymphoblastic lymphoma (LBL)} & metabolic and cell-turnover markers & \viewfield{P11} & \commentfield{P11} \\ \midrule
+P12 & Learn from \textbf{Extranodal marginal-zone lymphoma (EMZL)}\newline to predict for \textbf{Splenic marginal-zone lymphoma (SMZL)} & disease course and later malignancy & \viewfield{P12} & \commentfield{P12} \\ \midrule
 \end{longtable}}
 
 \textbf{Pairs we have missed} (learn from which disease, to predict which outcomes in which
-disease, and why):\par
+disease, and how much you would expect it to help):\par
 \TextField[name=missed_pairs,multiline=true,width=\linewidth,height=3.2cm,
   bordercolor={0.7 0.7 0.7},charsize=9pt]{}\par\medskip
 \textbf{Other comments:}\par
