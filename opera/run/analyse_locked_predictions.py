@@ -136,6 +136,51 @@ def read_artifact(specification, metadata=None, estimand="binary_known_status_un
     return normalize_predictions(frame, estimand)
 
 
+_READ_CONTEXT = {}
+
+
+def _init_reader(metadata, estimand):
+    _READ_CONTEXT.update(metadata=metadata, estimand=estimand)
+
+
+def _read_one(specification):
+    try:
+        data, summary = read_artifact(
+            specification, _READ_CONTEXT["metadata"], _READ_CONTEXT["estimand"])
+    except ValueError as error:
+        raise ValueError(f"{specification['path']}: {error}") from error
+    return data, summary, file_hash(specification["path"])
+
+
+def read_artifacts(specifications, metadata, estimand):
+    """Read every artifact, in order; in parallel with OPERA_ANALYSIS_WORKERS."""
+    import sys
+    import time
+
+    from opera.evaluation.secondary_analysis import analysis_workers
+
+    started, total, workers = time.time(), len(specifications), analysis_workers()
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+
+        pool = ProcessPoolExecutor(max_workers=workers, initializer=_init_reader,
+                                   initargs=(metadata, estimand))
+        results = pool.map(_read_one, specifications, chunksize=16)
+    else:
+        pool = None
+        _init_reader(metadata, estimand)
+        results = map(_read_one, specifications)
+    try:
+        for done, result in enumerate(results, 1):
+            if done % 500 == 0 or done == total:
+                print(f"reading predictions: {done}/{total} artifacts, "
+                      f"{(time.time() - started) / 60:.1f} min", file=sys.stderr, flush=True)
+            yield result
+    finally:
+        if pool is not None:
+            pool.shutdown()
+
+
 def json_safe(value):
     """Preserve YAML infinite bin edges in a strict JSON provenance manifest."""
     if isinstance(value, dict):
@@ -231,14 +276,11 @@ def run(config, output_dir):
         if metadata.subject_id.duplicated().any():
             raise ValueError("Patient metadata has duplicate subject IDs")
     inputs, audit, hashes = [], [], {}
-    for specification in config["artifacts"]:
-        try:
-            data, summary = read_artifact(specification, metadata, estimand)
-        except ValueError as error:
-            raise ValueError(f"{specification['path']}: {error}") from error
+    for specification, (data, summary, digest) in zip(
+            config["artifacts"], read_artifacts(config["artifacts"], metadata, estimand)):
         inputs.append(data)
         audit.append({"path": specification["path"], **summary})
-        hashes[specification["path"]] = file_hash(specification["path"])
+        hashes[specification["path"]] = digest
     predictions, combined_audit = normalize_predictions(
         pd.concat(inputs, ignore_index=True), estimand
     )
