@@ -51,42 +51,73 @@ def _censoring_survival_before(times, events):
 
 
 def attach_ipcw_weights(frame):
-    """Full-risk-set CIF labels and IPCW weights per model/seed/disease/outcome."""
+    """Full-risk-set CIF labels and IPCW weights per model/seed/disease/outcome/horizon.
+
+    Per horizon as well: tabular tables are fitted per horizon, with follow-up
+    cut at that horizon. Cutting at h leaves the Kaplan-Meier censoring curve
+    before h unchanged (the extra censorings enter at h itself), so the weights
+    equal those from full follow-up, for neural and tabular rows alike.
+
+    Every group's Kaplan-Meier curve of censoring is computed at once (sorting
+    and cumulative products), not group by group; the result is identical to
+    ``_censoring_survival_before`` applied per group.
+    """
     if not {"time_days", "event"} <= set(frame) or frame[["time_days", "event"]].isna().any().any():
         raise ValueError("cif_ipcw requires follow-up time_days and event for every model and row")
-    # Per horizon as well: tabular tables are fitted per horizon, with follow-up
-    # cut at that horizon. Cutting at h leaves the Kaplan-Meier censoring curve
-    # before h unchanged (the extra censorings enter at h itself), so the weights
-    # equal those from full follow-up, for neural and tabular rows alike.
-    parts = []
     keys = ["model", "split", "seed", "cohort", "outcome", "horizon_days"]
-    for _, group in frame.groupby(keys, sort=False):
-        patients = group.drop_duplicates("subject_id")
-        if len(patients) != len(group):
-            raise ValueError("A patient appears twice in one model, cell and horizon")
-        before = _censoring_survival_before(
-            patients.time_days.to_numpy(float), patients.event.to_numpy(int)
-        )
-        t = group.time_days.to_numpy(float)
-        e = group.event.to_numpy(int)
-        h = group.horizon_days.to_numpy(float)
-        case = (t <= h) & (e == 1)
-        competing = (t <= h) & (e == 2)
-        control = competing | (t > h) | ((t >= h) & (e == 0))
-        weight = np.zeros(len(group))
-        weight[case | competing] = 1.0 / before(t[case | competing])
-        horizon_control = control & ~competing
-        weight[horizon_control] = 1.0 / before(h[horizon_control])
-        group = group.copy()
-        group["label"] = case.astype(int)
-        group["ipcw_weight"] = weight
-        group["known"] = case | control
-        if "prediction_absent_zero_weight" in group:
-            placeholder = group.prediction_absent_zero_weight.eq(True)  # NaN counts as False
-            if (placeholder & group.known).any():
-                raise ValueError("A status-known patient lacks a real prediction")
-        parts.append(group)
-    return pd.concat(parts).sort_index()
+    group = frame.groupby(keys, sort=False).ngroup().to_numpy()
+    frame = frame.loc[group >= 0].copy()  # rows with a missing key, as groupby drops them
+    group = group[group >= 0]
+    if frame.assign(_group=group).duplicated(["_group", "subject_id"]).any():
+        raise ValueError("A patient appears twice in one model, cell and horizon")
+    t = frame.time_days.to_numpy(float)
+    e = frame.event.to_numpy(int)
+    h = frame.horizon_days.to_numpy(float)
+
+    # Censoring curve per group, on the group's distinct times.
+    order = np.lexsort((t, group))
+    g_sorted, t_sorted = group[order], t[order]
+    censored_sorted = (e[order] == 0).astype(float)
+    distinct = np.r_[True, (g_sorted[1:] != g_sorted[:-1]) | (t_sorted[1:] != t_sorted[:-1])]
+    starts = np.flatnonzero(distinct)
+    unique_group, unique_time = g_sorted[starts], t_sorted[starts]
+    censored = np.add.reduceat(censored_sorted, starts)
+    group_size = np.bincount(group)
+    first_row = np.r_[0, np.cumsum(group_size)[:-1]]  # first sorted row of each group
+    at_risk = group_size[unique_group] - (starts - first_row[unique_group])
+    step = 1.0 - censored / at_risk
+    zero = step <= 0  # everyone still at risk censored: the curve stays at 0
+    by_group = pd.Series(unique_group)
+    log_cumulative = pd.Series(np.log(np.where(zero, 1.0, step))).groupby(by_group).cumsum()
+    reached_zero = pd.Series(zero.astype(int)).groupby(by_group).cumsum().to_numpy() > 0
+    after = np.where(reached_zero, 0.0, np.exp(log_cumulative.to_numpy()))  # G just after each time
+
+    # G(q-): the curve at the group's last distinct time strictly before q.
+    scale = 10.0 ** np.ceil(np.log10(max(np.abs(t).max(), np.abs(h).max()) + 2))
+    key = unique_group * scale + unique_time
+
+    def before(rows, query):
+        index = np.searchsorted(key, group[rows] * scale + query, side="left") - 1
+        valid = (index >= 0) & (unique_group[np.maximum(index, 0)] == group[rows])
+        value = np.where(valid, after[np.maximum(index, 0)], 1.0)
+        return np.maximum(value, 1e-6)
+
+    case = (t <= h) & (e == 1)
+    competing = (t <= h) & (e == 2)
+    control = competing | (t > h) | ((t >= h) & (e == 0))
+    weight = np.zeros(len(frame))
+    event_rows = np.flatnonzero(case | competing)
+    weight[event_rows] = 1.0 / before(event_rows, t[event_rows])
+    horizon_rows = np.flatnonzero(control & ~competing)
+    weight[horizon_rows] = 1.0 / before(horizon_rows, h[horizon_rows])
+    frame["label"] = case.astype(int)
+    frame["ipcw_weight"] = weight
+    frame["known"] = case | control
+    if "prediction_absent_zero_weight" in frame:
+        placeholder = frame.prediction_absent_zero_weight.eq(True)  # NaN counts as False
+        if (placeholder & frame.known).any():
+            raise ValueError("A status-known patient lacks a real prediction")
+    return frame.sort_index()
 
 
 def normalize_predictions(

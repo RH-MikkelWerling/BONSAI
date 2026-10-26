@@ -348,6 +348,44 @@ routed model if it is healthy and its panel AUC is not below R_L's by more
 than that noise floor; otherwise the stage-3 rule decides. The stage-3 fits
 are reported as the diagnostic path (A, B, T) in every case.
 
+## Headline contrasts and multiplicity (added 2026-10-26, before any test data were opened)
+- Both the joint model (J_L, fixed before any tuning result) and OPERA (the
+  configuration chosen on tuning data) are compared with per-task XGBoost
+  (T2 and its OPERA counterpart), with the pooled and registry XGBoost
+  comparisons alongside; both are reported, and the OPERA contrast is noted as
+  carrying selection on tuning data.
+- One family of headline tests, with Holm-adjusted P values: sharing across
+  diseases, across outcomes and both against the specialists (P1, P2, P5);
+  J_L and OPERA against per-task XGBoost; borrowing by the routed model (the
+  routed model against its no-borrowing control, per the router-fix rule);
+  the national against the cohort encoder (E1); OPERA against the clinical
+  indices. Everything else (diseases, outcomes, cells, disease pairs) is
+  reported as estimates with intervals and is descriptive; the borrowing pairs
+  keep their single set-level permutation test.
+- Margins unchanged (0.01 AUC/IPA for model comparisons, 0.25 AUC points for
+  single pairs); they only set the descriptive labels.
+
+## Clinical-index horizon (amended 2026-10-26, before any test data were opened)
+The rule "two years, or one year where two exceeds the median follow-up of the
+test population" was written for the known-status estimand, where censored
+patients are dropped. Under the locked IPCW estimand censored patients are
+reweighted, so the criterion is precision: two years where at least a third of
+an index's test patients could have been followed for two years (from index
+dates and the data cutoff only; no outcomes), one year otherwise; one year is
+reported alongside in every case. Seen at the time: DLBCL test patients,
+index dates 2023-01 to 2026-03, 48% with potential two-year follow-up (79% for
+one year) against the last index date as a conservative cutoff. DLBCL (IPI,
+NCCN-IPI, decision curves) therefore uses two years.
+
+## Borrowing pairs on hold (2026-10-26)
+The clinician rating of the borrowing pairs is on hold until the router-fix
+decision. If the routed model does not borrow selectively (R_O against RBH_O
+within the noise floor), the source-removal test of the pairs is null by
+construction and is dropped; a descriptive comparison of learned disease
+similarity (the disease corrections) with clinical similarity may replace it.
+If R_O borrows, the pairs and the rating proceed as fixed above. Either way the
+choice is made before the test set is opened, and the ratings stay blind.
+
 ## Decision curves (added 2026-10-23)
 - Action: closer monitoring and supportive care for patients above the
   threshold; outcome: death within two years in DLBCL; range 5-40%.

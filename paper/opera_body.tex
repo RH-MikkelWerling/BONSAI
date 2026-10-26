@@ -324,8 +324,9 @@ patient's disease, which tests whether disease-specific baseline risks explain
 the gain, and routers limited to the patient's own disease adapter (the
 own-disease router) or own outcome adapter, which test whether corrections help
 through their own parameters, without borrowing. A sensitivity fit starts the
-router with most of its weight on the shared representation (Supplementary
-Methods).
+router with a larger share on the shared representation (about 15--18\% of the
+weight rather than about 1\%); a rule fixed before its tuning results were seen
+decided between the two starts (Supplementary Methods).
 
 The widest grid is the whole population. A model pretrained on the registers of
 every Danish resident has learned to read records from far more patients,
@@ -351,8 +352,10 @@ horizons; configurations within the difference between two fits of the same
 model counted as tied, and the simplest was chosen, the joint before the routed
 model and the cohort before the national encoder \placeholder{selected
 configuration}. It is the model compared with tabular models and clinical
-indices. The contrasts between scopes, routing and encoders use their fixed
-arms.
+indices. Because \opera{} was chosen on tuning data, the joint model, fixed before
+any tuning result was seen, is compared with the tabular models as well; both
+comparisons are reported. The contrasts between scopes, routing and encoders use
+their fixed arms.
 
 \operasubsection{Comparators}
 We compared all models with tabular comparators, which remain hard to beat on
@@ -385,10 +388,17 @@ Each pooled difference was labelled by a rule fixed before testing: better (or
 worse) if its 95\% interval lay above (below) zero, noted as beyond the practical
 margin when the difference exceeded 0.01 AUC; otherwise equivalent if the
 interval lay within $\pm$0.01; otherwise inconclusive; each with a paired
-bootstrap $P$ value. Across disease--outcome cells, effects were also summarised,
+bootstrap $P$ value. The headline comparisons form one family, with $P$ values
+adjusted by Holm's method: sharing across diseases, across outcomes and both
+(each against the specialists), the joint model and \opera{} against per-task
+XGBoost, borrowing by the routed model, the national encoder against the cohort
+encoder, and \opera{} against the clinical indices. Everything else, including
+results for individual diseases, outcomes, cells and disease pairs, is reported
+as estimates with intervals and is descriptive. Across disease--outcome cells, effects were also summarised,
 descriptively, by hierarchical models that estimate the typical effect, its variation between diseases and outcomes,
 and its relation to the number of training events; estimates for individual
-cells are shown in the Supplementary figures. Decision curves compare the net
+cells are shown in the Supplementary figures. Decision curves, in patients with
+DLBCL and the IPI recorded, compare the net
 benefit of acting on \opera{}, the IPI and XGBoost when patients above a
 predicted two-year risk of death receive closer monitoring and supportive care,
 across thresholds from 5\% to 40\% \citep{vickers2006dca}, and at two
@@ -421,9 +431,14 @@ corrections are switched off, for each disease, each clinical domain and over al
 diseases. Within one fitted model this carries no noise of refitting, but it
 measures what the fitted model uses, not what borrowing adds when a model is
 trained without it; that is the comparison with the own-disease router. Before the test set was
-opened, we listed pairs of diseases with a clinical reason to share signal for a
-domain of outcomes, from shared biology, treatment or complications in the
-literature, and negative controls with none (Supplementary Methods). The primary
+opened, we listed candidate pairs of diseases with a possible reason to share
+signal for a domain of outcomes (shared biology, treatment or complications),
+kept only pairs whose estimate could be informative (at least 200 training
+patients in the source disease and 50 test patients in the target), and asked
+study haematologists to rate each candidate, in random order and without our
+rationale. Pairs rated as a strong or moderate source of signal were the
+expected pairs, and pairs rated as unrelated the negative controls
+(Supplementary Methods). The primary
 test asked whether these pairs, as a set, gained more from their source alone
 than the typical pair, the mean of the other pairs of the same domains
 (permutation test). The map of all pairs is descriptive and partially pooled.
@@ -437,8 +452,9 @@ against the specialist models.
 \operasection{Results}
 
 \operasubsection{Cohort characteristics and outcomes}
-The pretraining population comprised all 78,668 patients in DALY-CARE with a
-haematological diagnosis, including precursor conditions, whose records before
+The pretraining population comprised all 78,668 adults in DALY-CARE, which
+includes every Danish adult diagnosed with a lymphoid cancer or a precursor
+condition (MGUS, MBL) since 2002 \citep{brieghel2025dalycare}, whose records before
 2022 pretrained the cohort encoder. Of these, 37,531 started first-line treatment with an assigned disease
 and form the final cohort (\cref{fig:cohort-flow,tab:characteristics}): 29,105
 treated through 2021, 1,980 in 2022 and 6,446 from 2023. The median age was 69
@@ -837,14 +853,14 @@ carried \result{ig_var_recent}{[x]}. Outcomes of one clinical domain rested on
 the same episodes of a patient's history (median agreement
 \result{ig_similarity_within}{[x]}), and outcomes of different domains on
 different ones (\result{ig_similarity_between}{[x]})
-(\cref{fig:attribution-structure}A): the shared model reads one history
-differently for each complication. Of \result{ig_expect_total}{[n]} prespecified
+(\cref{fig:attribution-structure}A)\placeholder{; if so: the shared model reads one history
+differently for each complication}. Of \result{ig_expect_total}{[n]} prespecified
 effects of clinical findings, \result{ig_expect_supported}{[n]} were seen and
 \result{ig_expect_contradicted}{[n]} went the other way
 (\cref{fig:attribution-main}C). \placeholder{Examples, such as high LDH raising
 predicted death, low neutrophils severe neutropenia and recent antibacterials
 serious infection, and any strong pattern that was not expected.} Molecular
-findings recorded as pathology codes moved predictions as expected:
+findings recorded as pathology codes moved predictions \placeholder{as expected / not as expected}:
 \placeholder{the change in predicted log-odds of treatment failure and death with
 a recorded TP53 aberration, MYC rearrangement or unmutated IGHV}
 (\cref{fig:attribution-main}C).
@@ -858,8 +874,8 @@ by \result{restrict_no_region}{[x]} and with only the last year of history by
 \result{restrict_last_year}{[x]} (\cref{fig:attribution-main}B, by outcome in
 \cref{fig:attribution-structure}B). For a single patient, the same computation
 shows which episodes of care move each risk and when they happened
-(\cref{fig:attribution-main}D, \cref{fig:attribution-patient}): in the
-illustrated patient, a recent pneumonia moves the risk of serious infection, the
+(\cref{fig:attribution-main}D, \cref{fig:attribution-patient}): in a
+synthetic patient constructed for illustration (no real patient is shown), a recent pneumonia moves the risk of serious infection, the
 findings of the diagnostic work-up the risk of death, and low neutrophils days
 before treatment the risk of severe neutropenia.
 
@@ -1011,10 +1027,11 @@ specialised one cannot be built.
 
 The same holds over time. The test period brought new first-line treatment
 \placeholder{confirm for Denmark: e.g. polatuzumab vedotin in DLBCL, targeted
-agents in CLL, daratumumab combinations in myeloma} \citep{Tilly2022POLARIX}, a
-change of the national patient register from LPR2 to LPR3 in 2019, complete
-laboratory capture only from 2017, and quality-registry fields that were
-increasingly missing. Shifts of this kind are a common cause of failure for
+agents in CLL, daratumumab combinations in myeloma} \citep{Tilly2022POLARIX},
+and the records themselves changed between the training and test years: the
+national patient register moved from LPR2 to LPR3 in 2019, laboratory capture
+was complete only from 2017, and quality-registry fields were increasingly
+missing. Shifts of this kind are a common cause of failure for
 clinical prediction models \citep{finlayson2021shift}. \placeholder{If
 performance held, this supports robustness over the observed period}, although
 not to future changes or to another health system. New treatments also start
@@ -1060,9 +1077,9 @@ failure may be at high risk of serious infection, and prophylaxis, monitoring
 and dose planning differ accordingly. A profile is useful only if its
 probabilities are accurate, which is why calibration is reported alongside
 discrimination, and more useful if a clinician can see what each risk rests on:
-one patient's explanation can show that a high risk of serious infection follows
-a recent pneumonia while a high risk of death follows the findings of the
-diagnostic work-up (\cref{fig:attribution-patient}). Where the model places
+a patient's explanation can show, as in the synthetic example, that a high risk of
+serious infection follows a recent pneumonia while a high risk of death follows
+the findings of the diagnostic work-up (\cref{fig:attribution-patient}). Where the model places
 patients at low risk who are on standard treatment, its predictions support
 that treatment rather than change it. Where it identifies patients at high
 risk, the evidence needed depends on what is done with them
@@ -1078,7 +1095,12 @@ kind help clinicians decide needs testing with them
 This study has limitations. Validation was temporal within one health system,
 and test patients' records before 2022 contributed to self-supervised
 pretraining, without outcome labels, so the evaluation concerns later treatment
-episodes rather than unseen individuals; another health system would need to
+episodes rather than unseen individuals. A memorization check found no sign
+that the pretrained encoder reproduces the records it was trained on: its
+next-event loss could not tell training from unseen patients (AUC 0.505,
+95\% CI 0.480 to 0.531), and its continuations of a patient's record were not
+systematically closer for training patients than for unseen ones
+(Supplementary Methods); another health system would need to
 adapt and validate its own model. Every choice was made on a tuning year of
 1,980 patients, small for the rarest diseases, which we addressed by keeping
 choices few and rule-based. Each configuration was trained once; the difference

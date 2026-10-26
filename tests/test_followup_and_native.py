@@ -30,11 +30,15 @@ def test_native_entries_and_followup_horizon():
     entry, = native_entries(specs, native)
     assert entry["id"] == "ipi_dlbcl_native" and entry["outcome"] == "overall_survival"
     assert entry["horizon_days"] == 730 and not entry["manuscript_figures"]
-    short = pd.DataFrame({"time_days": np.r_[np.full(60, 500), np.full(40, 800)],
+    # Two years needs at least a third of the patients followed past 730 days.
+    enough = pd.DataFrame({"time_days": np.r_[np.full(60, 500), np.full(40, 800)],
+                           "event": 0})
+    horizon, follow = followup_horizon(enough, entry)
+    assert follow["median_days"] == 500 and horizon == 730  # 40% reach two years
+    short = pd.DataFrame({"time_days": np.r_[np.full(70, 500), np.full(30, 800)],
                           "event": 0})
-    horizon, follow = followup_horizon(short, entry)
-    assert follow["median_days"] == 500 and horizon == 365
-    long = short.assign(time_days=900)
+    assert followup_horizon(short, entry)[0] == 365  # only 30% do
+    long = enough.assign(time_days=900)
     assert followup_horizon(long, entry)[0] == 730
 
 

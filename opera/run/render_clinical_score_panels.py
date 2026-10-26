@@ -248,20 +248,28 @@ def native_entries(specs, native):
     return entries
 
 
+FOLLOWUP_SHARE = 1 / 3  # lock amendment 2026-10-26
+
+
 def followup_horizon(held, spec):
-    """Longest prespecified horizon within the median follow-up of these patients.
+    """Longest prespecified horizon that at least a third of these patients could
+    be followed for (lock amendment 2026-10-26; IPCW handles the censoring, so
+    the criterion is precision).
 
     Uses only follow-up (reverse Kaplan-Meier on the overall-survival record),
     never outcomes; returns the horizon and the follow-up summary.
     """
-    from opera.evaluation.followup import median_followup
+    from opera.evaluation.followup import median_followup, reverse_km_quantiles
 
     summary = median_followup(held.time_days, held.event)
+    # The time by which two thirds have reached the end of their follow-up.
+    limit = reverse_km_quantiles(held.time_days, held.event,
+                                 quantiles=(1 - FOLLOWUP_SHARE,))[1 - FOLLOWUP_SHARE]
+    summary["followup_one_third_days"] = limit
     options = spec.get("horizons_days") or [spec["horizon_days"]]
-    supported = [h for h in options if np.isfinite(summary["median_days"])
-                 and h <= summary["median_days"]]
-    if not np.isfinite(summary["median_days"]):
-        supported = [max(options)]  # median follow-up not reached: the longest
+    if not np.isfinite(limit):
+        return max(options), summary  # more than a third still followed at the end
+    supported = [h for h in options if h <= limit]
     return (max(supported) if supported else min(options)), summary
 
 

@@ -83,10 +83,21 @@ domain and over all diseases, each disease weighing equally
 (\cref{fig:borrowing-map}B, D), with the same bootstrap, and set beside routing
 (routed against joint model) and borrowing as trained (routed model against the
 router trained with its own disease adapter only), and against disease size
-(\cref{fig:supp-borrowing-detail}A--B). The primary
-borrowing claim concerned \placeholder{13} pairs prespecified from clinical
-reasoning and the literature and \placeholder{three} negative controls
-(\cref{tab:borrowing-pairs}): the mean
+(\cref{fig:supp-borrowing-detail}A--B). Candidate pairs (a source disease, a
+target disease and a clinical domain) were listed from clinical reasoning and
+the literature and kept only if a single-pair estimate could be informative: at
+least 200 training patients in the source, so that its correction learned
+something to remove, and at least 50 test patients in the target, so that the
+estimate was not inconclusive by construction. Smaller diseases remain in the
+descriptive map. \placeholder{N} study haematologists rated every candidate,
+in a fixed random order and without our rationale or our expectation, as a
+strong, moderate, weak or no source of signal for the target; pairs rated strong
+or moderate were the expected pairs and pairs rated as no source the negative
+controls, all fixed before the test set was opened
+(\cref{tab:borrowing-pairs}, with the excluded candidates and the reason for
+each). The primary
+borrowing claim concerned these \placeholder{n} pairs and \placeholder{m}
+negative controls: the mean
 unshrunk source-alone gain of the pairs minus that of the typical pair (the mean
 of the other off-diagonal pairs of their clinical domains), against 10,000 random draws of the same number
 of pairs from the same domains (one-sided permutation test), and the same for

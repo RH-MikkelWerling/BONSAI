@@ -69,23 +69,24 @@ hypotheses:
     source: CLL
     domain: "Infection and antimicrobial use"
     rationale: "The same, in the other direction."
-    evidence: ["As above"]
+    evidence: ["Frontiers in Immunology 2014, doi:10.3389/fimmu.2014.00626",
+               "Frontiers in Immunology 2016, doi:10.3389/fimmu.2016.00317"]
   - target: LBL
     source: BL
     domain: "Neutrophil, white-cell and platelet findings"
     rationale: >-
       Both receive short, highly intensive regimens (CODOX-M/IVAC, hyper-CVAD,
       ALL-type protocols) with marked myelosuppression despite growth-factor
-      support. Holds whether or not the LBL cohort includes adult ALL (open
-      question for the haematologists).
-    evidence: ["Reviews of adult Burkitt lymphoma treatment (hyper-CVAD, CODOX-M/IVAC toxicity)"]
+      support.
+    # Holds whether or not the LBL cohort includes adult ALL (being confirmed).
+    evidence: ["REFERENCE NEEDED: toxicity of intensive regimens in adult Burkitt lymphoma"]
   - target: LBL
     source: BL
     domain: "Metabolic and cell-turnover markers"
     rationale: >-
       Rapid tumour turnover and intensive induction put both at risk of tumour
       lysis (potassium, phosphate, urate, creatinine).
-    evidence: ["Reviews of adult Burkitt lymphoma treatment (tumour lysis precautions)"]
+    evidence: ["REFERENCE NEEDED: tumour lysis in Burkitt and lymphoblastic lymphoma"]
   - target: TCL
     source: PTCL
     domain: "Disease course and later malignancy"
@@ -145,8 +146,8 @@ excluded_candidates:
   - {target: AMYLOIDOSIS, source: MM, domain: "Renal injury and support",
      reason: "target has 17 test patients"}
   - {target: SolM, source: ALCL, domain: "All outcomes",
-     reason: "target has 32 test patients (was a negative control)"}
+     reason: "target has 32 test patients"}
   - {target: HL, source: AMYLOIDOSIS, domain: "All outcomes",
-     reason: "source has 22 training patients (was a negative control)"}
+     reason: "source has 22 training patients"}
   - {target: HCL, source: TRANSFORMED_FL, domain: "Disease course and later malignancy",
-     reason: "HCL has no second-line outcomes and almost no deaths, so no estimable cells (was a negative control)"}
+     reason: "HCL has no second-line outcomes and almost no deaths, so no estimable cells"}

@@ -215,6 +215,13 @@ def paper_table(plan: dict) -> str:
                 f"{tex(' '.join(e.get('rationale', '').split()))} ({tex(evidence)})\\\\")
         return "\n".join(out)
 
+    def excluded(entries):
+        return "\n".join(
+            f"X{i} & {tex(disease_long_name(e['source']))} & "
+            f"{tex(disease_long_name(e['target']))} & {tex(outcome_words(e['domain']))} & "
+            f"-- & {tex(e['reason'])}\\\\"
+            for i, e in enumerate(entries, 1))
+
     margin = plan.get("margin_points")
     note = (f" Pairs were labelled against a practical margin of {margin} AUC points."
             if margin is not None else "")
@@ -234,6 +241,8 @@ rationale and to whether the pair was proposed as a hypothesis or a control.""" 
 """ + rows(plan.get("hypotheses", []), "H") + r"""
 \multicolumn{6}{@{}l}{\textit{Negative controls}}\\
 """ + rows(plan.get("negative_controls", []), "C") + r"""
+\multicolumn{6}{@{}l}{\textit{Candidates excluded before rating (estimate not informative)}}\\
+""" + excluded(plan.get("excluded_candidates", [])) + r"""
 \end{longtable}
 \endgroup
 """

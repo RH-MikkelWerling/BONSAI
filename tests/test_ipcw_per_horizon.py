@@ -69,3 +69,45 @@ def test_parallel_paired_analysis_equals_the_serial_one(monkeypatch):
     parallel = sa.paired_analysis(frame, {"d": "gain(A,B)"}, replicates=50)
     for name in ("estimates", "contrasts", "contrast_coverage"):
         pd.testing.assert_frame_equal(serial[name], parallel[name])
+
+
+def _reference_weights(frame):
+    """The former group-by-group loop, kept as the reference implementation."""
+    from opera.evaluation.secondary_analysis import _censoring_survival_before
+
+    parts = []
+    keys = ["model", "split", "seed", "cohort", "outcome", "horizon_days"]
+    for _, group in frame.groupby(keys, sort=False):
+        before = _censoring_survival_before(group.time_days.to_numpy(float),
+                                            group.event.to_numpy(int))
+        t, e, h = (group[c].to_numpy(v) for c, v in
+                   (("time_days", float), ("event", int), ("horizon_days", float)))
+        case, competing = (t <= h) & (e == 1), (t <= h) & (e == 2)
+        control = competing | (t > h) | ((t >= h) & (e == 0))
+        weight = np.zeros(len(group))
+        weight[case | competing] = 1.0 / before(t[case | competing])
+        weight[control & ~competing] = 1.0 / before(h[control & ~competing])
+        parts.append(group.assign(label=case.astype(int), ipcw_weight=weight, known=case | control))
+    return pd.concat(parts).sort_index()
+
+
+def test_vectorised_weights_equal_the_group_loop():
+    rng = np.random.default_rng(7)
+    rows = []
+    for cohort in ("CLL", "DLBCL", "MM", "HL"):
+        n = int(rng.integers(5, 80))
+        times = rng.integers(1, 900, n).astype(float)  # integer days: many ties
+        events = rng.choice([0, 1, 2], n, p=[0.6, 0.25, 0.15])
+        for model in ("A", "B", "C"):
+            frame = _rows(times, events, (30, 90, 365, 730), cut=(model == "C"))
+            frame["cohort"], frame["model"] = cohort, model
+            rows.append(frame)
+    # A group where every patient is censored at the same time (curve drops to 0).
+    rows.append(_rows(np.full(6, 50.0), np.zeros(6, int), (30, 90), cut=False).assign(
+        cohort="SolM", model="A"))
+    frame = pd.concat(rows, ignore_index=True)
+    fast = attach_ipcw_weights(frame)
+    slow = _reference_weights(frame)
+    np.testing.assert_allclose(fast.ipcw_weight.to_numpy(), slow.ipcw_weight.to_numpy(), rtol=1e-12)
+    assert (fast.label.to_numpy() == slow.label.to_numpy()).all()
+    assert (fast.known.to_numpy() == slow.known.to_numpy()).all()
