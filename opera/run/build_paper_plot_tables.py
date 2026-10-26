@@ -288,6 +288,14 @@ SUBGROUP_FIGURES = {
 }
 
 
+# Danish region codes (DST/CPR) as they appear in the national data.
+REGION_CODES = {"1081": "Nordjylland", "1082": "Midtjylland", "1083": "Syddanmark",
+                "1084": "Hovedstaden", "1085": "Sjælland"}
+# Named subgroups in reading order; anything unlisted sorts after, "Not recorded" last.
+NAMED_ORDER = ["Female", "Male", "Low", "Low-intermediate", "Intermediate",
+               "High-intermediate", "High", "Very high", *REGION_CODES.values()]
+
+
 def _number(value: float) -> str:
     return f"{int(value):,}" if float(value).is_integer() else f"{value:g}"
 
@@ -295,6 +303,8 @@ def _number(value: float) -> str:
 def subgroup_label(label: str) -> str:
     """Readable labels for pd.cut intervals: '(49.0, 64.0]' -> '50–64'."""
     text = str(label).strip()
+    if text.removesuffix(".0") in REGION_CODES:
+        return REGION_CODES[text.removesuffix(".0")]
     if not (text[:1] in "([" and text[-1:] in ")]" and "," in text):
         named = {"missing": "Not recorded", "nan": "Not recorded", "f": "Female",
                  "m": "Male", "female": "Female", "male": "Male"}
@@ -306,6 +316,19 @@ def subgroup_label(label: str) -> str:
         return f"> {_number(low)}"
     start = low + 1 if float(low).is_integer() and float(high).is_integer() else low
     return f"{_number(start)}–{_number(high)}"
+
+
+def _subgroup_sort_key(label) -> tuple:
+    """Intervals by their lower bound, named groups in NAMED_ORDER, missing last."""
+    text = str(label).strip()
+    shown = subgroup_label(text)
+    if shown == "Not recorded":
+        return (3, 0.0, "")
+    if text[:1] in "([" and text[-1:] in ")]" and "," in text:
+        return (0, float(text[1:-1].split(",")[0]), "")
+    if shown in NAMED_ORDER:
+        return (1, float(NAMED_ORDER.index(shown)), "")
+    return (2, 0.0, shown)
 
 
 def subgroup_table(panels, summaries, spec, *, seed=None, horizon=365):
@@ -323,7 +346,10 @@ def subgroup_table(panels, summaries, spec, *, seed=None, horizon=365):
         rows.append(cells.assign(covariate="support_bin", subgroup=cells.stratum_value)[
             ["covariate", "subgroup", "contrast", "gain", "lower", "upper"]])
     table = pd.concat(rows, ignore_index=True)
+    table["sort_key"] = table.subgroup.map(_subgroup_sort_key)
     table["subgroup"] = table.subgroup.map(subgroup_label)
+    table = (table.sort_values(["sort_key"], kind="stable")
+             .drop(columns="sort_key").reset_index(drop=True))
     order = {name: title for name, title in spec["covariates"].items()
              if name in set(table.covariate)}
     styles = {code: list(style) for code, style in spec["contrasts"].items()}

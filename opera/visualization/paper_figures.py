@@ -331,6 +331,16 @@ def group_matrix(ax, cells, *, contrast, order, metric="auc", horizon=365, vmax=
     return image
 
 
+def shared_gain_limit(cells, *, metric="auc", horizon=365, quantile=0.9, floor=0.02):
+    """Colour limit for gain maps: the 90th percentile of |gain|, rounded up to
+    0.01, so the scale follows the data instead of saturating most cells."""
+    gains = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon), "gain"]
+    gains = gains.abs().dropna()
+    if gains.empty:
+        return 0.06
+    return max(floor, float(np.ceil(gains.quantile(quantile) * 100) / 100))
+
+
 def figure_pooling_cells(cells, *, metric="auc", horizon=365, order="support", mark=None):
     """Supplement: the full disease-by-outcome maps behind the pooling figure.
 
@@ -345,9 +355,11 @@ def figure_pooling_cells(cells, *, metric="auc", horizon=365, order="support", m
               ("J-S", "C", "Joint vs specialist"),
               ("interaction", "D", "Interaction (both pooling axes)")]
     image = None
+    vmax = shared_gain_limit(cells.loc[cells.contrast.isin([p[0] for p in panels])],
+                             metric=metric, horizon=horizon)
     for index, (contrast, letter, title) in enumerate(panels):
         ax = fig.add_subplot(top[index // 2, index % 2])
-        image = gain_matrix(ax, cells, contrast=contrast, metric=metric,
+        image = gain_matrix(ax, cells, contrast=contrast, metric=metric, vmax=vmax,
                             horizon=horizon, show_ylabels=index % 2 == 0,
                             show_xlabels=index >= 2, order=order)
         titled = ax
@@ -1386,8 +1398,10 @@ def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S"), mar
     for index, (ax, contrast) in enumerate(zip(axes, contrasts)):
         summary = _summary_rows(data.loc[data.contrast == contrast],
                                 ["endpoint_group", "horizon_days"])
+        summary["endpoint_group"] = summary.endpoint_group.map(lambda g: SHORT_GROUP.get(g, g))
         handles = _diamond_forest(
-            ax, summary, row_key="endpoint_group", row_order=order,
+            ax, summary, row_key="endpoint_group",
+            row_order=[SHORT_GROUP.get(g, g) for g in order],
             series_key="horizon_days",
             series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
             xlabel=METRIC_LABEL[metric], show_counts=False)
@@ -1397,7 +1411,7 @@ def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S"), mar
         ax.xaxis.set_major_locator(MaxNLocator(3))
     fig.legend(handles=handles, loc="lower left", ncol=6, frameon=False, fontsize=7,
                bbox_to_anchor=(0.2, 0.0))
-    fig.subplots_adjust(left=0.27, right=0.98, top=0.86, bottom=0.22, wspace=0.14)
+    fig.subplots_adjust(left=0.16, right=0.98, top=0.86, bottom=0.22, wspace=0.14)
     watermark(fig, mark)
     return fig
 
@@ -1423,6 +1437,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
     despine(ax, "y")
     summary = _summary_rows(atlas.rename(columns={"cif_auc": "gain"}),
                             ["endpoint_group", "horizon_days"])
+    summary["endpoint_group"] = summary.endpoint_group.map(lambda g: SHORT_GROUP.get(g, g))
     order = (summary.loc[summary.horizon_days == 365].sort_values("median",
              ascending=False).endpoint_group.tolist())
     handles = _diamond_forest(
@@ -1433,7 +1448,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
     group_ax.set_xlim(0.5, 1.0)
     _panel_title(group_ax, "B", "Clinical domains")
     _legend(group_ax, handles, loc="lower right", title="Horizon")
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.12, wspace=1.0)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.12, wspace=0.62)
     watermark(fig, mark)
     return fig
 
@@ -1480,7 +1495,7 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     height = 0.115 * len(rows) + 1.7
     fig = plt.figure(figsize=(7.2, height))
     grid = fig.add_gridspec(1, 3, width_ratios=[len(columns), max(len(strip.columns), 1), 0.6],
-                            wspace=0.06, left=0.25, right=0.975,
+                            wspace=0.06, left=0.31, right=0.975,
                             top=1 - 1.15 / height, bottom=0.45 / height)
     norm = plt.Normalize(vmin, vmax)
     ax = fig.add_subplot(grid[0])
@@ -1521,7 +1536,7 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     bx = fig.add_subplot(grid[1], sharey=ax)
     bx.imshow(strip.to_numpy(float), aspect="auto", cmap=ATLAS_CMAP, norm=norm,
               interpolation="nearest")
-    bx.set_xticks(range(len(strip.columns)), [f"{d}" for d in strip.columns],
+    bx.set_xticks(range(len(strip.columns)), [f"{d:g}" for d in strip.columns],
                   fontsize=5.6, rotation=90)
     bx.xaxis.tick_top()
     bx.tick_params(length=0, labelleft=False)
@@ -2093,6 +2108,10 @@ COVERAGE_STYLE = {
 }
 
 
+SLOPE_AXIS_MAX = 3.0
+RELIABILITY_MIN_BIN = 20  # bins with fewer patients swing wildly; not drawn
+
+
 def figure_calibration(summary, reliability, examples, *, horizon=365, mark=None):
     """Calibration of the joint model against the alternatives.
 
@@ -2122,6 +2141,14 @@ def figure_calibration(summary, reliability, examples, *, horizon=365, mark=None
                                   series_key="model", series_style=CAL_MODELS,
                                   xlabel=label, show_counts=False, zero_line=False)
         ax.axvline(reference, color=PALETTE["zero_line"], lw=0.7, zorder=1)
+        if value == "calibration_slope":
+            # A few small domains have IQRs reaching slopes of 30+; cut the axis so
+            # the rows near 1 stay readable, and say so.
+            low = min(-0.2, float(rows.q25.min()) - 0.1)
+            high = min(max(2.0, float(rows.q75.max()) + 0.1), SLOPE_AXIS_MAX)
+            ax.set_xlim(low, high)
+            if rows.q75.max() > high:
+                ax.set_xlabel(label + f"\naxis cut at {high:g}")
         ax.xaxis.set_major_locator(MaxNLocator(4))
         if column:
             ax.tick_params(axis="y", labelleft=False)
@@ -2139,7 +2166,8 @@ def figure_calibration(summary, reliability, examples, *, horizon=365, mark=None
                                                  "observed_fraction"]].to_numpy())) * 1.1)
         ax.plot([0, upper], [0, upper], color=PALETTE["diagonal"], lw=0.8, ls="--")
         for model in ("X", "J"):
-            rows = part.loc[part.model == model].sort_values("probability_bin")
+            rows = part.loc[(part.model == model) & (part.n >= RELIABILITY_MIN_BIN)
+                            ].sort_values("probability_bin")
             color = CAL_MODELS[model][0]
             ax.plot(rows.predicted_weighted_mean, rows.observed_fraction, color=color,
                     lw=1.3, zorder=3)
@@ -2242,7 +2270,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
                                                "observed_fraction"]].to_numpy())) * 1.1)
         ax.plot([0, upper], [0, upper], color=PALETTE["diagonal"], lw=0.8, ls="--")
         for model in ("X", "J"):
-            rows = rel.loc[rel.model == model].sort_values("probability_bin")
+            rows = rel.loc[(rel.model == model) & (rel.n >= RELIABILITY_MIN_BIN)].sort_values("probability_bin")
             color = CAL_MODELS[model][0]
             ax.plot(rows.predicted_weighted_mean, rows.observed_fraction, color=color,
                     lw=1.3, zorder=3)
@@ -2828,8 +2856,13 @@ REGION_TILES = {"Nordjylland": (1.0, 3.0), "Midtjylland": (0.6, 2.0),
                 "Sjælland": (2.3, 0.95)}
 
 
+REGION_CODES = {"1081": "Nordjylland", "1082": "Midtjylland", "1083": "Syddanmark",
+                "1084": "Hovedstaden", "1085": "Sjælland"}
+
+
 def _region_name(name):
     text = str(name).replace("Region ", "").strip()
+    text = REGION_CODES.get(text.removesuffix(".0"), text)
     for region in REGION_TILES:
         if text.lower().startswith(region.lower()[:5]):
             return region
