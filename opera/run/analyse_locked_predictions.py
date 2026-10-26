@@ -248,6 +248,17 @@ def stage(name):
           file=sys.stderr, flush=True)
 
 
+def models_for(contrasts, extra=()):
+    """Models a set of contrasts (and any extra summaries) needs: a restricted
+    re-analysis evaluates only these, which gives the same contrasts."""
+    from opera.evaluation.secondary_analysis import contrast_coefficients
+
+    needed = set(extra)
+    for expression in contrasts.values():
+        needed |= set(contrast_coefficients(expression))
+    return needed
+
+
 def run(config, output_dir):
     """Produce reviewable tables with explicit missing-input/coverage statuses."""
     output_dir = Path(output_dir)
@@ -518,7 +529,7 @@ def run(config, output_dir):
             )
         else:
             sensitivity = paired_analysis(
-                subset,
+                subset.loc[subset.model.isin(models_for(contrasts))],
                 contrasts,
                 replicates=replicates,
                 draws=draws,
@@ -541,8 +552,10 @@ def run(config, output_dir):
             continue
         wanted = {k: v for k, v in contrasts.items() if k in spec.get("contrasts", contrasts)}
         effects, absolute = [], []
+        needed = models_for(wanted, spec.get("models", ["J_L", "X"]))
+        relevant = predictions.loc[predictions.model.isin(needed)]
         for value, ids in metadata.dropna(subset=[column]).groupby(column).subject_id:
-            subset = predictions.loc[predictions.subject_id.isin(set(ids))]
+            subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:
                 result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
                                          patient_gain_contrasts=[])
