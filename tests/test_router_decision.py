@@ -94,13 +94,17 @@ def test_routing_diagnostics_split_own_and_borrowed_weight(tmp_path):
 
     # One patient, CLL, predicting infection: 0.1 shared, 0.6 on CLL, 0.1 on MM,
     # 0.2 on its own outcome.
+    # The export names the disease group (CLL_SLL); the own disease is found by
+    # the fine index.
     pd.DataFrame([{
-        "subject_id": 1, "cohort": "CLL", "split": "tuning", "outcome": "infection",
-        "fine_index": 0, "shared_weight": 0.1,
-        "disease_weights": json.dumps({"CLL": 0.6, "MM": 0.1}),
-        "outcome_weights": json.dumps({"infection": 0.2, "sepsis": 0.0}),
+        "subject_id": 1, "cohort": "CLL_SLL", "split": "tuning", "outcome": "infection",
+        "fine_index": 1, "shared_weight": 0.1,
+        "disease_weights": json.dumps({"disease:MM": 0.1, "disease:CLL": 0.6}),
+        "outcome_weights": json.dumps({"outcome:infection": 0.2, "outcome:sepsis": 0.0}),
     }]).to_parquet(tmp_path / "routes.parquet")
-    summary = routing_diagnostics(tmp_path / "routes.parquet")["overall"]
+    result = routing_diagnostics(tmp_path / "routes.parquet")
+    assert result["top_sources"][0] == {"source": "disease:CLL", "share_of_rows": 1.0}
+    summary = result["overall"]
     assert summary["own_disease"] == 0.6 and summary["borrowed_disease"] == 0.1
     assert summary["own_outcome"] == 0.2 and summary["borrowed_outcome"] == 0.0
     entropy = -sum(w * math.log(w) for w in (0.1, 0.6, 0.1, 0.2))

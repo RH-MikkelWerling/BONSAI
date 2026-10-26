@@ -187,18 +187,28 @@ def load_tuning(row, prediction_dir, metadata, model, horizons):
 def routing_diagnostics(path):
     """Routing summary from one fit's exported route weights (one row per
     patient and outcome): overall and per disease, averaged over rows."""
+    from opera.functional.cohort_groups import fine_to_grouped
+
     routes = pd.read_parquet(path)
-    rows = []
+    rows, top_sources, mismatched = [], {}, 0
     for record in routes.itertuples(index=False):
         disease = json.loads(record.disease_weights)
         outcome = json.loads(record.outcome_weights)
         weights = np.array([record.shared_weight, *disease.values(), *outcome.values()])
         positive = weights[weights > 0]
         entropy = float(-(positive * np.log(positive)).sum())
-        own_disease = sum(w for k, w in disease.items() if _same(k, record.cohort))
+        # The export's cohort is the disease group (CLL_SLL); the patient's own
+        # disease source is the one at its fine index (sources follow fine_names).
+        own_name = list(disease)[record.fine_index]
+        fine = own_name.split(":")[-1]
+        mismatched += fine_to_grouped(fine) not in (record.cohort, fine)
+        own_disease = disease[own_name]
         own_outcome = sum(w for k, w in outcome.items() if _same(k, record.outcome))
+        names = ["shared", *disease, *outcome]
+        top = names[int(weights.argmax())]
+        top_sources[top] = top_sources.get(top, 0) + 1
         rows.append({
-            "cohort": record.cohort,
+            "cohort": fine,
             "entropy": entropy,
             "effective_sources": math.exp(entropy),
             "shared": record.shared_weight,
@@ -210,9 +220,14 @@ def routing_diagnostics(path):
         })
     table = pd.DataFrame(rows)
     columns = [c for c in table if c != "cohort"]
+    if mismatched:
+        raise ValueError(f"{mismatched} route rows: fine index does not match the disease group")
+    common = sorted(top_sources.items(), key=lambda item: -item[1])[:5]
     return {
         "rows": len(table),
         "overall": table[columns].mean().round(4).to_dict(),
+        "top_sources": [{"source": name, "share_of_rows": round(n / len(table), 4)}
+                        for name, n in common],
         "by_disease": table.groupby("cohort")[columns].mean().round(4)
         .reset_index().to_dict("records"),
     }
