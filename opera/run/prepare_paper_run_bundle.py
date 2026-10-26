@@ -72,7 +72,7 @@ def router_config(shared, reference, *, source_mode, rank, query_mode, query_wid
 
 
 ROUTER_EPSILON = 1e-10  # Adam epsilon for every router parameter (see router_config)
-SENSITIVITY_SHARED_LOGIT = 3.0  # control_RSI: shared slot starts with most weight
+SENSITIVITY_SHARED_LOGIT = 3.0  # control_RSI: the shared slot starts with a larger share (~15-18% of 94 sources vs ~1%)
 
 ROUTER_CONTROLS = {
     # alias: (source bank, borrowing, disease embedding)

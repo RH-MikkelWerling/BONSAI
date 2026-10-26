@@ -92,6 +92,19 @@ def export_flags(aliases, args):
     }
 
 
+EXPORT_KEYS = ("export_embeddings", "export_routes")
+
+
+def adds_exports_only(saved, signature):
+    """True when ``signature`` differs from ``saved`` only by switching export
+    flags on (never off, never any scientific input)."""
+    same_inputs = ({k: v for k, v in saved.items() if k not in EXPORT_KEYS}
+                   == {k: v for k, v in signature.items() if k not in EXPORT_KEYS})
+    gained = [k for k in EXPORT_KEYS if signature.get(k) and not saved.get(k)]
+    lost = [k for k in EXPORT_KEYS if saved.get(k) and not signature.get(k)]
+    return same_inputs and bool(gained) and not lost
+
+
 def evaluation_command(path, checkpoint, output, args, flags=None):
     command = [
         sys.executable,
@@ -177,9 +190,16 @@ def evaluate_row(row, path, config, args, aliases=(), borrowing_design=False):
            else {"borrowing_design": "drop_source_term_v1"}),
     }
     output.mkdir(parents=True, exist_ok=True)
+    intent = output / "evaluation_intent.json"
+    if intent.exists() and adds_exports_only(json.loads(intent.read_text()), signature):
+        # A screening candidate that became a locked paper model: same
+        # checkpoint, config, split and horizons, but it now also needs its
+        # routes/embeddings. Keep the old evaluation beside it and redo it.
+        output.rename(output.with_name(f"{output.name}.superseded_without_exports"))
+        output.mkdir(parents=True)
+        result["superseded"] = True
     with (output / ".evaluation.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        intent = output / "evaluation_intent.json"
         if intent.exists() and json.loads(intent.read_text()) != signature:
             raise ValueError(
                 f"Evaluation inputs changed; use a fresh prediction root: {output}"

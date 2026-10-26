@@ -362,12 +362,20 @@ borrows nothing. The own-disease router and the own-outcome router are routed
 models whose router may use only the patient's own disease adapter, or only the
 target outcome's own adapter, so they add the adapters' capacity without
 borrowing. All controls are trained with the same protocol as the routed
-model. On the tuning set the locked router kept almost no weight on the slot
-that applies no adapter and spread the rest nearly evenly over the diseases
-(\placeholder{route entropy 3.18 of a possible 3.30}); a sensitivity fit, added
-before stage two, starts that slot with most of the weight (logit 3.0, the
-code's default, against 0) and is otherwise identical, to test whether a router
-that starts from the shared representation borrows more selectively. Route weights describe how the model allocates corrections and are not
+model. A fourth control keeps the selected source banks but lets each patient
+use only their own disease's and own outcome's adapter, so the difference from
+the routed model is the borrowing of the routed model itself. A sensitivity fit,
+added before stage two, starts the slot that applies no adapter with a larger
+share of the routing weight (logit 3.0, the code's default, against 0; about
+15--18\% rather than 1\% with 94 sources) and is otherwise identical, to test
+whether the starting point changes how selectively the router borrows. A rule
+fixed before either fit finished decided between them
+(Supplementary Methods, prespecification): the routed model stays primary unless the
+sensitivity fit is better on the tuning panel by more than the noise floor in
+AUC, passes the IPA guard and stays better in a second seed of each; the other
+is reported as the sensitivity analysis. Route entropy, the effective number of
+sources and the share of weight on a patient's own adapters are reported for
+both (\placeholder{values}). Route weights describe how the model allocates corrections and are not
 interpreted as relationships between diseases; what each source contributes is
 measured by removing it (Supplementary Methods, borrowing map).
 

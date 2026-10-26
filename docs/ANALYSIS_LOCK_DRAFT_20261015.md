@@ -218,12 +218,42 @@ cutoffs `risk_matched_low` on tuning data; top 5%/10% observed risk reported.
 
 ## Router sensitivity fit (added 2026-10-22, before stage 2)
 - control_RSI (alias RSI_L): the locked router configuration with
-  `adapter_shared_logit_init` = 3.0 (code default; the locked runs use 0.0),
+  `adapter_shared_logit_init` = 3.0 (code default; the locked runs use 0.0;
+  about 15-18% starting weight on the shared slot with 94 sources, not most of it),
   otherwise identical; one fit, stage 2, router_controls phase. Contrast RS1 =
   gain(RSI_L, R_L), descriptive; route entropy and shared weight reported for
   both. Motivation: tuning route entropy 3.18 of max ln 27 = 3.30 and shared
   weight 0.05, i.e. near-uniform routing. Decided after seeing these tuning
   diagnostics and before any test-set result.
+
+## Router optimizer fix and rerun of the screens (2026-10-23)
+- The routing parameters (keys, queries, query interaction, shared logit) were
+  trained with Adam epsilon 1e-6, which damped their updates (gradients mostly
+  below epsilon; router_fit_audit). Every router parameter now uses epsilon
+  1e-10 (`adapter_epsilon_scope: router`); source, rank and query screens were
+  rerun from scratch before the router was locked and before any test result.
+- The rerun chain selected: source bank both, rank 8, interacting query width
+  512 (router_decisions.json, router_lock.json). The earlier damped chain
+  (disease_only, rank 8, additive) is archived and not reported as a result.
+- Added RBH (both banks, own adapters only, no borrowing) and contrast
+  C6 = gain(R_L, RBH_L): the borrowing of the locked router itself.
+
+## Initialisation rule (added 2026-10-25, before the stage-2 fits finished and before any test data were opened)
+Seen at the time: training-time validation metrics of the unfinished RSI fit
+(shared slot starting at logit 3.0, about 15-18% of the routing weight with 94
+sources, against about 1% at logit 0) showing sharp routing (route entropy 4.17
+to 0.39, shared weight to ~0) and a lower validation loss than R mid-training.
+No tuning-panel AUC/IPA for R or RSI and no test results had been seen.
+1. R_L (shared logit 0) stays the primary model unless RSI_L beats it on the
+   tuning panel (router-decision weighting) by more than the noise floor in AUC
+   and passes the IPA guard.
+2. If so, one further seed of each (R and RSI) is trained; the shared-slot
+   start of 3.0 becomes primary only if its advantage exceeds the noise floor
+   in both seeds. Otherwise R stays primary.
+3. The model not chosen is reported as the sensitivity analysis (RS1).
+4. Whichever is primary, routing selectivity is reported for both: route
+   entropy, effective number of sources (exp entropy), shared weight, and the
+   share of weight on own versus borrowed sources (route export on tuning).
 
 ## Decision curves (added 2026-10-23)
 - Action: closer monitoring and supportive care for patients above the

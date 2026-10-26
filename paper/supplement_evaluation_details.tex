@@ -25,6 +25,14 @@ The router rule was revised once, on 21 October 2026, after rough source-screen
 estimates had been seen and before the test set was opened; all four source
 banks are compared on the test set, and the rank, query and \opera{} results had
 not been seen.
+The router screens were then rerun from scratch after an audit showed that the
+optimiser's numerical constant (Adam's epsilon, $10^{-6}$) damped the updates of
+the routing parameters, whose gradients were mostly smaller; every routing
+parameter was retrained with $10^{-10}$ before the router was locked and before
+the test set was opened, and the earlier screens are not reported as results.
+The rule for the sensitivity fit's starting point (Supplementary Methods, model details) was added on
+25 October 2026, from training-time diagnostics of unfinished fits, before
+their tuning-panel results or any test result had been seen.
 
 \operasubsection{Weighting of summaries}
 Summaries over cells weigh them in one of three ways, each fixed before testing.

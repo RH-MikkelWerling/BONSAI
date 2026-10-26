@@ -48,9 +48,13 @@ DEFAULT_PANEL_ESTIMATE_GROUPS = {
 
 def read_table(path):
     path = Path(path)
+    # Sniff the format: some tables (patient metadata) are parquet whatever
+    # the configured file name says.
+    with path.open("rb") as handle:
+        is_parquet = handle.read(4) == b"PAR1"
     return (
         pd.read_parquet(path)
-        if path.suffix in {".parquet", ".pq"}
+        if is_parquet or path.suffix in {".parquet", ".pq"}
         else pd.read_csv(path, dtype={"subject_id": str})
     )
 
