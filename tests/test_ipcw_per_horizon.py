@@ -26,3 +26,23 @@ def test_cutting_follow_up_at_the_horizon_leaves_the_weights_unchanged():
     cut = attach_ipcw_weights(_rows(times, events, horizons, cut=True))
     np.testing.assert_allclose(full.ipcw_weight.to_numpy(), cut.ipcw_weight.to_numpy())
     assert (full.label.to_numpy() == cut.label.to_numpy()).all()
+
+
+def test_models_with_cut_and_whole_follow_up_align_in_a_cell():
+    from opera.evaluation.secondary_analysis import align_models
+
+    rng = np.random.default_rng(1)
+    times = rng.uniform(1, 900, 200).round()
+    events = rng.choice([0, 1, 2], 200)
+    whole = attach_ipcw_weights(_rows(times, events, (365,), cut=False)).assign(data_contract="c")
+    cut = attach_ipcw_weights(_rows(times, events, (365,), cut=True)).assign(data_contract="c")
+    aligned = align_models({"neural": whole, "tabular": cut})
+    assert set(aligned) == {"neural", "tabular"}
+
+    # A real disagreement (an event moved inside the horizon) still fails.
+    broken = cut.copy()
+    first = broken.index[(broken.time_days < 300) & (broken.event == 0)][0]
+    broken.loc[first, "event"] = 2
+    import pytest
+    with pytest.raises(ValueError):
+        align_models({"neural": whole, "tabular": broken})

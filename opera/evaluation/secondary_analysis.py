@@ -245,20 +245,28 @@ def align_models(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
                     )
         reference = frame if reference is None else reference
         result[name] = frame
-    for column in ("time_days", "event"):
-        available = [
-            group
-            for group in result.values()
-            if column in group and group[column].notna().all()
-        ]
-        if available and any(
-            not np.array_equal(
-                group[column].to_numpy(), available[0][column].to_numpy()
-            )
-            for group in available[1:]
-        ):
+    # Follow-up must agree as seen at the cell's horizon: tabular tables are
+    # fitted per horizon with follow-up cut there, neural tables keep it whole.
+    seen = [
+        _follow_up_at_horizon(group)
+        for group in result.values()
+        if {"time_days", "event"} <= set(group)
+        and group[["time_days", "event"]].notna().all().all()
+    ]
+    for index, column in enumerate(("time_days", "event")):
+        if seen and any(not np.array_equal(other[index], seen[0][index]) for other in seen[1:]):
             raise ValueError(f"Follow-up parity failed: {column}")
     return result
+
+
+def _follow_up_at_horizon(frame):
+    """(time, event) censored at the horizon: time cut at h, events after h as 0."""
+    time = frame.time_days.to_numpy(float)
+    event = frame.event.to_numpy(int)
+    if "horizon_days" not in frame:
+        return time, event
+    horizon = frame.horizon_days.to_numpy(float)
+    return np.minimum(time, horizon), np.where(time > horizon, 0, event)
 
 
 def metric_values(labels, probabilities, weights=None, ipcw=None):
