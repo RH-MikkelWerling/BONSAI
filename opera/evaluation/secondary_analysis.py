@@ -1092,33 +1092,51 @@ def _subgroup_labels(gains, metadata, specifications):
         yield column, labelled
 
 
+_GAIN_METRICS = ("brier_gain", "log_loss_gain")
+
+
+def _subgroup_cell_sums(enriched):
+    """The patient gains of each cell and contrast (all subgroups together)."""
+    yield from enriched.groupby([*CELL, "contrast"], sort=True)
+
+
 def subgroup_patient_gains(gains, metadata, specifications, *, draws):
-    """Pre-index, prespecified subgroup loss means with joint patient bootstrap."""
-    rows = []
+    """Pre-index, prespecified subgroup loss means with joint patient bootstrap.
+
+    Vectorised over subgroups: one weight matrix per cell and contrast, summed
+    over all subgroups with an indicator matrix. Same rows, in the same order,
+    as computing every subgroup separately.
+    """
+    rows, samples = [], []
     for column, enriched in _subgroup_labels(gains, metadata, specifications):
-        for key, group in enriched.groupby([*CELL, "contrast", "subgroup"]):
-            identity = dict(zip([*CELL, "contrast", "subgroup"], key))
+        for key, group in _subgroup_cell_sums(enriched):
             mapping, counts = draws[key[:3]]
-            weights = counts[:, [mapping[sid] for sid in group.subject_id]]
-            denominators = weights.sum(axis=1)
-            for metric in ("brier_gain", "log_loss_gain"):
-                samples = np.divide(
-                    weights @ group[metric].to_numpy(),
-                    denominators,
-                    out=np.full(len(weights), np.nan),
-                    where=denominators > 0,
-                )
-                rows.append(
-                    {
-                        **identity,
+            weights = counts[:, [mapping[sid] for sid in group.subject_id]].astype(float)
+            codes, labels = pd.factorize(group.subgroup, sort=True)
+            indicator = np.zeros((len(group), len(labels)))
+            indicator[np.arange(len(group)), codes] = 1.0
+            denominators = weights @ indicator
+            sizes = indicator.sum(axis=0)
+            for s, label in enumerate(labels):
+                members = codes == s
+                n_subjects = group.subject_id.to_numpy()[members]
+                for metric in _GAIN_METRICS:
+                    values = group[metric].to_numpy(float)
+                    numerator = weights @ (indicator[:, s] * values)
+                    sample = np.divide(numerator, denominators[:, s],
+                                       out=np.full(len(weights), np.nan),
+                                       where=denominators[:, s] > 0)
+                    rows.append({
+                        **dict(zip([*CELL, "contrast", "subgroup"], (*key, label))),
                         "covariate": column,
                         "metric": metric,
-                        "gain": group[metric].mean(),
-                        "n_subjects": group.subject_id.nunique(),
-                        **_interval(samples),
-                    }
-                )
-    return pd.DataFrame(rows)
+                        "gain": values[members].mean() if sizes[s] else np.nan,
+                        "n_subjects": len(pd.unique(n_subjects)),
+                    })
+                    samples.append(sample)
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat([pd.DataFrame(rows), _intervals(samples)], axis=1)
 
 
 def panel_subgroup_gains(gains, metadata, specifications, *, draws):
@@ -1127,37 +1145,52 @@ def panel_subgroup_gains(gains, metadata, specifications, *, draws):
     Each patient contributes once per cell in which they are evaluated, so the
     estimate is the patient-weighted mean gain across the panel. Intervals use
     the shared within-disease patient resamples, so a patient appearing in
-    several cells is resampled jointly across them.
+    several cells is resampled jointly across them. Vectorised over subgroups
+    (one weight matrix per cell and contrast); same rows as the per-subgroup loop.
     """
     keys = ["split", "seed", "horizon_days", "contrast", "subgroup"]
-    rows = []
+    rows, samples = [], []
     for column, enriched in _subgroup_labels(gains, metadata, specifications):
-        for key, panel in enriched.groupby(keys):
-            totals = {metric: 0.0 for metric in ("brier_gain", "log_loss_gain")}
-            denominator = 0.0
-            for cell_key, group in panel.groupby(CELL):
-                mapping, counts = draws[cell_key[:3]]
-                weights = counts[:, [mapping[sid] for sid in group.subject_id]]
-                denominator = denominator + weights.sum(axis=1)
-                for metric in totals:
-                    totals[metric] = totals[metric] + weights @ group[metric].to_numpy()
-            for metric, numerator in totals.items():
-                samples = np.divide(
-                    numerator, denominator,
-                    out=np.full(len(np.atleast_1d(denominator)), np.nan),
-                    where=np.atleast_1d(denominator) > 0,
-                )
+        totals = {}
+        for key, group in _subgroup_cell_sums(enriched):
+            mapping, counts = draws[key[:3]]
+            weights = counts[:, [mapping[sid] for sid in group.subject_id]].astype(float)
+            codes, labels = pd.factorize(group.subgroup, sort=True)
+            indicator = np.zeros((len(group), len(labels)))
+            indicator[np.arange(len(group)), codes] = 1.0
+            denominators = weights @ indicator
+            numerators = {m: weights @ (indicator * group[m].to_numpy(float)[:, None])
+                          for m in _GAIN_METRICS}
+            split, seed, _, _, horizon, contrast = key
+            for s, label in enumerate(labels):
+                panel_key = (split, seed, horizon, contrast, label)
+                entry = totals.setdefault(panel_key, {"denominator": 0.0,
+                                                      **{m: 0.0 for m in _GAIN_METRICS}})
+                entry["denominator"] = entry["denominator"] + denominators[:, s]
+                for m in _GAIN_METRICS:
+                    entry[m] = entry[m] + numerators[m][:, s]
+        summary = enriched.groupby(keys).agg(
+            n_subjects=("subject_id", "nunique"), n_patient_cells=("subject_id", "size"),
+            **{f"mean_{m}": (m, "mean") for m in _GAIN_METRICS})
+        for panel_key in sorted(totals):
+            entry, info = totals[panel_key], summary.loc[panel_key]
+            denominator = np.atleast_1d(entry["denominator"])
+            for metric in _GAIN_METRICS:
                 rows.append({
-                    **dict(zip(keys, key)),
+                    **dict(zip(keys, panel_key)),
                     "covariate": column,
                     "metric": metric,
-                    "gain": panel[metric].mean(),
-                    "n_subjects": panel.subject_id.nunique(),
-                    "n_patient_cells": len(panel),
+                    "gain": info[f"mean_{metric}"],
+                    "n_subjects": int(info.n_subjects),
+                    "n_patient_cells": int(info.n_patient_cells),
                     "aggregation": "patient_weighted_across_cells",
-                    **_interval(samples),
                 })
-    return pd.DataFrame(rows)
+                samples.append(np.divide(entry[metric], denominator,
+                                         out=np.full(len(denominator), np.nan),
+                                         where=denominator > 0))
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat([pd.DataFrame(rows), _intervals(samples)], axis=1)
 
 
 def reliability_tables(frame, bins=10):

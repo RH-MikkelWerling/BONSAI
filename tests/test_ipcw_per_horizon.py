@@ -175,3 +175,116 @@ def test_parallel_calibration_summary_equals_serial(monkeypatch):
     monkeypatch.setenv("OPERA_ANALYSIS_WORKERS", "3")
     parallel = sa.calibration_summary(frame)
     pd.testing.assert_frame_equal(serial, parallel)
+
+
+# The former per-subgroup loops, kept as reference implementations.
+from opera.evaluation.secondary_analysis import CELL, _interval, _subgroup_labels  # noqa: E402
+
+def _ref_subgroup_patient_gains(gains, metadata, specifications, *, draws):
+    """Pre-index, prespecified subgroup loss means with joint patient bootstrap."""
+    rows = []
+    for column, enriched in _subgroup_labels(gains, metadata, specifications):
+        for key, group in enriched.groupby([*CELL, "contrast", "subgroup"]):
+            identity = dict(zip([*CELL, "contrast", "subgroup"], key))
+            mapping, counts = draws[key[:3]]
+            weights = counts[:, [mapping[sid] for sid in group.subject_id]]
+            denominators = weights.sum(axis=1)
+            for metric in ("brier_gain", "log_loss_gain"):
+                samples = np.divide(
+                    weights @ group[metric].to_numpy(),
+                    denominators,
+                    out=np.full(len(weights), np.nan),
+                    where=denominators > 0,
+                )
+                rows.append(
+                    {
+                        **identity,
+                        "covariate": column,
+                        "metric": metric,
+                        "gain": group[metric].mean(),
+                        "n_subjects": group.subject_id.nunique(),
+                        **_interval(samples),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _ref_panel_subgroup_gains(gains, metadata, specifications, *, draws):
+    """Subgroup loss gains pooled over every cell at a horizon.
+
+    Each patient contributes once per cell in which they are evaluated, so the
+    estimate is the patient-weighted mean gain across the panel. Intervals use
+    the shared within-disease patient resamples, so a patient appearing in
+    several cells is resampled jointly across them.
+    """
+    keys = ["split", "seed", "horizon_days", "contrast", "subgroup"]
+    rows = []
+    for column, enriched in _subgroup_labels(gains, metadata, specifications):
+        for key, panel in enriched.groupby(keys):
+            totals = {metric: 0.0 for metric in ("brier_gain", "log_loss_gain")}
+            denominator = 0.0
+            for cell_key, group in panel.groupby(CELL):
+                mapping, counts = draws[cell_key[:3]]
+                weights = counts[:, [mapping[sid] for sid in group.subject_id]]
+                denominator = denominator + weights.sum(axis=1)
+                for metric in totals:
+                    totals[metric] = totals[metric] + weights @ group[metric].to_numpy()
+            for metric, numerator in totals.items():
+                samples = np.divide(
+                    numerator, denominator,
+                    out=np.full(len(np.atleast_1d(denominator)), np.nan),
+                    where=np.atleast_1d(denominator) > 0,
+                )
+                rows.append({
+                    **dict(zip(keys, key)),
+                    "covariate": column,
+                    "metric": metric,
+                    "gain": panel[metric].mean(),
+                    "n_subjects": panel.subject_id.nunique(),
+                    "n_patient_cells": len(panel),
+                    "aggregation": "patient_weighted_across_cells",
+                    **_interval(samples),
+                })
+    return pd.DataFrame(rows)
+
+
+
+
+def _gains_fixture():
+    rng = np.random.default_rng(13)
+    rows, meta = [], []
+    for cohort in ("CLL", "MM"):
+        ids = [f"{cohort}{i}" for i in range(60)]
+        meta += [{"subject_id": s, "age_at_index": float(rng.integers(30, 90)),
+                  "sex": rng.choice(["F", "M"])} for s in ids]
+        for outcome in ("os", "inf"):
+            for horizon in (365, 730):
+                for contrast in ("P5", "T2"):
+                    for s in ids[: int(rng.integers(30, 60))]:
+                        rows.append({"split": "tuning", "seed": 42, "cohort": cohort,
+                                     "outcome": outcome, "horizon_days": horizon,
+                                     "contrast": contrast, "subject_id": s,
+                                     "brier_gain": rng.normal(0, 0.01),
+                                     "log_loss_gain": rng.normal(0, 0.05)})
+    gains, metadata = pd.DataFrame(rows), pd.DataFrame(meta)
+    draws = {}
+    for cohort in ("CLL", "MM"):
+        ids = [f"{cohort}{i}" for i in range(60)]
+        draws[("tuning", 42, cohort)] = (dict(zip(ids, range(60))),
+                                         rng.multinomial(60, np.full(60, 1 / 60), size=200))
+    specs = {"age_at_index": {"provenance": "pre_index", "bins": [0, 50, 65, 80, np.inf]},
+             "sex": {"provenance": "pre_index"}}
+    return gains, metadata, specs, draws
+
+
+def test_vectorised_subgroup_gains_equal_the_loops():
+    from opera.evaluation.secondary_analysis import panel_subgroup_gains, subgroup_patient_gains
+
+    gains, metadata, specs, draws = _gains_fixture()
+    for fast_fn, slow_fn in ((subgroup_patient_gains, _ref_subgroup_patient_gains),
+                             (panel_subgroup_gains, _ref_panel_subgroup_gains)):
+        fast = fast_fn(gains, metadata, specs, draws=draws)
+        slow = slow_fn(gains, metadata, specs, draws=draws)
+        pd.testing.assert_frame_equal(fast.reset_index(drop=True),
+                                      slow[fast.columns].reset_index(drop=True),
+                                      check_dtype=False, rtol=1e-10)
