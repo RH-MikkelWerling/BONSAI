@@ -54,11 +54,16 @@ def attach_ipcw_weights(frame):
     """Full-risk-set CIF labels and IPCW weights per model/seed/disease/outcome."""
     if not {"time_days", "event"} <= set(frame) or frame[["time_days", "event"]].isna().any().any():
         raise ValueError("cif_ipcw requires follow-up time_days and event for every model and row")
+    # Per horizon as well: tabular tables are fitted per horizon, with follow-up
+    # cut at that horizon. Cutting at h leaves the Kaplan-Meier censoring curve
+    # before h unchanged (the extra censorings enter at h itself), so the weights
+    # equal those from full follow-up, for neural and tabular rows alike.
     parts = []
-    for _, group in frame.groupby(["model", "split", "seed", "cohort", "outcome"], sort=False):
+    keys = ["model", "split", "seed", "cohort", "outcome", "horizon_days"]
+    for _, group in frame.groupby(keys, sort=False):
         patients = group.drop_duplicates("subject_id")
-        if (group.groupby("subject_id")[["time_days", "event"]].nunique() > 1).any().any():
-            raise ValueError("A patient's follow-up must not vary across horizons")
+        if len(patients) != len(group):
+            raise ValueError("A patient appears twice in one model, cell and horizon")
         before = _censoring_survival_before(
             patients.time_days.to_numpy(float), patients.event.to_numpy(int)
         )
