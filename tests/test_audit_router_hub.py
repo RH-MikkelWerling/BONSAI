@@ -21,7 +21,8 @@ def test_the_hub_and_its_lookalikes_are_found(tmp_path):
     pred = tmp_path / "tuning"
     pred.mkdir()
     np.savez(pred / "patient_embeddings.npz", embeddings=np.random.default_rng(0).normal(size=(50, 4)))
-    pd.DataFrame([{"disease_weights": json.dumps({"disease:A": 0.05}),
+    pd.DataFrame([{"fine_index": 0, "outcome": "inf",
+                   "disease_weights": json.dumps({"disease:A": 0.05}),
                    "outcome_weights": json.dumps({"outcome:os": 0.9, "outcome:alb": 0.05})}] * 10
                  ).to_parquet(pred / "source_route_weights.parquet")
     out = tmp_path / "hub.json"
@@ -31,3 +32,6 @@ def test_the_hub_and_its_lookalikes_are_found(tmp_path):
     report = json.loads(out.read_text())
     assert report["hub"]["source"] == "outcome:os"
     assert report["most_like_hub"][0] == {"source": "outcome:alb", "mean_cosine": 1.0}
+    # Disease A borrows from the two outcome sources only (its own disease is excluded).
+    top = dict(report["borrowing"]["top_borrowed_by_target"]["A"])
+    assert top["outcome:os"] > 0.9 and top.get("disease:A", 0.0) == 0.0

@@ -90,6 +90,31 @@ def main():
     pairwise = torch.einsum("bsh,bth->st", unit, unit).numpy() / len(patients)
     upper = pairwise[np.triu_indices(len(names), k=1)]
 
+    # Who borrows from whom: per target disease, the contribution (route weight x
+    # the source's mean correction size) of every source other than the patient's
+    # own disease and own outcome, as shares of the borrowed total.
+    profiles = {}
+    for row in routes.itertuples(index=False):
+        weights_row = {**json.loads(row.disease_weights), **json.loads(row.outcome_weights)}
+        own = {list(json.loads(row.disease_weights))[row.fine_index]}
+        own |= {n for n in weights_row if n.split(":")[-1] == str(row.outcome)}
+        target = list(json.loads(row.disease_weights))[row.fine_index].split(":")[-1]
+        vector = np.array([0.0 if n in own else weights_row[n] for n in names]) * size
+        profiles[target] = profiles.get(target, 0) + vector
+    shares = {t: v / v.sum() for t, v in profiles.items() if v.sum() > 0}
+    targets = sorted(shares)
+    matrix = np.array([shares[t] for t in targets])
+    similarity = np.corrcoef(matrix) if len(targets) > 1 else np.ones((1, 1))
+    off_diagonal = similarity[np.triu_indices(len(targets), k=1)]
+    borrowing = {
+        "profile_similarity_between_diseases": {
+            "median": round(float(np.median(off_diagonal)), 3) if len(off_diagonal) else None,
+            "min": round(float(off_diagonal.min()), 3) if len(off_diagonal) else None},
+        "top_borrowed_by_target": {
+            t: [(names[i], round(float(shares[t][i]), 3)) for i in np.argsort(-shares[t])[:3]]
+            for t in targets},
+    }
+
     order = np.argsort(-contribution)
     similar = [i for i in np.argsort(-to_hub) if i != hub][:10]
     report = {
@@ -109,6 +134,7 @@ def main():
                             for q, p in (("p10", 0.1), ("median", 0.5), ("p90", 0.9))},
         "correction_size_quantiles": {q: round(float(np.quantile(size, p)), 4)
                                       for q, p in (("p10", 0.1), ("median", 0.5), ("p90", 0.9))},
+        "borrowing": borrowing,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")

@@ -325,6 +325,14 @@ def router_fix_rule(args, metadata):
     summary = {name: {metric: panel(tables["contrasts"], tables["bootstrap_draws"], name, metric)
                       for metric in ("auc", "ipa")} for name in contrasts}
     noise = abs(summary["seed_noise"]["auc"]["gain"])
+    by_disease = {}
+    for name in ("R_AB_L_vs_RBH_AB_L", "R_AB_L_vs_N_A_L", "RBH_AB_L_vs_N_A_L",
+                 "R_AB_L_vs_R_L", "N_A_L_vs_J_L"):
+        cells, draws = tables["contrasts"], tables["bootstrap_draws"]
+        by_disease[name] = {
+            cohort: {k: panel(cells.loc[cells.cohort == cohort], draws.loc[draws.cohort == cohort],
+                              name, "auc")[k] for k in ("gain", "lower", "upper", "n_cells")}
+            for cohort in sorted(cells.cohort.unique())}
 
     health = {}
     for name in ("R_L", "R_A_L", "R_AB_L", "R_ABT_L", "R_AB_s43_L"):
@@ -348,7 +356,7 @@ def router_fix_rule(args, metadata):
         choice, primary = None, "R_L"
     return wanted, {"seed_noise_auc": noise, "health": health, "candidates": candidates,
                     "eligible": eligible, "chosen_fix": choice, "primary": primary,
-                    "contrasts": summary}
+                    "contrasts": summary, "by_disease_auc": by_disease}
 
 
 def _same(source_name, target):
