@@ -288,3 +288,45 @@ def test_vectorised_subgroup_gains_equal_the_loops():
         pd.testing.assert_frame_equal(fast.reset_index(drop=True),
                                       slow[fast.columns].reset_index(drop=True),
                                       check_dtype=False, rtol=1e-10)
+
+
+def _reference_coverage(frame, roster):
+    required = {"model", "seed", "cohort", "outcome", "horizon_days", "status"}
+    if "split" in roster:
+        required.add("split")
+    rows = []
+    for record in roster.to_dict("records"):
+        subset = frame.loc[frame.split == record.get("split", "held_out")]
+        for column in required - {"status"}:
+            subset = subset.loc[subset[column] == record[column]]
+        cases = int(subset.label.sum())
+        rows.append({**record, "n_known_predictions": len(subset), "n_cases": cases,
+                     "n_controls": len(subset) - cases,
+                     "prediction_status": "absent" if subset.empty else
+                     "single_class" if cases in (0, len(subset)) else "two_class",
+                     "auc_estimable": cases > 0 and cases < len(subset)})
+    return pd.DataFrame(rows)
+
+
+def test_vectorised_coverage_equals_the_loop():
+    from opera.evaluation.secondary_analysis import coverage_inventory
+
+    rng = np.random.default_rng(2)
+    frame = pd.DataFrame({"model": rng.choice(["J_L", "X"], 3000), "seed": 42,
+                          "split": rng.choice(["tuning", "held_out"], 3000),
+                          "cohort": rng.choice(["CLL", "MM"], 3000),
+                          "outcome": rng.choice(["os", "inf"], 3000),
+                          "horizon_days": rng.choice([365.0, 730.0], 3000),
+                          "label": rng.integers(0, 2, 3000)})
+    frame.loc[(frame.cohort == "MM") & (frame.outcome == "inf"), "label"] = 0  # single class
+    roster = pd.DataFrame([{"model": m, "seed": 42, "split": sp, "cohort": c, "outcome": o,
+                            "horizon_days": h, "status": "prediction_available"}
+                           for m in ("J_L", "X", "S_L") for sp in ("tuning", "held_out")
+                           for c in ("CLL", "MM") for o in ("os", "inf") for h in (365, 730)])
+    fast = coverage_inventory(frame, roster)
+    slow = _reference_coverage(frame, roster)
+    pd.testing.assert_frame_equal(fast, slow, check_dtype=False)
+    no_split = roster.drop(columns="split").drop_duplicates()
+    pd.testing.assert_frame_equal(coverage_inventory(frame, no_split).reset_index(drop=True),
+                                  _reference_coverage(frame, no_split).reset_index(drop=True),
+                                  check_dtype=False)

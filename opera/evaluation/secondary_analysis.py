@@ -1394,27 +1394,33 @@ def coverage_inventory(frame, roster):
         required.add("split")
     if required - set(roster) or roster.duplicated(list(required - {"status"})).any():
         raise ValueError("Coverage roster requires unique model/seed/task and status")
-    rows = []
-    for record in roster.to_dict("records"):
-        subset = frame.loc[frame.split == record.get("split", "held_out")]
-        for column in required - {"status"}:
-            subset = subset.loc[subset[column] == record[column]]
-        cases = int(subset.label.sum())
-        rows.append(
-            {
-                **record,
-                "n_known_predictions": len(subset),
-                "n_cases": cases,
-                "n_controls": len(subset) - cases,
-                "prediction_status": "absent"
-                if subset.empty
-                else "single_class"
-                if cases in (0, len(subset))
-                else "two_class",
-                "auc_estimable": cases > 0 and cases < len(subset),
-            }
-        )
-    return pd.DataFrame(rows)
+    # One aggregation per model and cell, merged onto the roster (filtering the
+    # whole prediction table once per roster row is quadratic).
+    keys = sorted(required - {"status"})
+    if "split" not in roster:
+        frame = frame.loc[frame.split == "held_out"]
+    numeric = {"seed", "horizon_days"}
+
+    def keyed(table):
+        table = table.copy()
+        for key in keys:
+            table[key] = (pd.to_numeric(table[key]).astype(float) if key in numeric
+                          else table[key].astype(str))
+        return table
+
+    counts = (keyed(frame[[*keys, "label"]]).groupby(keys, sort=False)
+              .label.agg(n_known_predictions="size", n_cases="sum").reset_index())
+    merged = keyed(roster[keys]).merge(counts, on=keys, how="left", validate="many_to_one")
+    n = merged.n_known_predictions.fillna(0).astype(int).to_numpy()
+    cases = merged.n_cases.fillna(0).astype(int).to_numpy()
+    result = roster.reset_index(drop=True).copy()
+    result["n_known_predictions"] = n
+    result["n_cases"] = cases
+    result["n_controls"] = n - cases
+    result["prediction_status"] = np.where(
+        n == 0, "absent", np.where((cases == 0) | (cases == n), "single_class", "two_class"))
+    result["auc_estimable"] = (cases > 0) & (cases < n)
+    return result
 
 
 def route_summaries(routes):
