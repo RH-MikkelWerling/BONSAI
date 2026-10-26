@@ -4,6 +4,21 @@ Source names are fixed in the constructor and saved in model_init_config. A
 borrowed adapter uses detached *parameters*, not a detached output: gradients
 still reach the patient representation and the router. Home adapters are used
 with live parameters only for their own eligible supervision.
+
+Router fix (lock addendum 2026-10-26; all off by default). On stage-2 tuning
+fits the router put ~90% of every prediction's weight on one outcome's adapter
+within the first epoch: it chose before the adapters had learned anything, and
+the only way to get a correction that helps every target was to borrow one.
+
+* ``global_adapter``: one more adapter with live parameters, trained by every
+  target and always applied, outside the routed mix. A general correction
+  gets its own home; sources are then routed only for what they add.
+* ``router_warmup_epochs`` (set per epoch by the training module through
+  ``router_frozen``): routing stays at its starting distribution, and the
+  router receives no gradient, while the adapters learn.
+* ``logit_scale``: scores are ``s * cos(query, key)`` instead of an unbounded
+  dot product, so no source can take all the weight and the others keep a
+  gradient.
 """
 
 from __future__ import annotations
@@ -31,6 +46,9 @@ class SourceAnchoredReadout(nn.Module):
         source_mode: str = "both",
         borrowing: bool = True,
         disease_embedding: bool = False,
+        global_adapter: bool = False,
+        router_warmup_epochs: int = 0,
+        logit_scale: float = 0.0,
     ) -> None:
         super().__init__()
         self.fine_names = tuple(sorted(fine_names))
@@ -66,6 +84,11 @@ class SourceAnchoredReadout(nn.Module):
         self.disease_embedding = (
             nn.Embedding(self.n_disease, hidden_size) if disease_embedding else None
         )
+        if router_warmup_epochs < 0 or logit_scale < 0:
+            raise ValueError("router_warmup_epochs and logit_scale must be nonnegative")
+        self.router_warmup_epochs = int(router_warmup_epochs)
+        self.router_frozen = self.router_warmup_epochs > 0
+        self.logit_scale = float(logit_scale)
         if self.disease_embedding is not None:
             nn.init.zeros_(self.disease_embedding.weight)
 
@@ -98,6 +121,16 @@ class SourceAnchoredReadout(nn.Module):
             nn.init.zeros_(self.query_interaction[-1].weight)
             nn.init.zeros_(self.query_interaction[-1].bias)
         self.shared_logit = nn.Parameter(torch.tensor(3.0))
+        self.global_down = self.global_up = None
+        if global_adapter:
+            # Forked RNG, as for the query interaction: every other tensor
+            # (notably the risk head built after this readout) is initialised
+            # exactly as without the global adapter.
+            with torch.random.fork_rng(devices=[]):
+                self.global_down = nn.Parameter(torch.empty(bottleneck, hidden_size))
+                self.global_up = nn.Parameter(torch.empty(hidden_size, bottleneck))
+                nn.init.normal_(self.global_down, std=0.02)
+                nn.init.normal_(self.global_up, std=1e-3)
         self.register_buffer("source_shrinkage", torch.ones(self.n_sources))
         self.register_buffer("source_train_patients", torch.zeros(self.n_sources, dtype=torch.long))
         self.register_buffer("source_train_events", torch.zeros(self.n_sources, dtype=torch.long))
@@ -139,7 +172,11 @@ class SourceAnchoredReadout(nn.Module):
                                disease_query.expand(shape),
                                outcome_query.expand(shape)), dim=-1)
             query = query + self.query_interaction(joint)
-        scores = torch.einsum("boh,sh->bos", query, self.source_keys) / self.hidden_size**0.5
+        if self.logit_scale:
+            scores = self.logit_scale * torch.einsum(
+                "boh,sh->bos", F.normalize(query, dim=-1), F.normalize(self.source_keys, dim=-1))
+        else:
+            scores = torch.einsum("boh,sh->bos", query, self.source_keys) / self.hidden_size**0.5
         enabled = torch.tensor(
             [self.use_disease_sources] * self.n_disease
             + [self.use_outcome_sources] * self.n_outcome,
@@ -156,7 +193,10 @@ class SourceAnchoredReadout(nn.Module):
             own[:, outcome_rows, self.n_disease + outcome_rows] = True
             scores = scores.masked_fill(~own, -1e4)
         shared = self.shared_logit.expand(len(patient), self.n_outcome, 1)
-        weights = torch.softmax(torch.cat((shared, scores), dim=-1), dim=-1)
+        logits = torch.cat((shared, scores), dim=-1)
+        if self.router_frozen:
+            logits = logits.detach()  # warm-up: no gradient reaches the router
+        weights = torch.softmax(logits, dim=-1)
         if self.home_floor:
             home = torch.zeros_like(weights)
             row = torch.arange(len(patient), device=patient.device)[:, None]
@@ -228,6 +268,9 @@ class SourceAnchoredReadout(nn.Module):
                     * (home - borrowed[:, source])
                 )
 
+        if self.global_down is not None:
+            general = F.linear(F.gelu(F.linear(patient, self.global_down)), self.global_up)
+            residual = residual + general[:, None, :].to(residual.dtype)
         output = patient[:, None, :] + self.residual_scale * residual
         if self.disease_embedding is not None:
             fine = fine_index.long().reshape(-1).to(patient.device)

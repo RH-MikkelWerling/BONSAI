@@ -528,6 +528,15 @@ def main() -> None:
         )
     if route_rows:
         pd.DataFrame(route_rows).to_parquet(output_dir / "source_route_weights.parquet", index=False)
+        # Support shrinkage per source: a route weight on a source with almost
+        # no training events moves almost nothing, so routing health is judged
+        # on weight x shrinkage, not on the weight alone.
+        readout = model.source_adapter_readout
+        (output_dir / "source_route_support.json").write_text(json.dumps({
+            "sources": source_names,
+            "shrinkage": [round(float(v), 6) for v in readout.source_shrinkage.cpu()],
+            "global_adapter": readout.global_down is not None,
+        }, indent=2) + "\n", encoding="utf-8")
     if args.borrowing_design:
         # One file per variant, rows aligned with direct_cr_predictions.parquet.
         values = np.stack(design_cif)  # (rows, 2 x variant, horizon)

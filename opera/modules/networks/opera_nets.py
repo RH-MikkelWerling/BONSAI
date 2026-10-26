@@ -1846,6 +1846,10 @@ class OperaContrastiveModel(nn.Module):
                 borrowing=bool(competing_risk_settings.get("adapter_borrowing", True)),
                 disease_embedding=bool(
                     competing_risk_settings.get("adapter_disease_embedding", False)),
+                global_adapter=bool(competing_risk_settings.get("adapter_global", False)),
+                router_warmup_epochs=int(
+                    competing_risk_settings.get("adapter_router_warmup_epochs", 0)),
+                logit_scale=float(competing_risk_settings.get("adapter_logit_scale", 0.0)),
             )
             shared_logit_init = float(competing_risk_settings.get("adapter_shared_logit_init", 3.0))
             if not math.isfinite(shared_logit_init):

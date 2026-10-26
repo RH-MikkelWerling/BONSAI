@@ -323,6 +323,7 @@ def main():
             "pretraining_control",
             "router_controls",
             "data_efficiency",
+            "router_fix",
         ],
         required=True,
     )

@@ -28,6 +28,20 @@ from their exported route weights: entropy, effective number of sources,
 shared weight, and the weight on the patient's own disease and own outcome
 versus borrowed ones. The router lock itself is never changed by this step.
 
+Router-fix rule (``--phase router_fix_rule``, lock addendum 2026-10-26;
+stage-3 bundle). Routing health, per routed fit, on contributions (route
+weight x the source's support shrinkage) over the named disease and outcome
+sources: (1) no single source is the top contributor in more than half of the
+rows; (2) at least 3 different sources are the most common top borrowed
+source across diseases; (3) the median effective number of contributing
+sources exceeds 1.5. The seed noise floor is |panel AUC of R_AB (seed 43)
+minus R_AB (seed 42)|. Candidates, simplest first: R_A, R_AB, then R_ABT only
+if R_AB is unhealthy. Among healthy candidates the best panel AUC wins, ties
+within the seed noise floor to the simplest; it replaces R_L unless its panel
+AUC is below R_L's by more than the noise floor. The borrowing contrasts
+(chosen vs RBH_AB and N_A; RBH_AB vs N_A; N_A vs J_L) are reported, never
+used to choose.
+
 Decisions are written only with --write; the report is always saved.
 """
 
@@ -48,7 +62,7 @@ from opera.evaluation.secondary_analysis import (
     paired_analysis,
 )
 
-PHASES = ("source_screen", "rank_screen", "query_screen", "init_rule")
+PHASES = ("source_screen", "rank_screen", "query_screen", "init_rule", "router_fix_rule")
 DEFAULT_RANK, DEFAULT_QUERY = 8, ("interacting", 128)  # used by the source and rank steps
 HORIZONS = (30, 60, 90, 180, 365, 730)
 
@@ -233,6 +247,110 @@ def routing_diagnostics(path):
     }
 
 
+def routing_health(routes_path, support_path):
+    """The prespecified routing-health criteria for one routed fit."""
+    routes = pd.read_parquet(routes_path)
+    support = json.loads(Path(support_path).read_text())
+    shrinkage = dict(zip(support["sources"], support["shrinkage"]))
+    tops, effective, top_borrowed = {}, [], {}
+    for record in routes.itertuples(index=False):
+        weights = {**json.loads(record.disease_weights), **json.loads(record.outcome_weights)}
+        names = list(weights)
+        contribution = np.array([weights[n] * shrinkage[n] for n in names])
+        total = contribution.sum()
+        if total <= 0:
+            continue
+        share = contribution / total
+        positive = share[share > 0]
+        effective.append(float(np.exp(-(positive * np.log(positive)).sum())))
+        top = names[int(share.argmax())]
+        tops[top] = tops.get(top, 0) + 1
+        own = {list(json.loads(record.disease_weights))[record.fine_index],
+               *(n for n in names if _same(n, record.outcome))}
+        borrowed = [(share[i], n) for i, n in enumerate(names) if n not in own]
+        if borrowed:
+            disease = list(json.loads(record.disease_weights))[record.fine_index]
+            counts = top_borrowed.setdefault(disease, {})
+            name = max(borrowed)[1]
+            counts[name] = counts.get(name, 0) + 1
+    rows = sum(tops.values())
+    top_source, top_count = max(tops.items(), key=lambda item: item[1])
+    per_disease = {d: max(c.items(), key=lambda item: item[1])[0] for d, c in top_borrowed.items()}
+    criteria = {
+        "top_source_share": {"source": top_source, "share": round(top_count / rows, 4),
+                             "passed": top_count / rows <= 0.5},
+        "distinct_top_borrowed_across_diseases": {
+            "count": len(set(per_disease.values())), "passed": len(set(per_disease.values())) >= 3},
+        "median_effective_sources": {"value": round(float(np.median(effective)), 3),
+                                     "passed": float(np.median(effective)) > 1.5},
+    }
+    return {"healthy": all(c["passed"] for c in criteria.values()), "criteria": criteria,
+            "top_borrowed_by_disease": per_disease}
+
+
+def router_fix_rule(args, metadata):
+    """Health, seed noise, the choice of router, and the borrowing contrasts."""
+    from opera.run.paper_prediction_queue import bundle_runs, canonical_models
+
+    bundle, rows = bundle_runs(args.bundle_dir)
+    by_alias = {}
+    for row, _, config in rows:
+        for name in canonical_models(row, config, bundle):
+            by_alias.setdefault(name, []).append(row)
+    names = ("J_L", "R_L", "N_A_L", "RBH_AB_L", "R_A_L", "R_AB_L", "R_ABT_L", "R_AB_s43_L")
+    wanted = {}
+    for name in names:
+        fits = by_alias.get(name, [])
+        if len(fits) != 1:
+            raise ValueError(f"The router-fix rule needs exactly one {name} fit in the "
+                             f"stage-3 bundle; found {len(fits)}")
+        wanted[name] = fits[0]
+    frames = []
+    for name, row in wanted.items():
+        frame = load_tuning(row, args.prediction_dir, metadata, name, HORIZONS)
+        frame["seed"] = 42  # pair the seed-43 replicate on the same patients
+        frames.append(frame)
+    predictions, _ = normalize_predictions(pd.concat(frames, ignore_index=True), "cif_ipcw")
+    contrasts = {
+        "seed_noise": "gain(R_AB_s43_L,R_AB_L)",
+        **{f"{n}_vs_R_L": f"gain({n},R_L)" for n in ("R_A_L", "R_AB_L", "R_ABT_L")},
+        **{f"{a}_vs_{b}": f"gain({a},{b})" for a, b in (
+            ("R_AB_L", "R_A_L"), ("R_ABT_L", "R_A_L"), ("R_ABT_L", "R_AB_L"))},
+        **{f"{n}_vs_RBH_AB_L": f"gain({n},RBH_AB_L)" for n in ("R_A_L", "R_AB_L", "R_ABT_L")},
+        **{f"{n}_vs_N_A_L": f"gain({n},N_A_L)" for n in ("R_A_L", "R_AB_L", "R_ABT_L", "RBH_AB_L")},
+        "N_A_L_vs_J_L": "gain(N_A_L,J_L)", "R_L_vs_J_L": "gain(R_L,J_L)",
+    }
+    tables = paired_analysis(predictions, contrasts, replicates=args.replicates, seed=2026,
+                             patient_gain_contrasts=())
+    summary = {name: {metric: panel(tables["contrasts"], tables["bootstrap_draws"], name, metric)
+                      for metric in ("auc", "ipa")} for name in contrasts}
+    noise = abs(summary["seed_noise"]["auc"]["gain"])
+
+    health = {}
+    for name in ("R_L", "R_A_L", "R_AB_L", "R_ABT_L", "R_AB_s43_L"):
+        directory = Path(args.prediction_dir) / wanted[name]["run_directory"] / "tuning"
+        support = directory / "source_route_support.json"
+        health[name] = (routing_health(directory / "source_route_weights.parquet", support)
+                        if support.is_file() else {"missing": f"{support} (re-evaluate with routes)"})
+
+    def healthy(name):
+        return bool(health[name].get("healthy"))
+
+    candidates = ["R_A_L", "R_AB_L"] + ([] if healthy("R_AB_L") else ["R_ABT_L"])
+    eligible = [n for n in candidates if healthy(n)]
+    vs_r = {n: summary[f"{n}_vs_R_L"]["auc"]["gain"] for n in candidates}
+    if eligible:
+        best = max(vs_r[n] for n in eligible)
+        tied = [n for n in eligible if vs_r[n] >= best - noise]
+        choice = tied[0]  # simplest first
+        primary = choice if vs_r[choice] >= -noise else "R_L"
+    else:
+        choice, primary = None, "R_L"
+    return wanted, {"seed_noise_auc": noise, "health": health, "candidates": candidates,
+                    "eligible": eligible, "chosen_fix": choice, "primary": primary,
+                    "contrasts": summary}
+
+
 def _same(source_name, target):
     """Route-export source names may carry a prefix (e.g. "disease:CLL")."""
     return str(source_name) == str(target) or str(source_name).split(":")[-1] == str(target)
@@ -290,6 +408,29 @@ def main():
     args = parser.parse_args()
 
     decisions = json.loads(args.decisions.read_text()) if args.decisions.is_file() else {}
+    if args.phase == "router_fix_rule":
+        wanted, result = router_fix_rule(args, read_membership(args.membership))
+        record = {"phase": "router_fix_rule",
+                  "decided_at": datetime.now(timezone.utc).isoformat(),
+                  "fits": {name: row["name"] for name, row in wanted.items()},
+                  "rules": "lock addendum 2026-10-26 (see the module docstring)",
+                  "replicates": args.replicates, "estimand": "cif_ipcw", **result}
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        report = args.output_dir / "router_decision_router_fix_rule.json"
+        report.write_text(json.dumps(record, indent=2, default=float) + "\n")
+        auc = {name: [round(v["auc"][k], 4) for k in ("gain", "lower", "upper")]
+               for name, v in result["contrasts"].items()}
+        print(json.dumps({"primary": result["primary"], "chosen_fix": result["chosen_fix"],
+                          "seed_noise_auc": result["seed_noise_auc"],
+                          "healthy": {n: h.get("healthy", h) for n, h in result["health"].items()},
+                          "auc_gain_with_interval": auc, "report": str(report)},
+                         indent=2, default=float))
+        if args.write:
+            decisions["router_fix"] = {"primary": result["primary"],
+                                       "decided_at": record["decided_at"], "report": str(report)}
+            args.decisions.write_text(json.dumps(decisions) + "\n")
+            print(f"Recorded router-fix outcome {result['primary']!r} in {args.decisions}")
+        return
     if args.phase == "init_rule":
         metadata = read_membership(args.membership)
         wanted, result, outcome, diagnostics = init_rule(args, metadata)

@@ -258,6 +258,67 @@ No tuning-panel AUC/IPA for R or RSI and no test results had been seen.
    entropy, effective number of sources (exp entropy), shared weight, and the
    share of weight on own versus borrowed sources (route export on tuning).
 
+## Initialisation rule: outcome (2026-10-26)
+Applied on the stage-2 tuning predictions (router_decision_init_rule.json):
+RSI_L minus R_L = -0.0060 panel AUC (-0.0116 to -0.0010), noise floor 0.0016
+(N_L vs J_L). R_L stays primary; RSI_L is the sensitivity analysis (RS1).
+
+## Router collapse and router fix (added 2026-10-26, before any router-fix fit was trained and before any test data were opened)
+Seen at the time, on tuning data only: the initialisation-rule result above;
+the route exports of the stage-2 fits; R_L and RSI_L beat J_L by +0.0125 and
++0.0065 panel AUC. No contrast C1-C6, no rehearsal analysis and no test result
+had been seen.
+
+What was seen. Both routers put ~89% of every prediction's weight on one
+outcome's adapter (R_L: overall survival, top source in 99.8% of patient x
+outcome rows; RSI_L: hypoalbuminaemia, 99.7%); own disease stayed at its 0.05
+floor and other diseases received ~0.0004. Route entropy fell from ~4.4 to 0.4
+within the first epoch, while the adapters' corrections were still near zero
+(effective residual 0.003 at epoch 1, ~0.48 at the end). The disease-only bank
+collapsed onto MM and NMZL (a source with almost no training events, i.e. no
+correction). Reading: the router chose before the adapters had learned
+anything (the disease and outcome parts of the query start at zero, so every
+target ranks the sources alike at first, and Adam with epsilon 1e-10 takes
+full-size steps), and the only way to obtain a correction that helps every
+target was to borrow one source. R_L therefore does not test selective
+borrowing (claim c).
+
+The fix, prespecified here. On the locked router (both banks, rank 8,
+interacting query 512, residual 0.7, floor 0.05, tau 10, shared logit 0,
+router epsilon 1e-10; everything else as R_L):
+- A: a global adapter (rank 8, live parameters, trained by every target),
+  always applied, outside the routed mix;
+- B: router warm-up, 2 epochs: routing stays at its starting distribution and
+  the router receives no gradient while the adapters train;
+- T (reserve): scores bounded as 3 x cos(query, key).
+
+Fits (stage-3 bundle; every earlier fit is regenerated identically and
+reused): R_AB (A+B), RBH_AB (A+B, own sources only), N_A (A, no sources), R_A
+(A only), R_ABT (A+B+T), R_AB_s43 (R_AB, seed 43).
+
+Routing health, judged per fit on contributions (route weight x the source's
+support shrinkage) over the named disease and outcome sources:
+1. no single source is the top contributor in more than 50% of rows;
+2. at least 3 different sources are the most common top borrowed source
+   across diseases;
+3. the median effective number of contributing sources exceeds 1.5.
+
+Decision (router_decision --phase router_fix_rule):
+1. Seed noise floor = |panel AUC of R_AB_s43 minus R_AB|.
+2. Candidates, simplest first: R_A, R_AB; R_ABT only if R_AB is unhealthy.
+   Among healthy candidates the best panel AUC wins, ties within the seed
+   noise floor to the simplest.
+3. The chosen fix replaces R_L as the routed model unless its panel AUC is
+   below R_L's by more than the seed noise floor. If no candidate is healthy,
+   R_L stays and the collapse and the attempted fix are reported.
+4. Claim c (selective borrowing) is tested as the routed model minus RBH_AB
+   (borrowing beyond own corrections, matched capacity) and minus N_A
+   (beyond a global correction), against the seed noise floor; N_A minus J_L
+   is the capacity of a global correction alone. These contrasts are
+   reported, never used to choose, and are carried to the test set.
+5. R_L (the collapsed router) is reported in every case, as a methodological
+   finding, with its routing diagnostics.
+
 ## Decision curves (added 2026-10-23)
 - Action: closer monitoring and supportive care for patients above the
   threshold; outcome: death within two years in DLBCL; range 5-40%.

@@ -86,6 +86,47 @@ ROUTER_CONTROLS = {
 }
 
 
+# Router fix (lock addendum 2026-10-26). The stage-2 router collapsed onto one
+# outcome's adapter within the first epoch. Each fit is the locked router
+# (source bank, rank, query) with:
+#   alias: (source bank, borrowing, global adapter, warm-up epochs, logit scale, seed)
+# A = a global adapter outside the routed mix; B = 2 epochs of router warm-up;
+# T = scores bounded as 3 * cos(query, key). R_ABT is used only if R_AB fails
+# the prespecified routing-health criteria. R_AB_s43 repeats R_AB on another
+# seed: the noise floor for the borrowing contrast.
+ROUTER_FIX_WARMUP, ROUTER_FIX_LOGIT_SCALE = 2, 3.0
+ROUTER_FIX = {
+    "R_AB": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42),
+    "RBH_AB": ("selected", False, True, ROUTER_FIX_WARMUP, 0.0, 42),  # own sources only
+    "N_A": ("none", True, True, ROUTER_FIX_WARMUP, 0.0, 42),  # global adapter, no sources
+    "R_A": ("selected", True, True, 0, 0.0, 42),
+    "R_ABT": ("selected", True, True, ROUTER_FIX_WARMUP, ROUTER_FIX_LOGIT_SCALE, 42),
+    "R_AB_s43": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 43),
+}
+
+
+def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs, patience):
+    """The six router-fix fits (local encoder)."""
+    entries = []
+    for alias, (source, borrowing, global_adapter, warmup, scale, seed) in ROUTER_FIX.items():
+        shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                   seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
+        config = router_config(
+            shared, reference,
+            source_mode=selected_router["source_mode"] if source == "selected" else source,
+            rank=int(selected_router["rank"]), query_mode=selected_router["query_mode"],
+            query_width=int(selected_router["query_width"]))
+        config["competing_risk"].update(adapter_global=global_adapter,
+                                        adapter_router_warmup_epochs=warmup)
+        if not borrowing:
+            config["competing_risk"]["adapter_borrowing"] = False
+        if scale:
+            config["competing_risk"]["adapter_logit_scale"] = scale
+        entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix",
+                        "origin": "L", "seed": seed, "condition": {}, "config": config})
+    return entries
+
+
 def external_sequences(config, sequence_dir):
     """Point a national arm at our patients tokenised in the national format.
 
@@ -118,6 +159,7 @@ def build_bundle(
     router_controls=True,
     external_sequence_dir=None,
     data_efficiency=True,
+    router_fix=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -340,6 +382,11 @@ def build_bundle(
                             "config": config,
                         }
                     )
+    if router_fix:
+        if selected_router is None:
+            raise ValueError("The router-fix fits need the router lock")
+        entries += router_fix_entries(base, reference, checkpoints, selected_router,
+                                      epochs=epochs, patience=patience)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -479,6 +526,8 @@ def main():
                         help="Omit the training-fraction runs (local and national joint).")
     parser.add_argument("--no-router-controls", action="store_true",
                         help="Omit the routing decomposition controls from stage 2.")
+    parser.add_argument("--router-fix", action="store_true",
+                        help="Add the six router-fix fits (stage 3 onwards; lock addendum 2026-10-26).")
     parser.add_argument("--seeds", default="42")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--early-stopping-patience", type=int, default=5,
@@ -529,6 +578,7 @@ def main():
         router_controls=not args.no_router_controls,
         external_sequence_dir=args.external_sequence_dir,
         data_efficiency=not args.no_data_efficiency,
+        router_fix=args.router_fix,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

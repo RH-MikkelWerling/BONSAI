@@ -29,7 +29,9 @@ PHASES = (
     "pretraining_control",
     "router_controls",
     "data_efficiency",
+    "router_fix",
     "init_rule",  # router-decision only: R vs RSI on the stage-2 bundle
+    "router_fix_rule",  # router-decision only: the router fix, stage-3 bundle
 )
 
 
@@ -148,6 +150,10 @@ def build_commands(args, env):
                     "--external-sequence-dir",
                     str(external_sequence_dir(env, root)),
                 ]
+            if stage >= 3:
+                # Router fix (lock addendum 2026-10-26): stage 3 adds the six
+                # fits; every earlier fit is regenerated identically and reused.
+                command += ["--router-fix"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

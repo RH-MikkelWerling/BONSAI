@@ -110,3 +110,45 @@ def test_routing_diagnostics_split_own_and_borrowed_weight(tmp_path):
     entropy = -sum(w * math.log(w) for w in (0.1, 0.6, 0.1, 0.2))
     assert summary["entropy"] == pytest.approx(round(entropy, 4))
     assert summary["effective_sources"] == pytest.approx(round(math.exp(entropy), 4))
+
+
+def _routes(tmp_path, rows):
+    import json
+
+    diseases = ["disease:A", "disease:B", "disease:C", "disease:D"]
+    outcomes = ["outcome:os", "outcome:inf"]
+    records = []
+    for fine_index, outcome, weights in rows:
+        records.append({"fine_index": fine_index, "outcome": outcome, "shared_weight": 0.0,
+                        "disease_weights": json.dumps(dict(zip(diseases, weights[:4]))),
+                        "outcome_weights": json.dumps(dict(zip(outcomes, weights[4:])))})
+    pd.DataFrame(records).to_parquet(tmp_path / "routes.parquet")
+    (tmp_path / "support.json").write_text(json.dumps(
+        {"sources": diseases + outcomes, "shrinkage": [1.0] * 6}))
+    return tmp_path / "routes.parquet", tmp_path / "support.json"
+
+
+def test_a_collapsed_router_fails_the_health_criteria(tmp_path):
+    from opera.run.router_decision import routing_health
+
+    # Every row puts 90% on the overall-survival adapter.
+    rows = [(d, "inf", [0.05 if i == d else 0 for i in range(4)] + [0.9, 0.05])
+            for d in range(4) for _ in range(5)]
+    health = routing_health(*_routes(tmp_path, rows))
+    assert not health["healthy"]
+    assert health["criteria"]["top_source_share"]["source"] == "outcome:os"
+
+
+def test_selective_routing_passes_the_health_criteria(tmp_path):
+    from opera.run.router_decision import routing_health
+
+    # Each disease leans on a different relative, with real weight on its own.
+    partner = {0: 1, 1: 2, 2: 3, 3: 0}
+    rows = []
+    for d in range(4):
+        weights = [0.0] * 4
+        weights[d], weights[partner[d]] = 0.4, 0.35
+        rows += [(d, "inf", weights + [0.1, 0.15])] * 5
+    health = routing_health(*_routes(tmp_path, rows))
+    assert health["healthy"], health
+    assert health["criteria"]["distinct_top_borrowed_across_diseases"]["count"] == 4

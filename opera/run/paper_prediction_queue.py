@@ -28,6 +28,7 @@ def bundle_runs(bundle_dir):
         "query_screen": 5,
         "pretraining_control": 6,
         "router_controls": 7,
+        "router_fix": 8,
     }
     seen = set()
     rows = []
@@ -56,6 +57,8 @@ def canonical_models(row, config, bundle):
         return [f"{row['regime']}_{origin}"]
     if row["phase"] == "router_controls":
         return [row["name"].rsplit("control_", 1)[-1] + f"_{origin}"]  # JDE_L, RDH_L, ROH_L
+    if row["phase"] == "router_fix":
+        return [row["name"].rsplit("fix_", 1)[-1] + f"_{origin}"]  # R_AB_L, N_A_L, R_AB_s43_L
     if row["phase"] == "data_efficiency":
         fraction = round(config["training"]["train_patient_fraction"] * 100)
         return [f"J_{origin}_F{fraction}"]  # J_L_F10, J_EA_F25, ...
@@ -81,7 +84,9 @@ def canonical_models(row, config, bundle):
     return []  # Tuning candidates are never relabelled as the final model.
 
 
-ROUTED_MODELS = {"R_L", "R_E", "R_EA"}
+ROUTED_MODELS = {"R_L", "R_E", "R_EA",
+                 # router fix (2026-10-26): every fit with a routing choice
+                 "R_AB_L", "RBH_AB_L", "R_A_L", "R_ABT_L", "R_AB_s43_L"}
 
 
 def export_flags(aliases, args):

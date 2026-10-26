@@ -328,6 +328,11 @@ class OperaContrastiveModule(L.LightningModule):
         return self._shared_step(batch, "train")
 
     def on_train_epoch_start(self) -> None:
+        readout = getattr(self.model, "source_adapter_readout", None)
+        if readout is not None:
+            # Router warm-up: no gradient reaches the router until the adapters
+            # have trained for ``router_warmup_epochs`` epochs.
+            readout.router_frozen = self.current_epoch < readout.router_warmup_epochs
         # Keep the replacement proposal's draw stream deterministic after a
         # checkpoint resume; random baselines retain their existing behavior.
         datamodule = getattr(self.trainer, "datamodule", None)

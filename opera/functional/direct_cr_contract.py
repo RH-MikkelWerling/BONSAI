@@ -177,12 +177,18 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             "both", "disease_only", "outcome_only", "none"
         }:
             raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
-        for flag in ("adapter_borrowing", "adapter_disease_embedding"):
+        for flag in ("adapter_borrowing", "adapter_disease_embedding", "adapter_global"):
             if not isinstance(competing.get(flag, False), bool):
                 raise ValueError(f"{flag} must be true or false")
         shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
         if not math.isfinite(shared_init):
             raise ValueError("adapter_shared_logit_init must be finite")
+        warmup = competing.get("adapter_router_warmup_epochs", 0)
+        if not isinstance(warmup, int) or isinstance(warmup, bool) or warmup < 0:
+            raise ValueError("adapter_router_warmup_epochs must be a nonnegative integer")
+        scale = float(competing.get("adapter_logit_scale", 0.0))
+        if not math.isfinite(scale) or scale < 0:
+            raise ValueError("adapter_logit_scale must be finite and nonnegative")
     adapter_epsilon = training.get("adapter_optimizer_epsilon")
     if adapter_epsilon is not None:
         if readout_mode not in {"source_anchored_adapters", "unanchored_adapters"}:
