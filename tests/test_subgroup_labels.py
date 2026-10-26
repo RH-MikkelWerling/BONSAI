@@ -17,3 +17,11 @@ def test_subgroups_sort_in_reading_order():
     ordered = sorted(labels, key=_subgroup_sort_key)
     assert [subgroup_label(x) for x in ordered] == [
         "≤ 50", "66–80", "Low", "Intermediate", "High", "Very high", "Not recorded"]
+
+
+def test_scatter_drops_imprecise_cells():
+    from opera.visualization.paper_figures import estimable_cells
+    cells = pd.DataFrame({"gain": [0.02, -0.9, 0.5, None],
+                          "n_events_train": [50, 3, 200, 80],
+                          "lower": [-0.01, -1.0, -0.2, 0], "upper": [0.05, 0.1, 0.9, 0]})
+    assert estimable_cells(cells).gain.tolist() == [0.02]

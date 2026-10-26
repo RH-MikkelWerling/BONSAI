@@ -331,6 +331,22 @@ def group_matrix(ax, cells, *, contrast, order, metric="auc", horizon=365, vmax=
     return image
 
 
+# Cells drawn as points in gain-by-support scatters. With a handful of training
+# or test events a cell's AUC gain swings to +-0.5 or +-1 on chance alone (one
+# test event ranked first or last); those cells stay in every estimate and
+# curve, but are not drawn. Captions state the rule.
+SCATTER_MIN_TRAIN_EVENTS = 10
+SCATTER_MAX_CI_WIDTH = 0.4
+
+
+def estimable_cells(cells):
+    """Cells precise enough to draw as points (see SCATTER_* above)."""
+    keep = cells.gain.notna() & (cells.n_events_train >= SCATTER_MIN_TRAIN_EVENTS)
+    if {"lower", "upper"} <= set(cells):
+        keep &= (cells.upper - cells.lower) <= SCATTER_MAX_CI_WIDTH
+    return cells.loc[keep]
+
+
 def shared_gain_limit(cells, *, metric="auc", horizon=365, quantile=0.9, floor=0.02):
     """Colour limit for gain maps: the 90th percentile of |gain|, rounded up to
     0.01, so the scale follows the data instead of saturating most cells."""
@@ -445,7 +461,7 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=365, order="suppo
     ax = fig.add_subplot(bottom[0])
     data = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)
                      & cells.contrast.isin(["D-S", "O-S", "J-S"])]
-    joint = data.loc[(data.contrast == "J-S") & data.gain.notna()]
+    joint = estimable_cells(data.loc[data.contrast == "J-S"])
     ax.scatter(joint.n_events_train.clip(lower=1), joint.gain, s=6, alpha=0.25,
                color=PALETTE["ink_muted"], linewidths=0, zorder=2, rasterized=True)
     handles = []
@@ -700,8 +716,8 @@ def figure_tabular(cells, curve=None, *, horizon=365, mark=None):
 
     lower = grid[1, :].subgridspec(1, 2, wspace=0.42)
     ax = fig.add_subplot(lower[0])
-    part = cells.loc[(cells.contrast == "J-X") & (cells.metric == "auc")
-                     & (cells.horizon_days == horizon) & cells.gain.notna()]
+    part = estimable_cells(cells.loc[(cells.contrast == "J-X") & (cells.metric == "auc")
+                                     & (cells.horizon_days == horizon)])
     ax.scatter(part.n_events_train.clip(lower=1), part.gain, s=7, alpha=0.35,
                color=MODEL_STYLE["J"][0], linewidths=0, rasterized=True)
     if curve is not None:
@@ -2247,7 +2263,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
     bottom = fig.add_gridspec(1, 1 + len(shown), width_ratios=[1.45] + [1] * len(shown),
                               wspace=0.45, left=0.09, right=0.985, top=0.34, bottom=0.08)
     ax = fig.add_subplot(bottom[0])
-    part = data.loc[(data.contrast == "J-X") & data.gain.notna()]
+    part = estimable_cells(data.loc[data.contrast == "J-X"])
     ax.scatter(part.n_events_train.clip(lower=1), part.gain, s=6, alpha=0.3,
                color=MODEL_STYLE["J"][0], linewidths=0, rasterized=True)
     if curve is not None:

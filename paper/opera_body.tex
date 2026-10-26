@@ -587,9 +587,11 @@ clinical domain} (\cref{fig:tabular}B, \cref{fig:calibration}).
   clinical domain (median and interquartile range across cells).
   \textbf{B}, Calibration slope of the joint, routed, specialist and XGBoost
   models by domain (ideal 1). \textbf{C}, Gain of \opera{} over XGBoost
-  against the target's training events, with the support curve. \textbf{D--E},
+  against the target's training events, with the support curve; points are
+  cells with at least 10 training events and a 95\% interval narrower than 0.4
+  (all cells enter the curve). \textbf{D--E},
   Reliability of \opera{} and XGBoost for two example outcomes. Observed risks are censoring-weighted and point size reflects patients per
-  bin. No model was recalibrated on test data. The full calibration analysis is in \cref{fig:calibration}.}
+  bin; bins with fewer than 20 patients are not drawn. No model was recalibrated on test data. The full calibration analysis is in \cref{fig:calibration}.}
   \label{fig:tabular}
 \end{figure}
 
@@ -694,7 +696,9 @@ no patients in the tuning year and so no model of its own, with \placeholder{abs
   \textbf{B}, For each disease, the median gain from pooling
   over diseases, pooling over outcomes and both (joint), on the same rows.
   \textbf{C}, Gain against the number of training events of the target cell,
-  with the hierarchical support curve and 95\% credible band. \textbf{D}, Gains
+  with the hierarchical support curve and 95\% credible band; points are cells
+  with at least 10 training events and a 95\% interval narrower than 0.4 (all
+  cells enter the curve). \textbf{D}, Gains
   by clinical domain (median and interquartile range across cells). Positive
   values favour the pooled model, and grey cells could not be estimated.
   Cell-level maps for each pooling axis, their

@@ -114,8 +114,10 @@ the probability of every outcome by each of six horizons.}
   \caption{\textbf{Calibration of the joint, routed, specialist and XGBoost
   models.} \textbf{A},
   Calibration slope at one year for the joint, routed, specialist and
-  XGBoost models by clinical domain (median and interquartile range across cells, ideal 1). \textbf{B}, Calibration in the large, observed minus
-  mean predicted risk (ideal 0). \textbf{C}, Reliability curves for four example outcomes. Observed risks are weighted by the inverse probability of censoring and point size reflects the number of patients per bin. No model
+  XGBoost models by clinical domain (median and interquartile range across cells, ideal 1; where an interval
+  runs past the axis it is cut). \textbf{B}, Calibration in the large, observed minus
+  mean predicted risk (ideal 0). \textbf{C}, Reliability curves for four example outcomes. Observed risks are weighted by the inverse probability of censoring and point size reflects the number of patients per bin; bins with fewer than 20
+  patients are not drawn. No model
   was recalibrated on test data.}
   \label{fig:calibration}
 \end{figure}
