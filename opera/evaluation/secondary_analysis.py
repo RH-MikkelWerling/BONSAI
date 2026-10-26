@@ -434,31 +434,84 @@ def patient_bootstrap(frame: pd.DataFrame, replicates: int, seed: int):
 
 
 def seed_averaged_effects(contrasts, bootstrap_draws):
-    """Patient uncertainty for the mean of the fitted seed roster; not seed CI."""
+    """Patient uncertainty for the mean of the fitted seed roster; not seed CI.
+
+    Vectorised: each contrast row is joined once to its own draws; cells fitted
+    with one seed need no averaging, and only cells with several seeds are
+    averaged one by one. Identical to averaging each group's draws in a loop.
+    """
     keys = ["split", "cohort", "outcome", "horizon_days", "contrast", "metric"]
-    rows = []
-    for key, group in contrasts.groupby(keys):
-        samples = bootstrap_draws
-        for column, value in zip(keys, key):
-            samples = samples.loc[samples[column] == value]
-        samples = samples.loc[samples.seed.isin(group.seed)]
-        arrays = np.stack(samples.gain_draws)
+    columns = [*keys, "gain", "n_training_seeds", "seed_minimum", "seed_maximum",
+               "seed_sd", "uncertainty", "lower", "upper", "difference_se",
+               "n_valid_bootstrap", "interval_status"]
+    if contrasts.empty:
+        return pd.DataFrame(columns=columns)
+    merged = contrasts[[*keys, "seed", "gain"]].merge(
+        bootstrap_draws[[*keys, "seed", "gain_draws"]], on=[*keys, "seed"],
+        how="left", validate="one_to_one")
+    if merged.gain_draws.isna().any():
+        raise ValueError("A contrast has no bootstrap draws")
+    sizes = merged.groupby(keys).seed.transform("size").to_numpy()
+    single = merged.loc[sizes == 1]
+    rows = pd.DataFrame({
+        **{key: single[key].to_numpy() for key in keys},
+        "gain": single.gain.to_numpy(float),
+        "n_training_seeds": 1,
+        "seed_minimum": single.gain.to_numpy(float),
+        "seed_maximum": single.gain.to_numpy(float),
+        "seed_sd": np.nan,
+    })
+    averaged = list(single.gain_draws)
+    parts = [rows]
+    multi_rows, multi_draws = [], []
+    for key, group in merged.loc[sizes > 1].groupby(keys):
+        arrays = np.stack(group.gain_draws)
         finite = np.isfinite(arrays).all(axis=0)
         average = arrays.mean(axis=0)
         average[~finite] = np.nan
-        rows.append(
-            {
-                **dict(zip(keys, key)),
-                "gain": group.gain.mean() if np.isfinite(group.gain).all() else np.nan,
-                "n_training_seeds": len(group),
-                "seed_minimum": group.gain.min(),
-                "seed_maximum": group.gain.max(),
-                "seed_sd": group.gain.std(),
-                "uncertainty": "patients_conditional_on_fitted_seed_roster",
-                **_interval(average),
-            }
-        )
-    return pd.DataFrame(rows)
+        multi_rows.append({
+            **dict(zip(keys, key)),
+            "gain": group.gain.mean() if np.isfinite(group.gain).all() else np.nan,
+            "n_training_seeds": len(group),
+            "seed_minimum": group.gain.min(),
+            "seed_maximum": group.gain.max(),
+            "seed_sd": group.gain.std(),
+        })
+        multi_draws.append(average)
+    if multi_rows:
+        parts.append(pd.DataFrame(multi_rows))
+        averaged += multi_draws
+    result = pd.concat(parts, ignore_index=True)
+    result["uncertainty"] = "patients_conditional_on_fitted_seed_roster"
+    result = pd.concat([result, _intervals(averaged)], axis=1)
+    return result.sort_values(keys, kind="stable").reset_index(drop=True)[columns]
+
+
+def _intervals(draws, chunk=20000):
+    """``_interval`` for many draw vectors at once (rows of equal length)."""
+    out = []
+    for start in range(0, len(draws), chunk):
+        block = np.stack(draws[start : start + chunk]).astype(float)
+        finite = np.isfinite(block)
+        n_valid = finite.sum(axis=1)
+        enough = n_valid >= max(20, int(np.ceil(0.8 * block.shape[1])))
+        with np.errstate(all="ignore"):
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                lower, upper = np.nanquantile(block, [0.025, 0.975], axis=1)
+                se = np.nanstd(block, axis=1, ddof=1)
+        out.append(pd.DataFrame({
+            "lower": np.where(enough, lower, np.nan),
+            "upper": np.where(enough, upper, np.nan),
+            "difference_se": np.where(enough, se, np.nan),
+            "n_valid_bootstrap": n_valid,
+            "interval_status": np.where(enough, "conditional_on_fitted_models",
+                                        "insufficient_draws"),
+        }))
+    return pd.concat(out, ignore_index=True) if out else pd.DataFrame(
+        columns=["lower", "upper", "difference_se", "n_valid_bootstrap", "interval_status"])
 
 
 def _interval(values):
@@ -864,6 +917,8 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
     rows = []
     # Per horizon, and pooled over all horizons (horizon_days == ALL_HORIZONS),
     # every disease-outcome-horizon cell weighing equally.
+    # Split the draws by contrast and metric once, not once per group.
+    draws_by_contrast = dict(tuple(bootstrap_draws.groupby(["contrast", "metric"], sort=False)))
     for stratum, by_horizon in [(s, h) for s in [None, *strata] for h in (True, False)]:
         groups = ["split", "seed", "contrast", "metric"]
         if by_horizon:
@@ -875,10 +930,8 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
             if group.empty:
                 continue
             selected = group[CELL]
-            samples = bootstrap_draws.loc[
-                (bootstrap_draws.contrast == group.contrast.iloc[0])
-                & (bootstrap_draws.metric == group.metric.iloc[0])
-            ].merge(selected, on=CELL, validate="many_to_one")
+            samples = draws_by_contrast[(group.contrast.iloc[0], group.metric.iloc[0])].merge(
+                selected, on=CELL, validate="many_to_one")
             arrays = np.stack(samples.gain_draws)
             sampled = arrays.mean(axis=0)
             sampled[~np.isfinite(arrays).all(axis=0)] = np.nan
@@ -904,13 +957,14 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
 
 def tuning_selected_strategies(frame, candidates=("S_L", "D_L", "O_L")):
     """One strategy per disease/outcome/seed, chosen only on tuning log loss."""
-    tuning = frame.loc[frame.split == "tuning"]
+    tuning = frame.loc[(frame.split == "tuning") & frame.model.isin(candidates)]
+    # Split the tuning rows once, not once per disease and outcome.
+    tuning_by_cell = dict(tuple(tuning.groupby(["seed", "cohort", "outcome"], sort=False)))
+    empty = tuning.iloc[0:0]
     decisions, selected = [], []
     for key, cell in frame.groupby(["seed", "cohort", "outcome"]):
         identity = dict(zip(["seed", "cohort", "outcome"], key))
-        eligible = tuning
-        for column, value in identity.items():
-            eligible = eligible.loc[eligible[column] == value]
+        eligible = tuning_by_cell.get(key, empty)
         by_model = {name: eligible.loc[eligible.model == name] for name in candidates}
         if any(group.empty for group in by_model.values()):
             decisions.append(
