@@ -20,3 +20,12 @@ def test_read_table_recognises_parquet_whatever_the_suffix(tmp_path):
     path = tmp_path / "patient_metadata.csv"
     pd.DataFrame({"subject_id": ["1", "2"], "age": [60, 70]}).to_parquet(path)
     assert read_table(path).age.tolist() == [60, 70]
+
+
+def test_an_evaluation_with_more_exports_serves_a_plainer_request():
+    from opera.run.paper_prediction_queue import covers
+    richer = {**BASE, "export_routes": True, "export_embeddings": True}
+    assert covers(richer, BASE)
+    assert covers(BASE, BASE)
+    assert not covers(BASE, richer)
+    assert not covers({**richer, "checkpoint_sha256": "z"}, BASE)

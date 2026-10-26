@@ -105,6 +105,12 @@ def adds_exports_only(saved, signature):
     return same_inputs and bool(gained) and not lost
 
 
+def covers(saved, signature):
+    """True when ``saved`` is ``signature`` or the same evaluation with more
+    exports switched on (a later paper-model evaluation serves earlier asks)."""
+    return saved == signature or adds_exports_only(signature, saved)
+
+
 def evaluation_command(path, checkpoint, output, args, flags=None):
     command = [
         sys.executable,
@@ -200,13 +206,13 @@ def evaluate_row(row, path, config, args, aliases=(), borrowing_design=False):
         result["superseded"] = True
     with (output / ".evaluation.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if intent.exists() and json.loads(intent.read_text()) != signature:
+        if intent.exists() and not covers(json.loads(intent.read_text()), signature):
             raise ValueError(
                 f"Evaluation inputs changed; use a fresh prediction root: {output}"
             )
         if marker.exists():
             saved = json.loads(marker.read_text())
-            if saved["inputs"] != signature or saved["prediction_sha256"] != file_hash(
+            if not covers(saved["inputs"], signature) or saved["prediction_sha256"] != file_hash(
                 output / "direct_cr_predictions.parquet"
             ):
                 raise ValueError("Recorded predictions/provenance changed")
