@@ -19,6 +19,14 @@ the only way to get a correction that helps every target was to borrow one.
 * ``logit_scale``: scores are ``s * cos(query, key)`` instead of an unbounded
   dot product, so no source can take all the weight and the others keep a
   gradient.
+* ``own_outside`` (added the same day, after auditing the collapsed fits): the
+  patient's own disease and own outcome adapters are always applied at full
+  weight, outside the routed mix, which then holds only borrowed sources and
+  the "borrow nothing" slot. With own sources inside the mix at a 0.05 floor,
+  home adapters grew ~20x (correction norms ~100) to matter, so any weight on
+  a borrowed one injected a huge correction built for another disease, and the
+  router parked its weight on a low-magnitude source instead. Requires
+  ``home_floor=0``; the routed term is then exactly what is borrowed.
 """
 
 from __future__ import annotations
@@ -49,6 +57,7 @@ class SourceAnchoredReadout(nn.Module):
         global_adapter: bool = False,
         router_warmup_epochs: int = 0,
         logit_scale: float = 0.0,
+        own_outside: bool = False,
     ) -> None:
         super().__init__()
         self.fine_names = tuple(sorted(fine_names))
@@ -89,6 +98,9 @@ class SourceAnchoredReadout(nn.Module):
         self.router_warmup_epochs = int(router_warmup_epochs)
         self.router_frozen = self.router_warmup_epochs > 0
         self.logit_scale = float(logit_scale)
+        if own_outside and home_floor:
+            raise ValueError("own_outside applies own sources at full weight; set home_floor=0")
+        self.own_outside = bool(own_outside)
         if self.disease_embedding is not None:
             nn.init.zeros_(self.disease_embedding.weight)
 
@@ -185,13 +197,18 @@ class SourceAnchoredReadout(nn.Module):
         scores = scores.masked_fill(
             (~enabled | (self.source_shrinkage <= 0))[None, None, :], -1e4
         )
-        if not self.borrowing:
+        if not self.borrowing or self.own_outside:
             own = torch.zeros(len(patient), self.n_outcome, self.n_sources,
                               dtype=torch.bool, device=patient.device)
             own[torch.arange(len(patient), device=patient.device), :, safe_index] = True
             outcome_rows = torch.arange(self.n_outcome, device=patient.device)
             own[:, outcome_rows, self.n_disease + outcome_rows] = True
-            scores = scores.masked_fill(~own, -1e4)
+            # Without borrowing only own sources may be routed; with own sources
+            # outside the mix they may not be routed at all.
+            if not self.borrowing:
+                scores = scores.masked_fill(~own, -1e4)
+            if self.own_outside:
+                scores = scores.masked_fill(own, -1e4)
         shared = self.shared_logit.expand(len(patient), self.n_outcome, 1)
         logits = torch.cat((shared, scores), dim=-1)
         if self.router_frozen:
@@ -242,7 +259,7 @@ class SourceAnchoredReadout(nn.Module):
         # in float32 so index_add has matching dtypes and stable summation.
         residual = torch.einsum("bos,bsh->boh", weights[..., 1:], borrowed).float()
 
-        if self.anchored:
+        if self.anchored and not self.own_outside:
             fine_index = fine_index.long().reshape(-1).to(patient.device)
             valid = (fine_index >= 0) & (fine_index < self.n_disease)
             # Only the home disease rows use live disease parameters.
@@ -268,6 +285,8 @@ class SourceAnchoredReadout(nn.Module):
                     * (home - borrowed[:, source])
                 )
 
+        if self.own_outside:
+            residual = residual + self._own_corrections(patient, fine_index).to(residual.dtype)
         if self.global_down is not None:
             general = F.linear(F.gelu(F.linear(patient, self.global_down)), self.global_up)
             residual = residual + general[:, None, :].to(residual.dtype)
@@ -278,6 +297,30 @@ class SourceAnchoredReadout(nn.Module):
             shift = self.disease_embedding(fine.clamp(0, self.n_disease - 1))
             output = output + (known[:, None] * shift)[:, None, :].to(output.dtype)
         return (output, weights) if return_weights else output
+
+    def _own_corrections(self, patient, fine_index):
+        """Own disease and own outcome corrections at full weight, live
+        parameters (own_outside): (batch, outcome, hidden)."""
+        fine_index = fine_index.long().reshape(-1).to(patient.device)
+        known = (fine_index >= 0) & (fine_index < self.n_disease)
+        own = torch.zeros(len(patient), self.n_outcome, self.hidden_size,
+                          device=patient.device, dtype=torch.float32)
+        if self.use_disease_sources and bool(known.any()):
+            rows = torch.nonzero(known, as_tuple=True)[0]
+            source = fine_index[rows]
+            hidden = F.gelu(torch.einsum("bh,brh->br", patient[rows], self.down[source]))
+            disease = torch.einsum("br,bhr->bh", hidden, self.up[source])
+            disease = disease * self.source_shrinkage[source, None]
+            own = own.index_add(0, rows, disease.float()[:, None, :].expand(-1, self.n_outcome, -1))
+        if self.use_outcome_sources:
+            # Unknown disease identity keeps the shared-path fallback: no corrections.
+            mask = known.float()[:, None]
+            for outcome in range(self.n_outcome):
+                source = self.n_disease + outcome
+                hidden = F.gelu(F.linear(patient, self.down[source]))
+                correction = F.linear(hidden, self.up[source]) * self.source_shrinkage[source]
+                own[:, outcome] = own[:, outcome] + mask * correction.float()
+        return own
 
     def disease_terms(
         self, patient: torch.Tensor, fine_index: torch.Tensor

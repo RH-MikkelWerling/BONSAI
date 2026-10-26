@@ -129,3 +129,61 @@ def test_stage_three_adds_six_fits_and_reuses_every_earlier_one():
     assert risk["R_ABT_L"]["adapter_logit_scale"] == 3.0
     assert fixes["R_AB_s43_L"]["seed"] == 43
     assert {k: v for k, v in risk["R_AB_s43_L"].items()} == risk["R_AB_L"]
+
+
+def test_own_sources_outside_the_mix_are_never_routed_and_always_applied():
+    torch.manual_seed(0)
+    model = _readout(own_outside=True, home_floor=0.0)
+    with torch.no_grad():
+        model.up.normal_()
+    patient = torch.randn(4, 12)
+    fine = torch.tensor([0, 1, 0, 1])
+    output, weights = model(patient, fine, return_weights=True)
+    rows = torch.arange(4)
+    # Own disease and own outcome get no route weight ...
+    assert torch.all(weights[rows, :, 1 + fine] == 0)
+    for outcome in range(2):
+        assert torch.all(weights[:, outcome, 1 + 2 + outcome] == 0)
+    # ... but their corrections are applied in full: with every borrowed
+    # source removed, the output is patient + scale * (own disease + own outcome).
+    alone = model(patient, fine, removed_sources=["disease:DLBCL", "disease:FL",
+                                                  "outcome:anemia", "outcome:infection"])
+    own = model._own_corrections(patient, fine)
+    assert torch.allclose(alone, patient[:, None, :] + model.residual_scale * own, atol=1e-5)
+    # Own adapters train with live parameters.
+    output.sum().backward()
+    assert model.up.grad[0].abs().sum() > 0 and model.up.grad[2].abs().sum() > 0
+
+
+def test_own_outside_requires_no_home_floor():
+    with pytest.raises(ValueError):
+        _readout(own_outside=True, home_floor=0.05)
+
+
+def test_without_borrowing_own_outside_leaves_only_own_and_global():
+    torch.manual_seed(0)
+    model = _readout(own_outside=True, home_floor=0.0, borrowing=False, global_adapter=True)
+    weights = model.route_weights(torch.randn(3, 12), torch.tensor([0, 1, 0]))
+    assert torch.allclose(weights[..., 0], torch.ones(3, 2))  # everything on "borrow nothing"
+
+
+def test_stage_four_adds_the_own_outside_fits():
+    from test_paper_run_bundle import base_config, reference
+
+    from opera.run.prepare_paper_run_bundle import build_bundle
+    from opera.run.paper_prediction_queue import canonical_models
+
+    lock = {"source_mode": "both", "rank": 8, "query_mode": "interacting", "query_width": 512}
+    stage3 = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"},
+                          selected_router=lock, router_fix=True)
+    stage4 = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"},
+                          selected_router=lock, router_fix=True, router_own=True)
+    assert [e["config"] for e in stage4[: len(stage3)]] == [e["config"] for e in stage3]
+    new = {canonical_models(e, e["config"], {"selected_router": lock})[0]: e["config"]["competing_risk"]
+           for e in stage4[len(stage3):]}
+    assert set(new) == {"R_O_L", "RBH_O_L", "R_O_s43_L"}
+    r_ab = next(e["config"]["competing_risk"] for e in stage3 if e["name"].endswith("fix_R_AB"))
+    changed = {k for k in new["R_O_L"] if new["R_O_L"][k] != r_ab.get(k)}
+    assert changed == {"adapter_own_outside", "adapter_home_floor"}
+    assert new["R_O_L"]["adapter_home_floor"] == 0.0
+    assert new["RBH_O_L"]["adapter_borrowing"] is False

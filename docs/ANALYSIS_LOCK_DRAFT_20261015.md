@@ -319,6 +319,35 @@ Decision (router_decision --phase router_fix_rule):
 5. R_L (the collapsed router) is reported in every case, as a methodological
    finding, with its routing diagnostics.
 
+### Own sources outside the mix (added 2026-10-26, evening; after auditing the stage-2 fits, before any router-fix fit had finished)
+Seen: a checkpoint audit of R_L, RSI_L and RD_L (corrections rebuilt for 1,980
+tuning patients; no outcome used). The 90%-weight hub carries a small
+correction (R_L overall survival: size 3.9, 40% of the routed contribution;
+RSI_L hypoalbuminaemia: 1.4, 20%), while the disease adapters have
+corrections of size ~55-125 and enter at their 0.05 own-disease floor. The
+disease adapters point in different directions (median pairwise cosine ~0),
+and those of related B-cell lymphomas resemble each other (RD_L: MCL most like
+RT, EMZL, BCL, CLL, SMZL, LPL, FL). Reading: with own sources inside the mix
+at a fixed floor, home adapters grew ~20x to matter, which makes any borrowed
+weight inject a huge correction built for another disease; the router parks
+its weight on a low-magnitude source (a volume damper). A, B and T do not
+address this.
+
+Added fits (stage-4 bundle; stage 3 reused): R_O = R_AB with the own disease
+and own outcome adapters applied at full weight outside the routed mix (the
+mix holds only borrowed sources and the "borrow nothing" slot; home floor 0);
+RBH_O = R_O without the borrowed mix; R_O_s43 = R_O on seed 43.
+
+Rule. R_O is the design that targets the diagnosed mechanism. Its routing
+health is judged by the same three criteria, on contributions measured as
+route weight x the source's correction size (rebuilt from the checkpoint, as
+in the audit), over borrowed sources. Claim c is tested as R_O minus RBH_O,
+against the seed noise floor |R_O_s43 minus R_O|; this is the borrowing
+contrast carried to the test set if R_O is healthy. R_O replaces R_L as the
+routed model if it is healthy and its panel AUC is not below R_L's by more
+than that noise floor; otherwise the stage-3 rule decides. The stage-3 fits
+are reported as the diagnostic path (A, B, T) in every case.
+
 ## Decision curves (added 2026-10-23)
 - Action: closer monitoring and supportive care for patients above the
   threshold; outcome: death within two years in DLBCL; range 5-40%.

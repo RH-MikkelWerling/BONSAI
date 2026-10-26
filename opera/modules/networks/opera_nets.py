@@ -1850,6 +1850,7 @@ class OperaContrastiveModel(nn.Module):
                 router_warmup_epochs=int(
                     competing_risk_settings.get("adapter_router_warmup_epochs", 0)),
                 logit_scale=float(competing_risk_settings.get("adapter_logit_scale", 0.0)),
+                own_outside=bool(competing_risk_settings.get("adapter_own_outside", False)),
             )
             shared_logit_init = float(competing_risk_settings.get("adapter_shared_logit_init", 3.0))
             if not math.isfinite(shared_logit_init):

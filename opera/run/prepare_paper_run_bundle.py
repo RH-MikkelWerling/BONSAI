@@ -105,10 +105,21 @@ ROUTER_FIX = {
 }
 
 
-def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs, patience):
-    """The six router-fix fits (local encoder)."""
+# Own sources outside the mix (stage 4; same addendum, after the hub audits):
+# own disease and own outcome adapters at full weight outside the routed mix,
+# which holds only borrowed sources; with A and B, and no home floor.
+ROUTER_OWN = {
+    "R_O": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42),
+    "RBH_O": ("selected", False, True, ROUTER_FIX_WARMUP, 0.0, 42),  # no borrowed mix
+    "R_O_s43": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 43),
+}
+
+
+def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs, patience,
+                       fits=None, own_outside=False):
+    """The router-fix fits (local encoder): ROUTER_FIX, or ROUTER_OWN with own_outside."""
     entries = []
-    for alias, (source, borrowing, global_adapter, warmup, scale, seed) in ROUTER_FIX.items():
+    for alias, (source, borrowing, global_adapter, warmup, scale, seed) in (fits or ROUTER_FIX).items():
         shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
                                    seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
         config = router_config(
@@ -122,6 +133,8 @@ def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs,
             config["competing_risk"]["adapter_borrowing"] = False
         if scale:
             config["competing_risk"]["adapter_logit_scale"] = scale
+        if own_outside:
+            config["competing_risk"].update(adapter_own_outside=True, adapter_home_floor=0.0)
         entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix",
                         "origin": "L", "seed": seed, "condition": {}, "config": config})
     return entries
@@ -160,6 +173,7 @@ def build_bundle(
     external_sequence_dir=None,
     data_efficiency=True,
     router_fix=False,
+    router_own=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -387,6 +401,12 @@ def build_bundle(
             raise ValueError("The router-fix fits need the router lock")
         entries += router_fix_entries(base, reference, checkpoints, selected_router,
                                       epochs=epochs, patience=patience)
+    if router_own:
+        if not router_fix:
+            raise ValueError("Stage 4 repeats the stage-3 router-fix fits")
+        entries += router_fix_entries(base, reference, checkpoints, selected_router,
+                                      epochs=epochs, patience=patience,
+                                      fits=ROUTER_OWN, own_outside=True)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -528,6 +548,8 @@ def main():
                         help="Omit the routing decomposition controls from stage 2.")
     parser.add_argument("--router-fix", action="store_true",
                         help="Add the six router-fix fits (stage 3 onwards; lock addendum 2026-10-26).")
+    parser.add_argument("--router-own", action="store_true",
+                        help="Add the three own-outside router fits (stage 4 onwards).")
     parser.add_argument("--seeds", default="42")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--early-stopping-patience", type=int, default=5,
@@ -579,6 +601,7 @@ def main():
         external_sequence_dir=args.external_sequence_dir,
         data_efficiency=not args.no_data_efficiency,
         router_fix=args.router_fix,
+        router_own=args.router_own,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

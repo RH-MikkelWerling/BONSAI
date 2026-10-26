@@ -154,6 +154,9 @@ def build_commands(args, env):
                 # Router fix (lock addendum 2026-10-26): stage 3 adds the six
                 # fits; every earlier fit is regenerated identically and reused.
                 command += ["--router-fix"]
+            if stage >= 4:
+                # Own sources outside the mix (same addendum, after the hub audits).
+                command += ["--router-own"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]
