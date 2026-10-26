@@ -1201,7 +1201,40 @@ def _calibration_fit(labels, probabilities, weights, iterations=50):
     return float(beta[0]), float(beta[1])
 
 
+def parallel_ordered(function, tasks, workers):
+    """``function`` over ``tasks`` in a process pool, results in task order, with at
+    most two tasks per worker in flight (bounded memory)."""
+    from collections import deque
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        pending = deque()
+        for task in tasks:
+            pending.append(pool.submit(function, task))
+            if len(pending) >= 2 * workers:
+                yield pending.popleft().result()
+        while pending:
+            yield pending.popleft().result()
+
+
 def calibration_summary(frame, *, min_events=10):
+    """Per model and cell (see ``_calibration_summary``), in parallel by model with
+    OPERA_ANALYSIS_WORKERS; the same rows in the same order as a serial run."""
+    workers = analysis_workers()
+    models = sorted(frame.model.unique())
+    if workers <= 1 or len(models) < 2:
+        return _calibration_summary(frame, min_events=min_events)
+    tasks = ((frame.loc[frame.model == model], min_events) for model in models)
+    parts = list(parallel_ordered(_calibration_summary_task, tasks, workers))
+    return pd.concat(parts, ignore_index=True)
+
+
+def _calibration_summary_task(task):
+    frame, min_events = task
+    return _calibration_summary(frame, min_events=min_events)
+
+
+def _calibration_summary(frame, *, min_events=10):
     """Per model and cell: calibration slope, intercept, O/E and ECE.
 
     The slope comes from a weighted logistic recalibration of the outcome on

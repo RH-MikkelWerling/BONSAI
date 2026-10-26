@@ -115,7 +115,7 @@ def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
     """
     _check_rule(rule)
     known = predictions.loc[predictions.known.astype(bool)] if "known" in predictions else predictions
-    rows, replicate_metrics = [], {}
+    rows, replicate_metrics, estimated = [], {}, {}
     for (seed, cohort, outcome, horizon, model), task in known.groupby([*TASK, "model"], sort=True):
         tuning = task.loc[task.split == "tuning"]
         test = task.loc[task.split == "held_out"].sort_values("subject_id")
@@ -142,6 +142,7 @@ def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
             replicate_metrics[(seed, cohort, outcome, horizon, model)] = sampled
             for name in METRICS:
                 record[f"{name}_lower"], record[f"{name}_upper"] = _interval(sampled[name])
+        estimated[(seed, cohort, outcome, horizon, model)] = record
         rows.append(record)
     points = pd.DataFrame(rows)
     differences = []
@@ -152,10 +153,9 @@ def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
             other = replicate_metrics.get((seed, cohort, outcome, horizon, model_b))
             if other is None:
                 continue
-            a = points.loc[(points.model == model_a) & (points.seed == seed) & (points.cohort == cohort)
-                           & (points.outcome == outcome) & (points.horizon_days == horizon)].iloc[0]
-            b = points.loc[(points.model == model_b) & (points.seed == seed) & (points.cohort == cohort)
-                           & (points.outcome == outcome) & (points.horizon_days == horizon)].iloc[0]
+            # Look the two records up by key (filtering the table per pair is quadratic).
+            a = estimated[(seed, cohort, outcome, horizon, model_a)]
+            b = estimated[(seed, cohort, outcome, horizon, model_b)]
             row = {"seed": seed, "cohort": cohort, "outcome": outcome, "horizon_days": horizon,
                    "model_a": model_a, "model_b": model_b, "rule": rule}
             for name in METRICS:

@@ -156,3 +156,22 @@ def test_vectorised_seed_averaging_equals_the_loop():
     slow = _reference_seed_averaged(contrasts, draws)
     pd.testing.assert_frame_equal(fast.reset_index(drop=True), slow[fast.columns].reset_index(drop=True),
                                   check_dtype=False)
+
+
+def test_parallel_calibration_summary_equals_serial(monkeypatch):
+    from opera.evaluation import secondary_analysis as sa
+
+    rng = np.random.default_rng(5)
+    rows = []
+    for model in ("A", "B", "C"):
+        times = rng.uniform(1, 900, 300).round()
+        events = rng.choice([0, 1, 2], 300, p=[0.4, 0.4, 0.2])
+        frame = _rows(times, events, (365, 730), cut=False)
+        frame["model"], frame["data_contract"] = model, "c"
+        frame["probability"] = np.clip(rng.uniform(0.05, 0.9, len(frame)), 0.01, 0.99)
+        rows.append(frame)
+    frame, _ = sa.normalize_predictions(pd.concat(rows, ignore_index=True), "cif_ipcw")
+    serial = sa.calibration_summary(frame)
+    monkeypatch.setenv("OPERA_ANALYSIS_WORKERS", "3")
+    parallel = sa.calibration_summary(frame)
+    pd.testing.assert_frame_equal(serial, parallel)

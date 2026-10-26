@@ -234,6 +234,20 @@ def read_route_artifact(config, metadata):
     return pd.DataFrame(rows)
 
 
+_STARTED = None
+
+
+def stage(name):
+    """Progress line with elapsed time (stderr), so a slow stage is visible."""
+    import sys
+    import time
+
+    global _STARTED
+    _STARTED = _STARTED or time.time()
+    print(f"analysis stage: {name} ({(time.time() - _STARTED) / 60:.1f} min)",
+          file=sys.stderr, flush=True)
+
+
 def run(config, output_dir):
     """Produce reviewable tables with explicit missing-input/coverage statuses."""
     output_dir = Path(output_dir)
@@ -281,6 +295,7 @@ def run(config, output_dir):
         inputs.append(data)
         audit.append({"path": specification["path"], **summary})
         hashes[specification["path"]] = digest
+    stage("censoring weights")
     predictions, combined_audit = normalize_predictions(
         pd.concat(inputs, ignore_index=True), estimand
     )
@@ -298,6 +313,7 @@ def run(config, output_dir):
     }
     contrasts.update(config.get("extra_contrasts", {}))
     candidates = config.get("strategy_candidates", ["S_L", "D_L", "O_L"])
+    stage("strategy selection")
     selected, selection = tuning_selected_strategies(predictions, candidates)
     if not selected.empty:
         predictions = pd.concat([predictions, selected], ignore_index=True)
@@ -313,6 +329,7 @@ def run(config, output_dir):
     draws = patient_bootstrap(
         predictions, replicates, int(config.get("bootstrap_seed", 2026))
     )
+    stage("paired analysis")
     tables = paired_analysis(
         predictions,
         contrasts,
@@ -321,6 +338,7 @@ def run(config, output_dir):
         patient_gain_contrasts=config.get("patient_gain_contrasts"),
     )
     # Absolute metrics on a common panel, e.g. joint/routed under each encoder origin.
+    stage("panel estimates")
     tables["panel_estimates"] = panel_estimates(
         tables["estimates"],
         tables.pop("model_bootstrap_draws"),
@@ -342,6 +360,7 @@ def run(config, output_dir):
             definition["bins"],
             include_lowest=True,
         ).astype(str)
+    stage("effect summaries")
     annotated, summaries = effect_summaries(
         tables["contrasts"],
         tables["bootstrap_draws"],
@@ -350,6 +369,7 @@ def run(config, output_dir):
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])),
     )
+    stage("calibration, strategies, negative transfer")
     tables.update(
         contrasts=annotated,
         effect_summaries=summaries,
@@ -362,6 +382,7 @@ def run(config, output_dir):
     )
     # Decision points fixed on tuning data: confusion counts, sensitivity,
     # specificity, predictive values and MCC, paired through the same draws.
+    stage("operating points")
     point_settings = config.get("operating_points", {})
     point_tables, difference_tables = [], []
     for rule in point_settings.get("rules", DEFAULT_RULES):
@@ -381,9 +402,11 @@ def run(config, output_dir):
         points, int(point_settings.get("minimum_cell_count", 5))
     )
     tables["operating_point_differences"] = pd.concat(difference_tables, ignore_index=True)
+    stage("seed-averaged effects")
     tables["seed_averaged_effects"] = seed_averaged_effects(
         tables["contrasts"], tables["bootstrap_draws"]
     )
+    stage("router gate")
     gate_settings = {
         **contrast_manifest.get("evaluation", {}).get("router_null_equivalence", {}),
         **config.get("router_null_equivalence", {}),
@@ -424,6 +447,7 @@ def run(config, output_dir):
             cell_metadata[["cohort", "outcome", "horizon_days"]],
             strata=["stratum"],
         )
+    stage("identity and subgroup sensitivity analyses")
     statuses = []
     if metadata is not None:
         tables["router_identity_audit"] = audit_router_identity(metadata)
@@ -537,16 +561,26 @@ def run(config, output_dir):
             tables[f"stratified_{column}_models"] = pd.concat(absolute, ignore_index=True)
         statuses.append({"analysis": f"stratified_{column}",
                          "status": "computed" if effects else "no_estimable_stratum"})
+    # Patient groups whose covariate is not in the metadata yet (e.g. national
+    # vocabulary coverage before the national arm exists) are skipped and
+    # recorded, as for the stratified analyses above.
+    patient_groups = {}
+    for column, spec in (config.get("patient_groups") or {}).items():
+        if metadata is not None and column in metadata:
+            patient_groups[column] = spec
+        else:
+            statuses.append({"analysis": f"patient_group_{column}",
+                             "status": "missing_covariate"})
     if (
         metadata is not None
-        and config.get("patient_groups")
+        and patient_groups
         and not tables["patient_gains"].empty
     ):
         tables["patient_subgroups"] = subgroup_patient_gains(
-            tables["patient_gains"], metadata, config["patient_groups"], draws=draws
+            tables["patient_gains"], metadata, patient_groups, draws=draws
         )
         tables["patient_subgroup_panels"] = panel_subgroup_gains(
-            tables["patient_gains"], metadata, config["patient_groups"], draws=draws
+            tables["patient_gains"], metadata, patient_groups, draws=draws
         )
         statuses.append({"analysis": "patient_characteristics", "status": "computed"})
     else:
@@ -687,6 +721,7 @@ def run(config, output_dir):
     ):
         if config.get(key):
             hashes[config[key]] = file_hash(config[key])
+    stage("writing outputs")
     # All validation/analysis precedes the first output mutation.
     output_dir.mkdir(parents=True)
     for name, table in tables.items():
@@ -725,6 +760,11 @@ def run(config, output_dir):
 
 
 def main():
+    import faulthandler
+    import signal
+
+    # `kill -USR1 <pid>` prints where the analysis is (to the log).
+    faulthandler.register(signal.SIGUSR1, all_threads=False)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
