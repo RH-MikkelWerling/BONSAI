@@ -1648,6 +1648,38 @@ def _map_axis(ax):
         spine.set_visible(False)
 
 
+def _embedding_surface_mask(xx, yy, points, support, density, minimum):
+    """Mask unsupported colour outside the observed patient cloud, including holes.
+
+    Effective sample size alone is insufficient: equally tiny Gaussian weights
+    can give a large effective count far from every patient.
+    """
+    from opera.visualization.censoring_aware_embeddings import patient_footprint_margin
+
+    if not len(points):
+        return np.ones(xx.shape, dtype=bool)
+    grid = np.column_stack([xx.ravel(), yy.ravel()])
+    margin, _ = patient_footprint_margin(points, grid)
+    return ((support < minimum) | (density < 0.02 * np.max(density))
+            | (margin.reshape(xx.shape) < 0))
+
+
+def _matched_embedding_tables(coords, outcomes):
+    """Canonical IDs across CSV/Parquet; never render a failed join as zero risk."""
+    coords, outcomes = coords.copy(), outcomes.copy()
+    for frame in (coords, outcomes):
+        if frame.subject_id.isna().any():
+            raise ValueError("Embedding patient identifiers must be complete")
+        frame["subject_id"] = frame.subject_id.astype(str)
+    if coords.subject_id.duplicated().any():
+        raise ValueError("Embedding coordinates need one row per patient")
+    if outcomes.duplicated(["subject_id", "outcome"]).any():
+        raise ValueError("Embedding outcomes need one row per patient and outcome")
+    if not outcomes.subject_id.isin(coords.subject_id).any():
+        raise ValueError("No matching patient IDs between embedding coordinates and outcomes")
+    return coords, outcomes
+
+
 def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
                              horizon=365, grid_size=90, min_effective_support=15.0,
                              bandwidth=None, mark=None):
@@ -1666,6 +1698,7 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     from opera.visualization.censoring_aware_embeddings import (
         _default_bandwidth, _display_grid, _kernel_surfaces, horizon_ipcw_data)
 
+    coords, outcomes = _matched_embedding_tables(coords, outcomes)
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
     bandwidth = bandwidth or _default_bandwidth(points)
@@ -1676,7 +1709,7 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     selected = order.iloc[(page - 1) * per_page: page * per_page].reset_index(drop=True)
     if selected.empty:
         raise ValueError(f"Page {page} has no outcomes")
-    nrows = int(np.ceil(per_page / ncols))
+    nrows = int(np.ceil(len(selected) / ncols))
     fig = plt.figure(figsize=(7.2, 1.85 * nrows + 0.7))
     height = fig.get_figheight()
     grid = fig.add_gridspec(nrows, ncols, wspace=0.06, hspace=0.42, left=0.02,
@@ -1703,16 +1736,23 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
         overall = (np.sum(data.weights[used] * data.target[used])
                    / max(np.sum(data.weights[used]), 1e-12))
         if used.sum() and overall > 0:
-            _, _, surface, support, _ = _kernel_surfaces(
+            _, _, surface, support, density = _kernel_surfaces(
                 points[at][used], data.target[used], data.weights[used],
                 bandwidth=bandwidth, grid_size=grid_size, bounds_coords=points,
                 min_padding=0.8)
             relative = np.clip(surface / overall, 0.25, 4)
-            relative[support < min_effective_support] = np.nan
+            relative[_embedding_surface_mask(xx, yy, points[at][used], support,
+                                              density, min_effective_support)] = np.nan
             image = ax.imshow(relative, origin="lower", extent=extent, cmap=cmap,
                               norm=norm, interpolation="bilinear", zorder=2)
-        ax.scatter(points[:, 0], points[:, 1], s=0.8, alpha=0.18, linewidths=0,
-                   color="white", rasterized=True, zorder=3)
+        ax.scatter(points[:, 0], points[:, 1], s=1.4, alpha=0.22, linewidths=0,
+                   color=PALETTE["ink_secondary"], rasterized=True, zorder=3)
+        if not used.any():
+            ax.text(0.5, 0.5, "No eligible patients", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=7)
+        elif overall == 0:
+            ax.text(0.5, 0.5, "No events at horizon", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=7)
         ax.set_title(f"{row.outcome}\n{100 * overall:.1f}% at {horizon} days",
                      fontsize=6.4, pad=2, color=PALETTE["ink"], loc="center",
                      linespacing=1.25)
@@ -1728,7 +1768,8 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
             y = first.y1 + lift
             fig.add_artist(Line2D([first.x0, last.x1], [y, y], transform=fig.transFigure,
                                   color=PALETTE["ink_secondary"], lw=0.7))
-            fig.text(first.x0, y + 0.03 / height, run.domain.iloc[0], fontsize=6.6,
+            fig.text(first.x0, y + 0.03 / height,
+                     SHORT_GROUP.get(run.domain.iloc[0], run.domain.iloc[0]), fontsize=6.6,
                      fontweight="bold", color=PALETTE["ink"], va="bottom", ha="left")
     if image is not None:
         bar = fig.add_axes([0.3, 0.22 / height, 0.4, 0.1 / height])
@@ -1759,6 +1800,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
         spatial_calibration_residual)
     from opera.visualization.style import CATEGORICAL
 
+    coords, outcomes = _matched_embedding_tables(coords, outcomes)
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
     # Tighter than the gallery so the maps follow the shape of the patient map.
@@ -1813,16 +1855,23 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
         overall = (np.sum(data.weights[used] * data.target[used])
                    / max(np.sum(data.weights[used]), 1e-12))
         if used.sum() and overall > 0:
-            _, _, surface, support, _ = _kernel_surfaces(
+            _, _, surface, support, density = _kernel_surfaces(
                 points[at][used], data.target[used], data.weights[used],
                 bandwidth=bandwidth, grid_size=grid_size, bounds_coords=points,
                 min_padding=0.8)
             relative = np.clip(surface / overall, 0.25, 4)
-            relative[support < 2 * min_effective_support] = np.nan
+            relative[_embedding_surface_mask(xx, yy, points[at][used], support,
+                                              density, 2 * min_effective_support)] = np.nan
             image = ax.imshow(relative, origin="lower", extent=extent, cmap=cmap,
                               norm=norm, interpolation="bilinear", zorder=2)
             if first is None:
-                first = (outcome, part, at, data, support)
+                first = (outcome, part, at, data, support, density)
+        ax.scatter(points[:, 0], points[:, 1], s=1.4, alpha=0.2, linewidths=0,
+                   color=PALETTE["ink_secondary"], rasterized=True, zorder=3)
+        if not used.any() or overall == 0:
+            ax.text(0.5, 0.5, "No eligible patients" if not used.any()
+                    else "No events at horizon", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=6)
         domain = part.domain.iloc[0] if len(part) else ""
         ax.set_title(f"{'BCDEF'[index]}  {textwrap.shorten(outcome, 19, placeholder='…')}",
                      loc="left", fontsize=7.6, color=PALETTE["ink"], pad=3)
@@ -1832,13 +1881,14 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
     ax = fig.add_subplot(grid[1, 4])
     frame(ax)
     if first is not None and "risk" in outcomes:
-        outcome, part, at, data, support = first
+        outcome, part, at, data, support, density = first
         residual = spatial_calibration_residual(
             points[at], part.risk.to_numpy(float), data.target, data.weights,
             bandwidth=bandwidth, grid=(xx, yy), support_mask=support >= min_effective_support,
             min_effective_support=min_effective_support, standardize=False,
             n_bootstrap=0).residual.reshape(xx.shape)
-        residual[support < min_effective_support] = np.nan
+        residual[_embedding_surface_mask(xx, yy, points[at][data.eligible], support,
+                                          density, min_effective_support)] = np.nan
         rcmap = plt.get_cmap("RdBu_r").copy()
         rcmap.set_bad((1, 1, 1, 0))
         residual_image = ax.imshow(residual, origin="lower", extent=extent, cmap=rcmap,
@@ -1914,10 +1964,11 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
         routed = rest[0] if rest else None
         data = horizon_ipcw_data(times, events, horizon)
         used = data.eligible
-        _, _, surface, support, _ = _kernel_surfaces(
+        _, _, surface, support, density = _kernel_surfaces(
             coords[used], data.target[used], data.weights[used], bandwidth=bandwidth,
             grid_size=grid_size, bounds_coords=coords, min_padding=0.8)
-        blank = support < min_effective_support
+        blank = _embedding_surface_mask(xx, yy, coords[used], support, density,
+                                        min_effective_support)
         residual = spatial_calibration_residual(
             coords, predicted, data.target, data.weights, bandwidth=bandwidth,
             grid=(xx, yy), support_mask=~blank,
@@ -3674,7 +3725,8 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     return fig
 
 
-def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, mark=None):
+def figure_embedding_comparison(coords, *, model_order=None, color_rows=None,
+                                metadata_style="smooth", mark=None):
     """Model columns with fixed coordinates and shared metadata colour rows.
 
     Metadata must agree for every patient across models. Missing scores remain
@@ -3682,6 +3734,8 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
     """
     from opera.visualization.style import CATEGORICAL, sequential_cmap, setup_style
     setup_style()
+    if metadata_style not in {"points", "smooth"}:
+        raise ValueError("metadata_style must be points or smooth")
     rows = color_rows or [
         {"column": "disease", "label": "Disease group", "kind": "categorical"},
         {"column": "age", "label": "Age at treatment (years)", "kind": "continuous"},
@@ -3739,7 +3793,7 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
                                ticks=range(len(levels)))
             bar.ax.set_yticklabels(levels, fontsize=6.5)
             bar.outline.set_visible(False)
-            cax.set_title(textwrap.fill(row["label"] + " (mean)", 14), fontsize=7.5,
+            cax.set_title(textwrap.fill(row["label"] + (" (mean)" if metadata_style == "smooth" else ""), 14), fontsize=7.5,
                           loc="left", pad=6)
         elif categorical:
             present = set(base[column].dropna())
@@ -3794,6 +3848,14 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
                        linewidths=0, rasterized=True, zorder=1)
             if categorical:
                 _category_regions(ax, data, column, colors, extent)
+            elif metadata_style == "points":
+                values = (data[column].map(rank) if ordinal
+                          else pd.to_numeric(data[column], errors="raise"))
+                # Every colour is one observed patient's metadata, not a mean
+                # interpolated into empty regions of a two-dimensional map.
+                ax.scatter(data.x, data.y, c=values.to_numpy(float), cmap=cmap,
+                           norm=norm, s=5, alpha=0.8, linewidths=0,
+                           rasterized=True, zorder=2)
             else:
                 # Smooth local mean (Gaussian kernel), as in the risk maps; blank
                 # where too few patients carry the value.
@@ -3806,14 +3868,15 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
                 if row.get("log"):
                     values = np.log(values)
                 bandwidth = 0.6 * _default_bandwidth(points)
-                xx, yy, surface, support, _ = _kernel_surfaces(
+                xx, yy, surface, support, density = _kernel_surfaces(
                     valid[["x", "y"]].to_numpy(float), values, np.ones(len(values)),
                     bandwidth=bandwidth, grid_size=180, bounds_coords=points,
                     min_padding=0.0)
                 if row.get("log"):
                     surface = np.exp(surface)
                 # Blank where the map has too few patients nearby.
-                surface[support < 20] = np.nan
+                surface[_embedding_surface_mask(
+                    xx, yy, valid[["x", "y"]].to_numpy(float), support, density, 20)] = np.nan
                 ax.imshow(surface, origin="lower", cmap=cmap, norm=norm,
                           extent=(xx.min(), xx.max(), yy.min(), yy.max()),
                           interpolation="bilinear", aspect="auto", alpha=0.92,
@@ -3836,17 +3899,18 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None, ma
     return fig
 
 
-def _category_regions(ax, data, column, colors, extent, *, label=False, mass=0.5):
-    """Faint points plus one contour around the densest half of each category."""
+def _category_regions(ax, data, column, colors, extent, *, label=False, mass=0.5,
+                      contours=True):
+    """Patient points, optionally with contours around each category's dense half."""
     from scipy.stats import gaussian_kde
 
     xx, yy = np.meshgrid(np.linspace(*extent[:2], 90), np.linspace(*extent[2:], 90))
     grid_points = np.vstack([xx.ravel(), yy.ravel()])
     for category, color in colors.items():
         part = data.loc[data[column] == category]
-        ax.scatter(part.x, part.y, s=2.2, color=color, alpha=0.32, linewidths=0,
+        ax.scatter(part.x, part.y, s=4.0, color=color, alpha=0.55, linewidths=0,
                    rasterized=True, zorder=2)
-        if len(part) < 15:
+        if not contours or len(part) < 15:
             continue
         points = np.vstack([part.x, part.y])
         kde = gaussian_kde(points)

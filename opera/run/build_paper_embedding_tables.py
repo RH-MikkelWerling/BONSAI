@@ -27,6 +27,14 @@ from opera.visualization.outcome_names import outcome_display_name
 from opera.visualization.paper_taxonomy import disease_group_name
 
 
+def _patient_ids(frame):
+    frame = frame.copy()
+    if frame.subject_id.isna().any():
+        raise ValueError("Embedding patient identifiers must be complete")
+    frame["subject_id"] = frame.subject_id.astype(str)
+    return frame
+
+
 def load_stage(paths) -> pd.DataFrame:
     """Embeddings of one stage from one or more npz exports."""
     frames = []
@@ -35,7 +43,7 @@ def load_stage(paths) -> pd.DataFrame:
         frames.append(pd.DataFrame({"subject_id": data["subject_ids"],
                                     "split": data["splits"].astype(str),
                                     "embedding": list(data["embeddings"])}))
-    frame = pd.concat(frames, ignore_index=True)
+    frame = _patient_ids(pd.concat(frames, ignore_index=True))
     if frame.subject_id.duplicated().any():
         raise ValueError("A patient appears twice within one stage")
     return frame
@@ -85,7 +93,7 @@ def embedding_comparison(stages: dict, metadata: pd.DataFrame, *, method="umap",
     coordinates = {label: project(load_stage(paths), method=method, rehearse=rehearse)
                    for label, paths in stages.items()}
     common = set.intersection(*(set(c.subject_id) for c in coordinates.values()))
-    meta = metadata.set_index("subject_id")
+    meta = _patient_ids(metadata).set_index("subject_id")
     rows = []
     for label, coords in coordinates.items():
         coords = coords.loc[coords.subject_id.isin(common)].copy()
@@ -109,6 +117,7 @@ def calibration_map_inputs(coords: pd.DataFrame, predictions: pd.DataFrame, outc
     Only patients evaluated for every chosen outcome are kept, so all columns
     of the figure describe the same people.
     """
+    coords, predictions = _patient_ids(coords), _patient_ids(predictions)
     column = f"cif_{horizon}d"
     data = predictions.loc[predictions.outcome.isin(outcomes)]
     eligible = data.groupby("subject_id").outcome.nunique()
@@ -133,6 +142,9 @@ def embedding_gallery_inputs(coords: pd.DataFrame, predictions: pd.DataFrame,
     """
     from opera.visualization.paper_taxonomy import DISPLAY_GROUPS, outcome_endpoint_groups
 
+    coords, predictions = _patient_ids(coords), _patient_ids(predictions)
+    if metadata is not None:
+        metadata = _patient_ids(metadata)
     domains = outcome_endpoint_groups()
     domain_order = {name: i for i, name in enumerate(
         yaml.safe_load(Path(DISPLAY_GROUPS).read_text()))}

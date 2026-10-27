@@ -1,0 +1,89 @@
+# Router and embedding figure audit — 27 October 2026
+
+## Confirmed in source and local tests
+
+The paper evaluator obtains contextual token states through the complete
+transformer (`get_objective_representations` -> `_pool` -> `_encode_hidden`).
+With `cls_last` it selects the last valid prediction-token state after that
+encoding. This state can attend to all preceding allowed history; it is not
+the raw CLS lookup embedding. Source adapters transform that patient state
+before the outcome-specific linear head computes hazards. Checkpoint loading
+uses saved architecture/model-init metadata and a strict state-dict load.
+
+A new test using the real causal BONSAI transformer changes an ordinary event
+code, leaves CLS/timing fixed, and confirms the contextual state and hazards
+change. It also matches evaluator hazards against the explicit adapter-plus-head
+calculation. This verifies the implementation, not the identity/health of a
+particular server checkpoint.
+
+Standard `patient_embeddings.npz` exports are pooled encoder states BEFORE
+source adapters. A routed model has outcome-specific adapted states, so no
+single shared post-router patient embedding exists. The optional routed-outcome
+export is required to inspect that transformation. The rehearsal configuration
+also deliberately supplies just the local fine-tuned stage; a one-column map is
+not evidence that other representation stages were evaluated.
+
+## Concrete embedding failure fixed
+
+Production CSV reads preserve `subject_id` as strings, while Parquet exports
+can retain integer IDs. The gallery and patient-map joins previously matched
+no patients and silently drew blank panels with 0.0% incidence. Both plotting
+boundaries now canonicalize IDs, validate uniqueness/completeness, and reject
+an entirely unmatched join. Builders normalize IDs too, including metadata joins.
+Patients with no horizon events/eligibility are explicitly labelled. Last pages
+size themselves for the number of panels actually present, and disease-domain
+labels use short names to reduce collisions.
+
+Metadata embedding comparisons now default to individual coloured patient
+points rather than interpolated means. Disease contours are off by default;
+explicit `metadata_style: smooth` retains the previous continuous-field option.
+Coordinates are unchanged by these display changes. Synthetic patient-map and
+comparison previews were inspected; real-data visual review remains necessary.
+
+## Why the AUC comparisons must be reconciled on the server
+
+- R_L is an analysis alias. Unless `OPERA_PAPER_ROUTED_MODEL=R_AB_L` was applied
+  when creating the inventory, it can still refer to the originally locked
+  final-source router. Changing the env later does not rewrite an inventory.
+- Route usage, source-removal maps and contrast figures can come from separate
+  invocations; each must identify its source fit.
+- The current routing forest shows medians/IQR over cells; the decision code
+  averages equally by disease, then outcome, then horizon and requires at least
+  five cases/controls. `effect_summaries.csv` also has equal-cell means. These
+  do not necessarily agree, even for the same predictions.
+- One documented +0.0138 AUC gain is R_AB versus RBH_AB (matched no-borrowing
+  control), not R_AB versus J_L. This is a candidate explanation, not an
+  identification of the result Mikkel recalls.
+- 0.01 raw AUC equals one AUC point. Compare identical horizons, populations,
+  estimands, seeds and weights before interpreting a discrepancy.
+- Adapter-bank controls R2–R7 are the original bank factorial, not automatically
+  matched controls for the later fixed global-adapter router. The explicit
+  `router_borrow_AB` contrast is the matched R_AB–RBH_AB comparison.
+
+## Read-only server command
+
+Sync the updated source and checksum manifest. From the server repo, use the
+EXACT environment file that generated the figures (change the example if needed):
+
+```bash
+python -m opera.run.audit_tuning_router --env-file .env.rehearsal \
+  --route-diagnostics --verify-artifacts > logs/rehearsal/router_audit_current.json
+```
+
+The command does not infer, train, select a model, or overwrite analysis outputs.
+It prints model-alias-to-fit mappings, readout settings, recorded evaluation
+inputs and config hashes; optional verification hashes the prediction and
+checkpoint files (potentially slow). It checks route-export directory identity,
+reports route concentration/support-weighted health from existing exports,
+includes source-removal provenance when present, and juxtaposes AUC mean/median
+and decision weighting on current contrasts. It reports embedding join counts
+without patient identifiers. Support-weighted health is the stage-3 rule; it
+is not the stage-4 correction-magnitude-weighted health criterion.
+
+Return the JSON, particularly R_L/R_AB/R_ORIG fit names, hash results, route
+provenance, health and R1/router_borrow_AB summaries. Do not rerun training or
+replace the primary model until those results identify the actual discrepancy.
+If artifact mappings are wrong, rebuild inventory/analysis in a fresh root
+with the intended alias; do not silently edit existing aggregate result files.
+If embedding join mismatches are confirmed, the existing coordinate/outcome
+tables can be rerendered with the fixed plotting code without fresh GPU work.

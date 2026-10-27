@@ -123,3 +123,19 @@ def test_region_map_uses_packaged_boundaries_and_tiles_fallback():
         fig = figures.figure_regions(effects, models, coverage, geometry)
         assert fig.axes[0].patches  # regions drawn
         plt.close(fig)
+
+
+def test_embedding_csv_parquet_identifier_types_do_not_hide_outcomes():
+    import pytest
+    coords, outcomes = proto.synthetic_gallery(np.random.default_rng(12), n=300)
+    coords["subject_id"] = np.arange(len(coords)).astype(str)
+    # Same IDs, as numeric Parquet and text CSV inputs from the real renderer.
+    ids = outcomes.subject_id.drop_duplicates().tolist()
+    mapping = dict(zip(ids, range(len(ids))))
+    outcomes["subject_id"] = outcomes.subject_id.map(mapping)
+    fig = figures.figure_embedding_gallery(coords, outcomes, per_page=4, grid_size=25,
+                                            min_effective_support=1)
+    assert any(ax.images for ax in fig.axes)
+    plt.close(fig)
+    with pytest.raises(ValueError, match="No matching patient IDs"):
+        figures.figure_embedding_gallery(coords.assign(subject_id=[f"missing_{i}" for i in range(len(coords))]), outcomes)

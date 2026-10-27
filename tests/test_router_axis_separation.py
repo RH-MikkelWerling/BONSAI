@@ -78,3 +78,32 @@ def test_zero_query_embeddings_leave_explicit_home_identity_in_routes():
     routes = readout.route_weights(torch.zeros(2, 16), torch.tensor([0, 1]))
     assert not torch.equal(routes[0, 0], routes[0, 1])  # outcome home floor
     assert not torch.equal(routes[0, 0], routes[1, 0])  # disease home floor
+
+
+def test_contextual_prediction_token_and_routed_hazards_use_preceding_events():
+    from test_token_attribution import TinyModel, collate, SAMPLES
+    model = _model("both")
+    model.encoder = TinyModel().encoder
+    model.eval()
+    batch = collate(SAMPLES)
+    # Change an ordinary history code; leave the final CLS code, position,
+    # demographic tokens and timestamps untouched.
+    changed = {k: v.clone() for k, v in batch.items()}
+    changed["code"][0, 1] = 13
+    with torch.no_grad():
+        before = model.get_objective_representations(batch)
+        after = model.get_objective_representations(changed)
+        assert not torch.allclose(before[0], after[0])
+        torch.testing.assert_close(before[1], after[1])
+        hazards, weights = model.competing_risk_log_hazards(
+            before, batch["cohort_fine_index"], return_routes=True)
+        changed_hazards, _ = model.competing_risk_log_hazards(
+            after, batch["cohort_fine_index"], return_routes=True)
+        assert not torch.allclose(hazards[0], changed_hazards[0])
+        adapted, expected_weights = model.source_adapter_readout(
+            before, batch["cohort_fine_index"], return_weights=True)
+        head = model.competing_risk_head
+        expected = torch.einsum("boh,okh->bok", adapted, head.weight.reshape(2, -1, 16))
+        expected += head.bias.reshape(2, -1)[None]
+        torch.testing.assert_close(hazards, expected.reshape_as(hazards))
+        torch.testing.assert_close(weights, expected_weights)
