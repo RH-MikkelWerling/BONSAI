@@ -5,12 +5,13 @@ status: candidate_pending_lock
 # Reliability-curve examples, chosen by rule from train-only counts (2026-10-27,
 # after the tuning rehearsal showed rare cells give unreadable curves): per
 # domain, the cell with the most training events among cells with at least
-# 200 training events and an event share of at least 10%.
+# 200 training events and an event share between 10% and 50%.
 calibration_example_rule:
   domains: [Disease course and later malignancy, Infection and antimicrobial use,
             "Neutrophil, white-cell and platelet findings", Renal injury and support]
   min_events_train: 200
   min_event_share: 0.10
+  max_event_share: 0.50   # near-universal outcomes (e.g. antibiotic use in myeloma) say little about calibration
 # Fallback when no cell metadata is available.
 calibration_examples:  # one large cell per clinical domain
   - {cohort: DLBCL, outcome: treatment_failure}

@@ -110,6 +110,14 @@ def _ordered(cells, key, group_key):
     return frame.sort_values([group_key, key])[key].tolist(), frame.set_index(key)[group_key]
 
 
+def _split_word():
+    """'Held-out test' for the paper; 'Tuning-set' in the tuning preview
+    (OPERA_PAPER_PLOT_SPLIT=tuning), so no preview label claims test data."""
+    import os
+
+    return "Tuning-set" if os.environ.get("OPERA_PAPER_PLOT_SPLIT") == "tuning" else "Held-out test"
+
+
 def _horizon_mask(frame, horizon):
     """Rows for ``horizon``. For the pooled panel (ALL_HORIZONS): a table's
     pooled cell rows where it has them, else every cell at every horizon
@@ -440,7 +448,9 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     # A: where the joint model gains over the specialist.
     ax = fig.add_subplot(top[0])
     image = group_matrix(ax, cells, contrast="J-S", order=columns, metric=metric,
-                         horizon=horizon, row_order=order)
+                         horizon=horizon, row_order=order,
+                         vmax=shared_gain_limit(cells.loc[cells.contrast == "J-S"],
+                                                metric=metric, horizon=horizon))
     if order == "support":
         rows = _axis_order(cells, "cohort", "cohort_group", order=order, horizon=horizon)[0]
         _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(rows),
@@ -1494,7 +1504,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
                    color=HORIZON_COLORS[horizon], linewidths=0, rasterized=True)
     ax.set_xscale("log")
     ax.set_xlabel("Training events through horizon (log scale)")
-    ax.set_ylabel("Held-out test AUC")
+    ax.set_ylabel(f"{_split_word()} AUC")
     ax.set_ylim(max(0.4, atlas.cif_auc.min() - 0.03), 1.0)
     _panel_title(ax, "A", "Outcomes")
     despine(ax, "y")
@@ -1507,7 +1517,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
         group_ax, summary, row_key="endpoint_group", row_order=order,
         series_key="horizon_days",
         series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
-        xlabel="Held-out test AUC (median, IQR)", show_counts=True, zero_line=False)
+        xlabel=f"{_split_word()} AUC (median, IQR)", show_counts=True, zero_line=False)
     group_ax.set_xlim(0.5, 1.0)
     _panel_title(group_ax, "B", "Clinical domains")
     _legend(group_ax, handles, loc="lower right", title="Horizon")
@@ -1614,7 +1624,7 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     cax = fig.add_subplot(grid[2])
     cax.set_position([cax.get_position().x0 + 0.01, 0.35, 0.012, 0.3])
     bar = fig.colorbar(image, cax=cax)
-    bar.set_label("Held-out test AUC (" + ("OPERA" if lead == "OPERA" else "joint model")
+    bar.set_label(f"{_split_word()} AUC (" + ("OPERA" if lead == "OPERA" else "joint model")
                   + ")", fontsize=6.6)
     bar.ax.tick_params(labelsize=6)
     bar.outline.set_visible(False)
@@ -2366,7 +2376,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
         ax.set_xlabel("Predicted risk", fontsize=7.2)
         if index == 0:
             ax.set_ylabel("Observed risk (IPCW)", fontsize=7.2)
-        _panel_title(ax, "DE"[index], textwrap.shorten(title, 22, placeholder="…"))
+        _panel_title(ax, "DE"[index], textwrap.fill(title, 24))
         if horizon == ALL_HORIZONS:
             ax.text(0.04, 0.96, "at one year", transform=ax.transAxes, fontsize=6.4,
                     color=PALETTE["ink_muted"], va="top")
@@ -3164,7 +3174,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
                         "X": model_styles["X"]}
 
     def header(ax, letter, title):
-        ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, pad=30,
+        ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, pad=44,
                      color=PALETTE["ink"])
 
     ax = fig.add_subplot(lower[0])
@@ -3543,7 +3553,7 @@ def figure_rescue(cells, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.0, m
     ax.axhline(0, color=PALETTE["zero_line"], lw=0.7)
     ax.axvline(-tolerance, color=PALETTE["grid"], lw=1)
     ax.set_xlabel("Joint vs specialist on tuning (AUC)")
-    ax.set_ylabel("Routed vs joint on test (AUC)")
+    ax.set_ylabel(f"Routed vs joint, {_split_word().lower()} (AUC)")
     ax.xaxis.set_major_locator(MaxNLocator(4))
     _panel_title(ax, "A", "Cells by tuning harm")
     despine(ax, "y")
@@ -3557,12 +3567,12 @@ def figure_rescue(cells, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.0, m
         ax, summary, row_key="stratum", row_order=list(colors), series_key="series",
         series_style={"joint_vs_specialist": (MODEL_STYLE["J"][0], "Joint vs specialist"),
                       "routed_vs_specialist": (MODEL_STYLE["R"][0], "Routed vs specialist")},
-        xlabel="Test AUC gain (median, IQR)", show_counts=True, spread=0.16)
+        xlabel=f"{_split_word()} AUC gain (median, IQR)", show_counts=True, spread=0.16)
     ax.set_yticklabels([t.get_text().replace(" (n=", "\n(n=")
                         for t in ax.get_yticklabels()])
     ax.set_ylim(1.55, -0.55)
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "B", "Held-out test gains")
+    _panel_title(ax, "B", f"{_split_word()} gains")
     fig.legend(handles=handles, loc="upper right", ncol=2, frameon=False, fontsize=7,
                bbox_to_anchor=(0.985, 0.995), handletextpad=0.3)
     watermark(fig, mark)

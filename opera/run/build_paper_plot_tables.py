@@ -454,7 +454,8 @@ def calibration_examples(choices, metadata=None, *, horizon=365):
             cells["endpoint_group"] = cells.outcome.map(outcome_endpoint_groups())
         share = cells.n_events_train / cells.n_patients_train
         eligible = cells.loc[(cells.n_events_train >= rule.get("min_events_train", 200))
-                             & (share >= rule.get("min_event_share", 0.10))]
+                             & (share >= rule.get("min_event_share", 0.10))
+                             & (share <= rule.get("max_event_share", 1.0))]
         items = []
         for domain in rule["domains"]:
             part = eligible.loc[eligible.endpoint_group == domain]

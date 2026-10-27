@@ -461,7 +461,9 @@ problems; the rules below fix them without reference to any test result.
   not one year.
 - Reliability-curve examples are chosen by rule from training counts only: per
   listed clinical domain, the cell with the most training events among cells
-  with at least 200 training events and an event share of at least 10%.
+  with at least 200 training events and an event share between 10% and 50%
+  (upper limit added the same day: near-universal outcomes, such as antibiotic
+  use in myeloma, say little about calibration).
 - Scatter plots of cell gains against training events draw cells with at
   least 10 training events and a 95% interval narrower than 0.4 AUC; every
   cell still enters the curves and summaries. Reliability bins with fewer
