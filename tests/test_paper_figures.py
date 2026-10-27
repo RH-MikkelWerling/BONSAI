@@ -169,3 +169,18 @@ def test_routing_bank_panel_marks_unavailable_confidence_intervals():
     assert any("CI unavailable" in t.get_text() for t in fig.axes[1].texts)
     assert len(fig.axes[1].collections[0].get_facecolors()) == 0
     plt.close(fig)
+
+
+def test_headline_uses_one_year_absolute_auc_and_excludes_pooled_log_horizon():
+    cells = proto.synthetic_cells(np.random.default_rng(1))
+    cells = pd.concat([cells, cells.loc[cells.horizon_days == 365].assign(horizon_days=0)])
+    models = pd.DataFrame({'cohort':['A','A'], 'outcome':['x','x'], 'horizon_days':[0,365],
+                           'J':[.2,.9], 'X':[.3,.4]})
+    fig = figures.figure_headline(cells, models=models)
+    scatter = fig.axes[1].collections[1].get_offsets()
+    np.testing.assert_allclose(scatter, [[.4,.9]])
+    for line in fig.axes[3].lines:
+        x = np.asarray(line.get_xdata())
+        if len(x) > 2:
+            assert (x > 0).all()
+    plt.close(fig)

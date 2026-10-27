@@ -103,7 +103,9 @@ the probability of every outcome by each of six horizons.}
     horizons}{Gains at 30 to 730 days.}
   \caption{\textbf{Pooling gains across horizons.} Median paired AUC gain
   over the specialist by clinical domain at each horizon for the
-  disease-pooled, outcome-pooled and joint models.}
+  disease-pooled, outcome-pooled and joint models (A--C). Panel D shows the
+  routed model against the joint model. Bars show the interquartile range
+  across cells, not confidence intervals.}
   \label{fig:supp-horizons}
 \end{figure}
 
@@ -248,14 +250,18 @@ the probability of every outcome by each of six horizons.}
 \begin{figure}[p]
   \resultfigure[0.9\textwidth]{supp_router_usage}{Router weights}{Router
     weights by disease and clinical domain.}
-  \caption{\textbf{Router weights by disease and clinical domain.} \textbf{A}, Mean
-  routing weight on each disease adapter by patients' disease (the patient's
-  own disease hatched). \textbf{B}, Outcome-adapter weights by clinical domain,
-  and \textbf{C}, the share of the routed correction carried by the disease and
-  outcome banks, both in the test-set model with both banks (the locked model
-  routes over diseases only). \textbf{D}, Routing intensity across patients.
-  Weights show where the router sends weight, not what that weight contributes
-  (\cref{fig:borrowing-map}).}
+  \caption{\textbf{Router weights by disease and clinical domain.}
+  \textbf{A}, Disease-bank shares, normalized within each disease--outcome task
+  before averaging (own disease hatched). \textbf{B}, Outcome-bank shares
+  aggregated by clinical domain (own domain hatched). \textbf{C}, The fraction
+  of source-slot gate mass assigned to the disease bank versus the outcome
+  bank. This is allocation mass, not the magnitude of the resulting correction.
+  \textbf{D}, Effective borrowed-source count (exponential entropy) computed
+  from mean gates, excluding the shared slot and own-disease/own-outcome slots;
+  points and bars show the median and interquartile range across disease
+  summaries. This is not the mean of patient-level effective source counts.
+  The base encoder path remains present independently of the gate. Weights
+  describe allocation, not predictive benefit (\cref{fig:borrowing-map}).}
   \label{fig:supp-router-usage}
 \end{figure}
 
@@ -264,15 +270,14 @@ the probability of every outcome by each of six horizons.}
     levels of borrowing per disease, by disease size, the expected pairs with the
     source left out, and borrowing between disease groups by clinical domain.}
   \caption{\textbf{Borrowing in detail.} \textbf{A}, For each target disease, over
-  all outcomes and horizons: the AUC lost without borrowing (the fitted routed model with and
-  without its borrowed corrections, as in \cref{fig:borrowing-map}B), the gain
-  over the own-disease router (the router trained with only the patient's own
-  disease adapter) and routing (against the joint model). The last two compare
-  separately trained models and carry the noise of refitting; the loss without borrowing can
+  all outcomes and horizons: cross-disease source dependence (other-disease terms retained versus
+  replaced by their tuning means, with the outcome bank retained, as in \cref{fig:borrowing-map}B), the gain
+  over the own-source control (a separately trained router) and routing (against the joint model). The last two compare
+  separately trained models and carry the noise of refitting; cross-disease dependence can
   exceed the trained gain because the encoder was trained alongside the
-  borrowed corrections. \textbf{B}, The loss without borrowing and the gain over the own-disease router against
+  borrowed corrections. \textbf{B}, Cross-disease dependence and the gain over the own-source control against
   the number of patients with the disease. \textbf{C}, The pairs of
-  \cref{fig:borrowing-map}C with the source alone (filled) and the loss when only
+  the prespecified plan with the source alone (filled) and the loss when only
   that source is left out of the full model (open).
   \textbf{D}, Mean partially pooled gain from a source disease alone between
   disease groups (rows: target, columns: source) in each of the 12 clinical

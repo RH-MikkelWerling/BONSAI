@@ -393,3 +393,20 @@ def test_synthetic_cohort_predictions_are_calibrated_by_construction():
     moved = shifted["predicted_cif"] != shifted["true_risk"]
     assert 0.1 < moved.mean() < 0.5  # one region of the embedding, not all of it
     assert np.all(shifted["blob"][moved] > 0.01)
+
+
+def test_router_field_rejects_nonfinite_patient_coordinates():
+    import pytest
+    with pytest.raises(ValueError, match='nonempty and finite'):
+        _binned_router_displacement(np.array([[0., np.nan]]), np.array([[0., 1.]]))
+
+
+def test_automatic_router_grid_matches_explicit_size_adaptation():
+    rng = np.random.default_rng(23)
+    for n, bins in [(990, 5), (1980, 8), (6446, 11)]:
+        before = rng.normal(size=(n, 2))
+        after = before + [.1, .2]
+        automatic = _binned_router_displacement(before, after)
+        explicit = _binned_router_displacement(before, after, bins=bins)
+        np.testing.assert_allclose(automatic['vectors'], explicit['vectors'])
+        np.testing.assert_array_equal(automatic['counts'], explicit['counts'])

@@ -58,3 +58,14 @@ def test_relative_recipe_inputs_resolve_against_the_recipe(tmp_path):
     recipe = tmp_path / "configs" / "figures.yaml"
     assert resolve_input("../data/t.csv", recipe) == (tmp_path / "data" / "t.csv").resolve()
     assert resolve_input("${OPERA_SURELY_UNSET_VARIABLE}/t.csv", recipe) is None
+
+
+def test_readiness_checks_extra_registered_figures_when_requested(tmp_path):
+    manuscript = tmp_path / 'paper.tex'
+    manuscript.write_text('No figures placed yet.')
+    recipe = tmp_path / 'recipe.yaml'
+    recipe.write_text(yaml.safe_dump({'figures':[{'id':'fig_extra', 'tables':{'cells':'missing.csv'}}]}))
+    assert check(tmp_path, manuscript, recipes=(recipe,)) == []
+    rows = check(tmp_path, manuscript, recipes=(recipe,), include_registered=True)
+    assert rows[0]['figure'] == 'fig_extra'
+    assert rows[0]['status'] == 'missing'

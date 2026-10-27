@@ -597,12 +597,17 @@ def build_commands(args, env):
                                               str(analysis_root / "figure_inputs" / "figures.yaml")),
                        "--output-dir", analysis_root / "figures")
                 + (["--available-only"] if env.get("OPERA_PAPER_FIGURES_AVAILABLE_ONLY") else [])
+                + (["--report", str(args.validation_report)] if getattr(args, 'validation_report', None) else [])
                 + (["--validate-render"] if getattr(args, "validate_render", False)
                    else (["--execute"] if args.execute else []))]
     if args.action == "figure-readiness":
         # Which manuscript figures can be rendered now, and what to run for the rest.
         return [module("opera.run.check_figure_inputs", "--analysis-root", analysis_root,
-                       "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"))]
+                       "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"),
+                       '--include-registered',
+                       '--recipe', path_value(env, 'OPERA_PAPER_FIGURE_CONFIG',
+                                              str(REPO / 'opera/configs/paper_results_figures.full.example.yaml')),
+                       '--recipe', REPO / 'opera/configs/attribution_figures.example.yaml')]
     if args.action == "input-restrictions":
         # The locked best model on restricted input: what each part adds.
         config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
@@ -650,7 +655,9 @@ def build_commands(args, env):
         return [module("opera.run.render_paper_results",
                        "--config", REPO / "opera/configs/attribution_figures.example.yaml",
                        "--output-dir", summary_dir / "figures")
-                + (["--execute"] if args.execute else [])]
+                + (['--report', str(args.validation_report)] if getattr(args, 'validation_report', None) else [])
+                + (['--validate-render'] if getattr(args, 'validate_render', False)
+                   else (["--execute"] if args.execute else []))]
     if args.action == "vocabulary-audit":
         # What the tokens mean: names, groups and chapters for every code of the
         # locked model's vocabulary, and the unnamed codes that matter most.
@@ -913,6 +920,8 @@ def main():
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--validate-render", action="store_true",
                         help="figures: validate all render schemas without saving outputs")
+    parser.add_argument('--validation-report', type=Path,
+                        help='figures --validate-render: aggregate report JSON path')
     parser.add_argument("--inspect-inputs", action="store_true",
                         help="table1: print input coverage and split labels only")
     parser.add_argument("--worker-name", help="Label for this GPU worker's claims")

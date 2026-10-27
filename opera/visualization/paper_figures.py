@@ -621,7 +621,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     # B: every cell.
     ax = fig.add_subplot(middle[0])
     if models is not None and {"J", "X"} <= set(models):
-        part = models.loc[_horizon_mask(models, horizon)].dropna(subset=["J", "X"])
+        part = models.loc[_horizon_mask(models, _single(horizon))].dropna(subset=["J", "X"])
         above = part.J >= part.X
         size = 3 + 30 * np.sqrt(part.n_events_train.clip(lower=1)
                                 / part.n_events_train.max()) if "n_events_train" in part else 8
@@ -674,12 +674,12 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         gains = _cell_sum(data, terms)
         if gains is None or gains.empty:
             continue
-        medians = gains.groupby("horizon_days").gain.median()
+        medians = gains.loc[gains.horizon_days > 0].groupby("horizon_days").gain.median()
         ax.plot(medians.index, medians.values, color=color, lw=1.6 if label == "Joint" else 1.1,
                 marker="D", markersize=3.4 if label == "Joint" else 2.6, label=label,
                 zorder=3 if label == "Joint" else 2)
     ax.axhline(0, color=PALETTE["zero_line"], lw=0.8)
-    horizons = sorted(data.horizon_days.unique())
+    horizons = sorted(data.loc[data.horizon_days > 0, "horizon_days"].unique())
     ax.set_xscale("log")
     ax.set_xticks(horizons)
     ax.set_xticklabels([str(d) for d in horizons], fontsize=6.5)
@@ -769,7 +769,7 @@ def figure_tabular(cells, curve=None, *, horizon=ALL_HORIZONS, mark=None):
     part = cells.loc[(cells.contrast.isin(["J-X", "X-LR"])) & (cells.metric == "auc")
                      & _horizon_mask(cells, horizon)]
     horizons_summary = cells.loc[cells.contrast.isin(["J-X", "X-LR", "XP-X", "XR-X"])
-                                 & (cells.metric == "auc")]
+                                 & (cells.metric == "auc") & (cells.horizon_days > 0)]
     for contrast, color, label in (("J-X", MODEL_STYLE["J"][0], "Joint vs XGBoost"),
                                    ("XP-X", "#B18B4D", "Pooled vs per-disease XGBoost"),
                                    ("XR-X", "#6E6E6E", "Registry variables added (XGBoost)"),
@@ -1086,8 +1086,8 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
 BORROWING_SHORT = {"TRANSFORMED_FL": "tFL", "AMYLOIDOSIS": "AL", "SolM": "SP"}
 LEVEL_STYLE = {
     # Shades of the routed model's colour, darkest for the within-model level.
-    "dependence": ("#4B3B7A", "AUC lost without borrowing"),
-    "trained_borrowing": ("#8974AC", "Gain over no-borrowing control"),
+    "dependence": ("#4B3B7A", "Cross-disease dependence"),
+    "trained_borrowing": ("#8974AC", "Full vs own-source control"),
     "routing": ("#B7A9D3", "Routing (vs joint model)"),
 }
 
@@ -1170,8 +1170,21 @@ def lineage_concentration(pooled):
                                        "effective_sources"])
 
 
+def _borrowing_plot_table(table, estimate):
+    if estimate not in {'shrunk', 'raw'}:
+        raise ValueError('pair_estimate must be shrunk or raw')
+    if table.duplicated(['target', 'source', 'endpoint_group']).any():
+        raise ValueError('Duplicate borrowing target/source/domain rows')
+    table = table.copy()
+    if estimate == 'raw':
+        if not {'raw_effect', 'raw_lower', 'raw_upper'} <= set(table):
+            raise ValueError('Raw borrowing estimates are unavailable')
+        table[['effect', 'lower', 'upper']] = table[['raw_effect', 'raw_lower', 'raw_upper']].to_numpy()
+    return table
+
+
 def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_cells=24,
-                         mark=None):
+                         pair_estimate='shrunk', mark=None):
     """From whom the routed model borrows, how much in total, and whether it favours
     related diseases (main figure; type as ``figure_pooling``). C: per disease, the
     share of its borrowing gain from its own lineage against the share expected if
@@ -1193,6 +1206,8 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     """
     from opera.visualization.paper_taxonomy import disease_name
 
+    table = _borrowing_plot_table(table, pair_estimate)
+    estimate_label = 'Shrunken' if pair_estimate == 'shrunk' else 'Unshrunk'
     pooled = table.loc[table.endpoint_group == "All outcomes"]
     order, _ = _borrowing_order(pooled)
     group_of = dict(zip(pooled.target, pooled.target_group))
@@ -1229,7 +1244,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     # false dot in twenty null pairs, hundreds of pairs here.
     lower = (pooled.pivot_table(index="target", columns="source", values="lower")
              .reindex(index=order, columns=order)).to_numpy(float)
-    rows, cols = np.nonzero((lower > 0) & ~own)
+    rows, cols = np.nonzero((lower > 0) & ~own) if pair_estimate == "shrunk" else ([], [])
     ax.scatter(cols, rows, s=5, color="white", edgecolors=PALETTE["ink"], linewidths=0.4,
                zorder=3)
     for b in [i for i in range(1, len(order))
@@ -1248,10 +1263,10 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     ax.set_ylabel("Target disease (patients)")
     for spine in ax.spines.values():
         spine.set_visible(False)
-    _panel_title(ax, "A", "What each disease adds")
+    _panel_title(ax, "A", f"{estimate_label} source-alone effects")
     cax = ax.inset_axes([0.0, -0.215, 1.0, 0.022])
     colorbar = fig.colorbar(image, cax=cax, orientation="horizontal")
-    colorbar.set_label("AUC gain for the target from this source alone (points)",
+    colorbar.set_label(f"{estimate_label} AUC gain, source alone (points)",
                        fontsize=7.2)
     colorbar.ax.tick_params(labelsize=6.5)
     colorbar.outline.set_visible(False)
@@ -1273,9 +1288,9 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     bx.tick_params(axis="y", labelleft=False, length=0)
     bx.tick_params(axis="x", labelsize=6.6)
     bx.xaxis.set_major_locator(MaxNLocator(3))
-    bx.set_xlabel("AUC lost without borrowing\n(points; dashed: all diseases)")
+    bx.set_xlabel("Cross-disease dependence\n(points; dashed: all diseases)")
     bx.grid(axis="y", visible=False)
-    _panel_title(bx, "B", "In total")
+    _panel_title(bx, "B", "Cross-disease dependence")
     despine(bx, "x")
 
     # C: does a disease borrow from its own lineage more than chance would give?
@@ -1305,7 +1320,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
                 transform=cx.transAxes, ha="right", va="bottom", fontsize=6.3,
                 color=PALETTE["ink_secondary"])
     cx.set_xlabel("Share of sources in the own lineage\n(expected if lineage did not matter)")
-    cx.set_ylabel("Share of borrowing gain\nfrom the own lineage")
+    cx.set_ylabel(f"Share of positive {estimate_label.lower()} estimates\nfrom the own lineage")
     cx.tick_params(labelsize=6.6)
     despine(cx, "both")
     _panel_title(cx, "C", "Related or broad?")
@@ -1332,7 +1347,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     dx.tick_params(axis="y", length=0, labelsize=6.8)
     dx.tick_params(axis="x", labelsize=6.6)
     dx.xaxis.set_major_locator(MaxNLocator(3))
-    dx.set_xlabel("AUC lost without borrowing\n(points, 95% CI)")
+    dx.set_xlabel("Cross-disease dependence\n(points, 95% CI)")
     dx.grid(axis="y", visible=False)
     despine(dx, "x")
     _panel_title(dx, "D", "For which outcomes")
@@ -1341,19 +1356,21 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
 
 
 def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min_cells=24,
-                            mark=None):
+                            pair_estimate='shrunk', mark=None):
     """Supplement: the detail behind the borrowing figure.
 
-    A: three levels per disease (AUC): dependence (the fitted model with and
-    without its borrowed corrections), borrowing as trained (against the router
+    A: three levels per disease (AUC): dependence (the fitted model with other-disease terms retained versus replaced,
+    keeping its outcome bank), borrowing as trained (against the router
     trained with only the own disease adapter) and routing (against the joint
     model). B: dependence and borrowing as trained against disease size.
     C: the expected pairs and negative controls, source alone and source left
-    out. D: mean partially pooled source-alone gain between disease groups for
+    out. D: mean shrunken source-alone gain between disease groups for
     every outcome domain (targets with few estimable cells left out).
     """
     from opera.visualization.paper_taxonomy import disease_name
 
+    table = _borrowing_plot_table(table, pair_estimate)
+    estimate_label = 'Shrunken' if pair_estimate == 'shrunk' else 'Unshrunk'
     pooled = table.loc[table.endpoint_group == "All outcomes"]
     order, groups = _borrowing_order(pooled)
     sparse = _sparse_targets(pooled, min_cells)
@@ -1471,7 +1488,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
     if image is not None:
         cax = fig.add_axes([0.885, 0.17, 0.012, 0.16])
         colorbar = fig.colorbar(image, cax=cax)
-        colorbar.set_label("AUC gain from a source\ngroup alone (points;\nrows: target,"
+        colorbar.set_label(f"{estimate_label} AUC gain from a source\ngroup alone (points;\nrows: target,"
                            " columns:\nsource)", fontsize=7.2)
         colorbar.ax.tick_params(labelsize=6.5)
         colorbar.outline.set_visible(False)
@@ -1480,10 +1497,11 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
     return fig
 
 
-def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S"), mark=None):
-    """Supplement: stability of pooling effects over follow-up."""
-    fig, axes = plt.subplots(1, len(contrasts), figsize=(7.2, 3.8), sharey=True,
-                             sharex=True)
+def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "R1"), mark=None):
+    """Supplement: pooling and routed-versus-joint effects over follow-up."""
+    fig, axes = plt.subplots(1, len(contrasts), figsize=(max(7.2, 2.15 * len(contrasts)), 3.8), sharey=True,
+                             sharex=True, squeeze=False)
+    axes = axes.ravel()
     data = cells.loc[cells.metric == metric]
     order = (data.loc[(data.contrast == "J-S") & (data.horizon_days == 365)]
              .groupby("endpoint_group").gain.median().sort_values(ascending=False)
@@ -1500,7 +1518,7 @@ def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S"), mar
             xlabel=METRIC_LABEL[metric], show_counts=False)
         if index:
             ax.tick_params(axis="y", labelleft=False)
-        _panel_title(ax, "ABC"[index], CONTRAST_STYLE[contrast][1].replace(" vs ", "\nvs "))
+        _panel_title(ax, chr(65 + index), ("Routed vs joint" if contrast == "R1" else CONTRAST_STYLE[contrast][1]).replace(" vs ", "\nvs "))
         ax.xaxis.set_major_locator(MaxNLocator(3))
     fig.legend(handles=handles, loc="lower left", ncol=6, frameon=False, fontsize=7,
                bbox_to_anchor=(0.2, 0.0))
@@ -1701,7 +1719,7 @@ def _matched_embedding_tables(coords, outcomes):
 
 
 def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
-                             horizon=365, grid_size=90, min_effective_support=15.0,
+                             horizon=365, grid_size=90, min_effective_support=25.0,
                              bandwidth=None, mark=None):
     """Where each outcome's observed risk concentrates in one patient embedding.
 
@@ -1721,7 +1739,7 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     coords, outcomes = _matched_embedding_tables(coords, outcomes)
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
-    bandwidth = bandwidth or _default_bandwidth(points)
+    bandwidth = bandwidth if bandwidth is not None else 1.4 * _default_bandwidth(points)
     xx, yy, _ = _display_grid(points, grid_size, min_padding=0.8)
     extent = (xx.min(), xx.max(), yy.min(), yy.max())
     order = (outcomes[["outcome", "domain", "domain_order"]].drop_duplicates()
@@ -1804,7 +1822,7 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
 
 
 def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_size=110,
-                       min_effective_support=15.0, mark=None):
+                       min_effective_support=25.0, mark=None):
     """Where risk lies in the joint model's shared patient representation.
 
     ``coords``: ``subject_id``, ``x``, ``y`` and ``disease``; ``outcomes`` as for
@@ -1824,7 +1842,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
     # Tighter than the gallery so the maps follow the shape of the patient map.
-    bandwidth = 0.6 * _default_bandwidth(points)
+    bandwidth = 1.4 * _default_bandwidth(points)
     xx, yy, _ = _display_grid(points, grid_size, min_padding=0.8)
     extent = (xx.min(), xx.max(), yy.min(), yy.max())
     if highlights is None:
@@ -1935,17 +1953,20 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
 
 
 def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
-                            grid_size=140, min_effective_support=15.0,
-                            residual_limit=0.2, router_bins=9, router_min_count=20,
-                            router_min_coherence=0.3, mark=None):
+                            grid_size=140, min_effective_support=25.0,
+                            residual_limit=0.2, router_bins=None, router_min_count=20,
+                            router_min_coherence=0.3, router_arrow_scale=None, mark=None):
     """Status, router movement, IPCW kernel risk and local calibration per outcome.
 
     ``outcomes`` maps a display name to ``(times, events, predicted_cif)`` or
     ``(times, events, predicted_cif, routed_coords)``, aligned with ``coords``.
-    Every column uses the joint model's single patient embedding, so columns
+    Every column uses the same checkpoint's single patient embedding, so columns
     differ only in the outcome. ``routed_coords`` is the same projection applied
     to the routed, target-specific representation; when any outcome supplies it,
-    a row of local mean displacement arrows is added. Regions with too little
+    a row of local mean displacement arrows is added with a common, labelled
+    magnification across columns (no per-outcome length normalization).
+    These illustrate projected readout corrections, not causal patient changes.
+    Regions with too little
     effective support are left blank rather than extrapolated.
     """
     from opera.visualization.censoring_aware_embeddings import (
@@ -1954,14 +1975,23 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
     )
 
     coords = np.asarray(coords, float)
-    bandwidth = bandwidth or _default_bandwidth(coords)
+    bandwidth = bandwidth if bandwidth is not None else 1.4 * _default_bandwidth(coords)
     xx, yy, _ = _display_grid(coords, grid_size, min_padding=0.8)
     extent = (xx.min(), xx.max(), yy.min(), yy.max())
     names = list(outcomes)
     has_router = any(len(value) > 3 and value[3] is not None
                      for value in outcomes.values())
+    if router_arrow_scale is None:
+        lengths = [np.linalg.norm(np.asarray(v[3], float) - coords, axis=1)
+                   for v in outcomes.values() if len(v) > 3 and v[3] is not None]
+        positive = np.concatenate(lengths) if lengths else np.array([])
+        positive = positive[np.isfinite(positive) & (positive > 0)]
+        router_arrow_scale = (float(np.clip(.09 * np.ptp(coords, axis=0).max() /
+                                           np.median(positive), 1, 20)) if len(positive) else 1.)
+    if not np.isfinite(router_arrow_scale) or router_arrow_scale <= 0:
+        raise ValueError('Router arrow scale must be positive and finite')
     rows = ["status", *(["router"] if has_router else []), "risk", "residual"]
-    titles = {"status": "Status at horizon", "router": "Router movement",
+    titles = {"status": "Status at horizon", "router": "Projected router correction",
               "risk": "IPCW kernel risk", "residual": "Calibration residual"}
     fig = plt.figure(figsize=(7.2, 1.62 * len(rows) + 0.55))
     grid = fig.add_gridspec(len(rows), len(names) + 1,
@@ -1973,8 +2003,6 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
     residual_cmap = plt.get_cmap("RdBu_r").copy()
     residual_cmap.set_bad((1, 1, 1, 0))
     images = {}
-    span = float(np.ptp(coords, axis=0).max())
-
     def backdrop(ax, alpha=0.08, zorder=1, color=PALETTE["ink_secondary"]):
         ax.scatter(coords[:, 0], coords[:, 1], s=1.5, alpha=alpha, linewidths=0,
                    color=color, rasterized=True, zorder=zorder)
@@ -2014,14 +2042,11 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                         min_count=router_min_count)
                     keep = arrows["coherence"] >= router_min_coherence
                     vectors = arrows["vectors"][keep]
-                    if len(vectors):
-                        length = np.linalg.norm(vectors, axis=1)
-                        scale = 0.06 * span / max(float(np.median(length[length > 0])),
-                                                  1e-12)
+                    if len(vectors) and np.any(np.linalg.norm(vectors, axis=1) > 0):
                         ax.quiver(arrows["centers"][keep, 0], arrows["centers"][keep, 1],
-                                  vectors[:, 0] * scale, vectors[:, 1] * scale,
-                                  color="#D55E00", angles="xy", scale_units="xy",
-                                  scale=1, width=0.006, headwidth=3.6, zorder=3)
+                                  vectors[:, 0] * router_arrow_scale, vectors[:, 1] * router_arrow_scale,
+                                  color=MODEL_STYLE["R"][0], angles="xy", scale_units="xy",
+                                  scale=1, width=0.007, headwidth=4.0, zorder=3)
                 else:
                     ax.text(0.5, 0.5, "shared readout", transform=ax.transAxes,
                             ha="center", va="center", fontsize=6.5,
@@ -2059,8 +2084,8 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                       label=label) for color, marker, label in
                reversed(list(STATUS_STYLE.values()))]
     if has_router:
-        handles.append(Line2D([], [], color="#D55E00", lw=1.4,
-                              label="Router displacement (local mean)"))
+        handles.append(Line2D([], [], color=MODEL_STYLE["R"][0], lw=1.4,
+                              label=f"Router correction (×{router_arrow_scale:.1f})"))
     fig.legend(handles=handles, loc="upper center", ncol=len(handles), frameon=False,
                fontsize=6.8, bbox_to_anchor=(0.5, 0.995), handletextpad=0.3,
                columnspacing=1.0)
@@ -2090,7 +2115,7 @@ def _home_masked(ax, matrix, cmap, *, label, fig, fraction):
     home = np.eye(len(values), dtype=bool)
     off = np.ma.masked_where(home | ~np.isfinite(values), values)
     image = ax.imshow(off, cmap=cmap, vmin=0,
-                      vmax=float(np.quantile(off.compressed(), 0.98)),
+                      vmax=max(float(np.quantile(off.compressed(), 0.98)), 1e-12) if off.count() else 1.,
                       aspect="equal", interpolation="nearest")
     for index in range(len(values)):
         ax.add_patch(plt.Rectangle((index - 0.5, index - 0.5), 1, 1, facecolor="white",
@@ -2111,7 +2136,28 @@ def _home_masked(ax, matrix, cmap, *, label, fig, fraction):
 
 def _route_weights(routes):
     column = "mean" if "mean" in routes else "weight"
-    return routes.rename(columns={column: "w"})
+    result = routes.rename(columns={column: "w"}).copy()
+    for identity in ['model', 'seed', 'split']:
+        if identity in result and result[identity].nunique() > 1:
+            raise ValueError(f'Router usage requires a single {identity}')
+    if not np.isfinite(result.w).all() or not result.w.between(0, 1).all():
+        raise ValueError('Invalid router gate weights')
+    if result.duplicated(['cohort', 'outcome', 'bank', 'source']).any():
+        raise ValueError('Duplicate router gate summary rows')
+    return result
+
+
+def borrowed_source_breadth(routes):
+    """Entropy of mean borrowed gates; not mean patient-level entropy."""
+    borrowed = routes.loc[((routes.bank == 'disease') & (routes.source != routes.cohort))
+                          | ((routes.bank == 'outcome') & (routes.source != routes.outcome))].copy()
+    keys = ['cohort', 'outcome', 'target_group']
+    total = borrowed.groupby(keys).w.transform('sum')
+    borrowed['p'] = borrowed.w / total.where(total > 0)
+    borrowed['entropy'] = -borrowed.p * np.log(borrowed.p.where(borrowed.p > 0))
+    entropy = borrowed.groupby(keys).entropy.sum(min_count=1).reset_index()
+    entropy['gain'] = np.exp(entropy.entropy)
+    return entropy
 
 
 def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
@@ -2127,6 +2173,8 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     routes = _route_weights(routes).copy()
     routes["patient_group"] = routes.cohort.map(disease_groups)
     routes["target_group"] = routes.outcome.map(outcome_groups)
+    if routes[['patient_group', 'target_group']].isna().any().any():
+        raise ValueError('Disease/outcome groups must cover every router target')
     fig = plt.figure(figsize=(7.2, 6.5))
     top = fig.add_gridspec(1, 2, width_ratios=[1.0, 0.78], wspace=0.72, left=0.14,
                            right=0.93, top=0.955, bottom=0.5)
@@ -2136,8 +2184,9 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     # A: disease bank, patient disease -> source disease (row-normalised).
     ax = fig.add_subplot(top[0])
     diseases = sorted(disease_groups, key=lambda d: (disease_groups[d], d))
-    disease = routes.loc[routes.bank == "disease"]
-    matrix = (disease.groupby(["cohort", "source"]).w.mean().unstack()
+    disease = routes.loc[routes.bank == "disease"].copy()
+    disease['share'] = disease.w / disease.groupby(['cohort', 'outcome']).w.transform('sum').replace(0, np.nan)
+    matrix = (disease.groupby(["cohort", "source"]).share.mean().unstack()
               .reindex(index=diseases, columns=diseases))
     matrix = matrix.div(matrix.sum(axis=1), axis=0)
     _home_masked(ax, matrix, ROUTE_CMAP, fig=fig, fraction=0.045,
@@ -2159,9 +2208,12 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     groups = sorted(set(outcome_groups.values()))
     outcome = routes.loc[routes.bank == "outcome"].copy()
     outcome["source_group"] = outcome.source.map(outcome_groups)
-    per_target = (outcome.groupby(["outcome", "target_group", "source_group"]).w.sum()
+    if outcome.source_group.isna().any():
+        raise ValueError('Outcome groups must cover every router source')
+    outcome['share'] = outcome.w / outcome.groupby(['cohort', 'outcome']).w.transform('sum').replace(0, np.nan)
+    per_target = (outcome.groupby(['cohort', "outcome", "target_group", "source_group"]).share.sum()
                   .reset_index())
-    matrix = (per_target.groupby(["target_group", "source_group"]).w.mean().unstack()
+    matrix = (per_target.groupby(["target_group", "source_group"]).share.mean().unstack()
               .reindex(index=groups, columns=groups))
     matrix = matrix.div(matrix.sum(axis=1), axis=0)
     _home_masked(ax, matrix, ROUTE_CMAP, fig=fig, fraction=0.05,
@@ -2179,7 +2231,8 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     banks = routes.loc[routes.bank != "shared"].assign(
         bank=lambda frame: frame.bank + "_mass")
     mass = (banks.groupby(["cohort", "outcome", "patient_group", "target_group", "bank"])
-            .w.sum().unstack("bank").fillna(0).reset_index())
+            .w.sum().unstack("bank").reindex(columns=['disease_mass', 'outcome_mass'])
+            .fillna(0).reset_index())
     mass["disease_share"] = mass.disease_mass / (mass.disease_mass + mass.outcome_mass)
     patient_order = sorted(set(disease_groups.values()))
     table = (mass.groupby(["patient_group", "target_group"]).disease_share.mean().unstack()
@@ -2209,24 +2262,23 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     bar.ax.tick_params(labelsize=6)
     bar.outline.set_visible(False)
 
-    # D: how much of the gate leaves the shared path, by target group.
+    # D: concentration within borrowed slots, based on exported mean gates.
     ax = fig.add_subplot(bottom[1])
-    shared = routes.loc[routes.bank == "shared"].copy()
-    shared["off_shared"] = 1 - shared.w
+    breadth = borrowed_source_breadth(routes)
     summary = _summary_rows(
-        shared.assign(gain=shared.off_shared, series="all")
-        .groupby(["cohort", "target_group", "series"], as_index=False).gain.mean(),
-        ["target_group", "series"])
-    order = summary.sort_values("median", ascending=False).target_group.tolist()
-    summary["target_group"] = summary.target_group.map(lambda g: SHORT_GROUP.get(g, g))
-    _diamond_forest(ax, summary, row_key="target_group",
-                    row_order=[SHORT_GROUP.get(g, g) for g in order], series_key="series",
-                    series_style={"all": (MODEL_STYLE["R"][0], "")},
-                    xlabel="Gate weight in source slots\n(median, IQR across diseases)",
+        breadth.assign(series='all').groupby(
+            ['cohort', 'target_group', 'series'], as_index=False).gain.mean(),
+        ['target_group', 'series'])
+    order = summary.sort_values('median', ascending=False).target_group.tolist()
+    summary['target_group'] = summary.target_group.map(lambda g: SHORT_GROUP.get(g, g))
+    _diamond_forest(ax, summary, row_key='target_group',
+                    row_order=[SHORT_GROUP.get(g, g) for g in order], series_key='series',
+                    series_style={'all': (MODEL_STYLE['R'][0], '')},
+                    xlabel='Effective borrowed sources\n(from mean gates; median, IQR)',
                     show_counts=False, zero_line=False)
-    ax.set_xlim(0, min(1.0, ax.get_xlim()[1] * 1.08))
+    ax.set_xlim(left=0)
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "D", "Source-slot allocation")
+    _panel_title(ax, 'D', 'Breadth of allocation')
     watermark(fig, mark)
     return fig
 
@@ -3460,7 +3512,10 @@ def figure_support(cells, *, horizon=ALL_HORIZONS, edges=(20, 100, 500), mark=No
     _panel_title(ax, "A", "Training events per disease and outcome")
     bar = fig.colorbar(image, ax=ax, orientation="horizontal", fraction=0.045, pad=0.24,
                        aspect=45, shrink=0.55)
-    bar.set_label(f"Training events by {horizon} days (log scale; grey: none)", fontsize=7)
+    support_label = ("One-year training events (proxy for pooled cells; grey: none)"
+                     if horizon == ALL_HORIZONS else
+                     f"Training events by {horizon} days (log scale; grey: none)")
+    bar.set_label(support_label, fontsize=7)
     bar.ax.tick_params(labelsize=6.5)
     bar.outline.set_visible(False)
     ax = fig.add_subplot(grid[1])
@@ -3887,7 +3942,7 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None,
                           else valid[column].to_numpy(dtype=float))
                 if row.get("log"):
                     values = np.log(values)
-                bandwidth = 0.6 * _default_bandwidth(points)
+                bandwidth = 1.4 * _default_bandwidth(points)
                 xx, yy, surface, support, density = _kernel_surfaces(
                     valid[["x", "y"]].to_numpy(float), values, np.ones(len(values)),
                     bandwidth=bandwidth, grid_size=180, bounds_coords=points,
@@ -3896,7 +3951,7 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None,
                     surface = np.exp(surface)
                 # Blank where the map has too few patients nearby.
                 surface[_embedding_surface_mask(
-                    xx, yy, valid[["x", "y"]].to_numpy(float), support, density, 20)] = np.nan
+                    xx, yy, valid[["x", "y"]].to_numpy(float), support, density, 25)] = np.nan
                 ax.imshow(surface, origin="lower", cmap=cmap, norm=norm,
                           extent=(xx.min(), xx.max(), yy.min(), yy.max()),
                           interpolation="bilinear", aspect="auto", alpha=0.92,

@@ -49,7 +49,7 @@ def load_stage(paths) -> pd.DataFrame:
     return frame
 
 
-def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False) -> pd.DataFrame:
+def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None) -> pd.DataFrame:
     """2-D coordinates fitted on tuning patients, applied to held-out patients.
 
     ``rehearse``: no held-out data; fit on half of the tuning patients and
@@ -83,8 +83,29 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False) -> pd
             xy = reduced_held[:, :2]
     else:
         xy = reduced_held[:, :2]
-    return pd.DataFrame({"subject_id": held.subject_id.to_numpy(), "x": xy[:, 0],
-                         "y": xy[:, 1], "projection": used})
+    result = pd.DataFrame({"subject_id": held.subject_id.to_numpy(), "x": xy[:, 0],
+                           "y": xy[:, 1], "projection": used})
+    for outcome, path in (routed_vectors or {}).items():
+        marker = json.loads(Path(path).with_suffix('.json').read_text())
+        if marker.get('target_outcome') != outcome:
+            raise ValueError('Routed vector target outcome does not match the requested panel')
+        if set(held.split) != {marker.get('split')}:
+            raise ValueError('Routed vector split does not match displayed patients')
+        vectors = np.load(path, allow_pickle=False)
+        ids = pd.Index(vectors['subject_ids'].astype(str))
+        if ids.has_duplicates:
+            raise ValueError('Duplicate IDs in routed vector export')
+        positions = ids.get_indexer(held.subject_id.astype(str))
+        if (positions < 0).any():
+            raise ValueError('Routed vectors do not cover displayed patients')
+        shared, adapted = vectors['shared'][positions], vectors['adapted'][positions]
+        if not np.allclose(shared, np.stack(held.embedding), atol=1e-5, rtol=1e-4):
+            raise ValueError('Router arrows require the same checkpoint shared embedding as the map')
+        reduced = pca.transform(scaler.transform(adapted))
+        after = reducer.transform(reduced) if used == 'umap' else reduced[:, :2]
+        result[f'routed:{outcome}:x'] = after[:, 0]
+        result[f'routed:{outcome}:y'] = after[:, 1]
+    return result
 
 
 def embedding_comparison(stages: dict, metadata: pd.DataFrame, *, method="umap",
@@ -119,9 +140,17 @@ def calibration_map_inputs(coords: pd.DataFrame, predictions: pd.DataFrame, outc
     """
     coords, predictions = _patient_ids(coords), _patient_ids(predictions)
     column = f"cif_{horizon}d"
-    data = predictions.loc[predictions.outcome.isin(outcomes)]
+    if not outcomes or len(set(outcomes)) != len(outcomes):
+        raise ValueError('Calibration outcomes must be nonempty and unique')
+    if coords.subject_id.duplicated().any():
+        raise ValueError('Duplicate patient coordinates')
+    data = predictions.loc[predictions.outcome.isin(outcomes)].drop_duplicates()
+    if data.duplicated(['subject_id', 'outcome']).any():
+        raise ValueError('Conflicting prediction rows for calibration map')
     eligible = data.groupby("subject_id").outcome.nunique()
     keep = set(eligible[eligible == len(outcomes)].index) & set(coords.subject_id)
+    if not keep:
+        raise ValueError('No common evaluated patients for calibration map outcomes')
     coords = coords.loc[coords.subject_id.isin(keep)].sort_values("subject_id")
     order = coords.subject_id.to_numpy()
     payload = {}
@@ -129,7 +158,9 @@ def calibration_map_inputs(coords: pd.DataFrame, predictions: pd.DataFrame, outc
         part = data.loc[data.outcome == outcome].set_index("subject_id").loc[order]
         payload[outcome_display_name(outcome)] = [
             part.time_days.astype(float).tolist(), part.event.astype(int).tolist(),
-            part[column].astype(float).tolist(), None]
+            part[column].astype(float).tolist(),
+            (coords[[f'routed:{outcome}:x', f'routed:{outcome}:y']].to_numpy(float).tolist()
+             if f'routed:{outcome}:x' in coords else None)]
     return coords[["x", "y"]], payload
 
 
@@ -163,7 +194,10 @@ def embedding_gallery_inputs(coords: pd.DataFrame, predictions: pd.DataFrame,
     if metadata is not None and "cohort_grouped" in metadata:
         group = metadata.set_index("subject_id").cohort_grouped
         coords["disease"] = coords.subject_id.map(group).map(disease_group_name)
-    return coords, data.drop_duplicates(["subject_id", "outcome"])
+    data = data.drop_duplicates()
+    if data.duplicated(['subject_id', 'outcome']).any():
+        raise ValueError('Conflicting prediction rows for embedding gallery')
+    return coords, data
 
 
 def main():
@@ -181,17 +215,24 @@ def main():
     comparison, coordinates = embedding_comparison(
         config["stages"], metadata, method=config.get("method", "umap"),
         group_map=config.get("ipi_group_map"), rehearse=args.rehearse_on_tuning)
-    comparison.to_csv(args.output_dir / "matched_patient_embeddings.csv", index=False)
     maps = config["calibration_maps"]
+    map_coords = coordinates[maps["stage"]]
+    if maps.get('routed_vectors'):
+        map_coords = project(load_stage(config['stages'][maps['stage']]),
+                             method=config.get('method', 'umap'),
+                             rehearse=args.rehearse_on_tuning,
+                             routed_vectors=maps['routed_vectors'])
     coords, payload = calibration_map_inputs(
-        coordinates[maps["stage"]], read_table(maps["predictions"]), maps["outcomes"],
+        map_coords, read_table(maps["predictions"]), maps["outcomes"],
         horizon=maps.get("horizon_days", 365))
-    coords.to_csv(args.output_dir / "patient_coordinates.csv", index=False)
     # Supplementary gallery: every outcome on the same projection, by domain.
     gallery = config.get("gallery", maps)
     gallery_coords, gallery_outcomes = embedding_gallery_inputs(
         coordinates[gallery["stage"]], read_table(gallery["predictions"]), metadata,
         horizon=gallery.get("horizon_days", 365))
+    # Finish validation before replacing any existing derived tables.
+    comparison.to_csv(args.output_dir / "matched_patient_embeddings.csv", index=False)
+    coords.to_csv(args.output_dir / "patient_coordinates.csv", index=False)
     gallery_coords.to_csv(args.output_dir / "gallery_coordinates.csv", index=False)
     gallery_outcomes.to_parquet(args.output_dir / "embedding_gallery.parquet", index=False)
     (args.output_dir / "calibration_map_outcomes.json").write_text(json.dumps(payload))

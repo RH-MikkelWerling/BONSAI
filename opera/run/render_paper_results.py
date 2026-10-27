@@ -27,6 +27,8 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument('--report', type=Path,
+                        help='Write an aggregate schema/render validation report (no patient rows)')
     parser.add_argument("--available-only", action="store_true",
                         help="Preview: render the figures whose inputs exist, list the rest")
     parser.add_argument("--validate-render", action="store_true",
@@ -46,6 +48,7 @@ def main():
     required = set(recipe.get("required_figures", []))
     missing = required - {p["id"] for p in plates}
     skipped = {}
+    skipped.update({name: 'no registered recipe' for name in missing})
     if missing and not args.available_only:
         raise ValueError(f"Missing required figure recipes: {sorted(missing)}")
     ids = set()
@@ -79,20 +82,39 @@ def main():
         inputs["mark"] = os.environ.get("OPERA_PAPER_FIGURE_MARK") or None
         inspect.signature(function).bind(**inputs)
         prepared.append((name, function, inputs, hashes))
+    code_hashes = {label: file_hash(Path(path)) for label, path in {
+        'renderer': __file__, 'figures': inspect.getsourcefile(figures),
+        'style': inspect.getsourcefile(save_fig)}.items()}
+    validation = []
     if args.validate_render:
         errors = {}
         for name, function, inputs, hashes in prepared:
             try:
                 fig = function(**inputs)
+                fig.canvas.draw()
+                warnings = []
+                for key, value in inputs.items():
+                    if hasattr(value, 'columns') and 'interval_status' in value.columns:
+                        bad = value.interval_status.eq('insufficient_draws')
+                        if bad.any():
+                            warnings.append(f'{key}: {int(bad.sum())} rows have insufficient bootstrap draws')
+                validation.append({'id': name, 'status': 'rendered', 'warnings': warnings,
+                                   'input_hashes': hashes})
                 plt.close(fig)
             except Exception as exc:
                 errors[name] = str(exc)
+                validation.append({'id': name, 'status': 'failed', 'error': str(exc)})
             finally:
                 plt.close("all")
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(json.dumps({'recipe_sha': file_hash(args.config),
+                'code_sha256': code_hashes, 'figures': validation, 'skipped': skipped}, indent=2))
         if errors:
             raise ValueError("Figure schema/render validation failed: " + json.dumps(errors))
     if not args.execute:
-        print(json.dumps({"figures": sorted(ids), "preview": True}))
+        print(json.dumps({"figures": [p[0] for p in prepared], 'skipped': skipped,
+                          'validated_render': args.validate_render, "preview": True}))
         return
     if args.output_dir.exists():
         raise FileExistsError("Use a fresh output directory")
@@ -118,7 +140,8 @@ def main():
             }
         )
     (args.output_dir / "figure_manifest.json").write_text(
-        json.dumps({"recipe_sha": file_hash(args.config), "figures": records,
+        json.dumps({"recipe_sha": file_hash(args.config), 'code_sha256': code_hashes,
+                    'mark': os.environ.get('OPERA_PAPER_FIGURE_MARK'), "figures": records,
                     "skipped": skipped}, indent=2)
     )
     if skipped:

@@ -21,3 +21,13 @@ calibration_maps:
 # Supplementary gallery: every outcome on the same projection, grouped by
 # clinical domain. Defaults to the calibration_maps stage and predictions.
 # gallery: {stage: Local fine-tuned, predictions: null}
+# Optional router-correction row in supp_calibration_maps:
+# Add a stage containing the selected router's patient_embeddings.npz exports,
+# and use that stage plus that router's predictions for calibration_maps.
+# Under calibration_maps, set e.g.:
+#   routed_vectors:
+#     treatment_failure: /server/path/routed_patient_vectors_INTERNAL.npz
+# Each outcome needs its own evaluate_direct_competing_risk export with
+# --export-routed-outcome <outcome>. Files contain shared/adapted vectors.
+# The builder verifies the shared vectors match the map checkpoint and applies
+# one fitted projection to both; it rejects joint-to-router checkpoint mixing.

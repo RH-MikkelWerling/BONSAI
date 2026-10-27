@@ -110,6 +110,28 @@ def reconcile_metrics(config, analysis):
     return reports
 
 
+def gain_distribution(cells):
+    """Expose exact ranking ties and sparse-cell composition without rounding gains."""
+    import numpy as np
+    result = []
+    for label, subset in [
+        ('all_finite', cells),
+        ('supported_min5', cells.loc[(cells.n_cases >= 5) & (cells.n_controls >= 5)]),
+        ('sparse_below5', cells.loc[(cells.n_cases < 5) | (cells.n_controls < 5)]),
+    ]:
+        gain = subset.gain.to_numpy(float)
+        gain = gain[np.isfinite(gain)]
+        result.append({'population': label, 'finite_cells': len(gain),
+                       'improved': int((gain > 0).sum()), 'worsened': int((gain < 0).sum()),
+                       'exactly_zero': int((gain == 0).sum()),
+                       'nonzero_within_1e_minus12': int(((gain != 0) & (np.abs(gain) <= 1e-12)).sum()),
+                       'median': float(np.median(gain)) if len(gain) else None,
+                       'mean': float(np.mean(gain)) if len(gain) else None,
+                       'minimum_cases': int(subset.n_cases.min()) if len(subset) else None,
+                       'minimum_controls': int(subset.n_controls.min()) if len(subset) else None})
+    return result
+
+
 def audit(root, analysis, *, verify=False, route_diagnostics=False):
     config_path = analysis / 'analysis_inventory' / 'analysis.yaml'
     config = yaml.safe_load(config_path.read_text())
@@ -167,6 +189,19 @@ def audit(root, analysis, *, verify=False, route_diagnostics=False):
             if verify:
                 item['prediction_hash_matches'] = digest(predictions) == saved['prediction_sha256']
         report['artifacts'].append(item)
+    borrowing_table = analysis / 'source_removal' / 'tuning' / 'borrowing_map.csv'
+    if borrowing_table.is_file():
+        pairs = pd.read_csv(borrowing_table)
+        pairs = pairs.loc[(pairs.target != pairs.source) & (pairs.endpoint_group == 'All outcomes')]
+        report['borrowing_scale_diagnostics'] = {
+            'units': 'AUC points, already multiplied by 100 upstream',
+            'off_diagonal_pairs': len(pairs),
+            'median_abs_shrunken_effect': float(pairs.effect.abs().median()),
+            'maximum_abs_shrunken_effect': float(pairs.effect.abs().max()),
+            **({'median_abs_raw_effect': float(pairs.raw_effect.abs().median()),
+                'maximum_abs_raw_effect': float(pairs.raw_effect.abs().max())}
+               if 'raw_effect' in pairs else {}),
+            'note': 'Pairwise heatmaps use shrunken effects; total dependence panels are unshrunk.'}
     if config.get('route_weights'):
         directory = Path(config['route_weights']).parent
         report['route_predictions_directory'] = str(directory)
@@ -206,7 +241,8 @@ def audit(root, analysis, *, verify=False, route_diagnostics=False):
                                     'cell_median': float(finite.gain.median()),
                                     'equal_cell_mean': float(finite.gain.mean()),
                                     'decision_weighted_mean_min5': weighted,
-                                    'decision_supported_cells': len(supported)})
+                                    'decision_supported_cells': len(supported),
+                                    'gain_distribution': gain_distribution(finite)})
         report['point_summary_comparison_raw_auc'] = comparisons
     if route_diagnostics:
         from opera.run.router_decision import routing_diagnostics, routing_health
@@ -269,6 +305,25 @@ def main():
     report["active_env_file"] = str(args.env_file.resolve())
     report["configured_routed_model"] = env.get("OPERA_PAPER_ROUTED_MODEL")
     report["configured_opera_model"] = env.get("OPERA_PAPER_OPERA_MODEL")
+    alignment = {}
+    clinical_path = env.get('OPERA_PAPER_CLINICAL_SCORE_CONFIG')
+    if clinical_path and Path(clinical_path).is_file():
+        clinical = yaml.safe_load(Path(clinical_path).read_text())
+        requested = {s.get('model') for s in clinical.get('scores', []) if s.get('model')}
+        template_model = clinical.get('all_indices', {}).get('template', {}).get('model')
+        if template_model:
+            requested.add(template_model)
+        alignment['clinical_requested_models'] = sorted(requested)
+        alignment['clinical_config'] = clinical_path
+        alignment['clinical_requests_selected_opera'] = report.get('opera_model') in requested
+    atlas = env.get('OPERA_PAPER_ATLAS_METRICS')
+    if atlas:
+        primary = [a for a in report['artifacts'] if a['model'] == report.get('opera_model')
+                   and a.get('split') == 'tuning']
+        alignment['atlas_metrics'] = atlas
+        alignment['atlas_matches_selected_opera_directory'] = any(
+            Path(a['predictions']).parent.resolve() == Path(atlas).parent.resolve() for a in primary)
+    report['figure_model_alignment'] = alignment
     print(json.dumps(report, indent=2, default=str))
 
 

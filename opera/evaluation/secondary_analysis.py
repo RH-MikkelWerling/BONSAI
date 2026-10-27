@@ -549,8 +549,12 @@ def pool_cells_over_horizons(contrasts, bootstrap_draws):
     if values.empty:
         return pd.DataFrame(columns=[*keys, "horizon_days", "gain", "n_horizons",
                                      "lower", "upper"])
-    draws = bootstrap_draws.merge(values[keys + ["horizon_days"]],
-                                  on=keys + ["horizon_days"], validate="one_to_one")
+    draws = values[keys + ["horizon_days"]].merge(
+        bootstrap_draws, on=keys + ["horizon_days"], how="left",
+        validate="one_to_one", indicator=True)
+    if not draws['_merge'].eq('both').all():
+        raise ValueError("Missing bootstrap cells for horizon pooling")
+    draws = draws.drop(columns='_merge')
     parts = []
     # One contrast and metric at a time keeps the stacked draws small.
     for _, part in draws.groupby(["contrast", "metric"], sort=False):
@@ -999,7 +1003,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
             samples = draws_by_contrast[(group.contrast.iloc[0], group.metric.iloc[0])].merge(
                 selected, on=CELL, validate="many_to_one")
             arrays = np.stack(samples.gain_draws)
-            unstable = 0
+            unstable = int((~np.isfinite(arrays).all(axis=1)).sum())
             if stable_cells_only:
                 stable = np.isfinite(arrays).all(axis=1)
                 unstable = int((~stable).sum())
@@ -1022,7 +1026,10 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                     "stratum_value": str(identity[-1]) if stratum else "all",
                     "gain": group.gain.mean(),
                     "n_cells": len(group),
-                    **({"n_cells_unstable": unstable} if stable_cells_only else {}),
+                    "n_cells_unstable": unstable,
+                    "bootstrap_cell_policy": "stable_cells_only" if stable_cells_only else "strict_fixed_roster",
+                    "n_bootstrap_replicates": arrays.shape[1],
+                    "minimum_finite_cells_per_draw": int(np.isfinite(arrays).sum(axis=0).min()),
                     "aggregation": "equal_cell_not_population_or_endpoint_group_macro",
                     "p_value": bootstrap_p_value(sampled),
                     **_interval(sampled),

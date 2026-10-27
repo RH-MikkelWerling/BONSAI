@@ -839,6 +839,17 @@ def synthetic_attribution_patterns(seed=41, n=500):
                 wide=wide, patients=patients)
 
 
+def synthetic_hierarchy(rng, n=300):
+    events = rng.integers(2, 3000, n)
+    own = rng.normal(.005, .02, n)
+    borrow = rng.normal(.01, .025, n)
+    return pd.DataFrame({'metric': 'auc', 'horizon_days': 365,
+                         'n_events_train': events,
+                         'tuning_joint_vs_specialist': rng.normal(.01, .03, n),
+                         'own': own, 'borrow': borrow, 'both': own + borrow,
+                         'router_design': 'AB'})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=Path("paper/render/prototypes"))
@@ -883,6 +894,7 @@ def main():
         "supp_borrowing_detail": figures.figure_borrowing_detail(
             borrowing[0], borrowing[1], borrowing[2], mark=mark),
         "supp_horizons": figures.figure_horizons(cells, mark=mark),
+        "fig_hierarchy": figures.figure_hierarchy(synthetic_hierarchy(rng), mark=mark),
         "fig_decision_curve": figure_decision_curve(
             synthetic_decision_curves(np.random.default_rng(17)),
             labels={"xgboost": "XGBoost"}, mark=mark, points=SYNTHETIC_DCA_POINTS),

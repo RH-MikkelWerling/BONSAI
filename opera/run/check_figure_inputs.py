@@ -91,7 +91,8 @@ def recipe_inputs(recipe: Path, environment: dict[str, str]) -> dict[str, list[P
 
 
 def check(analysis_root: Path, manuscript: Path, *, horizon: int = 365, split: str = "held_out",
-          recipes: tuple[Path, ...] = (RESULTS_RECIPE, ATTRIBUTION_RECIPE)) -> list[dict]:
+          recipes: tuple[Path, ...] = (RESULTS_RECIPE, ATTRIBUTION_RECIPE),
+          include_registered: bool = False) -> list[dict]:
     analysis_root = analysis_root.resolve()
     plot_tables = analysis_root / "figure_inputs" / "plot_tables"
     environment = {
@@ -109,7 +110,10 @@ def check(analysis_root: Path, manuscript: Path, *, horizon: int = 365, split: s
     reasons = (json.loads(manifest.read_text()).get("tables", {})
                if manifest.is_file() else {})
     rows = []
-    for figure in manuscript_figures(manuscript):
+    figures = manuscript_figures(manuscript)
+    if include_registered:
+        figures = list(dict.fromkeys([*figures, *inputs]))
+    for figure in figures:
         if figure in CLINICAL_FIGURES:
             needed = [analysis_root / "clinical_scores" / f"{figure}.pdf"]
         elif figure in inputs:
@@ -138,8 +142,14 @@ def main():
     parser.add_argument("--horizon", type=int, default=365)
     parser.add_argument("--split", choices=("held_out", "tuning"), default="held_out")
     parser.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    parser.add_argument('--recipe', type=Path, action='append',
+                        help='Actual render recipe; repeat for results and attribution')
+    parser.add_argument('--include-registered', action='store_true',
+                        help='Also check recipe figures not currently placed in the manuscript')
     args = parser.parse_args()
-    rows = check(args.analysis_root, args.manuscript, horizon=args.horizon, split=args.split)
+    rows = check(args.analysis_root, args.manuscript, horizon=args.horizon, split=args.split,
+                 recipes=tuple(args.recipe) if args.recipe else (RESULTS_RECIPE, ATTRIBUTION_RECIPE),
+                 include_registered=args.include_registered)
     if args.json:
         print(json.dumps(rows, indent=2))
     else:

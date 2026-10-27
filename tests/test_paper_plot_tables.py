@@ -95,10 +95,16 @@ def test_plot_tables_translate_codes_and_names_and_report_missing_inputs(tmp_pat
     metadata = tmp_path / "cell_metadata.csv"
     cell_metadata().to_csv(metadata, index=False)
     output = tmp_path / "plot_tables"
+    output.mkdir()
+    (output / "support_curve.csv").write_text("stale,previous_run\n1,2\n")
+    (output / "atlas.csv").write_text("stale\n1\n")
     manifest = plot_tables.build(analysis_root(tmp_path), metadata, output, seed=42)
     tables = manifest["tables"]
     assert tables["paired_cells.csv"]["status"] == "written"
     assert tables["support_curve.csv"]["status"] == "missing_input"
+    assert tables["support_curve.csv"]["removed_stale_output"]
+    assert not (output / "support_curve.csv").exists()
+    assert not (output / "atlas.csv").exists()
     assert tables["patient_coordinates.csv"]["status"] == "pending_upstream_builder"
 
     cells = pd.read_csv(output / "paired_cells.csv")
@@ -323,3 +329,18 @@ def test_who_benefits_shares_rows_even_when_auc_is_not_estimable(tmp_path):
     assert positions == [ax._left_title.get_position() for ax in fig.axes]
     assert (tmp_path / "who.pdf").is_file()
     plt.close(fig)
+
+
+def test_missing_calibration_invalidates_both_existing_outputs(tmp_path):
+    metadata = tmp_path / 'cells.csv'
+    cell_metadata().to_csv(metadata, index=False)
+    root = analysis_root(tmp_path)
+    (root / 'prediction_analysis/calibration.csv').unlink()
+    output = tmp_path / 'plots'
+    output.mkdir()
+    for name in ['calibration_summary.csv', 'reliability.csv']:
+        (output / name).write_text('old\n1\n')
+    report = plot_tables.build(root, metadata, output, seed=42)
+    for name in ['calibration_summary.csv', 'reliability.csv']:
+        assert not (output / name).exists()
+        assert report['tables'][name]['removed_stale_output']

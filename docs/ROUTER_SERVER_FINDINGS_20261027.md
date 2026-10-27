@@ -102,3 +102,62 @@ available, so downstream checks can distinguish low-support/invalid intervals
 from precise null findings. Median/IQR heterogeneity panels remain labelled as
 such; a primary supported, disease-balanced performance summary still needs to
 be integrated coherently with the resolved panel inference policy.
+
+## Production replay received and local follow-up
+
+The returned verification report has status `replay_passed`. Both selected
+checkpoints reproduce 46 sampled patients at six horizons, with maximum absolute
+CIF errors around 1e-6. Native and paper metric recomputation agrees to floating
+point precision, without missing estimates or finite-status mismatches. The
+patient-pooled mean AUCs are 0.7710872006 (J) and 0.7836230421 (fixed R): a
+1.253584-point difference. This is a different estimand from within-fine-disease
+cell summaries. Zero-borrowing intervention changes sampled 365-day CIFs by a
+median absolute 0.0189554; this is an intervention effect, not proof of improved
+AUC. No training error or inference bypass is established by this report.
+
+The next CPU-only audit includes exact positive/negative/zero cell counts,
+separately for supported cells (at least five cases and controls) and sparse
+cells, at each horizon and across horizons. Tiny nonzero gains are distinguished
+from exact zero; this must be read before attributing zeros to sparse ranks.
+
+Effect-summary output now records the strict roster bootstrap policy, number of
+unstable cells, replicate count and minimum finite cells per draw. These fields,
+plus interval status and valid draw count, survive panel plot-table construction.
+The estimator itself is unchanged. A test demonstrates the pathological case:
+each draw contains one invalid cell, leaving zero valid panel draws despite all
+point estimates being finite. This behavior is not repaired by replacing missing
+values with zero or choosing cells after looking at gains.
+
+A confirmed stale-output bug was fixed in plot-table construction: a failed
+missing-input rebuild previously left a same-named old derived table on disk.
+That table is now removed and the manifest records the removal. Upstream patient
+data and predictions are untouched. This fix covers missing inputs encountered
+by that builder; file existence alone is still not a universal freshness audit.
+
+After syncing, run the CPU-only audit (no GPU replay needed):
+
+```bash
+mkdir -p logs/rehearsal
+python -m opera.run.audit_tuning_router --env-file .env.rehearsal \
+  > logs/rehearsal/router_cell_distribution.json
+```
+
+Return that aggregate JSON to inspect zero-gain composition. Existing hashes,
+metric recomputation and inference replay need not be repeated for this change.
+Then rebuild plot tables and rerender with the already-fixed embedding and
+routing code:
+
+```bash
+bash scripts/run_paper_experiments.sh plot-tables --env-file .env.rehearsal --execute
+bash scripts/run_paper_experiments.sh figure-readiness --env-file .env.rehearsal --execute
+bash scripts/run_paper_experiments.sh figures --env-file .env.rehearsal --execute
+```
+
+Stop if readiness reports missing inputs; its output identifies the producer.
+These commands replace derived plot tables and figure files in the configured
+analysis root. Preserve the current figure directory first if a visual
+before/after comparison is wanted. Existing prediction-analysis tables will not
+gain new bootstrap diagnostic columns until that analysis is rerun into a fresh
+output directory; the next run should follow a resolved reporting/interval
+policy, rather than incur a full bootstrap rerun solely to add diagnostics.
+Unusable intervals remain unresolved and must not be interpreted as zero effect.

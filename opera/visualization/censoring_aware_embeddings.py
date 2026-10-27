@@ -412,13 +412,18 @@ def spatial_calibration_residual(
 
 
 def _binned_router_displacement(
-    before: np.ndarray, after: np.ndarray, *, bins: int = 7, min_count: int = 20,
+    before: np.ndarray, after: np.ndarray, *, bins: int | None = None, min_count: int = 20,
 ) -> dict[str, np.ndarray]:
     """Local mean vector field on the fixed shared-embedding projection."""
     before = np.asarray(before, dtype=float)
     after = np.asarray(after, dtype=float)
     if before.ndim != 2 or before.shape[1] != 2 or after.shape != before.shape:
         raise ValueError("before and after must be matching (patients, 2) arrays")
+    if not len(before) or not np.isfinite(before).all() or not np.isfinite(after).all():
+        raise ValueError("Router displacement coordinates must be nonempty and finite")
+    if bins is None:
+        # Coarser grids keep rehearsal-sized maps from losing most arrow bins.
+        bins = int(np.clip(np.sqrt(len(before) / 30), 5, 11))
     if bins < 1 or min_count < 1:
         raise ValueError("bins and min_count must be positive")
     extent = np.ptp(before, axis=0)

@@ -114,3 +114,14 @@ def test_recompute_compares_raw_cifs_to_saved_fine_disease_estimates(tmp_path):
     saved.loc[0, "estimate"] += 0.02
     saved.to_csv(directory / "estimates.csv", index=False)
     assert abs(reconcile_metrics(config, tmp_path)[0]["recomputed_vs_saved_max_abs_error"] - 0.02) < 1e-12
+
+
+def test_gain_distribution_separates_sparse_exact_ties_from_supported_gains():
+    from opera.run.audit_tuning_router import gain_distribution
+    cells = pd.DataFrame({'gain': [0., 0., .02, -.01, 1e-14],
+                          'n_cases': [1, 2, 8, 9, 8], 'n_controls': [2, 3, 9, 8, 9]})
+    rows = {r['population']: r for r in gain_distribution(cells)}
+    assert rows['all_finite']['exactly_zero'] == 2
+    assert rows['sparse_below5']['exactly_zero'] == 2
+    assert rows['supported_min5']['exactly_zero'] == 0
+    assert rows['supported_min5']['nonzero_within_1e_minus12'] == 1

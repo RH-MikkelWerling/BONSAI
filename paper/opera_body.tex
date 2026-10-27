@@ -839,28 +839,27 @@ rather than as a test.
 
 \begin{figure}[H]
   \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
-    {A: what each source disease adds to each target disease. B: how much each
-    disease depends on borrowing. C: similarity of the diseases' borrowing
-    profiles. D: AUC lost without borrowing, by clinical domain.}
-  \caption{\textbf{What the model borrows from other diseases.} The routed
-  model's readout adds one correction per source disease, so sources can be
-  switched off in the trained model without retraining or changing anything else. Each comparison scores the same test patients over all outcomes and
-  horizons (AUC points; 95\% intervals from paired patient resampling).
-  \textbf{A}, The gain for each target disease (rows, with its number of
-  patients) when one other disease (columns) is added to its own, partially
-  pooled across pairs. Dots mark gains whose interval lies above zero; the
-  diagonal is grey; diseases are grouped by lineage for reading only, and grey
-  labels mark diseases with few estimable outcomes. AL, amyloidosis; SP,
-  solitary plasmacytoma; tFL, transformed follicular lymphoma. \textbf{B}, On the
-  same rows, the AUC the trained model loses when all its borrowed corrections
-  are switched off; dashed line, all diseases weighing equally. \textbf{C}, \placeholder{Similarity of the diseases' borrowing profiles: for
-  each pair of target diseases, the correlation of the shares of borrowed
-  correction they draw from each source.} \textbf{D},
-  The AUC lost without borrowing, as in B, by clinical domain, all diseases
-  weighing equally; dashed line, all outcomes. This loss beside the gains over
-  separately trained models, by disease size, the source left out and every clinical domain
-  are in \cref{fig:supp-borrowing-detail}. The figure shows
-  how the fitted model uses its corrections, not how diseases are related.}
+    {A: shrunken source-alone gains. B: cross-disease source dependence.
+    C: concentration within disease lineages. D: dependence by clinical domain.}
+  \caption{\textbf{What the fitted model borrows from other diseases.}
+  Other-disease adapter terms are replaced by their tuning means without
+  retraining or renormalizing the remaining gates; own-disease terms, the
+  outcome bank, global corrections and the base encoder path are retained.
+  Comparisons use the same evaluated patients (AUC points).
+  \textbf{A}, Adaptively shrunken gains when one source disease is retained
+  alongside the target's own disease. The diagonal is grey; dots indicate
+  positive shrunken approximate intervals. Lineage groups organize the display
+  but do not enter the shrinkage prior. \textbf{B}, Unshrunk cross-disease
+  dependence: full-model AUC minus AUC with other-disease terms replaced;
+  paired patient-bootstrap intervals and a dashed all-disease mean.
+  \textbf{C}, The share of positive shrunken source-alone estimates from the
+  target's lineage against that lineage's share of available sources. These
+  normalized shares are descriptive, particularly when absolute effects are
+  small. Color denotes effective source count.
+  \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
+  weighing equally; dashed line, all outcomes. Source-alone gains are not
+  additive in AUC and need not sum to the total dependence. Further contrasts
+  appear in \cref{fig:supp-borrowing-detail}.}
   \label{fig:borrowing-map}
 \end{figure}
 

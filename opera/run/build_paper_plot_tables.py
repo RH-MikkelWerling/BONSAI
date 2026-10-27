@@ -93,7 +93,10 @@ def _cell_groups(metadata: pd.DataFrame) -> pd.DataFrame:
     keys = ["cohort", "outcome", "horizon_days"]
     columns = [c for c in ("cohort_group", "endpoint_group", "n_events_train",
                            "n_patients_train") if c in metadata]
-    return metadata[keys + columns].drop_duplicates(keys)
+    selected = metadata[keys + columns].drop_duplicates()
+    if selected.duplicated(keys).any():
+        raise ValueError("Conflicting train-only metadata for the same evaluation cell")
+    return selected
 
 
 def _with_cells(frame: pd.DataFrame, metadata: pd.DataFrame) -> pd.DataFrame:
@@ -123,8 +126,11 @@ def panel_contrasts(summaries, codes, *, seed=None):
     data = _select(summaries, seed=seed)
     data = data.loc[(data.stratum == "all_cells") & data.contrast.isin(codes)].copy()
     data["contrast"] = data.contrast.map(CONTRAST_CODES)
-    return data[["contrast", "metric", "horizon_days", "gain", "lower", "upper",
-                 "n_cells"]]
+    columns = ["contrast", "metric", "horizon_days", "gain", "lower", "upper", "n_cells"]
+    columns += [c for c in ["n_valid_bootstrap", "interval_status", "n_cells_unstable",
+                           "bootstrap_cell_policy", "n_bootstrap_replicates",
+                           "minimum_finite_cells_per_draw"] if c in data]
+    return data[columns]
 
 
 def support_curve(curves):
@@ -641,7 +647,21 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         try:
             result = build_fn()
         except Missing as missing:
-            report[name] = {"status": "missing_input", "input": str(missing)}
+            stale = output_dir / name
+            removed_stale = stale.is_file()
+            if removed_stale:
+                stale.unlink()
+            report[name] = {"status": "missing_input", "input": str(missing),
+                            "removed_stale_output": removed_stale}
+            siblings = {'calibration_summary.csv': ['reliability.csv'],
+                        'strategy_cells.csv': ['selected_strategy.csv']}.get(name, [])
+            for sibling in siblings:
+                stale = output_dir / sibling
+                removed = stale.is_file()
+                if removed:
+                    stale.unlink()
+                report[sibling] = {'status': 'missing_input', 'input': str(missing),
+                                   'removed_stale_output': removed}
             return
         if isinstance(result, pd.DataFrame):
             result.to_csv(output_dir / name, index=False)
@@ -750,8 +770,13 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         table("atlas.csv", lambda: atlas_table(_read(Path(atlas_metrics), sources),
                                                metadata))
     else:
+        stale = output_dir / 'atlas.csv'
+        removed = stale.is_file()
+        if removed:
+            stale.unlink()
         report["atlas.csv"] = {"status": "missing_input",
-                               "input": "--atlas-metrics (selected joint run, held out)"}
+                               "input": "--atlas-metrics (explicit selected model and split)",
+                               "removed_stale_output": removed}
     table("route_summaries.csv", lambda: route_table(
         _read(analysis / "route_weights.csv", sources), seed=seed))
     def subgroups(name, spec):

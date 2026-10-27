@@ -313,7 +313,7 @@ def _bounds(values):
 
 def borrowing_levels(directory, metadata, domains, *, split, references=None,
                      replicates=1000, ablation="mean"):
-    """Dependence (full - none) and, given their prediction files, routing
+    """Cross-disease dependence (full - none; outcome bank retained) and routing
     (full - J) and trained borrowing (full - RDH); per target and over all
     diseases."""
     references = {name: path for name, path in (references or {}).items()
