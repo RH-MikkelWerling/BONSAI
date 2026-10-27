@@ -284,6 +284,8 @@ def test_vectorised_subgroup_gains_equal_the_loops():
     for fast_fn, slow_fn in ((subgroup_patient_gains, _ref_subgroup_patient_gains),
                              (panel_subgroup_gains, _ref_panel_subgroup_gains)):
         fast = fast_fn(gains, metadata, specs, draws=draws)
+        if "horizon_days" in fast and fast_fn is panel_subgroup_gains:
+            fast = fast.loc[fast.horizon_days != 0]  # pooled rows are new; see below
         slow = slow_fn(gains, metadata, specs, draws=draws)
         pd.testing.assert_frame_equal(fast.reset_index(drop=True),
                                       slow[fast.columns].reset_index(drop=True),

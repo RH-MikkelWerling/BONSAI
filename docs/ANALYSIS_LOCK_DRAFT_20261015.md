@@ -420,3 +420,9 @@ problems; the rules below fix them without reference to any test result.
   least 10 training events and a 95% interval narrower than 0.4 AUC; every
   cell still enters the curves and summaries. Reliability bins with fewer
   than 20 patients are not drawn.
+- National-vocabulary coverage (patient subgroup) is measured where the national
+  arms read it: the share of a patient's pre-index history, tokenised with the
+  national vocabulary, that is not [UNK]. The earlier definition (local tokens
+  whose string appears in the national vocabulary) would have been near zero
+  for every patient under a different code system; it remains only as a
+  fallback before the national sequences exist.

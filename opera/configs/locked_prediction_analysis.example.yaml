@@ -85,7 +85,7 @@ patient_groups:
     provenance: pre_index
   IPI:  # recorded prognostic-index category (low/medium/high); missing = not recorded
     provenance: pre_index
-  national_vocabulary_coverage:  # share of pre-index history tokens in the national vocabulary
+  national_vocabulary_coverage:  # share of pre-index national history tokens that are not [UNK] (national tokenisation)
     provenance: pre_index
     bins: [0, 0.8, 0.95, 1.0]
   # Add train-defined/pre-index token coverage, source mix and atypicality

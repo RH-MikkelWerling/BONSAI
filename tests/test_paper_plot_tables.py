@@ -239,3 +239,25 @@ def test_panel_estimates_can_pool_every_horizon():
     pooled = panel.loc[panel.horizon_days == 0].iloc[0]
     assert pooled.estimate == pytest.approx(0.65) and pooled.n_cells == 2
     assert set(panel.horizon_days) == {0, 365, 730}
+
+
+def test_cells_pool_over_horizons_with_shared_draws():
+    from opera.evaluation.secondary_analysis import pool_cells_over_horizons
+    rng = np.random.default_rng(0)
+    contrasts, draws = [], []
+    for cohort in ("A", "B"):
+        for horizon, shift in ((365, 0.01), (730, 0.03)):
+            cell = {"split": "held_out", "seed": 42, "cohort": cohort, "outcome": "o",
+                    "contrast": "T2", "metric": "auc", "horizon_days": horizon}
+            sampled = shift + rng.normal(0, 0.01, 200)
+            if cohort == "B" and horizon == 730:
+                sampled[:100] = np.nan  # half the replicates fail at one horizon
+            contrasts.append({**cell, "gain": shift})
+            draws.append({**cell, "gain_draws": sampled})
+    pooled = pool_cells_over_horizons(pd.DataFrame(contrasts), pd.DataFrame(draws))
+    pooled = pooled.set_index("cohort")
+    assert set(pooled.horizon_days) == {0} and set(pooled.n_horizons) == {2}
+    assert pooled.gain["A"] == pytest.approx(0.02)
+    expected = np.mean([d["gain_draws"] for d in draws[:2]], axis=0)
+    assert pooled.lower["A"] == pytest.approx(np.quantile(expected, 0.025))
+    assert np.isnan(pooled.lower["B"])  # too few finite pooled replicates

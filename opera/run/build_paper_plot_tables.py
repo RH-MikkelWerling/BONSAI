@@ -50,7 +50,7 @@ CONTRAST_CODES = {
     **{f"R{i}": f"R{i}" for i in range(8)},
 }
 MODEL_CODES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R",
-               "X": "X", "LR": "LR"}
+               "OPERA": "OPERA", "X": "X", "LR": "LR"}
 ORIGIN_MODELS = {f"{readout}_{origin}": (origin, readout)
                  for origin in ("L", "E", "EA") for readout in ("J", "R")}
 DEFAULT_CHOICES = Path(__file__).resolve().parents[1] / "configs/paper_figure_choices.yaml"
@@ -167,7 +167,13 @@ def model_cells(estimates, metadata, *, seed=None, metric="auc"):
                              values="estimate", aggfunc="first")
             .rename(columns=MODEL_NAMES).reset_index())
     wide.columns.name = None
-    return to_display(_with_cells(wide, metadata))
+    # Each cell also pooled over its evaluated horizons (horizon_days ==
+    # ALL_HORIZONS), with the one-year training support as for paired cells.
+    pooled = (wide.drop(columns="horizon_days").groupby(["cohort", "outcome"]).mean()
+              .reset_index().assign(horizon_days=ALL_HORIZONS))
+    year = metadata.loc[metadata.horizon_days == 365].assign(horizon_days=ALL_HORIZONS)
+    return to_display(pd.concat([_with_cells(wide, metadata), _with_cells(pooled, year)],
+                                ignore_index=True))
 
 
 def strategy_tables(estimates, selection, metadata, *, seed=None, metric="auc"):
@@ -357,9 +363,11 @@ def _subgroup_sort_key(label) -> tuple:
     return (2, 0.0, shown)
 
 
-def subgroup_table(panels, summaries, spec, *, seed=None, horizon=365):
+def subgroup_table(panels, summaries, spec, *, seed=None, horizon=ALL_HORIZONS):
     """Panel subgroup effects for one figure, with display labels and styles."""
     data = _select(panels, seed=seed)
+    if horizon == ALL_HORIZONS and not (data.horizon_days == ALL_HORIZONS).any():
+        horizon = 365  # an analysis from before subgroups were pooled over horizons
     data = data.loc[(data.metric == "brier_gain") & (data.horizon_days == horizon)
                     & data.contrast.isin(spec["contrasts"])
                     & data.covariate.isin(spec["covariates"])].copy()
@@ -590,8 +598,28 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
             report[name] = {"status": "written", "entries": len(result)}
 
     contrasts = lambda: _read(analysis / "contrasts.csv", sources)  # noqa: E731
+
+    def cell_contrasts():
+        """Per-cell contrasts plus, where the analysis made them, each cell
+        pooled over its horizons (horizon_days == ALL_HORIZONS) for the
+        cell-level figures; panel tables keep the per-horizon cells only."""
+        path = analysis / "contrasts_all_horizons.csv"
+        if not path.exists():
+            return contrasts()
+        per_horizon = contrasts()
+        pooled = _read(path, sources)
+        if "n_events_train" in per_horizon:  # the analysis annotated its cells
+            pooled = _with_cells(pooled, cell_metadata_all)
+        return pd.concat([per_horizon, pooled], ignore_index=True)
+
+    # Pooled cells carry the one-year training support (a proxy for ordering
+    # and support plots; captions say so).
+    cell_metadata_all = pd.concat(
+        [metadata, metadata.loc[metadata.horizon_days == 365].assign(horizon_days=ALL_HORIZONS)],
+        ignore_index=True)
     summaries = lambda: _read(analysis / "effect_summaries.csv", sources)  # noqa: E731
-    table("paired_cells.csv", lambda: paired_cells(contrasts(), metadata, seed=seed))
+    table("paired_cells.csv", lambda: paired_cells(cell_contrasts(), cell_metadata_all,
+                                                    seed=seed))
     table("support_curve.csv", lambda: support_curve([
         _read(bayes / family / "auc" / bayes_variant / "posterior_curve.csv", sources)
         for family in ("pooling", "tabular")]))
@@ -638,8 +666,10 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         _read(analysis / "operating_points.csv", sources), seed=seed))
     table("model_cells.csv", lambda: model_cells(
         _read(analysis / "estimates.csv", sources), metadata, seed=seed))
-    table("rescue_cells.csv", lambda: rescue_cells(contrasts(), metadata, seed=seed))
-    table("hierarchy_cells.csv", lambda: hierarchy_cells(contrasts(), metadata, seed=seed))
+    table("rescue_cells.csv", lambda: rescue_cells(cell_contrasts(), cell_metadata_all,
+                                                    seed=seed))
+    table("hierarchy_cells.csv", lambda: hierarchy_cells(cell_contrasts(), cell_metadata_all,
+                                                          seed=seed))
 
     def coverage():
         model_coverage = analysis / "model_coverage.csv"

@@ -559,14 +559,14 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
     {Gains over each reference per cell, against XGBoost per cell, against the
     clinical indices, across horizons and by recorded history.}
   \caption{\textbf{Performance of \opera{} relative to reference
-  methods.} \textbf{A}, One-year AUC gain over each
-  reference, one point per disease--outcome cell with enough test events. Diamonds show medians, bars interquartile ranges, and the figures on the right the share of cells in which \opera{} was better. \textbf{B}, One-year AUC of \opera{}
+  methods.} \textbf{A}, AUC gain over each reference, pooled over the six
+  horizons, one point per disease--outcome cell with enough test events. Diamonds show medians, bars interquartile ranges, and the figures on the right the share of cells in which \opera{} was better. \textbf{B}, AUC of \opera{} (pooled over horizons)
   against per-task XGBoost in each cell, with point size reflecting training events.
   \textbf{C}, Share of patients with the event placed in the high-risk group by
   each clinical index and by \opera{} at the index's specificity (cutoffs
   fixed on tuning data). \textbf{D}, Median AUC gain over per-task XGBoost of
-  each neural model at each horizon. \textbf{E}, Improvement in one-year Brier
-  score over the specialist and over XGBoost by the number
+  each neural model at each horizon. \textbf{E}, Improvement in Brier
+  score, pooled over horizons, over the specialist and over XGBoost by the number
   of events recorded before treatment ($\times$100, 95\% CI). Within each contrast, models are evaluated on the same test patients.}
   \label{fig:headline}
 \end{figure}
@@ -581,16 +581,19 @@ clinical domain} (\cref{fig:tabular}B, \cref{fig:calibration}).
     {A: AUC gains over XGBoost by clinical domain. B: calibration slope.
     C: gain against training events. D--E: reliability.}
   \caption{\textbf{Comparison with tabular models: discrimination and
-  calibration.} \textbf{A}, One-year AUC gain over per-task XGBoost of the
-  joint, specialist and routed models, and of \opera{} over XGBoost
-  pooled across diseases and XGBoost given quality-registry variables, by
-  clinical domain (median and interquartile range across cells).
-  \textbf{B}, Calibration slope of the joint, routed, specialist and XGBoost
-  models by domain (ideal 1). \textbf{C}, Gain of \opera{} over XGBoost
+  calibration.} \textbf{A}, AUC gain over per-task XGBoost, pooled over the six
+  horizons, of \opera{}, the joint model and the specialist, and of the joint
+  model over XGBoost pooled across diseases and XGBoost given quality-registry
+  variables, by clinical domain (median and interquartile range across cells).
+  \textbf{B}, Calibration slope of \opera{}, the joint, specialist and XGBoost
+  models by domain, over every cell and horizon (ideal 1). \textbf{C}, Gain of \opera{} over XGBoost
   against the target's training events, with the support curve; points are
   cells with at least 10 training events and a 95\% interval narrower than 0.4
   (all cells enter the curve). \textbf{D--E},
-  Reliability of \opera{} and XGBoost for two example outcomes. Observed risks are censoring-weighted and point size reflects patients per
+  Reliability of \opera{}, the joint model and XGBoost at one year for the
+  two example cells, chosen by a rule on training counts (the cell with the most
+  training events in its domain among cells with at least 200 training events
+  and an event share of at least 10\%). Observed risks are censoring-weighted and point size reflects patients per
   bin; bins with fewer than 20 patients are not drawn. No model was recalibrated on test data. The full calibration analysis is in \cref{fig:calibration}.}
   \label{fig:tabular}
 \end{figure}
@@ -655,8 +658,25 @@ same patients.} Median follow-up, by the reverse Kaplan--Meier method, was \resu
 \operasubsection{What does sharing across diseases and outcomes contribute?}
 % Claim heading once results are in, e.g. "Sharing across diseases and outcomes
 % each helps, most where a prediction has least data of its own".
-\placeholder{Disease pooling / outcome pooling / both improved AUC over
-the specialist.} Over the cells evaluable for every model, disease pooling changed AUC by \result{P1_auc}{X}, outcome pooling by \result{P2_auc}{Y} and joint learning by \result{P5_auc}{Z}, with IPA changes of \result{P1_ipa}{A}, \result{P2_ipa}{B} and \result{P5_ipa}{C}. Adding other diseases to an outcome-pooled model changed AUC by \result{P3_auc}{X}, adding other outcomes to a disease-pooled model by \result{P4_auc}{Y}, and the interaction was \result{P6_auc}{Z}, \placeholder{so the two sources were complementary / redundant / interfering} (\cref{fig:pooling}A--B, every cell in \cref{fig:supp-pooling-cells}).
+% Tuning rehearsal (2026-10-26): disease pooling carried the gain, outcome
+% pooling added little; confirm on the test set before keeping the claim.
+\placeholder{Sharing across diseases carried the gain; sharing across outcomes
+added little.} Over the cells evaluable for every model, pooled over all six
+horizons, a model trained on every disease for one outcome changed AUC over the
+specialist by \result{P1_auc}{X}, a model trained on every outcome within one
+disease by \result{P2_auc}{Y}, and the joint model, which shares both, by
+\result{P5_auc}{Z} (IPA \result{P1_ipa}{A}, \result{P2_ipa}{B} and
+\result{P5_ipa}{C}). Seen the other way round, adding the other diseases to an
+outcome-pooled model changed AUC by \result{P3_auc}{X}, whereas adding the other
+outcomes to a disease-pooled model changed it by \result{P4_auc}{Y}, and the
+interaction of the two was \result{P6_auc}{Z} \placeholder{(so the joint model's
+gain over the specialist was largely the gain from seeing other diseases)}
+(\cref{fig:pooling}A--B, every cell in \cref{fig:supp-pooling-cells}). The
+pattern held across clinical domains \placeholder{(confirm)} (\cref{fig:pooling}D)
+and across horizons (\cref{fig:supp-horizons}). Part of the gain over the
+specialist reflects how little a specialist can learn from a rare subtype, so
+the comparison with per-task and pooled XGBoost below is the stricter test of
+what sharing adds.
 
 \placeholder{The gain was associated with / not related to the data a
 prediction had of its own: shape of the support curve with its interval}
@@ -690,12 +710,13 @@ no patients in the tuning year and so no model of its own, with \placeholder{abs
     {A: joint versus specialist by disease and domain. B: gain by pooling axis.
     C: gain against training events. D: gain by clinical domain.}
   \caption{\textbf{Effect of pooling across diseases and outcomes on
-  discrimination.} \textbf{A}, One-year AUC gain of the joint model over the
-  specialist, by disease (rows) and clinical domain (columns), median over the
-  domain's outcomes. Diseases run from fewest to most training patients, given beside each name with a log-scale bar, and domains from fewest to most training events.
+  discrimination.} \textbf{A}, AUC gain of the joint model over the
+  specialist, pooled over the six horizons, by disease (rows) and clinical
+  domain (columns), median over the domain's outcomes. Diseases run from fewest to most training patients, given beside each name with a log-scale bar, and domains from fewest to most training events.
   \textbf{B}, For each disease, the median gain from pooling
   over diseases, pooling over outcomes and both (joint), on the same rows.
-  \textbf{C}, Gain against the number of training events of the target cell,
+  \textbf{C}, Gain against the number of training events of the target cell
+  (at one year),
   with the hierarchical support curve and 95\% credible band; points are cells
   with at least 10 training events and a 95\% interval narrower than 0.4 (all
   cells enter the curve). \textbf{D}, Gains
@@ -726,9 +747,56 @@ other diseases.} \placeholder{On the test set, at the locked rank and query, dis
 outcome adapters and both changed AUC by X, Y and Z, so the tuning choice did /
 did not hold} (\cref{fig:routing}B). \placeholder{In cells where the joint model had been
 worse than the specialist on the tuning set, routing changed test AUC by X}
-(\cref{fig:supp-rescue}), \placeholder{so learning what to borrow recovered
+(\cref{fig:hierarchy}A, \cref{fig:supp-rescue}), \placeholder{so learning what to borrow recovered
 where sharing everything had hurt.} \placeholder{Routing weights concentrated on
 the patient's own disease / related diseases} (\cref{fig:supp-router-usage}).
+
+% Router decomposition (lock addenda 2026-10-26). Macros are named for the
+% design chosen by the router-fix rule: router_*_O (own sources outside the
+% mix) or router_*_AB; switch the suffix if the rule keeps R_AB.
+% Tuning rehearsal: own corrections helped large diseases and hurt small ones,
+% borrowing did the opposite; confirm on the test set before keeping the claims.
+The routed model adds two corrections to the shared prediction: one learned for
+the patient's own disease and outcome, and one borrowed from other diseases and
+outcomes. Fitting the same architecture with only the shared signal, with the
+own corrections added, and with borrowing added separates the two
+(\cref{fig:hierarchy}). Own corrections changed AUC by
+\result{router_own_O_auc}{X} and borrowing by \result{router_borrow_O_auc}{Y},
+\result{router_both_O_auc}{Z} together, pooled over horizons.
+\placeholder{The two depended on training support in opposite directions. Own
+corrections helped where the target had many training events and hurt where it
+had few; borrowing helped where it had few and was neutral where it had many,
+so the two crossed at about N training events} (\cref{fig:hierarchy}B--C).
+\placeholder{A prediction with ample data of its own is pulled towards its own
+estimate, and one with little is pulled towards what related tasks have
+learned: the behaviour of partial pooling in a hierarchical model, learned here
+by the router rather than fixed by a prior.} \placeholder{The borrowing was
+broad rather than selective: diseases drew on similar mixtures of sources
+(median correlation of borrowing profiles X)}, so its value lay less in which
+tasks were borrowed from than in how much a task leaned on others.
+
+\begin{figure}[H]
+  \resultfigure{fig_hierarchy}{Own corrections and borrowing by training support}
+    {A: cells by tuning harm. B: own correction and borrowing against training
+    events. C: by support band.}
+  \caption{\textbf{Own corrections and borrowing in the routed model, by
+  training support.} Own corrections are the routed architecture with only
+  the patient's own disease and outcome corrections against the same
+  architecture with only the shared correction; borrowing is the full routed
+  model against the own-only model; both is the full model against the
+  shared-only model. Gains are test-set AUC pooled over the six horizons.
+  \textbf{A}, Each disease--outcome cell by the joint model's gain over the
+  specialist on the tuning set (left of the dashed line, sharing had hurt)
+  against the routed model's gain on the test set, coloured by the cell's
+  training events. \textbf{B}, Own correction and borrowing against the
+  target's training events at one year (log scale): quadratic fits in log
+  events with 95\% bootstrap bands over cells. Points are cells with at least
+  10 training events and a 95\% interval narrower than 0.4 (all cells enter the
+  fits); the strip along the axis marks the bands of C. \textbf{C}, Median and
+  interquartile range across cells within each band of training events, with
+  the number of cells in each band.}
+  \label{fig:hierarchy}
+\end{figure}
 
 \FloatBarrier
 \operasubsection{From whom does the model borrow?}

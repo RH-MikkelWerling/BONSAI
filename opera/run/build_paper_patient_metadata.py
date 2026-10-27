@@ -2,7 +2,9 @@
 
 One row per patient with only information available at the start of
 first-line treatment: disease, age, sex, calendar year, the amount of recorded
-history, the share of that history the national encoder's vocabulary covers,
+history, the share of that history the national encoder's vocabulary covers
+(from our patients' national records tokenised with the national vocabulary:
+the pre-index tokens that are not [UNK]),
 and the prognostic index recorded for the patient (``index``) with its risk
 category (``IPI``). History is counted from the same tokenised records the
 models read, truncated strictly before the index date exactly as in
@@ -10,7 +12,8 @@ fine-tuning, so the subgroups describe what the models saw.
 
     python -m opera.run.build_paper_patient_metadata --population <membership> \
         --subject-data-dir <sequence dir> --vocabulary <vocabulary.pt> \
-        --national-vocabulary <external vocabulary.pt> --output <metadata.parquet>
+        --national-vocabulary <external vocabulary.pt> \
+        --national-sequence-dir <external_sequences/sequences> --output <metadata.parquet>
 """
 
 from __future__ import annotations
@@ -85,6 +88,29 @@ def history_summary(subjects, index_abspos, vocabulary, national_vocabulary=None
     return pd.DataFrame(rows)
 
 
+def national_coverage(subjects, index_abspos, national_vocabulary):
+    """Share of each patient's pre-index national history the national
+    vocabulary knows: clinical tokens of the national tokenisation that are not
+    [UNK] (special and background tokens aside), strictly before the index."""
+    names = {int(i): str(name) for name, i in national_vocabulary.items()}
+    unknown = int(national_vocabulary["[UNK]"])
+    history_token = np.array([not names.get(i, "").startswith(SPECIAL_PREFIXES) or i == unknown
+                              for i in range(max(names) + 1)])
+    rows = []
+    for subject in subjects:
+        subject_id = subject["subject_id"]
+        if subject_id not in index_abspos:
+            continue
+        abspos = np.asarray(subject["abspos"], float)
+        codes = np.asarray(subject["code"], int)
+        before = codes[: np.searchsorted(abspos, index_abspos[subject_id], side="left")]
+        history = before[history_token[before]]
+        rows.append({"subject_id": subject_id,
+                     "national_vocabulary_coverage":
+                         float((history != unknown).mean()) if len(history) else np.nan})
+    return pd.DataFrame(rows, columns=["subject_id", "national_vocabulary_coverage"])
+
+
 def build_patient_metadata(population, history, *, score_columns=("index", "IPI"),
                            index_date_column="index_date", identity_date_column=None):
     index_date = pd.to_datetime(population[index_date_column], errors="coerce")
@@ -131,6 +157,9 @@ def main():
     parser.add_argument("--subject-data-dir", type=Path, required=True)
     parser.add_argument("--vocabulary", type=Path, required=True)
     parser.add_argument("--national-vocabulary", type=Path)
+    parser.add_argument("--national-sequence-dir", type=Path,
+                        help="our patients tokenised with the national vocabulary "
+                             "(external-data); defines national_vocabulary_coverage")
     parser.add_argument("--index-date-column", default="index_date")
     parser.add_argument("--identity-date-column",
                         help="Column with the date of the diagnosis that assigned the subtype.")
@@ -161,6 +190,18 @@ def main():
                 if args.national_vocabulary else None)
     history = history_summary(load_subject_pool(map(str, shards)), index_abspos,
                               vocabulary, national)
+    coverage_source = "local tokens found in the national vocabulary" if national else None
+    if args.national_sequence_dir and national is not None:
+        # The national arms read the national tokenisation, so coverage is
+        # measured there; the string match on local tokens is only a fallback.
+        national_shards = sorted(args.national_sequence_dir.glob("subject_data_*.pt"))
+        if not national_shards:
+            raise FileNotFoundError(f"No national sequences in {args.national_sequence_dir}")
+        coverage = national_coverage(load_subject_pool(map(str, national_shards)),
+                                     index_abspos, national)
+        history = history.drop(columns="national_vocabulary_coverage", errors="ignore").merge(
+            coverage, on="subject_id", how="left", validate="one_to_one")
+        coverage_source = "national tokens that are not [UNK]"
     metadata = build_patient_metadata(population, history,
                                       index_date_column=args.index_date_column,
                                       identity_date_column=args.identity_date_column)
@@ -170,7 +211,7 @@ def main():
         "output": str(args.output), "patients": len(metadata),
         "with_history": int(metadata.history_event_count.notna().sum()),
         "with_index": int(metadata["index"].notna().sum()) if "index" in metadata else 0,
-        "national_coverage": bool(args.national_vocabulary),
+        "national_coverage": coverage_source,
     }))
 
 

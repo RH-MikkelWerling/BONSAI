@@ -11,8 +11,10 @@ missing is simply absent, and the manuscript keeps its placeholder there.
         --cell-metadata <cell_metadata.csv> --output-dir <paper numbers dir>
 
 Keys (``<code>`` is a contrast code such as P5, T2 or E3):
-  <code>_auc, <code>_ipa   pooled one-year difference with its 95% CI
+  <code>_auc, <code>_ipa   difference pooled over every horizon, with its 95% CI
+                           (<code>_auc_1y etc.: the same at one year)
   <code>_better            "k of n" cells in which the first model had the higher AUC
+                           (cells pooled over their horizons where the analysis made them)
   <code>_median            median cell difference in AUC with its IQR
   <code>_auc_rare, <code>_auc_noindex
                            the same within subtypes with <500 training patients and
@@ -47,7 +49,9 @@ HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
          "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50",
          "LS10", "LS25", "LS50", "LSE10", "LSE25", "LSE50", "FD10", "FD25", "FD50", "RS1",
-         "J_vs_best_tuning")
+         "J_vs_best_tuning", "O1", "O2", "O3",
+         *(f"router_{part}_{design}" for part in ("own", "borrow", "both")
+           for design in ("O", "AB")))
 # Table 2, grouped by question; (None, title) starts a group. The T contrasts
 # are computed for the configuration selected as OPERA.
 TABLE_ROWS = (
@@ -97,7 +101,8 @@ def _read(path, sources):
     return frame
 
 
-def contrast_numbers(summaries, contrasts, *, horizon=ALL_HORIZONS, suffix=""):
+def contrast_numbers(summaries, contrasts, *, horizon=ALL_HORIZONS, suffix="",
+                     pooled_cells=None):
     """Contrast macros pooled over all horizons (default) or at one horizon.
 
     ``suffix`` is appended to every key, e.g. ``_1y`` for the one-year values
@@ -129,6 +134,8 @@ def contrast_numbers(summaries, contrasts, *, horizon=ALL_HORIZONS, suffix=""):
                 if text:
                     numbers[f"{row.contrast}_{row.metric}{suffix}"] = text
                 numbers.setdefault(f"{row.contrast}_cells{suffix}", f"{int(row.n_cells):,}")
+    if horizon == ALL_HORIZONS and pooled_cells is not None:
+        contrasts = pooled_cells  # one row per cell, pooled over its horizons
     if contrasts is not None:
         part = contrasts.loc[(contrasts.split == SPLIT) & (contrasts.metric == "auc")]
         if horizon != ALL_HORIZONS:
@@ -314,9 +321,11 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     numbers = {}
     effects = _read(analysis / "effect_summaries.csv", sources)
     contrasts = _read(analysis / "contrasts.csv", sources)
+    pooled_cells = analysis / "contrasts_all_horizons.csv"
+    pooled_cells = _read(pooled_cells, sources) if pooled_cells.exists() else None
     # Headline numbers pool all six horizons (the primary metric is AUC at each
     # horizon); the one-year values shown in the main figures carry ``_1y``.
-    numbers.update(contrast_numbers(effects, contrasts))
+    numbers.update(contrast_numbers(effects, contrasts, pooled_cells=pooled_cells))
     numbers.update(contrast_numbers(effects, contrasts, horizon=HORIZON, suffix="_1y"))
     numbers.update(coverage_numbers(_read(analysis / "estimates.csv", sources),
                                     _read(cell_metadata, sources) if cell_metadata else None))

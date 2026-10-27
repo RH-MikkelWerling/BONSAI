@@ -269,13 +269,15 @@ class SecondaryAnalysisTest(unittest.TestCase):
         # One panel row per split/seed/horizon/contrast/subgroup, never per cell.
         self.assertFalse(panel.duplicated(
             ["split", "seed", "horizon_days", "contrast", "subgroup"]).any())
-        self.assertLessEqual(len(panel), len(cells.loc[cells.metric == "brier_gain"]))
+        per_horizon = panel.loc[panel.horizon_days != 0]
+        self.assertLessEqual(len(per_horizon), len(cells.loc[cells.metric == "brier_gain"]))
         gains = result["patient_gains"].merge(metadata, on="subject_id")
         held = gains.loc[(gains.split == "held_out") & (gains.age > 50)]
         row = panel.loc[(panel.split == "held_out") & (panel.subgroup.str.startswith("(50"))]
+        self.assertIn(0, set(row.horizon_days))  # pooled over every horizon
         for horizon, value in row.set_index("horizon_days").gain.items():
-            expected = held.loc[held.horizon_days == horizon].brier_gain.mean()
-            self.assertAlmostEqual(value, expected)
+            rows = held if horizon == 0 else held.loc[held.horizon_days == horizon]
+            self.assertAlmostEqual(value, rows.brier_gain.mean())
         self.assertTrue((panel.lower <= panel.upper).all())
 
     def test_coverage_preserves_failed_models_and_route_normalization(self):

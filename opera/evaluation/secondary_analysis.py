@@ -536,6 +536,41 @@ def _interval(values):
     }
 
 
+def pool_cells_over_horizons(contrasts, bootstrap_draws):
+    """Per disease-outcome cell, the gain averaged over its evaluated horizons
+    (horizon_days == ALL_HORIZONS), each horizon weighing equally.
+
+    The patient resample of a disease is shared across outcomes and horizons,
+    so averaging a cell's draws over horizons gives the pooled gain's
+    bootstrap distribution; a replicate in which any horizon is not finite is
+    not finite for the pooled gain either (as in effect_summaries)."""
+    keys = ["split", "seed", "cohort", "outcome", "contrast", "metric"]
+    values = contrasts.loc[np.isfinite(contrasts.gain), keys + ["horizon_days", "gain"]]
+    if values.empty:
+        return pd.DataFrame(columns=[*keys, "horizon_days", "gain", "n_horizons",
+                                     "lower", "upper"])
+    draws = bootstrap_draws.merge(values[keys + ["horizon_days"]],
+                                  on=keys + ["horizon_days"], validate="one_to_one")
+    parts = []
+    # One contrast and metric at a time keeps the stacked draws small.
+    for _, part in draws.groupby(["contrast", "metric"], sort=False):
+        part = part.sort_values(keys, kind="stable")
+        starts = np.flatnonzero(part[keys].ne(part[keys].shift()).any(axis=1).to_numpy())
+        block = np.stack(part.gain_draws).astype(float)
+        finite = np.isfinite(block)
+        counts = np.diff(np.append(starts, len(part)))
+        mean = np.add.reduceat(np.where(finite, block, 0.0), starts, axis=0) / counts[:, None]
+        mean[np.add.reduceat(~finite, starts, axis=0) > 0] = np.nan
+        identity = part.iloc[starts][keys].reset_index(drop=True)
+        parts.append(pd.concat([identity.assign(n_horizons=counts),
+                                _intervals(list(mean))], axis=1))
+    pooled = pd.concat(parts, ignore_index=True)
+    gains = values.groupby(keys).gain.mean().reset_index()
+    pooled = pooled.merge(gains, on=keys, validate="one_to_one")
+    pooled["horizon_days"] = ALL_HORIZONS
+    return pooled
+
+
 CELL_BATCH = 200  # cells per parallel task
 
 
@@ -1204,15 +1239,21 @@ def panel_subgroup_gains(gains, metadata, specifications, *, draws):
                           for m in _GAIN_METRICS}
             split, seed, _, _, horizon, contrast = key
             for s, label in enumerate(labels):
-                panel_key = (split, seed, horizon, contrast, label)
-                entry = totals.setdefault(panel_key, {"denominator": 0.0,
-                                                      **{m: 0.0 for m in _GAIN_METRICS}})
-                entry["denominator"] = entry["denominator"] + denominators[:, s]
-                for m in _GAIN_METRICS:
-                    entry[m] = entry[m] + numerators[m][:, s]
-        summary = enriched.groupby(keys).agg(
+                # Each horizon, and every horizon together (ALL_HORIZONS: each
+                # patient once per cell and horizon in which they are evaluated).
+                for pooled in (horizon, ALL_HORIZONS):
+                    panel_key = (split, seed, pooled, contrast, label)
+                    entry = totals.setdefault(panel_key, {"denominator": 0.0,
+                                                          **{m: 0.0 for m in _GAIN_METRICS}})
+                    entry["denominator"] = entry["denominator"] + denominators[:, s]
+                    for m in _GAIN_METRICS:
+                        entry[m] = entry[m] + numerators[m][:, s]
+        aggregations = dict(
             n_subjects=("subject_id", "nunique"), n_patient_cells=("subject_id", "size"),
             **{f"mean_{m}": (m, "mean") for m in _GAIN_METRICS})
+        summary = pd.concat([
+            enriched.groupby(keys).agg(**aggregations),
+            enriched.assign(horizon_days=ALL_HORIZONS).groupby(keys).agg(**aggregations)])
         for panel_key in sorted(totals):
             entry, info = totals[panel_key], summary.loc[panel_key]
             denominator = np.atleast_1d(entry["denominator"])

@@ -26,6 +26,7 @@ from opera.evaluation.secondary_analysis import (
     calibration_summary,
     coverage_inventory,
     effect_summaries,
+    pool_cells_over_horizons,
     negative_transfer_strata,
     normalize_predictions,
     paired_analysis,
@@ -408,6 +409,9 @@ def run(config, output_dir):
             definition["bins"],
             include_lowest=True,
         ).astype(str)
+    stage("cells pooled over horizons")
+    tables["contrasts_all_horizons"] = pool_cells_over_horizons(
+        tables["contrasts"], tables["bootstrap_draws"])
     stage("effect summaries")
     annotated, summaries = effect_summaries(
         tables["contrasts"],

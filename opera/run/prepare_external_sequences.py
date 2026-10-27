@@ -105,13 +105,30 @@ def tokenize_command(output_dir, external_vocab, data_config):
             f"splits=[{','.join(SPLITS)}]"]
 
 
-def audit_sequences(output_dir, membership):
-    """Coverage of the paper population and [UNK] share in the national tokens."""
+def audit_sequences(output_dir, membership, *, external_vocab=None, required_latest=None,
+                    allow_missing=False):
+    """Coverage of the paper population and [UNK] share in the national tokens.
+
+    Fails (non-zero exit) when paper patients have no national sequence (they
+    would silently leave the national arms; ``allow_missing`` overrides), when
+    the vocabulary used for tokenising differs from the encoder's own
+    (``external_vocab``: same tokens, same ids), or when the national extract
+    ends before ``required_latest`` (e.g. the end of the test period)."""
+    import hashlib
+
     import pandas as pd
     import torch
 
     sequences = Path(output_dir) / "sequences"
     vocabulary = torch.load(sequences / "vocabulary.pt", weights_only=False)
+    problems = []
+    source_sha = None
+    if external_vocab is not None:
+        source = torch.load(external_vocab, weights_only=False)
+        source_sha = hashlib.sha256(Path(external_vocab).read_bytes()).hexdigest()
+        if dict(source) != dict(vocabulary):
+            problems.append("the tokenised data's vocabulary differs from the encoder's "
+                            f"({external_vocab}): token ids would not match the embeddings")
     unknown = vocabulary["[UNK]"]
     population = pd.read_parquet(membership) if str(membership).endswith(".parquet") \
         else pd.read_csv(membership)
@@ -124,15 +141,26 @@ def audit_sequences(output_dir, membership):
                 codes = torch.as_tensor(subject["code"])
                 tokens += int(codes.numel())
                 unknown_tokens += int((codes == unknown).sum())
+    filtered = Path(output_dir) / "filter_report.json"
+    latest = json.loads(filtered.read_text()).get("latest_event") if filtered.exists() else None
     report = {"paper_patients": len(wanted), "with_national_sequence": len(covered),
               "missing": len(wanted - covered),
               "unknown_token_share": unknown_tokens / tokens if tokens else None,
-              "vocabulary_size": len(vocabulary)}
+              "vocabulary_size": len(vocabulary), "source_vocabulary_sha256": source_sha,
+              "latest_national_event": latest, "required_latest": required_latest}
+    if report["missing"] and not allow_missing:
+        problems.append(f"{report['missing']} paper patients have no national sequence; "
+                        "they would be dropped from the national arms (and the national "
+                        "fraction fits would differ from the local ones)")
+    if required_latest and (latest in (None, "None")
+                            or pd.Timestamp(latest) < pd.Timestamp(required_latest)):
+        problems.append(f"the national extract ends at {latest}, before {required_latest}: "
+                        "recent history would be missing")
+    report["problems"] = problems
     (Path(output_dir) / "audit_report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
-    if report["missing"]:
-        print("WARNING: some paper patients have no national sequence; they would be "
-              "dropped from the national arms. Resolve before preparing stage 2.")
+    if problems:
+        raise SystemExit("External data not ready:\n  " + "\n  ".join(problems))
     return report
 
 
@@ -147,6 +175,10 @@ def main():
     parser.add_argument("--data-config", default="daly_care_joined_bins_data",
                         help="create_data config with the national tokenisation settings")
     parser.add_argument("--membership", type=Path)
+    parser.add_argument("--required-latest",
+                        help="audit: date the national extract must reach (end of test period)")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="audit: accept paper patients without a national sequence")
     args = parser.parse_args()
     if args.step == "filter":
         filter_external_meds(args.external_meds, local_split_assignment(args.local_meds),
@@ -156,7 +188,9 @@ def main():
         print(" ".join(command), flush=True)
         subprocess.run(command, check=True)
     else:
-        audit_sequences(args.output_dir, args.membership)
+        audit_sequences(args.output_dir, args.membership, external_vocab=args.external_vocab,
+                        required_latest=args.required_latest,
+                        allow_missing=args.allow_missing)
 
 
 if __name__ == "__main__":

@@ -229,6 +229,18 @@ def build_commands(args, env):
         if args.max_runs:
             command += ["--max-runs", str(args.max_runs)]
         return [command + (["--execute"] if args.execute else [])]
+    if args.action == "external-check":
+        # Preflight on the national checkpoint (CPU, seconds): vocabulary, width,
+        # causality, value representation against the data config.
+        rope_layout = env.get("OPERA_PAPER_EXTERNAL_SOURCE_ROPE_LAYOUT") or None
+        return [module(
+            "opera.run.check_external_checkpoint",
+            "--checkpoint", path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_CKPT"),
+            "--vocabulary", path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"),
+            "--data-config", value(env, "OPERA_PAPER_EXTERNAL_DATA_CONFIG",
+                                   "daly_care_joined_bins_data"),
+            "--width", value(env, "OPERA_PAPER_EXTERNAL_WIDTH", "256"),
+            *(("--source-rope-layout", rope_layout) if rope_layout else ()))]
     if args.action == "export-external":
         rope_layout = env.get("OPERA_PAPER_EXTERNAL_SOURCE_ROPE_LAYOUT") or None
         return [
@@ -263,7 +275,10 @@ def build_commands(args, env):
                    "--data-config", value(env, "OPERA_PAPER_EXTERNAL_DATA_CONFIG",
                                           "daly_care_joined_bins_data")),
             module(script, "audit", "--output-dir", output,
-                   "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP")),
+                   "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
+                   "--external-vocab", path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"),
+                   *(("--required-latest", env["OPERA_PAPER_EXTERNAL_REQUIRED_LATEST"])
+                     if env.get("OPERA_PAPER_EXTERNAL_REQUIRED_LATEST") else ())),
         ]
     if args.action == "dapt":
         return [
@@ -482,6 +497,9 @@ def build_commands(args, env):
         if env.get("OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"):
             command += ["--national-vocabulary",
                         str(path_value(env, "OPERA_PAPER_EXTERNAL_SOURCE_VOCAB"))]
+            national = external_sequence_dir(env, root)
+            if national.is_dir():  # after external-data: coverage in the national tokens
+                command += ["--national-sequence-dir", str(national)]
         return [command]
     if args.action == "table1":
         # Supervised population with its splits, clinical metadata, overall
@@ -795,6 +813,7 @@ def main():
             "smoke",
             "tuning-summary",
             "prepare-bayes",
+            "external-check",
             "external-data",
             "export-external",
             "dapt",
