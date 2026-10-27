@@ -388,6 +388,8 @@ def build_commands(args, env):
             command += ["--export-routes"]
         for only in getattr(args, "only", []):
             command += ["--only", only]
+        for fit in getattr(args, 'fit_name', []):
+            command += ['--fit-name', fit]
         return [command + (["--execute"] if args.execute else [])]
     if args.action == "source-removal":
         # One evaluation of the locked router writing every borrowing variant:
@@ -782,6 +784,7 @@ def build_commands(args, env):
                 "--output-dir",
                 root / "predictions",
                 "--status",
+                *[item for fit in getattr(args, 'fit_name', []) for item in ('--fit-name', fit)],
             )
         ]
     if args.action == "compute-inventory":
@@ -912,6 +915,8 @@ def main():
                         help="borrowing-map: mean ablation (primary) or zero (sensitivity)")
     parser.add_argument("--record", action="store_true",
                         help="router-decision: write the decision (default: report only)")
+    parser.add_argument('--fit-name', action='append', default=[],
+                        help='evaluate/status: exact fit name, repeatable')
     parser.add_argument("--registry", action="store_true",
                         help="tabular: the registry-augmented XGBoost arm (XR).")
     parser.add_argument("--prior-only", action="store_true")

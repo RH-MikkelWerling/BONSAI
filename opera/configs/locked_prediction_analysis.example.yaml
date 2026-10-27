@@ -144,3 +144,11 @@ operating_points:
   pairs: [[J_L, X], [J_L, S_L], [R_L, J_L]]
   minimum_tuning_events: 5
   minimum_cell_count: 5   # exported confusion counts below this are suppressed
+
+# Cell-level performance eligibility; smaller cells remain in coverage outputs.
+performance_min_cases: 5
+performance_min_controls: 5
+# Frequentist positive exchangeable patient-weight bootstrap (no dropped classes).
+# bayesian: positive Dirichlet patient weights shared across every task/model;
+# intervals are Bayesian patient-weight intervals, conditional on fixed IPCW.
+bootstrap_method: multiplier

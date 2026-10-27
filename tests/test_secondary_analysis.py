@@ -481,6 +481,9 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 "patient_groups": {"age": {"provenance": "pre_index", "bins": [0, 50, 80]}},
                 "stratified_reanalysis": {"predominant_region": {}, "age": {}},
                 "bootstrap_replicates": 3,
+                # Tiny fixture exercises schema/CLI, not production eligibility.
+                "performance_min_cases": 0,
+                "performance_min_controls": 0,
             }
             manifest = run(config, root / "output")
             for name in [

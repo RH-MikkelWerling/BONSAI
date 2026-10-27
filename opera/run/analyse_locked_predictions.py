@@ -420,8 +420,11 @@ def run(config, output_dir):
     replicates = int(config.get("bootstrap_replicates", 1000))
     if replicates < 1:
         raise ValueError("At least one paired bootstrap replicate is required")
+    bootstrap_method = config.get('bootstrap_method', 'multiplier')
+    performance_support = dict(min_cases=int(config.get('performance_min_cases', 5)),
+                               min_controls=int(config.get('performance_min_controls', 5)))
     draws = patient_bootstrap(
-        predictions, replicates, int(config.get("bootstrap_seed", 2026))
+        predictions, replicates, int(config.get("bootstrap_seed", 2026)), method=bootstrap_method
     )
     stage("paired analysis")
     tables = paired_analysis(
@@ -430,6 +433,7 @@ def run(config, output_dir):
         replicates=replicates,
         draws=draws,
         patient_gain_contrasts=config.get("patient_gain_contrasts"),
+        **performance_support,
     )
     # Absolute metrics on a common panel, e.g. joint/routed under each encoder origin.
     stage("panel estimates")
@@ -620,7 +624,7 @@ def run(config, output_dir):
                 contrasts,
                 replicates=replicates,
                 draws=draws,
-                patient_gain_contrasts=[],
+                patient_gain_contrasts=[], **performance_support,
             )
             tables["late_diagnosis_exclusion_sensitivity"] = sensitivity["contrasts"]
             statuses.append(
@@ -654,7 +658,7 @@ def run(config, output_dir):
             subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:
                 result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
-                                         patient_gain_contrasts=[])
+                                         patient_gain_contrasts=[], **performance_support)
             except ValueError:
                 continue
             _, summary = effect_summaries(result["contrasts"], result["bootstrap_draws"],
@@ -853,6 +857,15 @@ def run(config, output_dir):
     summary = {
         "estimand": config["estimand"],
         "bootstrap_replicates": replicates,
+        "bootstrap_method": bootstrap_method,
+        "p_value_interpretation": ('twice the smaller posterior sign-tail probability; not a frequentist p-value'
+                                   if bootstrap_method == 'bayesian' else 'paired frequentist bootstrap sign-tail measure'),
+        "performance_support": performance_support,
+        "interval_interpretation": ('Bayesian patient-weight credible intervals conditional on fixed IPCW weights'
+                                    if bootstrap_method == 'bayesian' else
+                                    ('Frequentist exchangeably weighted patient-bootstrap confidence intervals conditional on fixed IPCW weights'
+                                     if bootstrap_method == 'multiplier' else
+                                     'Multinomial patient-bootstrap intervals conditional on fixed IPCW weights')),
         "contrast_expressions": contrasts,
         "shared_bootstrap_axes": ["models", "outcomes", "horizons", "training_seeds"],
         "bootstrap_unit": ["split", "cohort", "subject_id"],

@@ -63,7 +63,7 @@ def main():
         function = getattr(figures, kind)
         inputs = dict(plate.get("options", {}))
         hashes = {}
-        if args.available_only:
+        if args.available_only or args.validate_render:
             absent = [key for key, source in {**plate.get("tables", {}),
                                               **plate.get("json_inputs", {})}.items()
                       if (path := resolve_input(source, args.config)) is None
@@ -87,7 +87,9 @@ def main():
         'style': inspect.getsourcefile(save_fig)}.items()}
     validation = []
     if args.validate_render:
-        errors = {}
+        errors = {} if args.available_only else dict(skipped)
+        validation.extend({'id': name, 'status': 'missing_inputs', 'error': reason}
+                          for name, reason in skipped.items())
         for name, function, inputs, hashes in prepared:
             try:
                 fig = function(**inputs)

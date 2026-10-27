@@ -2301,7 +2301,8 @@ def _risk_colors(n):
 COVERAGE_STYLE = {
     "evaluated": ("#AEB8DA", "All models evaluated"),
     "no_training_events": ("#E7B9A5", "Too few training events for a specialist"),
-    "single_class_test": ("#F2DDB0", "No events in test period"),
+    "single_class_test": ("#F2DDB0", "Only one evaluable class"),
+    "insufficient_test_support": ("#D9D1E5", "Fewer than 5 cases or controls"),
     "fit_failed": ("#B5451B", "Fit failed"),
     "not_applicable": ("#FFFFFF", "Not applicable"),
 }

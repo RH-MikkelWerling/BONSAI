@@ -286,6 +286,8 @@ def main():
     parser.add_argument("--only", action="append", default=[],
                         help="Evaluate only these phases, e.g. source_screen or "
                              "supervision:J (repeatable)")
+    parser.add_argument('--fit-name', action='append', default=[],
+                        help='Exact run name or final name component; repeatable')
     parser.add_argument("--source-removal", action="store_true",
                         help="Borrowing design of the locked router: every disease "
                              "source dropped, kept alone and left out, in one pass")
@@ -307,6 +309,14 @@ def main():
         rows = [item for item in rows
                 if item[0]["phase"] in args.only
                 or f"{item[0]['phase']}:{item[0].get('regime')}" in args.only]
+    if args.fit_name:
+        requested = set(args.fit_name)
+        found = {name for row, _, _ in rows for name in requested
+                 if row['name'] == name or row['name'].rsplit('/', 1)[-1] == name}
+        if found != requested:
+            parser.error('Unknown fit names: ' + ', '.join(sorted(requested - found)))
+        rows = [(row, path, config) for row, path, config in rows
+                if row['name'] in requested or row['name'].rsplit('/', 1)[-1] in requested]
     if args.split == "held_out":
         rows = [item for item in rows if canonical_models(item[0], item[2], bundle)]
     if not args.source_removal:

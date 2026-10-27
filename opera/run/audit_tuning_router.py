@@ -37,6 +37,9 @@ def reconcile_metrics(config, analysis):
     metadata['subject_id'] = metadata.subject_id.astype(str)
     saved_path = analysis / 'prediction_analysis' / 'estimates.csv'
     saved = pd.read_csv(saved_path) if saved_path.is_file() else None
+    manifest_path = analysis / 'prediction_analysis' / 'analysis_manifest.json'
+    support = (json.loads(manifest_path.read_text()).get('performance_support')
+               if manifest_path.is_file() else None)
     wanted = {'J_L', 'R_L', 'R_AB_L', 'R_ORIG_L', config.get('opera_model')}
     reports = []
     for spec in config['artifacts']:
@@ -62,9 +65,14 @@ def reconcile_metrics(config, analysis):
                     status_mismatches += int(np.isfinite(values[metric]) != np.isfinite(native['cif_' + metric]))
                     if np.isfinite([values[metric], native['cif_' + metric]]).all():
                         errors.append(abs(values[metric] - native['cif_' + metric]))
+            eligible = True
+            if support:
+                known = cell.ipcw_weight.gt(0) if 'ipcw_weight' in cell else pd.Series(True, index=cell.index)
+                eligible = ((cell.loc[known, 'label'] == 1).sum() >= support['min_cases']
+                            and (cell.loc[known, 'label'] == 0).sum() >= support['min_controls'])
             for metric in ('auc', 'brier'):
                 metrics.append({**dict(zip(keys, identity)), 'model': spec['model'],
-                                'metric': metric, 'recomputed': values[metric]})
+                                'metric': metric, 'recomputed': values[metric] if eligible else np.nan})
         recomputed = pd.DataFrame(metrics)
         report = {'model': spec['model'], 'path': spec['path'],
                   'estimand': config['estimand'], 'recomputed_metrics': len(metrics),

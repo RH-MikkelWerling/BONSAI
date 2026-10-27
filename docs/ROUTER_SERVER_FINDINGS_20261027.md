@@ -161,3 +161,39 @@ gain new bootstrap diagnostic columns until that analysis is rerun into a fresh
 output directory; the next run should follow a resolved reporting/interval
 policy, rather than incur a full bootstrap rerun solely to add diagnostics.
 Unusable intervals remain unresolved and must not be interpreted as zero effect.
+
+## Returned cell-distribution audit
+
+The current analysis inventory still contains the original/fixed routers and
+joint/control models; neither newly finishing IPW fit appears in this returned
+artifact list. Training completion must be checked separately from prediction
+completion and inventory inclusion.
+
+For R1 (fixed router minus joint), across all horizons:
+
+- All 6,608 finite cell-horizon entries: 3,047 improved, 2,639 worsened, 922
+  exactly zero; median zero.
+- Of those exact zeros, 814 (88.3%) are in cells with fewer than five cases or
+  controls. This is consistent with coarse empirical ranking estimates in small
+  cells; it is not evidence of identical probability predictions.
+- The already-defined minimum-five support roster has 3,004 entries: 1,714
+  improved, 1,182 worsened, 108 zero; median gain 0.6403 AUC points, equal-cell
+  mean 0.8679 points and disease-balanced mean 0.8616 points.
+- At one year, 600 supported cells have 351 improvements, 229 losses and 20
+  zeros; median gain 0.7835 points and disease-balanced mean 1.6588 points.
+
+The zero medians over the broader roster are therefore arithmetically explained
+by the observed mixture of signs and exact zeros. This resolves the suspicion
+that a positive supported mean must imply a positive all-cell median. It does
+not validate the currently unusable fixed-roster bootstrap intervals.
+
+Shrinkage is quantitatively substantial: among 460 off-diagonal all-outcome
+pairs, median absolute raw gain is 0.0578056 AUC points versus 0.0000241152 after
+shrinkage; maximum absolute values are 3.11111 and 0.000996763 respectively
+(not necessarily the same pair). These are already AUC-point units. Raw and
+shrunken views must be compared before interpreting the near-blank pair maps.
+
+Atlas alignment is explicitly false: OPERA resolves to R_L, while the supplied
+atlas metrics path identifies the J_L run 0bd42c2dff316708536b. This is a real
+model-identity distinction, not a router inference bug. The clinical-model check
+is absent from this report, so no clinical alignment conclusion follows.

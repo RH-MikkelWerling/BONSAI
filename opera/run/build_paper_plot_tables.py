@@ -319,6 +319,8 @@ def coverage_table(metadata, contrast_coverage, model_coverage=None, *, horizon=
             specialist = mine.loc[mine.model == "S_L"]
             if specialist.empty or (specialist.prediction_status == "absent").any():
                 return "fit_failed"
+        if paired.get((row.cohort, row.outcome)) == 'insufficient_cases_controls':
+            return 'insufficient_test_support'
         if paired.get((row.cohort, row.outcome)) == "paired":
             return "evaluated"
         return "fit_failed"

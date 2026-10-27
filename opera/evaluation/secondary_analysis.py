@@ -415,19 +415,26 @@ def bootstrap_metric_values(labels, probabilities, weights, ipcw=None):
     return {metric: np.asarray(values) for metric, values in result.items()}
 
 
-def patient_bootstrap(frame: pd.DataFrame, replicates: int, seed: int):
+def patient_bootstrap(frame: pd.DataFrame, replicates: int, seed: int, *, method="multinomial"):
     """One subject-count draw reused across outcomes, horizons and methods."""
     if replicates < 0:
         raise ValueError("Bootstrap replicates cannot be negative")
+    if method not in {'multinomial', 'multiplier', 'bayesian'}:
+        raise ValueError('Unknown patient bootstrap method')
     draws = {}
     for key, group in frame.groupby(["split", "cohort"], sort=True):
         ids = sorted(group.subject_id.unique())
         digest = hashlib.sha256(repr((seed, key)).encode()).digest()
         rng = np.random.default_rng(int.from_bytes(digest[:8], "little"))
-        shared = (
-            dict(zip(ids, range(len(ids)))),
-            rng.multinomial(len(ids), np.full(len(ids), 1 / len(ids)), size=replicates),
-        )
+        if method in {'multiplier', 'bayesian'}:
+            # Positive exchangeable patient weights; shared across tasks/models.
+            # Multiplier inference is frequentist, not a posterior interpretation.
+            counts = rng.exponential(size=(replicates, len(ids)))
+            counts = np.maximum(counts, np.finfo(float).tiny)
+            counts *= len(ids) / counts.sum(axis=1, keepdims=True)
+        else:
+            counts = rng.multinomial(len(ids), np.full(len(ids), 1 / len(ids)), size=replicates)
+        shared = (dict(zip(ids, range(len(ids)))), counts)
         for training_seed in group.seed.unique():
             draws[(key[0], training_seed, key[1])] = shared
     return draws
@@ -597,7 +604,7 @@ def _with_progress(results, total):
         yield result
 
 
-def _paired_cells(batch, parsed, patient_gain_contrasts):
+def _paired_cells(batch, parsed, patient_gain_contrasts, min_cases=0, min_controls=0):
     """Estimates, contrasts and draws for a batch of cells (run in parallel)."""
     estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
     model_draw_rows = []
@@ -616,17 +623,19 @@ def _paired_cells(batch, parsed, patient_gain_contrasts):
         status_known = np.ones(len(y), bool) if ipcw is None else ipcw > 0
         n_cases = int((y[status_known] == 1).sum())
         n_controls = int((y[status_known] == 0).sum())
+        eligible = n_cases >= min_cases and n_controls >= min_controls
         values = {
-            name: metric_values(y, group.probability.to_numpy(float), ipcw=ipcw)
+            name: (metric_values(y, group.probability.to_numpy(float), ipcw=ipcw)
+                   if eligible else dict.fromkeys(METRICS, np.nan))
             for name, group in models.items()
         }
         mapping, counts = draws[key[:3]]
         positions = [mapping[sid] for sid in reference.subject_id]
         weights = counts[:, positions]
         scores_by_draw = {
-            name: bootstrap_metric_values(
+            name: (bootstrap_metric_values(
                 y, group.probability.to_numpy(float), weights, ipcw=ipcw
-            )
+            ) if eligible else {metric: np.full(len(weights), np.nan) for metric in METRICS})
             for name, group in models.items()
         }
         for name, scores in values.items():
@@ -657,7 +666,8 @@ def _paired_cells(batch, parsed, patient_gain_contrasts):
                 {
                     **identity,
                     "contrast": name,
-                    "status": "missing_models" if missing else "paired",
+                    "status": ("missing_models" if missing else "paired" if eligible
+                               else "insufficient_cases_controls"),
                     "missing_models": ",".join(sorted(missing)),
                 }
             )
@@ -693,6 +703,8 @@ def _paired_cells(batch, parsed, patient_gain_contrasts):
                         "gain_draws": sampled,
                     }
                 )
+            if not eligible:
+                continue
             if (
                 patient_gain_contrasts is not None
                 and name not in patient_gain_contrasts
@@ -734,8 +746,12 @@ def paired_analysis(
     seed=2026,
     draws=None,
     patient_gain_contrasts=None,
+    min_cases=0,
+    min_controls=0,
 ):
     """Cell estimates, paired contrasts, joint draws and patient loss contributions."""
+    if min_cases < 0 or min_controls < 0:
+        raise ValueError('Performance support thresholds must be nonnegative')
     draws = patient_bootstrap(frame, replicates, seed) if draws is None else draws
     estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
     model_draw_rows = []
@@ -757,7 +773,7 @@ def paired_analysis(
             # At most two batches per worker in flight, results in submission order.
             pending = deque()
             for batch in batches:
-                pending.append(pool.submit(_paired_cells, batch, parsed, patient_gain_contrasts))
+                pending.append(pool.submit(_paired_cells, batch, parsed, patient_gain_contrasts, min_cases, min_controls))
                 if len(pending) >= 2 * workers:
                     yield pending.popleft().result()
             while pending:
@@ -767,7 +783,7 @@ def paired_analysis(
             parts = list(_with_progress(ordered_results(pool), len(batches)))
     else:
         parts = list(_with_progress(
-            (_paired_cells(b, parsed, patient_gain_contrasts) for b in batches), len(batches)))
+            (_paired_cells(b, parsed, patient_gain_contrasts, min_cases, min_controls) for b in batches), len(batches)))
     for part in parts:  # in cell order, exactly as a serial run
         for target, rows in zip((estimates, differences, draw_rows, contributions, coverage,
                                  model_draw_rows), part):

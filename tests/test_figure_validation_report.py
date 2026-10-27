@@ -43,3 +43,26 @@ def test_attribution_validation_cannot_accidentally_write_figures(tmp_path):
     assert '--validate-render' in command
     assert '--execute' not in command
     assert '--report' in command
+
+
+def test_validation_records_missing_inputs_instead_of_aborting_without_report(tmp_path, monkeypatch):
+    import pytest
+    recipe = tmp_path / 'recipe.yaml'
+    recipe.write_text(yaml.safe_dump({'figures':[{'id':'headline', 'function':'figure_headline',
+                       'tables':{'cells':str(tmp_path / 'missing.csv')}}]}))
+    report = tmp_path / 'report.json'
+    monkeypatch.setattr(sys,'argv',['render','--config',str(recipe),'--output-dir',str(tmp_path/'figures'),
+                                   '--validate-render','--report',str(report)])
+    with pytest.raises(ValueError,match='missing inputs'):
+        renderer.main()
+    assert json.loads(report.read_text())['figures'][0]['status']=='missing_inputs'
+
+
+def test_prediction_commands_forward_exact_fit_names(tmp_path):
+    from test_paper_workflow import args, env
+    from opera.run.paper_experiments import build_commands
+    for action in ['evaluate','status']:
+        option=args(action,fit_name=['fix_J_IPW','fix_R_AB_IPW'])
+        command=build_commands(option,env(tmp_path))[0]
+        assert command.count('--fit-name')==2
+        assert 'fix_J_IPW' in command and 'fix_R_AB_IPW' in command
