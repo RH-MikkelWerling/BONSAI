@@ -114,7 +114,8 @@ def paired_cells(contrasts, metadata, *, seed=None):
     data = _with_cells(data, metadata)
     columns = ["cohort", "cohort_group", "outcome", "endpoint_group", "horizon_days",
                "contrast", "metric", "gain", "lower", "upper", "n_events_train",
-               "n_patients_train"]
+               "n_patients_train", "n_cases", "n_controls", "n_valid_bootstrap",
+               "interval_status"]
     return to_display(data[[c for c in columns if c in data]])
 
 

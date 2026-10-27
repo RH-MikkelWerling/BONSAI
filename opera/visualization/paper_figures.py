@@ -1022,6 +1022,17 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
 
 def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.005, mark=None):
     """Supplement: routed readout and adapter-bank factorial."""
+    gate = gate.copy()
+    had_gate_rows = len(gate) > 0
+    if "metric" in gate:
+        gate = gate.loc[gate.metric == metric]
+    if "horizon_days" in gate:
+        # Panel summaries cannot be pooled by taking an arbitrary first row.
+        gate = gate.loc[gate.horizon_days == horizon]
+    if had_gate_rows and gate.empty:
+        raise ValueError("Routing bank panel has no summary for the requested metric/horizon")
+    if gate.contrast.duplicated().any():
+        raise ValueError("Routing panel needs one summary per contrast/metric/horizon")
     fig = plt.figure(figsize=(7.2, 3.4))
     grid = fig.add_gridspec(1, 2, width_ratios=[1.2, 1.0], wspace=0.9, left=0.21,
                             right=0.98, top=0.86, bottom=0.17)
@@ -1042,14 +1053,20 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
               "R4": "Outcome given disease", "R5": "Disease given outcome",
               "R6": "Both banks", "R7": "Bank interaction"}
     ax.axvspan(-tolerance, tolerance, color=PALETTE["grid"], zorder=0)
+    missing_intervals = False
     for y, contrast in enumerate(labels):
         row = gate.loc[gate.contrast == contrast]
         if row.empty:
             continue
         row = row.iloc[0]
         color = PALETTE["ink_secondary"] if contrast == "R0" else MODEL_STYLE["R"][0]
-        ax.plot([row.lower, row.upper], [y, y], color=color, lw=1.3, alpha=0.55)
-        ax.scatter(row.gain, y, marker="D", s=24, color=color, zorder=3)
+        finite_ci = np.isfinite([row.lower, row.upper]).all()
+        if finite_ci:
+            ax.plot([row.lower, row.upper], [y, y], color=color, lw=1.3, alpha=0.55)
+        else:
+            missing_intervals = True
+        ax.scatter(row.gain, y, marker="D", s=24, edgecolors=color,
+                   facecolors=color if finite_ci else "none", zorder=3)
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
     ax.set_yticks(range(len(labels)), list(labels.values()), fontsize=7)
     ax.invert_yaxis()
@@ -1057,7 +1074,10 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
     ax.xaxis.set_major_locator(MaxNLocator(4))
     ax.text(tolerance, len(labels) - 0.45, "equivalence\nmargin", fontsize=6.5,
             color=PALETTE["ink_muted"], ha="right", va="bottom")
-    _panel_title(ax, "B", "Adapter banks")
+    if missing_intervals:
+        ax.text(0, -0.27, "Open diamonds: CI unavailable", transform=ax.transAxes,
+                fontsize=6.3, color=PALETTE["ink_secondary"])
+    _panel_title(ax, "B", "Original bank controls")
     despine(ax, "x")
     watermark(fig, mark)
     return fig
@@ -1067,7 +1087,7 @@ BORROWING_SHORT = {"TRANSFORMED_FL": "tFL", "AMYLOIDOSIS": "AL", "SolM": "SP"}
 LEVEL_STYLE = {
     # Shades of the routed model's colour, darkest for the within-model level.
     "dependence": ("#4B3B7A", "AUC lost without borrowing"),
-    "trained_borrowing": ("#8974AC", "Gain over own-disease router"),
+    "trained_borrowing": ("#8974AC", "Gain over no-borrowing control"),
     "routing": ("#B7A9D3", "Routing (vs joint model)"),
 }
 
@@ -2181,7 +2201,7 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     ax.set_xlabel("Target outcome group", fontsize=7.5)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    _panel_title(ax, "C", "Share of correction by bank")
+    _panel_title(ax, "C", "Gate mass by bank")
     bar = fig.colorbar(image, ax=ax, fraction=0.04, pad=0.02)
     bar.set_ticks([0.5 - spread, 0.5, 0.5 + spread],
                   labels=[f"Outcome\n{1 - (0.5 - spread):.0%}", "Equal",
@@ -2202,11 +2222,11 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     _diamond_forest(ax, summary, row_key="target_group",
                     row_order=[SHORT_GROUP.get(g, g) for g in order], series_key="series",
                     series_style={"all": (MODEL_STYLE["R"][0], "")},
-                    xlabel="Gate weight off the shared path\n(median, IQR across diseases)",
+                    xlabel="Gate weight in source slots\n(median, IQR across diseases)",
                     show_counts=False, zero_line=False)
     ax.set_xlim(0, min(1.0, ax.get_xlim()[1] * 1.08))
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "D", "Routing intensity")
+    _panel_title(ax, "D", "Source-slot allocation")
     watermark(fig, mark)
     return fig
 

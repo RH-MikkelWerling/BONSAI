@@ -139,3 +139,33 @@ def test_embedding_csv_parquet_identifier_types_do_not_hide_outcomes():
     plt.close(fig)
     with pytest.raises(ValueError, match="No matching patient IDs"):
         figures.figure_embedding_gallery(coords.assign(subject_id=[f"missing_{i}" for i in range(len(coords))]), outcomes)
+
+
+def test_routing_bank_panel_selects_requested_metric_and_horizon():
+    import pytest
+    cells = proto.synthetic_cells(np.random.default_rng(50))
+    gate = pd.DataFrame([
+        {"contrast": "R2", "metric": metric, "horizon_days": horizon,
+         "gain": gain, "lower": gain - 0.001, "upper": gain + 0.001}
+        for metric, horizon, gain in [("auc", 30, 0.001), ("brier", 0, 0.002),
+                                      ("auc", 0, 0.015)]])
+    fig = figures.figure_routing(cells, gate)
+    assert fig.axes[1].collections[0].get_offsets()[0, 0] == pytest.approx(0.015)
+    plt.close(fig)
+    fig = figures.figure_routing(cells, gate, metric="brier")
+    assert fig.axes[1].collections[0].get_offsets()[0, 0] == pytest.approx(0.002)
+    plt.close(fig)
+    with pytest.raises(ValueError, match="one summary"):
+        figures.figure_routing(cells, pd.concat([gate, gate]))
+    with pytest.raises(ValueError, match="no summary"):
+        figures.figure_routing(cells, gate, horizon=730)
+
+
+def test_routing_bank_panel_marks_unavailable_confidence_intervals():
+    cells = proto.synthetic_cells(np.random.default_rng(51))
+    gate = pd.DataFrame([{"contrast": "R2", "gain": 0.01,
+                          "lower": np.nan, "upper": np.nan}])
+    fig = figures.figure_routing(cells, gate)
+    assert any("CI unavailable" in t.get_text() for t in fig.axes[1].texts)
+    assert len(fig.axes[1].collections[0].get_facecolors()) == 0
+    plt.close(fig)

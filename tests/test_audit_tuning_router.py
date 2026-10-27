@@ -71,3 +71,46 @@ def test_audit_distinguishes_cell_median_from_decision_weighted_mean(tmp_path):
     assert row["cell_median"] == 0.03
     assert abs(row["equal_cell_mean"] - 0.01) < 1e-12
     assert abs(row["decision_weighted_mean_min5"]) < 1e-12
+
+
+def test_recompute_compares_raw_cifs_to_saved_fine_disease_estimates(tmp_path):
+    import numpy as np
+
+    from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
+    from opera.run.audit_tuning_router import reconcile_metrics
+    metadata = tmp_path / "metadata.parquet"
+    pd.DataFrame({"subject_id": range(8), "cohort_fine": ["A"] * 4 + ["B"] * 4}).to_parquet(metadata)
+    predictions = tmp_path / "direct_cr_predictions.parquet"
+    data = pd.DataFrame({"subject_id": range(8), "cohort": "group", "outcome": "x",
+                         "event": [1, 0, 2, 0] * 2, "time_days": [10, 500, 20, 30] * 2,
+                         "cif_365d": np.linspace(0.1, 0.9, 8)})
+    data.to_parquet(predictions)
+    spec = {"path": str(predictions), "model": "R_L", "format": "direct_cif",
+            "cohort_from_metadata": True, "split": "tuning", "seed": 42,
+            "data_contract": "fixture"}
+    config = {"artifacts": [spec], "estimand": "cif_ipcw", "patient_metadata": str(metadata)}
+    directory = tmp_path / "prediction_analysis"
+    directory.mkdir()
+    rows = []
+    for cohort, part in [("A", data.iloc[:4]), ("B", data.iloc[4:])]:
+        values = compute_competing_risk_metrics_at_horizon(part.time_days.to_numpy(),
+            part.event.to_numpy(), part.cif_365d.to_numpy(), 365)
+        for metric in ["auc", "brier"]:
+            rows.append({"split": "tuning", "seed": 42, "cohort": cohort, "outcome": "x",
+                         "horizon_days": 365, "model": "R_L", "metric": metric,
+                         "estimate": values["cif_" + metric]})
+    saved = pd.DataFrame(rows)
+    saved.to_csv(directory / "estimates.csv", index=False)
+    native = compute_competing_risk_metrics_at_horizon(data.time_days.to_numpy(),
+        data.event.to_numpy(), data.cif_365d.to_numpy(), 365)
+    pd.DataFrame([{"outcome": "x", "horizon_days": 365, "cif_auc": native["cif_auc"]}]).to_csv(
+        tmp_path / "direct_cr_pooled_metrics.csv", index=False)
+    result = reconcile_metrics(config, tmp_path)[0]
+    assert result["native_pooled_saved_max_abs_error"] < 1e-12
+    assert abs(result["native_patient_pooled_recomputed_auc_mean"] - native["cif_auc"]) < 1e-12
+    assert result["missing_saved_estimates"] == result["finite_status_mismatches"] == 0
+    assert result["native_vs_analysis_max_abs_error"] < 1e-12
+    assert result["recomputed_vs_saved_max_abs_error"] < 1e-12
+    saved.loc[0, "estimate"] += 0.02
+    saved.to_csv(directory / "estimates.csv", index=False)
+    assert abs(reconcile_metrics(config, tmp_path)[0]["recomputed_vs_saved_max_abs_error"] - 0.02) < 1e-12

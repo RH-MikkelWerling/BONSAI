@@ -24,6 +24,92 @@ def digest(path):
     return result.hexdigest()
 
 
+def reconcile_metrics(config, analysis):
+    """Recompute cell metrics from the same CIFs; compare both implementations
+    and saved estimates without fitting or bootstrapping anything."""
+    import numpy as np
+
+    from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
+    from opera.evaluation.secondary_analysis import metric_values, normalize_predictions
+    from opera.run.analyse_locked_predictions import read_artifact, read_table
+
+    metadata = read_table(config['patient_metadata'])
+    metadata['subject_id'] = metadata.subject_id.astype(str)
+    saved_path = analysis / 'prediction_analysis' / 'estimates.csv'
+    saved = pd.read_csv(saved_path) if saved_path.is_file() else None
+    wanted = {'J_L', 'R_L', 'R_AB_L', 'R_ORIG_L', config.get('opera_model')}
+    reports = []
+    for spec in config['artifacts']:
+        if spec['model'] not in wanted or spec.get('split') != 'tuning':
+            continue
+        if spec.get('format') != 'direct_cif':
+            continue
+        frame, _ = read_artifact(spec, metadata, config['estimand'])
+        if config.get('analysis_horizons_days'):
+            frame = frame.loc[frame.horizon_days.isin(config['analysis_horizons_days'])]
+        keys = ['split', 'seed', 'cohort', 'outcome', 'horizon_days']
+        metrics, errors, status_mismatches = [], [], 0
+        for identity, cell in frame.groupby(keys):
+            ipcw = cell.ipcw_weight.to_numpy() if 'ipcw_weight' in cell else None
+            values = metric_values(cell.label.to_numpy(), cell.probability.to_numpy(), ipcw=ipcw)
+            # CIF IPCW and known-status are distinct estimands; compare the two
+            # IPCW implementations only under the former.
+            if config['estimand'] == 'cif_ipcw':
+                native = compute_competing_risk_metrics_at_horizon(
+                    cell.time_days.to_numpy(), cell.event.to_numpy(),
+                    cell.probability.to_numpy(), identity[-1])
+                for metric in ('auc', 'brier'):
+                    status_mismatches += int(np.isfinite(values[metric]) != np.isfinite(native['cif_' + metric]))
+                    if np.isfinite([values[metric], native['cif_' + metric]]).all():
+                        errors.append(abs(values[metric] - native['cif_' + metric]))
+            for metric in ('auc', 'brier'):
+                metrics.append({**dict(zip(keys, identity)), 'model': spec['model'],
+                                'metric': metric, 'recomputed': values[metric]})
+        recomputed = pd.DataFrame(metrics)
+        report = {'model': spec['model'], 'path': spec['path'],
+                  'estimand': config['estimand'], 'recomputed_metrics': len(metrics),
+                  'native_vs_analysis_max_abs_error': max(errors) if errors else None,
+                  'native_vs_analysis_finite_status_mismatches': status_mismatches}
+        if saved is not None and len(recomputed):
+            paired = recomputed.merge(saved, on=[*keys, 'model', 'metric'],
+                                      how='left', validate='one_to_one', indicator=True)
+            present = paired['_merge'].eq('both')
+            report['missing_saved_estimates'] = int((~present).sum())
+            report['finite_status_mismatches'] = int((present & (
+                np.isfinite(paired.recomputed) != np.isfinite(paired.estimate))).sum())
+            finite = paired.loc[present & np.isfinite(paired.recomputed) & np.isfinite(paired.estimate)]
+            report['recomputed_vs_saved_max_abs_error'] = (
+                float((finite.recomputed - finite.estimate).abs().max()) if len(finite) else None)
+        pooled_recomputed = None
+        if config['estimand'] == 'cif_ipcw':
+            pooled_frame, _ = normalize_predictions(frame.assign(cohort='ALL'), 'cif_ipcw')
+            pooled_rows = []
+            for (outcome, horizon), cell in pooled_frame.groupby(['outcome', 'horizon_days']):
+                values = metric_values(cell.label, cell.probability, ipcw=cell.ipcw_weight)
+                pooled_rows.append({'outcome': outcome, 'horizon_days': horizon,
+                                    'recomputed_auc': values['auc']})
+            pooled_recomputed = pd.DataFrame(pooled_rows)
+            report['native_patient_pooled_recomputed_auc_mean'] = (
+                float(pooled_recomputed.recomputed_auc.mean()) if len(pooled_recomputed) else None)
+        native_pooled = Path(spec['path']).parent / 'direct_cr_pooled_metrics.csv'
+        if native_pooled.is_file():
+            pooled = pd.read_csv(native_pooled)
+            pooled = pooled.loc[pooled.horizon_days.isin(frame.horizon_days.unique())]
+            report['native_pooled_horizons'] = sorted(map(int, pooled.horizon_days.unique()))
+            report['native_patient_pooled_auc_mean'] = float(pooled.cif_auc.mean())
+            if pooled_recomputed is not None and len(pooled_recomputed):
+                checked = pooled_recomputed.merge(pooled, on=['outcome', 'horizon_days'],
+                                                    how='left', validate='one_to_one')
+                finite = checked.loc[np.isfinite(checked.recomputed_auc) & np.isfinite(checked.cif_auc)]
+                report['native_pooled_saved_max_abs_error'] = (
+                    float((finite.recomputed_auc - finite.cif_auc).abs().max()) if len(finite) else None)
+            report['native_patient_pooled_description'] = (
+                'patients pooled across diseases per outcome, then finite outcome/horizon AUCs averaged; '
+                'not the fine-disease cell estimator')
+        reports.append(report)
+    return reports
+
+
 def audit(root, analysis, *, verify=False, route_diagnostics=False):
     config_path = analysis / 'analysis_inventory' / 'analysis.yaml'
     config = yaml.safe_load(config_path.read_text())
@@ -66,7 +152,16 @@ def audit(root, analysis, *, verify=False, route_diagnostics=False):
                                                 'adapter_bottleneck', 'adapter_query_mode',
                                                 'adapter_query_hidden_dim', 'adapter_home_floor',
                                                 'adapter_shared_logit_init', 'adapter_global_correction'}})
-                checkpoint = root / 'neural_runs' / row['run_directory'] / 'best.ckpt'
+                run = root / 'neural_runs' / row['run_directory']
+                training_marker = run / 'training_complete.json'
+                item['training_completion_marker'] = training_marker.is_file()
+                if training_marker.is_file():
+                    selection = json.loads(training_marker.read_text()).get('selection', {})
+                    item['training_selection'] = selection
+                    item['evaluation_matches_selected_checkpoint'] = (
+                        selection.get('best_checkpoint_sha256') == signature.get('checkpoint_sha256'))
+                checkpoint = run / 'best.ckpt'
+                item['checkpoint_path'] = str(checkpoint)
                 if verify:
                     item['checkpoint_hash_matches'] = digest(checkpoint) == signature['checkpoint_sha256']
             if verify:
@@ -160,12 +255,17 @@ def main():
     parser.add_argument('--analysis-root', type=Path)
     parser.add_argument('--verify-artifacts', action='store_true')
     parser.add_argument('--route-diagnostics', action='store_true')
+    parser.add_argument('--recompute-metrics', action='store_true',
+                        help='CPU: recompute native and paper cell AUC/Brier from saved tuning CIFs')
     args = parser.parse_args()
     env = dotenv_values(args.env_file)
     root = Path(env['OPERA_PAPER_ROOT']).resolve()
     analysis = args.analysis_root or Path(env['OPERA_PAPER_ANALYSIS_ROOT'])
     report = audit(root, analysis.resolve(), verify=args.verify_artifacts,
                    route_diagnostics=args.route_diagnostics)
+    if args.recompute_metrics:
+        config = yaml.safe_load((analysis / 'analysis_inventory' / 'analysis.yaml').read_text())
+        report['metric_reconciliation'] = reconcile_metrics(config, analysis)
     report["active_env_file"] = str(args.env_file.resolve())
     report["configured_routed_model"] = env.get("OPERA_PAPER_ROUTED_MODEL")
     report["configured_opera_model"] = env.get("OPERA_PAPER_OPERA_MODEL")

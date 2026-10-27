@@ -87,3 +87,13 @@ If artifact mappings are wrong, rebuild inventory/analysis in a fresh root
 with the intended alias; do not silently edit existing aggregate result files.
 If embedding join mismatches are confirmed, the existing coordinate/outcome
 tables can be rerendered with the fixed plotting code without fresh GPU work.
+
+## Display preference clarified later on 27 October
+
+Keep disease contours and smooth metadata fields as defaults. Clip colour fields
+with a patient-cloud footprint, density and effective-support masks; do not fill
+empty square corners or bridge unoccupied gaps between patient islands. This
+supersedes the earlier paragraph choosing individual-point colouring by default.
+The footprint is a display boundary, not an inferential confidence region.
+It is applied to metadata, gallery risk, patient-map risk/residual and calibration
+maps. The existing coordinate and prediction tables can be reused for rendering.

@@ -11,7 +11,7 @@ class _Encoder(torch.nn.Module):
         return (batch['input_emb'],)
 
 
-def _model(mode):
+def _model(mode, **risk_overrides):
     torch.manual_seed(42)
     return OperaContrastiveModel(
         encoder=_Encoder(), outcome_names=['x', 'y'], hidden_size=16,
@@ -24,6 +24,7 @@ def _model(mode):
             'no_competing_outcomes': [], 'adapter_query_mode': 'interacting',
             'adapter_source_mode': mode, 'adapter_home_floor': .05,
             'adapter_residual_scale': .7, 'adapter_shared_logit_init': 0.,
+            **risk_overrides,
         },
     )
 
@@ -107,3 +108,31 @@ def test_contextual_prediction_token_and_routed_hazards_use_preceding_events():
         expected += head.bias.reshape(2, -1)[None]
         torch.testing.assert_close(hazards, expected.reshape_as(hazards))
         torch.testing.assert_close(weights, expected_weights)
+
+
+def test_stable_router_training_validation_and_export_use_identical_hazards_and_cifs():
+    from types import SimpleNamespace
+    from opera.modules.lightningmodules.OperaContrastiveModule import OperaContrastiveModule
+    model = _model("both", adapter_global=True, adapter_router_warmup_epochs=2).eval()
+    batch = {"input_emb": torch.randn(3, 2, 16),
+             "attention_mask": torch.ones(3, 2, dtype=torch.bool),
+             "cohort_fine_index": torch.tensor([0, 1, 0]), "subject_id": torch.arange(3)}
+    survival = {name: {"times": torch.tensor([10., 365., 365.]),
+                       "events": torch.tensor([1, 0, 2])} for name in ["x", "y"]}
+    with torch.no_grad():
+        pooled = model.get_objective_representations(batch)
+        result = model.forward_from_pooled(pooled, survival, batch["subject_id"],
+                                           batch["cohort_fine_index"])
+        exported = model.competing_risk_log_hazards(pooled, batch["cohort_fine_index"])
+        torch.testing.assert_close(result["_competing_risk_log_hazards"], exported)
+        fake = SimpleNamespace(model=model, outcome_names=["x", "y"],
+                               evaluation_horizons_days=[30, 365], _val_cr_predictions={})
+        OperaContrastiveModule._accumulate_competing_risk_validation(fake, exported, survival)
+        objective = model.competing_risk_loss
+        expected = piecewise_exponential_cif(
+            exported, objective.boundaries * objective.time_scale_days, [30, 365],
+            time_scale_days=objective.time_scale_days,
+            no_competing_outcome_mask=torch.tensor([False, False]))
+        for index, name in enumerate(["x", "y"]):
+            torch.testing.assert_close(torch.cat(fake._val_cr_predictions[name]["cif"]),
+                                       expected[:, index])

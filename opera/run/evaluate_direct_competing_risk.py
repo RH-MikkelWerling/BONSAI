@@ -133,6 +133,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--audit-subjects", type=Path,
+                        help="INTERNAL tuning-only audit: JSON list of patient IDs to replay.")
+    parser.add_argument("--audit-components", action="store_true",
+                        help="Audit only: also export encoder-only and zero-borrowing CIFs.")
     parser.add_argument("--export-embeddings", action="store_true",
                         help="Export pooled patient encoder embeddings for this evaluation split alongside predictions.")
     parser.add_argument(
@@ -185,6 +189,15 @@ def main() -> None:
     if args.batch_size <= 0 or args.num_workers < 0:
         raise ValueError("--batch-size must be positive and --num-workers non-negative.")
 
+    audit_ids = None
+    if args.audit_subjects is not None:
+        if args.split != "tuning" or args.output_dir.exists():
+            raise ValueError("Audit replay requires tuning and a fresh output directory")
+        audit_ids = set(map(str, json.loads(args.audit_subjects.read_text())))
+        if not audit_ids:
+            raise ValueError("Audit patient selection is empty")
+    if args.audit_components and audit_ids is None:
+        raise ValueError("--audit-components requires --audit-subjects")
     load_dotenv()
     GlobalHydra.instance().clear()
     with initialize_config_dir(
@@ -330,6 +343,11 @@ def main() -> None:
             continue
         if parent_index is not None:
             _set_dataset_cohort_index(dataset, parent_index)
+        if audit_ids is not None:
+            from opera.diagnostics.router_prediction_checks import audit_subject_subset
+            dataset = audit_subject_subset(dataset, audit_ids)
+            if not len(dataset):
+                continue
         loader = DataLoader(
             dataset,
             batch_size=args.batch_size,
@@ -409,6 +427,12 @@ def main() -> None:
                     time_scale_days=objective.time_scale_days,
                     no_competing_outcome_mask=no_competing,
                 ).cpu().numpy()
+                components = {}
+                if args.audit_components:
+                    from opera.diagnostics.router_prediction_checks import component_cifs
+                    components = {name: values[:, active_outcome_indices].cpu().numpy()
+                                  for name, values in component_cifs(
+                                      model, representations, batch["cohort_fine_index"], horizons).items()}
                 subject_ids = batch["subject_id"].detach().cpu().numpy()
                 for outcome_index, outcome in enumerate(active_outcome_names):
                     times = batch[f"time_{outcome}"].detach().cpu().numpy()
@@ -434,6 +458,10 @@ def main() -> None:
                                 row[f"removed_source_cif_{int(horizon)}d"] = float(
                                     removed_cif[row_index, outcome_index, horizon_index]
                                 )
+                        for name, values in components.items():
+                            for horizon_index, horizon in enumerate(horizons):
+                                row[f"audit_{name}_{int(horizon)}d"] = float(
+                                    values[row_index, outcome_index, horizon_index])
                         prediction_rows.append(row)
                         if variant_cif is not None:
                             design_cif.append(variant_cif[:, row_index, outcome_index, :])
