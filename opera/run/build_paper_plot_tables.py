@@ -211,13 +211,14 @@ def rescue_cells(contrasts, metadata, *, seed=None):
     return to_display(_with_cells(wide.dropna(), metadata))
 
 
-def hierarchy_cells(contrasts, metadata, *, seed=None):
+def hierarchy_cells(contrasts, metadata, *, seed=None, designs=("AB", "O")):
     """Per cell: the router decomposition on the evaluation split (own
-    corrections, borrowing, both; design O if analysed, else AB) beside the
-    tuning joint-vs-specialist gain."""
+    corrections, borrowing, both) beside the tuning joint-vs-specialist gain.
+    ``designs``: preference order (paper_figure_choices.yaml,
+    router_decomposition_design); the first one analysed is used."""
     keys = ["cohort", "outcome", "horizon_days", "metric"]
     present = set(contrasts.contrast)
-    design = next((tag for tag in ("O", "AB") if f"router_both_{tag}" in present), None)
+    design = next((tag for tag in designs if f"router_both_{tag}" in present), None)
     if design is None:
         raise Missing("no router decomposition in the analysis (analyse the "
                          "router-fix fits: inventory and analyse at stage 4)")
@@ -668,8 +669,10 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         _read(analysis / "estimates.csv", sources), metadata, seed=seed))
     table("rescue_cells.csv", lambda: rescue_cells(cell_contrasts(), cell_metadata_all,
                                                     seed=seed))
-    table("hierarchy_cells.csv", lambda: hierarchy_cells(cell_contrasts(), cell_metadata_all,
-                                                          seed=seed))
+    design = choice_spec.get("router_decomposition_design")
+    table("hierarchy_cells.csv", lambda: hierarchy_cells(
+        cell_contrasts(), cell_metadata_all, seed=seed,
+        designs=(design, "AB", "O") if design else ("AB", "O")))
 
     def coverage():
         model_coverage = analysis / "model_coverage.csv"

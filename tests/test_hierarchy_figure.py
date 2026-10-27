@@ -30,12 +30,12 @@ def _contrasts(design):
     return pd.DataFrame(rows)
 
 
-def test_hierarchy_cells_prefer_design_o():
+def test_hierarchy_cells_table_and_missing_design():
     metadata = pd.DataFrame({"cohort": ["DLBCL", "MCL"], "outcome": "sepsis",
                              "horizon_days": 365, "n_events_train": [500, 12]})
     both = pd.concat([_contrasts("O"), _contrasts("AB").query("contrast != 'P5'")])
     table = hierarchy_cells(both, metadata)
-    assert set(table.router_design) == {"O"} and len(table) == 2
+    assert set(table.router_design) == {"AB"} and len(table) == 2
     assert {"tuning_joint_vs_specialist", "own", "borrow_lower", "both_upper"} <= set(table)
     with pytest.raises(Missing):
         hierarchy_cells(_contrasts("O").query("contrast == 'P5'"), metadata)
@@ -63,3 +63,11 @@ def test_opera_alias_copies_the_chosen_model():
     assert contrasts == {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)"}  # no S_L
     assert with_opera_alias(frame, "R_O_L")[1] == {}
     assert with_opera_alias(frame, None)[0] is frame
+
+
+def test_hierarchy_cells_follow_the_chosen_design():
+    metadata = pd.DataFrame({"cohort": ["DLBCL", "MCL"], "outcome": "sepsis",
+                             "horizon_days": 365, "n_events_train": [500, 12]})
+    both = pd.concat([_contrasts("O"), _contrasts("AB").query("contrast != 'P5'")])
+    assert set(hierarchy_cells(both, metadata).router_design) == {"AB"}  # default order
+    assert set(hierarchy_cells(both, metadata, designs=("O", "AB")).router_design) == {"O"}

@@ -751,18 +751,21 @@ worse than the specialist on the tuning set, routing changed test AUC by X}
 where sharing everything had hurt.} \placeholder{Routing weights concentrated on
 the patient's own disease / related diseases} (\cref{fig:supp-router-usage}).
 
-% Router decomposition (lock addenda 2026-10-26). Macros are named for the
-% design chosen by the router-fix rule: router_*_O (own sources outside the
-% mix) or router_*_AB; switch the suffix if the rule keeps R_AB.
+% Router decomposition (lock addenda 2026-10-26). Design AB: the stage-3
+% chosen fix; the stage-4 rule kept R_L primary (R_O - R_L -0.0085 on tuning,
+% below the seed-noise floor), and in R_O borrowing was negligible (+0.0016).
 % Tuning rehearsal: own corrections helped large diseases and hurt small ones,
 % borrowing did the opposite; confirm on the test set before keeping the claims.
 The routed model adds two corrections to the shared prediction: one learned for
 the patient's own disease and outcome, and one borrowed from other diseases and
 outcomes. Fitting the same architecture with only the shared signal, with the
 own corrections added, and with borrowing added separates the two
-(\cref{fig:hierarchy}). Own corrections changed AUC by
-\result{router_own_O_auc}{X} and borrowing by \result{router_borrow_O_auc}{Y},
-\result{router_both_O_auc}{Z} together, pooled over horizons.
+(\cref{fig:hierarchy}). These are separately fitted variants of the router
+(\placeholder{Supplementary Methods: router variants, from the lock addenda}); \opera{} itself is the original router, which the
+prespecified rules kept because none of the variants matched it
+(\placeholder{R_L vs R_AB and R_O}). Own corrections changed AUC by
+\result{router_own_AB_auc}{X} and borrowing by \result{router_borrow_AB_auc}{Y},
+\result{router_both_AB_auc}{Z} together, pooled over horizons.
 \placeholder{The two depended on training support in opposite directions. Own
 corrections helped where the target had many training events and hurt where it
 had few; borrowing helped where it had few and was neutral where it had many,

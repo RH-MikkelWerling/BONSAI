@@ -670,6 +670,9 @@ def build_commands(args, env):
             "--random-repeats", run.get("random_repeats", 5),
             "--faithfulness-patients", run.get("faithfulness_patients", 200),
             "--sanity-patients", run.get("sanity_patients", 100),
+            # Tokens per forward/backward pass; halved automatically on CUDA
+            # out of memory (results do not depend on it).
+            "--token-budget", run.get("token_budget", 16384),
             "--output-dir", run_dir)
         if getattr(args, "attribution_max_new_patients", None):
             command += ["--max-new-patients", str(args.attribution_max_new_patients)]

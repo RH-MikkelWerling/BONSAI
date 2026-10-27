@@ -348,6 +348,18 @@ routed model if it is healthy and its panel AUC is not below R_L's by more
 than that noise floor; otherwise the stage-3 rule decides. The stage-3 fits
 are reported as the diagnostic path (A, B, T) in every case.
 
+## Router-fix rule: outcome (2026-10-27, tuning data only)
+Stage 3: seed noise |R_AB_s43 - R_AB| = 0.0017; R_AB - R_L = -0.0039, so R_L
+remained primary (chosen fix R_AB; R_A unhealthy). Stage 4: seed noise
+|R_O_s43 - R_O| = 0.0007; R_O - R_L = -0.0085 (95% interval -0.021 to 0.002),
+below R_L by more than the noise floor, so R_O does not replace R_L whatever its
+routing health. OPERA is R_L. Borrowing contrasts on tuning: R_AB - RBH_AB
++0.0138 (0.001 to 0.027), R_O - RBH_O +0.0016 (-0.0006 to 0.0042); own
+corrections RBH_AB - N_A -0.005, RBH_O - N_A +0.0025. The hierarchy figure and
+its text use design AB (the chosen fix, where borrowing was measurable) as a
+separately fitted decomposition; they describe how own corrections and
+borrowing depend on support, not the selected model's own mechanism.
+
 ## Headline contrasts and multiplicity (added 2026-10-26, before any test data were opened)
 - Both the joint model (J_L, fixed before any tuning result) and OPERA (the
   configuration chosen on tuning data) are compared with per-task XGBoost

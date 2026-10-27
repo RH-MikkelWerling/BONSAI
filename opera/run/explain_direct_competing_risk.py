@@ -253,6 +253,23 @@ class Explainer:
     def _chunk(self, length):
         return max(1, self.token_budget // max(1, length))
 
+    MIN_TOKEN_BUDGET = 512
+
+    def _on_oom(self, compute):
+        """Run ``compute`` (which reads the chunk size when called); on CUDA out
+        of memory halve the token budget and retry. Chunking does not change
+        the result, only how many sequences go through one pass."""
+        while True:
+            try:
+                return compute()
+            except torch.cuda.OutOfMemoryError:
+                if self.token_budget // 2 < self.MIN_TOKEN_BUDGET:
+                    raise
+                self.token_budget //= 2
+                torch.cuda.empty_cache()
+                print(f"CUDA out of memory: token budget halved to {self.token_budget}",
+                      flush=True)
+
     def attribute(self, model, batch, columns, kind=None):
         mask = attributable_mask(batch, self.fixed)
         full, content = split_embeddings(model.encoder, batch)
@@ -272,16 +289,17 @@ class Explainer:
             native_prediction = target(batch).float()
         with gradients_through_encoder(model), precision:
             while True:
-                attributions, f_input, f_base = integrated_gradients(
-                    target,
-                    batch,
-                    full,
-                    content,
-                    baseline,
-                    mask,
-                    steps=steps,
-                    chunk=self._chunk(full.shape[1]),
-                )
+                attributions, f_input, f_base = self._on_oom(
+                    lambda steps=steps: integrated_gradients(
+                        target,
+                        batch,
+                        full,
+                        content,
+                        baseline,
+                        mask,
+                        steps=steps,
+                        chunk=self._chunk(full.shape[1]),
+                    ))
                 attributions, f_input, f_base = (
                     attributions.float(), f_input.float(), f_base.float())
                 difference = f_input - f_base
@@ -492,20 +510,25 @@ class Explainer:
                 for *_, chosen in selections
             ]
         )
+        def replaced():
+            per_pass = self._chunk(events.shape[0])
+            out = []
+            for begin in range(0, len(selections), per_pass):
+                part = masks[begin : begin + per_pass].unsqueeze(1)
+                out.append(
+                    replaced_target(
+                        result["target"],
+                        batch,
+                        result["full"],
+                        result["content"],
+                        result["baseline"],
+                        part,
+                    )[:, 0, j]
+                )
+            return out
+
+        values = self._on_oom(replaced)
         per_pass = self._chunk(events.shape[0])
-        values = []
-        for begin in range(0, len(selections), per_pass):
-            part = masks[begin : begin + per_pass].unsqueeze(1)
-            values.append(
-                replaced_target(
-                    result["target"],
-                    batch,
-                    result["full"],
-                    result["content"],
-                    result["baseline"],
-                    part,
-                )[:, 0, j]
-            )
         rows = [
             {
                 **meta,
@@ -535,7 +558,8 @@ class Explainer:
                     device,
                 )
                 with torch.no_grad():
-                    after = result["target"](deleted)[:, j].tolist()
+                    after = self._on_oom(
+                        lambda deleted=deleted: result["target"](deleted)[:, j].tolist())
                 rows += [
                     {
                         **meta,

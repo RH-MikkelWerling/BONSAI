@@ -303,7 +303,11 @@ def expand_index_scores(config, metadata):
     block = config.get("all_indices")
     explicit = []
     for spec in config.get("scores", []):
-        if spec.get("cohorts") == "all":
+        if spec.get("cohorts") == "all" and spec.get("group_column") not in metadata:
+            # The score was not computed for this metadata (e.g. the registry
+            # IPI not merged yet): kept, and reported as missing per score below.
+            spec = {**spec, "cohorts": []}
+        elif spec.get("cohorts") == "all":
             # Every subtype with at least one patient scored.
             scored = metadata.loc[metadata[spec["group_column"]].notna(), "cohort_fine"]
             spec = {**spec, "cohorts": sorted(scored.dropna().unique()),
@@ -314,6 +318,8 @@ def expand_index_scores(config, metadata):
     index_column = block.get("index_column", "index")
     cohort_column = block.get("cohort_column", "cohort_fine")
     group_column = block["template"].get("group_column", "IPI")
+    if not {index_column, group_column, cohort_column} <= set(metadata):
+        return explicit  # no recorded index in this metadata: explicit scores only
     # ``pooled`` (default true) adds one comparison per index across every
     # subtype in which it is recorded.
     covered = {(str(v), c) for spec in explicit
