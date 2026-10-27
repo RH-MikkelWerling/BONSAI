@@ -751,19 +751,24 @@ worse than the specialist on the tuning set, routing changed test AUC by X}
 where sharing everything had hurt.} \placeholder{Routing weights concentrated on
 the patient's own disease / related diseases} (\cref{fig:supp-router-usage}).
 
-% Router decomposition (lock addenda 2026-10-26). Design AB: the stage-3
-% chosen fix; the stage-4 rule kept R_L primary (R_O - R_L -0.0085 on tuning,
-% below the seed-noise floor), and in R_O borrowing was negligible (+0.0016).
+% Router decomposition (lock addenda 2026-10-26, amendment 2026-10-27): R_AB is
+% the primary routed model, so the decomposition describes OPERA's router.
 % Tuning rehearsal: own corrections helped large diseases and hurt small ones,
 % borrowing did the opposite; confirm on the test set before keeping the claims.
 The routed model adds two corrections to the shared prediction: one learned for
 the patient's own disease and outcome, and one borrowed from other diseases and
 outcomes. Fitting the same architecture with only the shared signal, with the
 own corrections added, and with borrowing added separates the two
-(\cref{fig:hierarchy}). These are separately fitted variants of the router
-(\placeholder{Supplementary Methods: router variants, from the lock addenda}); \opera{} itself is the original router, which the
-prespecified rules kept because none of the variants matched it
-(\placeholder{R_L vs R_AB and R_O}). Own corrections changed AUC by
+(\cref{fig:hierarchy}). The routed model is the variant whose routing we could
+verify: in the first router, routing collapsed onto a few sources with small
+corrections, and a global adapter outside the routed mix with two epochs of
+router warm-up restored it (\placeholder{Supplementary Methods: router
+variants}). We chose this model, prespecified as an amendment before any test
+data were opened, although it scored slightly below the first router on the
+tuning set (\placeholder{AUC -0.004, 95\% interval -0.011 to 0.002}), because
+its routing works as intended and can be explained; the first router is
+reported as a sensitivity analysis (\result{R_orig_auc}{X} against the routed
+model on the test set). Own corrections changed AUC by
 \result{router_own_AB_auc}{X} and borrowing by \result{router_borrow_AB_auc}{Y},
 \result{router_both_AB_auc}{Z} together, pooled over horizons.
 \placeholder{The two depended on training support in opposite directions. Own

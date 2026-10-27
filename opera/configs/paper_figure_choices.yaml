@@ -17,7 +17,6 @@ calibration_examples:  # one large cell per clinical domain
   - {cohort: MM, outcome: serious_infection_composite}
   - {cohort: CLL, outcome: neutropenia_g3plus}
   - {cohort: DLBCL, outcome: aki_first_documented}
-# Router decomposition shown in the hierarchy figure (2026-10-27, stage-4 rule):
-# R_L stays primary; AB is the stage-3 chosen fix and the design in which
-# borrowing was measurable (R_AB - RBH_AB +0.014 on tuning; R_O - RBH_O +0.002).
+# Router decomposition shown in the hierarchy figure: AB, the primary routed
+# model (lock amendment 2026-10-27), with RBH_AB and N_A as its controls.
 router_decomposition_design: AB

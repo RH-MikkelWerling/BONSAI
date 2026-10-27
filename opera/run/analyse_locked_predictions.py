@@ -207,6 +207,10 @@ GLOBAL_ONLY = "N_A_L"
 OPERA_CONTRASTS = {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)", "O3": "gain(OPERA,S_L)"}
 
 
+ORIGINAL_ROUTER = {"R1_orig": "gain(R_ORIG_L,J_L)", "T1_orig": "gain(R_ORIG_L,X)",
+                   "R_orig": "gain(R_ORIG_L,R_L)"}
+
+
 def with_opera_alias(predictions, model):
     if not model or model not in set(predictions.model):
         return predictions, {}
@@ -361,6 +365,11 @@ def run(config, output_dir):
     contrasts.update(router_decomposition(set(predictions.model)))
     predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
     contrasts.update(opera_contrasts)
+    if "R_ORIG_L" in set(predictions.model):
+        # The originally locked router, kept as a sensitivity model when another
+        # router fit is primary (lock amendment 2026-10-27).
+        contrasts.update({name: expression for name, expression in ORIGINAL_ROUTER.items()
+                          if models_for({name: expression}) <= set(predictions.model)})
     candidates = config.get("strategy_candidates", ["S_L", "D_L", "O_L"])
     stage("strategy selection")
     selected, selection = tuning_selected_strategies(predictions, candidates)

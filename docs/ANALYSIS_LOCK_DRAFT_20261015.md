@@ -352,13 +352,32 @@ are reported as the diagnostic path (A, B, T) in every case.
 Stage 3: seed noise |R_AB_s43 - R_AB| = 0.0017; R_AB - R_L = -0.0039, so R_L
 remained primary (chosen fix R_AB; R_A unhealthy). Stage 4: seed noise
 |R_O_s43 - R_O| = 0.0007; R_O - R_L = -0.0085 (95% interval -0.021 to 0.002),
-below R_L by more than the noise floor, so R_O does not replace R_L whatever its
-routing health. OPERA is R_L. Borrowing contrasts on tuning: R_AB - RBH_AB
+below R_L by more than the noise floor, and R_O's routing was unhealthy on
+both seeds (R_O, R_O_s43), so R_O does not replace R_L on either condition.
+Routing health: R_AB, R_ABT and R_AB_s43 healthy, R_A not; R_L's health is not
+computed (its tuning evaluation predates the route-support export). OPERA is R_L. Borrowing contrasts on tuning: R_AB - RBH_AB
 +0.0138 (0.001 to 0.027), R_O - RBH_O +0.0016 (-0.0006 to 0.0042); own
 corrections RBH_AB - N_A -0.005, RBH_O - N_A +0.0025. The hierarchy figure and
 its text use design AB (the chosen fix, where borrowing was measurable) as a
 separately fitted decomposition; they describe how own corrections and
 borrowing depend on support, not the selected model's own mechanism.
+
+## Amendment: R_AB is the primary routed model (2026-10-27, before any test data were opened)
+The router-fix rule kept R_L (R_AB - R_L = -0.0039 on tuning, beyond the
+R_AB seed-noise floor of 0.0017; 95% interval -0.011 to 0.002). We amend it:
+the primary routed model is R_AB, and R_L is reported throughout as the
+originally locked router (sensitivity rows R1_orig, T1_orig, R_orig).
+Reasons: (i) R_L's routing is known to have collapsed (lock addendum
+2026-10-26: weight parked on low-magnitude sources by volume damping), so no
+claim about what it borrows would be interpretable; (ii) R_AB routes healthily
+on both seeds; (iii) choosing the model with the lower tuning score cannot bias
+the test results upwards; (iv) the cost on tuning is small and its interval
+includes zero. The routed model is analysed under the name R_L (inventory
+--routed-model R_AB_L), so every prespecified routed contrast refers to R_AB;
+the national routed fits (R_E, R_EA) use the same readout (global adapter and
+two epochs of router warm-up), so local and national routed models are
+compared like with like. OPERA is chosen among the arms as before, with R_AB as
+the routed candidate.
 
 ## Headline contrasts and multiplicity (added 2026-10-26, before any test data were opened)
 - Both the joint model (J_L, fixed before any tuning result) and OPERA (the

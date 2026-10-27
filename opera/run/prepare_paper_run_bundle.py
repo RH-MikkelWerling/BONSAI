@@ -115,6 +115,36 @@ ROUTER_OWN = {
 }
 
 
+def apply_router_fix(config, fix):
+    """The readout settings of a router-fix design (ROUTER_FIX alias, e.g. R_AB)."""
+    _, borrowing, global_adapter, warmup, scale, _ = ROUTER_FIX[fix]
+    config["competing_risk"].update(adapter_global=global_adapter,
+                                    adapter_router_warmup_epochs=warmup)
+    if not borrowing:
+        config["competing_risk"]["adapter_borrowing"] = False
+    if scale:
+        config["competing_risk"]["adapter_logit_scale"] = scale
+    return config
+
+
+def routed_fix(routed_model):
+    """R_AB_L -> R_AB (a ROUTER_FIX design); None for the original router."""
+    if not routed_model or routed_model == "R_L":
+        return None
+    fix = routed_model.removesuffix("_L")
+    if fix not in ROUTER_FIX:
+        raise ValueError(f"Unknown primary routed model {routed_model}")
+    return fix
+
+
+def external_routed(config, routed_model):
+    """National routed fits use the primary router's readout (lock amendment
+    2026-10-27: R_AB primary), so local and national routed models compare like
+    with like."""
+    fix = routed_fix(routed_model)
+    return apply_router_fix(config, fix) if fix else config
+
+
 def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs, patience,
                        fits=None, own_outside=False):
     """The router-fix fits (local encoder): ROUTER_FIX, or ROUTER_OWN with own_outside."""
@@ -174,6 +204,7 @@ def build_bundle(
     data_efficiency=True,
     router_fix=False,
     router_own=False,
+    routed_model=None,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -376,14 +407,14 @@ def build_bundle(
                     ("J", external_shared),
                     (
                         "R",
-                        router_config(
+                        external_routed(router_config(
                             external_shared,
                             reference,
                             source_mode=selected_router["source_mode"],
                             rank=int(selected_router["rank"]),
                             query_mode=selected_router["query_mode"],
                             query_width=int(selected_router["query_width"]),
-                        ),
+                        ), routed_model),
                     ),
                 ):
                     entries.append(
@@ -561,6 +592,9 @@ def main():
     )
     parser.add_argument("--num-workers", type=int,
                         help="Override data-loading workers consistently in every arm")
+    parser.add_argument("--routed-model",
+                        help="primary routed model (e.g. R_AB_L): national routed fits "
+                             "use its readout")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     from dotenv import load_dotenv
@@ -602,6 +636,7 @@ def main():
         data_efficiency=not args.no_data_efficiency,
         router_fix=args.router_fix,
         router_own=args.router_own,
+        routed_model=args.routed_model,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

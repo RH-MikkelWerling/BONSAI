@@ -71,3 +71,22 @@ def test_hierarchy_cells_follow_the_chosen_design():
     both = pd.concat([_contrasts("O"), _contrasts("AB").query("contrast != 'P5'")])
     assert set(hierarchy_cells(both, metadata).router_design) == {"AB"}  # default order
     assert set(hierarchy_cells(both, metadata, designs=("O", "AB")).router_design) == {"O"}
+
+
+def test_primary_routed_model_is_analysed_as_r_l():
+    from opera.run.paper_analysis_inventory import routed_aliases
+    assert routed_aliases(["R_L"], None) == ["R_L"]
+    assert routed_aliases(["R_L"], "R_AB_L") == ["R_ORIG_L"]
+    assert routed_aliases(["R_AB_L"], "R_AB_L") == ["R_AB_L", "R_L"]
+    assert routed_aliases(["J_L"], "R_AB_L") == ["J_L"]
+
+
+def test_national_routed_fits_take_the_primary_readout():
+    from opera.run.prepare_paper_run_bundle import external_routed, routed_fix
+    assert routed_fix("R_L") is None and routed_fix("R_AB_L") == "R_AB"
+    config = external_routed({"competing_risk": {}}, "R_AB_L")
+    assert config["competing_risk"] == {"adapter_global": True,
+                                        "adapter_router_warmup_epochs": 2}
+    assert external_routed({"competing_risk": {}}, None) == {"competing_risk": {}}
+    with pytest.raises(ValueError):
+        routed_fix("R_X_L")

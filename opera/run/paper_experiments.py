@@ -141,6 +141,9 @@ def build_commands(args, env):
                 "--router-lock",
                 str(path_value(env, "OPERA_PAPER_ROUTER_LOCK")),
             ]
+            if env.get("OPERA_PAPER_ROUTED_MODEL"):
+                # The national routed fits use the primary router's readout.
+                command += ["--routed-model", env["OPERA_PAPER_ROUTED_MODEL"]]
             if args.include_external:
                 command += [
                     "--external-direct-checkpoint",
@@ -437,6 +440,8 @@ def build_commands(args, env):
                   if env.get("OPERA_PAPER_INVENTORY_SPLITS") else ()),
                 *(("--opera-model", env["OPERA_PAPER_OPERA_MODEL"])
                   if env.get("OPERA_PAPER_OPERA_MODEL") else ()),
+                *(("--routed-model", env["OPERA_PAPER_ROUTED_MODEL"])
+                  if env.get("OPERA_PAPER_ROUTED_MODEL") else ()),
                 "--template",
                 path_value(
                     env,

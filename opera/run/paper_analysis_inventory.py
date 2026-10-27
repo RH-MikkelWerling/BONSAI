@@ -207,6 +207,17 @@ def _outputs_unchanged(directory, saved, verify):
     return all((directory / name).is_file() for name in saved["outputs"])
 
 
+def routed_aliases(aliases, routed):
+    """The primary routed model is analysed as R_L, so every routed contrast
+    (R1, T1, rescue, operating points, route exports) uses it unchanged; it
+    keeps its own name too (for the router decomposition), and the originally
+    locked router becomes R_ORIG_L (sensitivity rows). Lock amendment 2026-10-27."""
+    if not routed or routed == "R_L":
+        return list(aliases)
+    out = ["R_ORIG_L" if alias == "R_L" else alias for alias in aliases]
+    return out + ["R_L"] if routed in aliases else out
+
+
 def build_inventory(args):
     output = Path(args.output_dir)
     if output.exists():
@@ -228,8 +239,12 @@ def build_inventory(args):
     splits = tuple(getattr(args, "splits", None) or ("tuning", "held_out"))
     if not set(splits) <= {"tuning", "held_out"}:
         raise ValueError("--splits takes tuning and/or held_out")
+    routed = getattr(args, "routed_model", None)
+    if routed and routed != "R_L" and not any(
+            routed in canonical_models(r, c, bundle) for r, _, c in rows):
+        raise ValueError(f"--routed-model {routed} is not a fit in this bundle")
     for row, _, config in rows:
-        aliases = canonical_models(row, config, bundle)
+        aliases = routed_aliases(canonical_models(row, config, bundle), routed)
         if not aliases:
             continue
         horizons = [
@@ -482,6 +497,9 @@ def main():
     ):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--data-contract", required=True)
+    parser.add_argument("--routed-model",
+                        help="the primary routed fit, analysed as R_L (e.g. R_AB_L); "
+                             "the original router becomes R_ORIG_L")
     parser.add_argument("--opera-model",
                         help="the configuration chosen on tuning data (overrides the "
                              "template's opera_model), e.g. R_L, R_O_L or R_EA")

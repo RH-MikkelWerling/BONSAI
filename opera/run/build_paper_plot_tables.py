@@ -45,6 +45,7 @@ CONTRAST_CODES = {
     **{f"FD{f}": f"EA:F{f}-L" for f in (10, 25, 50)},
     **{f"C{i}": f"C{i}" for i in range(1, 7)}, "RS1": "RS1",
     "O1": "OPERA-X", "O2": "OPERA-J", "O3": "OPERA-S",
+    "R1_orig": "Rorig-J", "T1_orig": "Rorig-X", "R_orig": "Rorig-R",
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
     **{f"R{i}": f"R{i}" for i in range(8)},
@@ -454,6 +455,7 @@ PANEL_TABLE_ROWS = (
     ("T6", "Joint vs XGBoost pooled across diseases"),
     ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
     ("O1", "OPERA vs per-task XGBoost"),
+    ("R_orig", "Originally locked router vs primary router (sensitivity)"),
     ("E1", "National vs local encoder (joint)"),
     ("E3", "Adapted national vs local encoder (joint)"),
 )
