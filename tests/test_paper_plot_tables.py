@@ -344,3 +344,20 @@ def test_missing_calibration_invalidates_both_existing_outputs(tmp_path):
     for name in ['calibration_summary.csv', 'reliability.csv']:
         assert not (output / name).exists()
         assert report['tables'][name]['removed_stale_output']
+
+
+def test_tuning_only_strategy_shows_unavailable_held_out_comparison():
+    estimates = pd.DataFrame([dict(split='held_out', seed=42, cohort='DLBCL',
+                                  outcome='overall_survival', horizon_days=365,
+                                  model=m, metric='auc', estimate=.7)
+                             for m in ['S_L','J_L']])
+    metadata = pd.DataFrame([dict(cohort='DLBCL', outcome='overall_survival', horizon_days=365,
+                                  n_events_train=100)])
+    selection = pd.DataFrame([dict(seed=42, cohort='DLBCL', outcome='overall_survival',
+                                   status='selected_held_out_missing', selected_model='S_L')])
+    cells, choices = plot_tables.strategy_tables(estimates, selection, metadata, seed=42)
+    assert cells.best_tuning.isna().all()
+    assert len(choices)==1
+    fig = figures.figure_strategy(cells, choices)
+    assert any('unavailable' in t.get_text() for ax in fig.axes for t in ax.texts)
+    plt.close(fig)

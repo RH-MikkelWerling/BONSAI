@@ -3752,15 +3752,28 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     grid = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.15], wspace=0.5, left=0.08,
                             right=0.98, top=0.8, bottom=0.15)
     data = cells.loc[_horizon_mask(cells, horizon)]
+    data = data.copy()
+    if 'best_tuning' not in data:
+        data['best_tuning'] = np.nan
+    if data[['specialist', 'joint']].dropna().empty:
+        raise ValueError('Strategy figure has no paired joint/specialist estimates')
     low = float(np.nanmin(data[["specialist", "joint", "best_tuning"]].to_numpy())) - 0.02
     sizes = 4 + 40 * np.sqrt(data.n_events_train / data.n_events_train.max())
     for column, (x, letter, title, label) in enumerate((
             ("specialist", "A", "Joint vs specialist", "Specialist AUC"),
             ("best_tuning", "B", "Joint vs best per cell", "Best-per-cell AUC"))):
         ax = fig.add_subplot(grid[column])
-        above = data.joint >= data[x]
+        paired = data.loc[data[['joint', x]].notna().all(axis=1)]
+        if paired.empty:
+            ax.text(.5, .5, 'Selected-strategy evaluation unavailable\n(selection is made on tuning;\nevaluation requires held-out predictions)',
+                    transform=ax.transAxes, ha='center', va='center', fontsize=7,
+                    color=PALETTE['ink_muted'])
+            _panel_title(ax, letter, title)
+            ax.set_axis_off()
+            continue
+        above = paired.joint >= paired[x]
         ax.plot([low, 1], [low, 1], color=PALETTE["diagonal"], lw=0.8, ls="--")
-        ax.scatter(data[x], data.joint, s=sizes, alpha=0.4, linewidths=0,
+        ax.scatter(paired[x], paired.joint, s=sizes.loc[paired.index], alpha=0.4, linewidths=0,
                    color=np.where(above, MODEL_STYLE["J"][0], "#B5451B"), rasterized=True)
         ax.text(0.04, 0.96, f"joint better: {above.mean():.0%}", transform=ax.transAxes,
                 fontsize=6.8, va="top", color=PALETTE["ink_secondary"])

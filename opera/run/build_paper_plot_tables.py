@@ -231,10 +231,13 @@ def strategy_tables(estimates, selection, metadata, *, seed=None, metric="auc"):
                              values="estimate", aggfunc="first")
             .rename(columns={"S_L": "specialist", "J_L": "joint",
                              "BEST_TUNING": "best_tuning"})
-            .dropna().reset_index())
+            .reindex(columns=['specialist', 'joint', 'best_tuning'])
+            .dropna(subset=['specialist', 'joint']).reset_index())
+    if wide.empty:
+        raise Missing('Strategy figure needs paired joint/specialist estimates')
     wide = _with_cells(wide, metadata)
     chosen = _select(selection, seed=seed)
-    chosen = chosen.loc[chosen.status == "selected_on_tuning"].copy()
+    chosen = chosen.loc[chosen.status.isin(['selected_on_tuning', 'selected_held_out_missing'])].copy()
     chosen["selected_model"] = chosen.selected_model.str.removesuffix("_L")
     groups = outcome_endpoint_groups()
     chosen["endpoint_group"] = chosen.outcome.map(groups)
