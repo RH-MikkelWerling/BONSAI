@@ -207,6 +207,9 @@ GLOBAL_ONLY = "N_A_L"
 OPERA_CONTRASTS = {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)", "O3": "gain(OPERA,S_L)"}
 
 
+# Sampling sensitivity (lock addendum 2026-10-27): IPW event sampling against
+# natural sampling, same design and seed.
+SAMPLING_SENSITIVITY = {"IPW_R": "gain(R_AB_IPW_L,R_AB_L)", "IPW_J": "gain(J_IPW_L,J_L)"}
 ORIGINAL_ROUTER = {"R1_orig": "gain(R_ORIG_L,J_L)", "T1_orig": "gain(R_ORIG_L,X)",
                    "R_orig": "gain(R_ORIG_L,R_L)"}
 
@@ -219,6 +222,34 @@ def with_opera_alias(predictions, model):
     contrasts = {name: expression for name, expression in OPERA_CONTRASTS.items()
                  if expression[5:-1].split(",")[1] in present}
     return pd.concat([predictions, alias], ignore_index=True), contrasts
+
+
+ALWAYS_ANALYSED = {"J_L", "R_L", "S_L", "D_L", "O_L", "X", "XP", "XR", "LR", "OPERA",
+                   "BEST_TUNING"}
+
+
+def analysed_models_only(predictions, contrasts, config, candidates=()):
+    """Drop fits no part of the analysis refers to (e.g. router variants that only
+    the router decision used): every estimate, draw and calibration fit is per
+    model, so they cost time and change nothing. ``keep_all_models: true`` keeps
+    them. Returns the predictions and the dropped model names."""
+    if config.get("keep_all_models"):
+        return predictions, set()
+    used = set(ALWAYS_ANALYSED) | set(candidates) | models_for(contrasts)
+    for members in config.get("panel_estimate_groups", DEFAULT_PANEL_ESTIMATE_GROUPS).values():
+        used |= set(members)
+    for spec in (config.get("stratified_reanalysis") or {}).values():
+        used |= set(spec.get("models", []))
+    for pair in (config.get("operating_points") or {}).get(
+            "pairs", [["J_L", "X"], ["J_L", "S_L"], ["R_L", "J_L"]]):
+        used |= set(pair)
+    present = set(predictions.model)
+    unused = present - used
+    if unused:
+        print(f"models not analysed (no contrast or summary uses them): {sorted(unused)}",
+              flush=True)
+        predictions = predictions.loc[predictions.model.isin(used)].copy()
+    return predictions, unused
 
 
 def router_decomposition(models):
@@ -365,6 +396,8 @@ def run(config, output_dir):
     contrasts.update(router_decomposition(set(predictions.model)))
     predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
     contrasts.update(opera_contrasts)
+    contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
     if "R_ORIG_L" in set(predictions.model):
         # The originally locked router, kept as a sensitivity model when another
         # router fit is primary (lock amendment 2026-10-27).
@@ -381,6 +414,8 @@ def run(config, output_dir):
                 "R_vs_best_tuning": "gain(R_L,BEST_TUNING)",
             }
         )
+    predictions, unused_models = analysed_models_only(predictions, contrasts, config,
+                                                     candidates)
     replicates = int(config.get("bootstrap_replicates", 1000))
     if replicates < 1:
         raise ValueError("At least one paired bootstrap replicate is required")
@@ -509,7 +544,8 @@ def run(config, output_dir):
             strata=["stratum"],
         )
     stage("identity and subgroup sensitivity analyses")
-    statuses = []
+    statuses = [{"analysis": "models_not_analysed", "status": "dropped",
+                 "models": sorted(unused_models)}] if unused_models else []
     if metadata is not None:
         tables["router_identity_audit"] = audit_router_identity(metadata)
         needs_review = (

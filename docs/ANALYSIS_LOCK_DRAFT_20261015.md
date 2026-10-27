@@ -379,6 +379,21 @@ two epochs of router warm-up), so local and national routed models are
 compared like with like. OPERA is chosen among the arms as before, with R_AB as
 the routed candidate.
 
+## Sampling sensitivity (added 2026-10-27, before any test data were opened)
+Every model is trained on patients sampled in their natural proportions, with
+no class reweighting, so predicted risks remain calibrated; task balance comes
+from averaging the loss over endpoint groups. As a sensitivity analysis, the
+primary routed model (R_AB) and the joint model are refitted with
+importance-weighted event sampling (stage 5: R_AB_IPW, J_IPW; seed 42): batches
+are enriched towards patients with events at the BCE horizons (event fraction
+0.5, at least 10 events and 20 controls per batch), and each patient's loss is
+divided by their sampling weight, so the likelihood remains that of the
+natural population. The sampler requires a zero DAPT anchor weight; if the
+primary fits use a nonzero anchor, the contrast includes that difference.
+Contrasts IPW_R = gain(R_AB_IPW, R_AB) and IPW_J = gain(J_IPW, J_L) are
+reported (AUC, IPA, calibration) as sensitivity analyses, outside the headline
+family; they do not change which model is primary.
+
 ## Headline contrasts and multiplicity (added 2026-10-26, before any test data were opened)
 - Both the joint model (J_L, fixed before any tuning result) and OPERA (the
   configuration chosen on tuning data) are compared with per-task XGBoost
@@ -457,8 +472,7 @@ problems; the rules below fix them without reference to any test result.
   whose string appears in the national vocabulary) would have been near zero
   for every patient under a different code system; it remains only as a
   fallback before the national sequences exist.
-- Borrowing pairs (proposed 2026-10-27, for supervisor review before the lock is
-  final): the primary routed model (R_AB) borrowed broadly on tuning (borrowing
+- Borrowing pairs (decided 2026-10-27, before any test data were opened): the primary routed model (R_AB) borrowed broadly on tuning (borrowing
   profiles correlated 0.83-0.89 across diseases), so the prespecified pairs and
   negative controls are reported descriptively, not tested; the borrowing map
   reports what each source adds, how much each disease depends on borrowing,

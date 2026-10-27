@@ -1119,10 +1119,35 @@ def _pair_labels(data):
             f"{SHORT_GROUP.get(r.domain, r.domain).lower()}" for r in data.itertuples()]
 
 
-def figure_borrowing_map(table, hypotheses, levels=None, test=None, *, min_cells=24,
+def lineage_concentration(pooled):
+    """Per target disease, from the single-source gains (``effect``, all outcomes):
+    the share of its positive borrowing gain that comes from diseases of its own
+    lineage (``observed``) against that lineage's share of the other sources
+    (``expected``, what borrowing blind to lineage would give), and the effective
+    number of sources it gains from (exp of the entropy of the gain shares)."""
+    rows = []
+    for target, part in pooled.loc[pooled.target != pooled.source].groupby("target"):
+        gain = part.effect.clip(lower=0).to_numpy(float)
+        if not np.isfinite(gain).all() or gain.sum() <= 0:
+            continue
+        same = (part.source_group == part.target_group).to_numpy()
+        share = gain / gain.sum()
+        positive = share[share > 0]
+        rows.append({"target": target, "observed": float(share[same].sum()),
+                     "expected": float(same.mean()), "n_sources": len(part),
+                     "effective_sources": float(np.exp(-(positive * np.log(positive)).sum()))})
+    return pd.DataFrame(rows, columns=["target", "observed", "expected", "n_sources",
+                                       "effective_sources"])
+
+
+def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_cells=24,
                          mark=None):
-    """From whom the routed model borrows, how much in total, and whether the
-    clinically expected pairs stand out (main figure; type as ``figure_pooling``).
+    """From whom the routed model borrows, how much in total, and whether it favours
+    related diseases (main figure; type as ``figure_pooling``). C: per disease, the
+    share of its borrowing gain from its own lineage against the share expected if
+    lineage did not matter, coloured by the effective number of sources
+    (``lineage_concentration``). The prespecified pairs (``hypotheses``, ``test``)
+    are reported descriptively in a supplementary table, not drawn (2026-10-27).
 
     ``table``: one row per target disease, source disease and outcome domain
     (``endpoint_group``; "All outcomes" pools them), with ``target_group``,
@@ -1223,38 +1248,37 @@ def figure_borrowing_map(table, hypotheses, levels=None, test=None, *, min_cells
     _panel_title(bx, "B", "In total")
     despine(bx, "x")
 
-    # C: the clinically expected pairs and negative controls.
-    data = hypotheses.reset_index(drop=True)
+    # C: does a disease borrow from its own lineage more than chance would give?
+    conc = lineage_concentration(pooled.loc[~pooled.target.isin(sparse)])
     cx = fig.add_axes([1.85 / width, 0.1, 2.15 / width, 0.275])
-    colours = {"hypothesis": MODEL_STYLE["R"][0], "negative control": PALETTE["ink_muted"]}
-    for y, row in data.iterrows():
-        c = colours.get(row.kind, PALETTE["ink"])
-        cx.plot([row.lower, row.upper], [y, y], color=c, lw=1.1, alpha=0.6)
-        cx.scatter(row.effect, y, marker="D", s=16, color=c, zorder=3)
-    typical = None
-    if test is not None and "mean_other" in test:
-        typical = test.loc[test.kind == "hypothesis", "mean_other"].dropna()
-        typical = float(typical.iloc[0]) if len(typical) else None
-    cx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
-    if typical is not None:
-        cx.axvline(typical, color=PALETTE["ink_secondary"], lw=0.9, ls=(0, (3, 2)))
-    cx.set_yticks(range(len(data)), _pair_labels(data))
-    cx.tick_params(axis="y", length=0, labelsize=6.8)
-    cx.tick_params(axis="x", labelsize=6.6)
-    cx.set_ylim(len(data) - 0.5, -0.5)
-    cx.xaxis.set_major_locator(MaxNLocator(4))
-    cx.set_xlabel("AUC gain from the source alone\n(points, 95% CI)")
-    cx.grid(axis="y", visible=False)
-    despine(cx, "x")
-    _panel_title(cx, "C", "Pairs expected to share signal")
-    handles = [Line2D([], [], marker="D", ls="", color=colours["hypothesis"],
-                      markersize=4.5, label="Expected pair"),
-               Line2D([], [], marker="D", ls="", color=colours["negative control"],
-                      markersize=4.5, label="Negative control")]
-    if typical is not None:
-        handles.append(Line2D([], [], color=PALETTE["ink_secondary"], lw=0.9,
-                              ls=(0, (3, 2)), label="Typical pair"))
-    _key_legend(cx, handles, y=-0.2, ncol=3)
+    if len(conc):
+        x_top = float(max(conc.expected.max(), 0.1)) * 1.35
+        cx.plot([0, x_top], [0, x_top], color=PALETTE["ink_muted"], lw=0.8, ls=(0, (3, 2)))
+        largest = max(sizes.values()) if sizes else 1
+        size = 12 + 50 * np.sqrt(conc.target.map(sizes).fillna(0) / largest)
+        points = cx.scatter(conc.expected, conc.observed, s=size, c=conc.effective_sources,
+                            cmap=LinearSegmentedColormap.from_list(
+                                "breadth", ["#D6DBEA", MODEL_STYLE["R"][0], "#3B2A5C"]),
+                            edgecolors="white", linewidths=0.5, zorder=3)
+        for row in conc.loc[(conc.observed - conc.expected).abs().nlargest(3).index].itertuples():
+            cx.annotate(_short_disease(row.target), (row.expected, row.observed),
+                        xytext=(3, 2), textcoords="offset points", fontsize=6.2,
+                        color=PALETTE["ink_secondary"])
+        cx.set_xlim(0, x_top)
+        cx.set_ylim(0, 1.0)
+        bar = fig.colorbar(points, ax=cx, fraction=0.06, pad=0.02)
+        bar.set_label("Effective number of sources", fontsize=6.4)
+        bar.ax.tick_params(labelsize=6)
+        bar.outline.set_visible(False)
+        cx.text(0.97, 0.03, f"Effective sources: median {conc.effective_sources.median():.1f}"
+                f" of {int(conc.n_sources.max())}\nAbove the line: own lineage favoured",
+                transform=cx.transAxes, ha="right", va="bottom", fontsize=6.3,
+                color=PALETTE["ink_secondary"])
+    cx.set_xlabel("Share of sources in the own lineage\n(expected if lineage did not matter)")
+    cx.set_ylabel("Share of borrowing gain\nfrom the own lineage")
+    cx.tick_params(labelsize=6.6)
+    despine(cx, "both")
+    _panel_title(cx, "C", "Related or broad?")
 
     # D: for which outcomes borrowing matters, all diseases weighing equally.
     dx = fig.add_axes([5.3 / width, 0.1, 1.75 / width, 0.275])

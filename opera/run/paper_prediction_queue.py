@@ -87,7 +87,9 @@ def canonical_models(row, config, bundle):
 ROUTED_MODELS = {"R_L", "R_E", "R_EA",
                  # router fix (2026-10-26): every fit with a routing choice
                  "R_AB_L", "RBH_AB_L", "R_A_L", "R_ABT_L", "R_AB_s43_L",
-                 "R_O_L", "RBH_O_L", "R_O_s43_L"}
+                 "R_O_L", "RBH_O_L", "R_O_s43_L",
+                 # sampling sensitivity (2026-10-27)
+                 "R_AB_IPW_L"}
 
 
 def export_flags(aliases, args):

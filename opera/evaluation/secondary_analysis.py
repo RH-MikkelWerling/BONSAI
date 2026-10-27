@@ -1297,13 +1297,23 @@ def reliability_tables(frame, bins=10):
     return table.drop(columns=["wy", "wp"])
 
 
+CALIBRATION_LIMIT = 50.0  # |intercept| or |slope| beyond this: separation, not a fit
+
+
 def _calibration_fit(labels, probabilities, weights, iterations=50):
-    """Weighted logistic recalibration ``logit P(y) = a + b logit(p)``."""
+    """Weighted logistic recalibration ``logit P(y) = a + b logit(p)``.
+
+    Newton steps with a numerically stable sigmoid. When the predictions (nearly)
+    separate events from non-events the likelihood has no finite maximum and
+    Newton diverges; such fits, and fits that do not converge, are returned as
+    not estimable (NaN) rather than as a meaningless slope."""
+    from scipy.special import expit
+
     p = np.clip(probabilities, 1e-6, 1 - 1e-6)
     x = np.column_stack([np.ones(len(p)), np.log(p / (1 - p))])
     beta = np.array([0.0, 1.0])
     for _ in range(iterations):
-        mu = 1 / (1 + np.exp(-(x @ beta)))
+        mu = expit(x @ beta)
         gradient = x.T @ (weights * (labels - mu))
         hessian = (x * (weights * mu * (1 - mu))[:, None]).T @ x
         try:
@@ -1311,9 +1321,11 @@ def _calibration_fit(labels, probabilities, weights, iterations=50):
         except np.linalg.LinAlgError:
             return np.nan, np.nan
         beta = beta + step
+        if not np.isfinite(beta).all() or np.abs(beta).max() > CALIBRATION_LIMIT:
+            return np.nan, np.nan
         if np.max(np.abs(step)) < 1e-8:
-            break
-    return float(beta[0]), float(beta[1])
+            return float(beta[0]), float(beta[1])
+    return np.nan, np.nan  # did not converge
 
 
 def parallel_ordered(function, tasks, workers):

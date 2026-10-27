@@ -11,7 +11,7 @@ better, worse, equivalent and inconclusive, with the paired bootstrap test; the
 rules by which the router configuration was chosen on tuning data
 (Supplementary Methods, model details); the selection of \opera{}; the
 risk-group cut-offs for the comparison with clinical indices; the design of the
-borrowing analysis and its prespecified pairs (below); and the sensitivity
+borrowing analysis and its candidate pairs, reported descriptively (below); and the sensitivity
 analyses (known-status estimand, excluding the 209 patients whose disease was
 assigned after day 14, size-matched cut-offs, equal weight per clinical domain,
 and the stratum without a dedicated index without nodal marginal-zone lymphoma
@@ -89,21 +89,16 @@ the literature and kept only if a single-pair estimate could be informative: at
 least 200 training patients in the source, so that its correction learned
 something to remove, and at least 50 test patients in the target, so that the
 estimate was not inconclusive by construction. Smaller diseases remain in the
-descriptive map. \placeholder{N} study haematologists rated every candidate,
-in a fixed random order and without our rationale or our expectation, as a
-strong, moderate, weak or no source of signal for the target; pairs rated strong
-or moderate were the expected pairs and pairs rated as no source the negative
-controls, all fixed before the test set was opened
-(\cref{tab:borrowing-pairs}, with the excluded candidates and the reason for
-each). The primary
-borrowing claim concerned these \placeholder{n} pairs and \placeholder{m}
-negative controls: the mean
-unshrunk source-alone gain of the pairs minus that of the typical pair (the mean
-of the other off-diagonal pairs of their clinical domains), against 10,000 random draws of the same number
-of pairs from the same domains (one-sided permutation test), and the same for
-the negative controls. Individual pairs were labelled with the prespecified
-labels and a margin of \placeholder{0.25} AUC points; the model-comparison
-margin of one point is too wide for the share of a single source. IPA
+descriptive map. A confirmatory test of these pairs was planned, with the
+expected pairs and negative controls to be rated by study haematologists
+without our rationale. Before any rating or test-set evaluation, the routed
+model was found on the tuning set to borrow broadly, with similar mixtures of
+sources across diseases (correlation of borrowing profiles 0.83 to 0.89), so a
+test of a few selected pairs would not describe how it borrows. The pairs are
+therefore reported descriptively, each with its unshrunk source-alone gain and
+95\% interval (\cref{tab:borrowing-pairs}, with the excluded candidates and the
+reason for each), and whether borrowing favours related diseases is described
+over all diseases by lineage concentration (main text, Methods). IPA
 differences were computed in the same way as a secondary metric.
 
 \input{tables/borrowing_pairs}

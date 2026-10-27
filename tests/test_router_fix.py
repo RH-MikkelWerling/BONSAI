@@ -187,3 +187,30 @@ def test_stage_four_adds_the_own_outside_fits():
     assert changed == {"adapter_own_outside", "adapter_home_floor"}
     assert new["R_O_L"]["adapter_home_floor"] == 0.0
     assert new["RBH_O_L"]["adapter_borrowing"] is False
+
+
+def test_stage_five_adds_ipw_sampling_fits_and_changes_only_sampling():
+    from test_paper_run_bundle import base_config, reference
+
+    from opera.functional.direct_cr_contract import validate_direct_cr_config
+    from opera.run.prepare_paper_run_bundle import build_bundle
+    from opera.run.paper_prediction_queue import canonical_models
+
+    lock = {"source_mode": "both", "rank": 8, "query_mode": "interacting", "query_width": 512}
+    args = dict(selected_router=lock, router_fix=True, router_own=True)
+    stage4 = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"}, **args)
+    stage5 = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"}, **args,
+                          sampling_ipw=True)
+    assert [e["config"] for e in stage5[: len(stage4)]] == [e["config"] for e in stage4]
+    new = {canonical_models(e, e["config"], {"selected_router": lock})[0]: e["config"]
+           for e in stage5[len(stage4):]}
+    assert set(new) == {"J_IPW_L", "R_AB_IPW_L"}
+    r_ab = next(e["config"] for e in stage4 if e["name"].endswith("fix_R_AB"))
+    ipw = new["R_AB_IPW_L"]
+    assert ipw["competing_risk"] == r_ab["competing_risk"]
+    sampling = ipw["training"]["batch_sampling"]
+    assert sampling["type"] == "ipw_event_horizon_bce"
+    assert sampling["horizons_days"] == ipw["training"]["evaluation_horizons_days"]
+    assert ipw["model"]["dapt_anchor_weight"] == 0.0
+    for config in new.values():
+        validate_direct_cr_config(config)

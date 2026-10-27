@@ -35,6 +35,13 @@ PHASES = (
 )
 
 
+# CPU steps with process pools (OPERA_ANALYSIS_WORKERS, inventory workers).
+CPU_POOL_ACTIONS = {"inventory", "analyse", "plot-tables", "borrowing-map", "paper-numbers",
+                    "clinical-scores", "embedding-tables", "router-decision"}
+BLAS_THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                         "NUMEXPR_NUM_THREADS")
+
+
 def load_environment(path):
     path = Path(path).resolve()
     if not path.is_file():
@@ -164,6 +171,10 @@ def build_commands(args, env):
             if stage >= 4:
                 # Own sources outside the mix (same addendum, after the hub audits).
                 command += ["--router-own"]
+            if stage >= 5:
+                # Sampling sensitivity (addendum 2026-10-27): J and R_AB with IPW
+                # event sampling.
+                command += ["--sampling-ipw"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]
@@ -579,6 +590,8 @@ def build_commands(args, env):
                        "--output-dir", analysis_root / "figure_inputs")
                 + (["--execute"] if args.execute else [])]
     if args.action == "figures":
+        # Recipe paths such as source_removal/<split>/ follow the plot split.
+        env.setdefault("OPERA_PAPER_PLOT_SPLIT", "held_out")
         return [module("opera.run.render_paper_results",
                        "--config", path_value(env, "OPERA_PAPER_FIGURE_CONFIG",
                                               str(analysis_root / "figure_inputs" / "figures.yaml")),
@@ -588,7 +601,8 @@ def build_commands(args, env):
                    else (["--execute"] if args.execute else []))]
     if args.action == "figure-readiness":
         # Which manuscript figures can be rendered now, and what to run for the rest.
-        return [module("opera.run.check_figure_inputs", "--analysis-root", analysis_root)]
+        return [module("opera.run.check_figure_inputs", "--analysis-root", analysis_root,
+                       "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"))]
     if args.action == "input-restrictions":
         # The locked best model on restricted input: what each part adds.
         config_path = path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG",
@@ -909,6 +923,11 @@ def main():
     ):
         parser.error("Invalid shard count/index or max-runs")
     env = load_environment(args.env_file)
+    if args.action in CPU_POOL_ACTIONS:
+        # These steps run process pools; one BLAS thread per process keeps them
+        # from oversubscribing a shared node (exported values still win).
+        for name in BLAS_THREAD_VARIABLES:
+            env.setdefault(name, "1")
     commands = build_commands(args, env)
     for command in commands:
         print(shlex.join(command), flush=True)

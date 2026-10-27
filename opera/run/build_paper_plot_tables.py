@@ -495,6 +495,7 @@ PANEL_TABLE_ROWS = (
     ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
     ("O1", "OPERA vs per-task XGBoost"),
     ("R_orig", "Originally locked router vs primary router (sensitivity)"),
+    ("IPW_R", "Routed model, IPW event sampling vs natural (sensitivity)"),
     ("E1", "National vs local encoder (joint)"),
     ("E3", "Adapted national vs local encoder (joint)"),
 )

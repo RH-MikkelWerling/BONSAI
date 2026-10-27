@@ -274,10 +274,11 @@ def build_inventory(args):
                         "Neural predictions differ from evaluation provenance"
                     )
             routes = directory / "source_route_weights.parquet"
-            if (ready and split == "held_out" and routes.is_file()
+            if (ready and (split == "held_out" or splits == ("tuning",)) and routes.is_file()
                     and template.get("route_model", "R_L") in aliases):
                 # The locked router's held-out routing weights describe which
-                # adapters patients used; tuning candidates never supply them.
+                # adapters patients used; a tuning-only inventory (the tuning
+                # preview) uses its tuning weights instead.
                 route_export = {"route_weights": str(routes.resolve()),
                                 "route_seed": row["seed"]}
             for alias in aliases:

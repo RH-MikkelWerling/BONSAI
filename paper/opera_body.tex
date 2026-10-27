@@ -349,8 +349,10 @@ the highest AUC on the tuning set, averaged over diseases, outcomes and all six
 horizons; configurations within the difference between two fits of the same
 model counted as tied, and the simplest was chosen, the joint before the routed
 model and the cohort before the national encoder \placeholder{selected
-configuration}. It is the model compared with tabular models and clinical
-indices. Because \opera{} was chosen on tuning data, the joint model, fixed before
+configuration}. The routed candidate is the router variant whose routing was
+verified to work as intended, chosen by an amendment fixed before the test set
+was opened (Supplementary Methods, router variants). \opera{} is the model
+compared with tabular models and clinical indices. Because \opera{} was chosen on tuning data, the joint model, fixed before
 any tuning result was seen, is compared with the tabular models as well; both
 comparisons are reported. The contrasts between scopes, routing and encoders use
 their fixed arms.
@@ -374,12 +376,17 @@ index's low-risk observed risk and high-risk specificity.
 \operasubsection{Evaluation}
 The primary metric was the time-dependent area under the ROC curve (AUC) at each
 of the six horizons. Reported differences and \cref{tab:panel-effects} pool all
-six horizons, each disease--outcome--horizon cell weighing equally; the main
-figures show one year, except the borrowing analysis, which pools horizons, and
-every horizon is in the Supplement. The index of
+six horizons, each disease--outcome--horizon cell weighing equally, and so do the
+figures: a cell's gain is its mean over the horizons at which it was evaluated,
+with an interval from the same patient resamples. How performance varies with
+the horizon is shown separately (\cref{fig:atlas}, \cref{fig:supp-horizons}), and
+reliability curves, which need a single horizon, are shown at one year. The index of
 prediction accuracy (IPA), Brier score and calibration measured probability
 accuracy
-\citep{blanche2013competingauc,gerds2006brier,schoop2011competing,kattan2018ipa}.
+\citep{blanche2013competingauc,gerds2006brier,schoop2011competing,kattan2018ipa};
+calibration slopes and intercepts came from a weighted logistic recalibration,
+and were reported as not estimable where the predictions separated events from
+non-events, so that no finite fit existed.
 Every contrast was paired on the same patients, with intervals from 1,000
 patient resamples within disease, shared across models, outcomes and horizons.
 Each pooled difference was labelled by a rule fixed before testing: better (or
@@ -428,18 +435,17 @@ model relies on borrowing overall is the AUC it loses when all borrowed
 corrections are switched off, for each disease, each clinical domain and over all
 diseases. Within one fitted model this carries no noise of refitting, but it
 measures what the fitted model uses, not what borrowing adds when a model is
-trained without it; that is the comparison with the own-disease router. Before the test set was
-opened, we listed candidate pairs of diseases with a possible reason to share
-signal for a domain of outcomes (shared biology, treatment or complications),
-kept only pairs whose estimate could be informative (at least 200 training
-patients in the source disease and 50 test patients in the target), and asked
-study haematologists to rate each candidate, in random order and without our
-rationale. Pairs rated as a strong or moderate source of signal were the
-expected pairs, and pairs rated as unrelated the negative controls
-(Supplementary Methods). The primary
-test asked whether these pairs, as a set, gained more from their source alone
-than the typical pair, the mean of the other pairs of the same domains
-(permutation test). The map of all pairs is descriptive and partially pooled.
+trained without it; that is the comparison with the same router trained with
+its own sources only. Whether borrowing favours related diseases was described
+by each disease's share of its borrowing gain (the positive source-alone gains)
+that comes from diseases of its own lineage, against the share that lineage
+holds among the other sources, which is what borrowing blind to lineage would
+give, and how broadly it borrows by the effective number of sources it gains
+from. Candidate pairs of diseases with a possible reason to share signal for a
+domain of outcomes (shared biology, treatment or complications) were listed
+before the test set was opened; because the routed model borrowed broadly on
+the tuning set, they are reported descriptively rather than tested
+(Supplementary Methods). The map of all pairs is descriptive and partially pooled.
 AUC differences were primary and IPA secondary. The analysis concerns borrowing
 at the readout; sharing through the common encoder is measured by the joint
 against the specialist models.

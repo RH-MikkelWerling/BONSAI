@@ -82,16 +82,16 @@ figures:
 - id: fig_borrowing_map
   function: figure_borrowing_map
   tables:
-    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_map.csv
-    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypotheses.csv
-    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_levels.csv
-    test: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypothesis_test.csv
+    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_map.csv
+    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypotheses.csv
+    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_levels.csv
+    test: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypothesis_test.csv
 - id: supp_borrowing_detail
   function: figure_borrowing_detail
   tables:
-    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_map.csv
-    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_hypotheses.csv
-    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/held_out/borrowing_levels.csv
+    table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_map.csv
+    hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypotheses.csv
+    levels: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_levels.csv
 - id: supp_router_usage
   function: figure_router_usage
   tables:

@@ -90,3 +90,14 @@ def test_national_routed_fits_take_the_primary_readout():
     assert external_routed({"competing_risk": {}}, None) == {"competing_risk": {}}
     with pytest.raises(ValueError):
         routed_fix("R_X_L")
+
+
+def test_unused_router_variants_are_not_analysed():
+    from opera.run.analyse_locked_predictions import analysed_models_only
+    frame = pd.DataFrame({"model": ["J_L", "R_L", "X", "R_A_L", "R_ABT_L", "R_AB_L",
+                                    "RBH_AB_L", "N_A_L"]})
+    contrasts = {"router_own_AB": "gain(RBH_AB_L,N_A_L)", "router_borrow_AB": "gain(R_AB_L,RBH_AB_L)"}
+    kept, dropped = analysed_models_only(frame, contrasts, {})
+    assert dropped == {"R_A_L", "R_ABT_L"}
+    assert set(kept.model) == {"J_L", "R_L", "X", "R_AB_L", "RBH_AB_L", "N_A_L"}
+    assert analysed_models_only(frame, contrasts, {"keep_all_models": True})[1] == set()

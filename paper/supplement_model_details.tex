@@ -91,6 +91,20 @@ between two fits of the same model, so the narrower encoder was kept. This encod
 every supervised model, each trained, tuned and tested on the final
 cohort (37,531 patients).
 
+\paragraph{Sampling and loss weighting.} Patients were sampled in their natural
+proportions, without oversampling patients with events or reweighting classes,
+so that the predicted risks keep the base rates of the population and stay
+calibrated. Each training patient has events for a few of the 69 outcomes and
+none for most, so no single weighting of patients could balance all
+disease--outcome--horizon tasks at once; balance between tasks instead comes
+from the loss, averaged so that each endpoint group weighs equally. As a
+sensitivity analysis fixed before the test set was opened, the routed and the
+joint model were refitted with importance-weighted event sampling: batches were
+enriched towards patients with events at the six horizons, and each patient's
+loss was divided by their sampling weight, so the likelihood remained that of
+the natural population (\result{IPW_R_auc}{X} and \result{IPW_J_auc}{Y} in AUC
+against natural sampling).
+
 \paragraph{Memorization check.} Test patients' records before 2022 were part of
 pretraining, so we checked whether the encoder reproduces the records it was
 trained on. The pretrained model was given the first $X$ events of a patient's

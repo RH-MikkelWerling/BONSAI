@@ -90,7 +90,7 @@ def recipe_inputs(recipe: Path, environment: dict[str, str]) -> dict[str, list[P
         os.environ.update(saved)
 
 
-def check(analysis_root: Path, manuscript: Path, *, horizon: int = 365,
+def check(analysis_root: Path, manuscript: Path, *, horizon: int = 365, split: str = "held_out",
           recipes: tuple[Path, ...] = (RESULTS_RECIPE, ATTRIBUTION_RECIPE)) -> list[dict]:
     analysis_root = analysis_root.resolve()
     plot_tables = analysis_root / "figure_inputs" / "plot_tables"
@@ -100,6 +100,7 @@ def check(analysis_root: Path, manuscript: Path, *, horizon: int = 365,
         "OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR": str(analysis_root / "attributions"
                                                    / f"summary_{float(horizon):g}d"),
         "OPERA_PAPER_INPUT_RESTRICTION_DIR": str(analysis_root / "input_restrictions"),
+        "OPERA_PAPER_PLOT_SPLIT": split,
     }
     inputs = {}
     for recipe in recipes:
@@ -135,9 +136,10 @@ def main():
     parser.add_argument("--analysis-root", type=Path, required=True)
     parser.add_argument("--manuscript", type=Path, default=REPO / "paper/opera_manuscript.tex")
     parser.add_argument("--horizon", type=int, default=365)
+    parser.add_argument("--split", choices=("held_out", "tuning"), default="held_out")
     parser.add_argument("--json", action="store_true", help="Print the full report as JSON")
     args = parser.parse_args()
-    rows = check(args.analysis_root, args.manuscript, horizon=args.horizon)
+    rows = check(args.analysis_root, args.manuscript, horizon=args.horizon, split=args.split)
     if args.json:
         print(json.dumps(rows, indent=2))
     else:

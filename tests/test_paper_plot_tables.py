@@ -274,3 +274,18 @@ def test_descriptive_support_curve_fallback():
     assert set(curve.source) == {"descriptive_fallback"} and set(curve.contrast) == {"J-S"}
     assert (curve.lower <= curve["mean"]).all() and (curve["mean"] <= curve.upper).all()
     assert curve["mean"].iloc[0] > curve["mean"].iloc[-1]  # the gain falls with support
+
+
+def test_calibration_fit_returns_nan_on_separation_not_a_wild_slope():
+    import warnings
+    from opera.evaluation.secondary_analysis import _calibration_fit
+    rng = np.random.default_rng(0)
+    p = rng.uniform(0.05, 0.6, 2000)
+    y = (rng.uniform(size=2000) < p).astype(float)
+    a, b = _calibration_fit(y, p, np.ones(2000))
+    assert abs(a) < 0.3 and abs(b - 1) < 0.2  # well calibrated by construction
+    separated = np.r_[np.full(50, 0.01), np.full(50, 0.02)]
+    labels = np.r_[np.zeros(50), np.ones(50)]  # perfectly ordered
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no overflow warnings either
+        assert np.isnan(_calibration_fit(labels, separated, np.ones(100))).all()

@@ -170,6 +170,36 @@ def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs,
     return entries
 
 
+# Sampling sensitivity (stage 5; lock addendum 2026-10-27, before any test data):
+# the primary routed model and the joint model trained with importance-weighted
+# event sampling. Batches see more events, and each patient's loss is divided by
+# its sampling weight, so the likelihood (and calibration) stays that of the
+# natural population. The sampler requires a zero DAPT anchor weight.
+IPW_SAMPLING = {"event_fraction": 0.5, "min_unique_events": 10, "min_unique_controls": 20}
+
+
+def ipw_sampling(config, seed):
+    config["training"]["batch_sampling"] = {
+        "type": "ipw_event_horizon_bce", **IPW_SAMPLING, "seed": seed,
+        "horizons_days": list(config["training"]["evaluation_horizons_days"])}
+    config.setdefault("model", {})["dapt_anchor_weight"] = 0.0
+    return config
+
+
+def sampling_entries(base, reference, checkpoints, selected_router, *, epochs, patience,
+                     seed=42):
+    """J_IPW (joint) and R_AB_IPW (the primary routed design) with IPW sampling."""
+    shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                               seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
+    routed = apply_router_fix(router_config(
+        copy.deepcopy(shared), reference, source_mode=selected_router["source_mode"],
+        rank=int(selected_router["rank"]), query_mode=selected_router["query_mode"],
+        query_width=int(selected_router["query_width"])), "R_AB")
+    return [{"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+             "seed": seed, "condition": {}, "config": ipw_sampling(config, seed)}
+            for alias, config in (("J_IPW", copy.deepcopy(shared)), ("R_AB_IPW", routed))]
+
+
 def external_sequences(config, sequence_dir):
     """Point a national arm at our patients tokenised in the national format.
 
@@ -205,6 +235,7 @@ def build_bundle(
     router_fix=False,
     router_own=False,
     routed_model=None,
+    sampling_ipw=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -438,6 +469,11 @@ def build_bundle(
         entries += router_fix_entries(base, reference, checkpoints, selected_router,
                                       epochs=epochs, patience=patience,
                                       fits=ROUTER_OWN, own_outside=True)
+    if sampling_ipw:
+        if not router_own:
+            raise ValueError("Stage 5 repeats the stage-4 fits")
+        entries += sampling_entries(base, reference, checkpoints, selected_router,
+                                    epochs=epochs, patience=patience, seed=seeds[0])
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -592,6 +628,8 @@ def main():
     )
     parser.add_argument("--num-workers", type=int,
                         help="Override data-loading workers consistently in every arm")
+    parser.add_argument("--sampling-ipw", action="store_true",
+                        help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--routed-model",
                         help="primary routed model (e.g. R_AB_L): national routed fits "
                              "use its readout")
@@ -637,6 +675,7 @@ def main():
         router_fix=args.router_fix,
         router_own=args.router_own,
         routed_model=args.routed_model,
+        sampling_ipw=args.sampling_ipw,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

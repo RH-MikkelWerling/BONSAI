@@ -7,6 +7,7 @@ output directory. Clinical applicability/cutoffs must be locked before test use.
 from __future__ import annotations
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 import numpy as np
@@ -466,7 +467,16 @@ def main():
         raise ValueError("No registered model prediction artifacts")
     predictions = pd.concat(tables, ignore_index=True)
     from opera.visualization import paper_figures as figures
-    from opera.visualization.style import save_fig
+    from opera.visualization.style import save_fig as _save_fig
+
+    mark = os.environ.get("OPERA_PAPER_FIGURE_MARK")
+
+    def save_fig(fig, path):
+        """Save, with the preview mark (OPERA_PAPER_FIGURE_MARK) drawn once."""
+        if mark and not getattr(fig, "_opera_marked", False):
+            figures.watermark(fig, mark)
+            fig._opera_marked = True
+        _save_fig(fig, path)
     import matplotlib.pyplot as plt
 
     args.output_dir.mkdir(parents=True)
