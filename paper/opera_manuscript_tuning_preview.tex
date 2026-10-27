@@ -1,0 +1,20 @@
+% The manuscript on TUNING-SET results, for the supervisor draft (2026-10-31).
+% Not test results: the test set is opened only after the analysis lock is
+% final. Every page carries a banner, every generated number is set in teal,
+% and every figure carries a TUNING SET mark.
+%
+% Inputs (copied from the server after the disclosure check):
+%   figures/tuning_preview/<figure>.pdf    render with OPERA_PAPER_FIGURE_MARK
+%   tables/tuning_preview/results_macros.tex  paper-numbers with the tuning split
+% Build: latexmk -pdf opera_manuscript_tuning_preview.tex (from paper/).
+\newcommand{\resultfiguredir}{figures/tuning_preview/}
+\newcommand{\resultnumbersdir}{tables/tuning_preview/}
+\newcommand{\previewnotice}{\par\textbf{\textcolor{teal}{TUNING-SET PREVIEW: numbers in teal and
+  marked figures are from the tuning set, not the test set, which has not been opened.}}}
+\newcommand{\resultstyle}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewonly}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewsetup}{%
+  \AddToHook{shipout/background}{%
+    \put(0.5\paperwidth,-0.9cm){\makebox[0pt]{\sffamily\scriptsize\bfseries\color{teal}%
+      TUNING-SET PREVIEW --- not test results --- draft for supervisors}}}}
+\input{opera_manuscript}

@@ -399,6 +399,58 @@ both (\placeholder{values}). Route weights describe how the model allocates corr
 interpreted as relationships between diseases; what each source contributes is
 measured by removing it (Supplementary Methods, borrowing map).
 
+\operasubsection{Router variants and the primary routed model}
+\label{sec:router-variants}
+On the tuning set, the routed model fixed by the steps above routed poorly. In
+most patients most of the routing weight sat on one or two sources whose
+corrections were small (the overall-survival adapter carried 40\% of the routed
+contribution), while the disease adapters, which enter every patient's
+prediction at the 0.05 floor of their own disease, had grown corrections about
+20 times larger. Any weight borrowed from another disease's adapter therefore
+injected a large correction learned for that disease, and the router learned to
+park its weight on a source that changed little. The disease adapters pointed in
+unrelated directions (median pairwise cosine about 0), and those of related
+B-cell lymphomas resembled each other, so the adapters had learned
+disease-specific corrections; it was the routing that had collapsed.
+
+Before any variant was trained, we fixed the variants, their controls and the
+rule for choosing among them (analysis lock, addenda of 26 October 2026). Two
+changes address the collapse: a global adapter applied to every prediction
+outside the routed mix (A), so that general corrections no longer have to pass
+through a source, and two epochs in which the router is held fixed while the
+adapters train (B), so that early routing does not lock in before the adapters
+have learned anything. A third bounds the routing scores (T, three times the
+cosine of query and key) and was to be used only if A and B did not route
+healthily; a fourth applies a patient's own disease and outcome adapters at
+full weight outside the mix, which then holds only borrowed sources (O). Each
+was trained with controls on the same protocol: the same model with only the
+patient's own adapters (own-only), the model with the global adapter and no
+sources (global-only), and a second seed of the candidate. Routing was judged
+healthy when, measured by contribution rather than weight (route weight times
+the source's support shrinkage, or its correction size for O), the most
+frequent top source led in at most half of the rows, at least three different
+borrowed sources led across diseases, and the median effective number of
+sources exceeded 1.5.
+
+The routed model with A and B (R\textsubscript{AB}) routed healthily in both
+seeds; A alone, and O, did not. Borrowing within R\textsubscript{AB}, the full
+model against its own-only control, changed tuning AUC by $+0.014$ (95\%
+interval 0.001 to 0.027), above the seed-to-seed difference of 0.002. Against
+the first router, R\textsubscript{AB} differed by $-0.004$ ($-0.011$ to 0.002)
+and O by $-0.009$ ($-0.021$ to 0.002). The prespecified rule kept the first
+router, since R\textsubscript{AB} was below it by more than the seed-to-seed
+difference. We amended the rule before any test data were opened and made
+R\textsubscript{AB} the primary routed model: the first router's routing is
+known to have collapsed, so nothing it appears to borrow could be interpreted;
+R\textsubscript{AB} routes as intended in both seeds; choosing the model with
+the lower tuning score cannot bias the test results upwards; and the cost on
+tuning was small, with an interval including zero. The first router is
+reported throughout as a sensitivity analysis, and the national routed models
+use the same readout as R\textsubscript{AB}. In R\textsubscript{AB},
+\cref{eq:router} gains a global term, $h_{ik}=h_i+\lambda\,[\,G(h_i)+\sum_s
+\pi_{iks}c_sA_s(h_i)\,]$, with $G$ an adapter of the same form trained on every
+prediction, and the router is held fixed for the first two epochs.
+
 \operasubsection{Hierarchy for effect heterogeneity}
 Claims rest on the pooled paired-bootstrap differences and their labels
 (\cref{tab:panel-effects}); the hierarchical model is descriptive. Many cells

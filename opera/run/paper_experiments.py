@@ -71,6 +71,10 @@ def module(name, *args):
     return [sys.executable, "-m", name, *map(str, args)]
 
 
+# The own-sources-only control of each routed design (source removal levels).
+OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L"}
+
+
 def stage_bundles(root):
     """Bundle directories the worker reads: stage 1, stage 2 and any later stage.
 
@@ -378,14 +382,18 @@ def build_commands(args, env):
         # One evaluation of the locked router writing every borrowing variant:
         # no borrowing, each disease source alone, each left out (stage-2
         # bundle; one GPU pass per split, no training).
+        # After the 2026-10-27 amendment the primary routed model is a router-fix
+        # fit (stage 3); the original router lives in the stage-2 bundle.
+        routed = env.get("OPERA_PAPER_ROUTED_MODEL") or "R_L"
         command = module(
             "opera.run.paper_prediction_queue",
-            "--bundle-dir", root / "bundles" / "stage2",
+            "--bundle-dir", root / "bundles" / ("stage2" if routed == "R_L" else "stage3"),
             "--runs-dir", runs,
             "--split", args.split,
             "--output-dir", root / "predictions",
             "--batch-size", value(env, "OPERA_PAPER_BATCH_SIZE", "1"),
             "--source-removal",
+            "--removal-model", routed,
         )
         return [command + (["--execute"] if args.execute else [])]
     if args.action == "borrowing-map":
@@ -402,6 +410,9 @@ def build_commands(args, env):
             "--ablation", getattr(args, "ablation", "mean"),
             "--shard-count", args.shard_count,
             "--shard-index", args.shard_index,
+            *(("--model", env["OPERA_PAPER_ROUTED_MODEL"],
+                "--own-reference", OWN_REFERENCE[env["OPERA_PAPER_ROUTED_MODEL"]])
+              if env.get("OPERA_PAPER_ROUTED_MODEL") not in (None, "", "R_L") else ()),
         )]
     if args.action == "router-decision":
         # Prespecified router rules on tuning predictions (needs `evaluate

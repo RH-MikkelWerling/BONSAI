@@ -135,6 +135,45 @@ def support_curve(curves):
         ["contrast", "training_support", "mean", "lower", "upper"]]
 
 
+FALLBACK_CONTRASTS = ("J-S", "D-S", "O-S", "J-X", "OPERA-X", "S-X", "J-XP")
+
+
+def descriptive_support_curve(cells, *, contrasts=FALLBACK_CONTRASTS, bandwidth=0.35,
+                              n_boot=200, points=60, seed=2026):
+    """Fallback when the hierarchical posterior curve is missing (e.g. no PyMC):
+    a Gaussian kernel smoother of cell AUC gain over log10 training events,
+    each cell pooled over its horizons, with a 95% bootstrap band over cells.
+    Descriptive only; ``source`` says so, and the figures' captions must too."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    rows = []
+    data = cells.loc[(cells.metric == "auc") & (cells.horizon_days == ALL_HORIZONS)
+                     & cells.gain.notna() & (cells.n_events_train > 0)]
+    for contrast in contrasts:
+        part = data.loc[data.contrast == contrast]
+        if len(part) < 20:
+            continue
+        x = np.log10(part.n_events_train.to_numpy(float))
+        y = part.gain.to_numpy(float)
+        grid = np.linspace(*np.quantile(x, [0.02, 0.98]), points)
+
+        def smooth(xs, ys):
+            weights = np.exp(-0.5 * ((grid[:, None] - xs[None, :]) / bandwidth) ** 2)
+            return (weights * ys).sum(1) / weights.sum(1)
+
+        centre = smooth(x, y)
+        draws = np.array([smooth(x[i], y[i]) for i in
+                          (rng.integers(0, len(x), len(x)) for _ in range(n_boot))])
+        low, high = np.quantile(draws, [0.025, 0.975], axis=0)
+        rows.append(pd.DataFrame({"contrast": contrast, "training_support": 10 ** grid,
+                                  "mean": centre, "lower": low, "upper": high,
+                                  "source": "descriptive_fallback"}))
+    if not rows:
+        raise Missing("no cells for a descriptive support curve")
+    return pd.concat(rows, ignore_index=True)
+
+
 def origin_estimates(panel, *, seed=None):
     data = _select(panel, seed=seed)
     data = data.loc[data.model.isin(ORIGIN_MODELS)].copy()
@@ -623,9 +662,21 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     summaries = lambda: _read(analysis / "effect_summaries.csv", sources)  # noqa: E731
     table("paired_cells.csv", lambda: paired_cells(cell_contrasts(), cell_metadata_all,
                                                     seed=seed))
-    table("support_curve.csv", lambda: support_curve([
-        _read(bayes / family / "auc" / bayes_variant / "posterior_curve.csv", sources)
-        for family in ("pooling", "tabular")]))
+    def curve():
+        try:
+            return support_curve([
+                _read(bayes / family / "auc" / bayes_variant / "posterior_curve.csv", sources)
+                for family in ("pooling", "tabular")])
+        except Missing:
+            # No posterior curve yet (no PyMC): the descriptive smoother, labelled.
+            return descriptive_support_curve(
+                paired_cells(cell_contrasts(), cell_metadata_all, seed=seed))
+
+    table("support_curve.csv", curve)
+    if isinstance(report.get("support_curve.csv"), dict) and \
+            (output_dir / "support_curve.csv").exists() and \
+            "source" in pd.read_csv(output_dir / "support_curve.csv", nrows=1):
+        report["support_curve.csv"]["source"] = "descriptive_fallback (no posterior curve)"
     table("external_panel.csv", lambda: panel_contrasts(
         summaries(), ["E1", "E2", "A1", "A2", "E3", "E4"], seed=seed))
     table("gate_effects.csv", lambda: panel_contrasts(

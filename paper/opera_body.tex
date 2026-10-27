@@ -30,11 +30,10 @@ other outcomes by \result{P2_auc}{Y}, learning what to borrow by
 \result{R1_auc}{Z}, and population pretraining by \result{E1_auc}{W}
 \placeholder{, which matched the cohort-pretrained model with X\% of the
 labelled patients}; \placeholder{the gains were largest where a prediction had
-least data of its own}. \placeholder{Switching diseases off in the fitted model
-showed what it borrowed: pairs of diseases expected to share signal, such as
-chronic lymphocytic leukaemia and myeloma for infection, added X AUC points more
-than a typical pair (P = Y), negative controls did not, and borrowing mattered
-most for Z outcomes.} Ten of the 24 diseases have no validated prognostic
+least data of its own}. \placeholder{Own disease corrections helped where a prediction had many
+training events and borrowing where it had few, the pattern of partial pooling,
+and switching diseases off in the fitted model showed that it borrowed broadly
+rather than from a few related diseases.} Ten of the 24 diseases have no validated prognostic
 index, and the index was missing for 58\% of test patients; \opera{} predicted
 every outcome for every patient \placeholder{and, where an index was recorded,
 placed X more per 1,000 patients at low risk with no higher observed risk}.
@@ -55,11 +54,10 @@ route to every specialty that shares the national registers.}
   \item \placeholder{What learning across diseases, learning across outcomes and
   learning what to borrow each added, with their claim labels, and where the
   gains were largest.}
-  \item \placeholder{Switching each source disease off in the fitted model showed
-  what it borrowed: pairs expected to share signal from shared biology, treatment
-  or complications, listed before testing (such as CLL and myeloma for
-  infection), added more than a typical pair, negative controls did not, and
-  borrowing mattered most for X outcomes.}
+  \item \placeholder{The routed model behaved like partial pooling: corrections
+  for a patient's own disease helped where a prediction had many training events,
+  borrowing from other diseases where it had few, and it borrowed broadly rather
+  than from a few related diseases.}
   \item In DLBCL, per 1,000 patients, it flagged \result{ipi_extra_per1000}{N}
   more of the patients who died within two years at the specificity of the IPI
   high-risk group, and, at a cutoff matched to the IPI low-risk group's observed
@@ -589,7 +587,7 @@ clinical domain} (\cref{fig:tabular}B, \cref{fig:calibration}).
   models by domain, over every cell and horizon (ideal 1). \textbf{C}, Gain of \opera{} over XGBoost
   against the target's training events, with the support curve; points are
   cells with at least 10 training events and a 95\% interval narrower than 0.4
-  (all cells enter the curve). \textbf{D--E},
+  (all cells enter the curve). \previewonly{Tuning preview: the support curve is a kernel smoother over cells with a 95\% bootstrap band; the hierarchical model is fitted for the test-set analysis.} \textbf{D--E},
   Reliability of \opera{}, the joint model and XGBoost at one year for the
   two example cells, chosen by a rule on training counts (the cell with the most
   training events in its domain among cells with at least 200 training events
@@ -719,7 +717,7 @@ no patients in the tuning year and so no model of its own, with \placeholder{abs
   (at one year),
   with the hierarchical support curve and 95\% credible band; points are cells
   with at least 10 training events and a 95\% interval narrower than 0.4 (all
-  cells enter the curve). \textbf{D}, Gains
+  cells enter the curve). \previewonly{Tuning preview: the support curve is a kernel smoother over cells with a 95\% bootstrap band; the hierarchical model is fitted for the test-set analysis.} \textbf{D}, Gains
   by clinical domain (median and interquartile range across cells). Positive
   values favour the pooled model, and grey cells could not be estimated.
   Cell-level maps for each pooling axis, their
@@ -762,10 +760,9 @@ own corrections added, and with borrowing added separates the two
 (\cref{fig:hierarchy}). The routed model is the variant whose routing we could
 verify: in the first router, routing collapsed onto a few sources with small
 corrections, and a global adapter outside the routed mix with two epochs of
-router warm-up restored it (\placeholder{Supplementary Methods: router
-variants}). We chose this model, prespecified as an amendment before any test
+router warm-up restored it (Supplementary Methods, router variants). We chose this model, prespecified as an amendment before any test
 data were opened, although it scored slightly below the first router on the
-tuning set (\placeholder{AUC -0.004, 95\% interval -0.011 to 0.002}), because
+tuning set (AUC $-0.004$, 95\% interval $-0.011$ to 0.002), because
 its routing works as intended and can be explained; the first router is
 reported as a sensitivity analysis (\result{R_orig_auc}{X} against the routed
 model on the test set). Own corrections changed AUC by
@@ -808,31 +805,37 @@ tasks were borrowed from than in how much a task leaned on others.
 
 \FloatBarrier
 \operasubsection{From whom does the model borrow?}
-% Claim heading once results are in, e.g. "The model borrows most where
-% clinicians would expect shared signal".
-Switching source diseases off in the fitted router shows what it borrows
-(\cref{fig:borrowing-map}). \placeholder{Most pairs of diseases added little; the
-largest gains from a single source were for X from Y}
-(\cref{fig:borrowing-map}A). \placeholder{With borrowing switched off, the fitted
-router lost X AUC points over all diseases, from Y in DLBCL to Z in amyloidosis}
-(\cref{fig:borrowing-map}B); \placeholder{this loss was larger / smaller than the gain over the own-disease router (X) and over the joint model
-(Y), which compare separately trained models} (\cref{fig:supp-borrowing-detail}A), and \placeholder{it was / was not
-larger in the smaller diseases} (\cref{fig:supp-borrowing-detail}B). The pairs
-listed before testing as expected to share signal gained \placeholder{X AUC
-points} more from their source alone than the typical pair (permutation
-\placeholder{P}), and the negative controls \placeholder{did not differ (P)}
-(\cref{fig:borrowing-map}C). \placeholder{Of the N pairs, M gained with an
-interval above zero; where leaving the source out cost less than the source
-alone added, other sources carried overlapping information}
-(\cref{fig:supp-borrowing-detail}C). \placeholder{Borrowing mattered most for X
-outcomes and least for Y} (\cref{fig:borrowing-map}D), \placeholder{and IPA
-agreed / differed} (\placeholder{Supplementary Table}).
+% Claim heading once results are in, e.g. "The model borrows broadly, and most
+% where a disease has least data of its own".
+% Descriptive (2026-10-27): the prespecified pair test is on hold (lock
+% addendum); on tuning the routed model borrowed broadly rather than from a
+% few related diseases (borrowing profiles correlated 0.83-0.89 across diseases).
+Switching source diseases off in the fitted routed model shows what it borrows
+(\cref{fig:borrowing-map}). Because each source adds its own correction, a
+source can be removed from the trained model without retraining or changing
+anything else, so these comparisons are within one model on the same patients.
+\placeholder{Most single sources added little; the largest gains from one source
+were for X from Y} (\cref{fig:borrowing-map}A). \placeholder{With all borrowed
+corrections switched off, the model lost X AUC points over all diseases, from Y
+in the largest disease to Z in the smallest} (\cref{fig:borrowing-map}B),
+\placeholder{and the loss was larger in diseases with fewer training patients}
+(\cref{fig:supp-borrowing-detail}B). \placeholder{The diseases borrowed from
+similar mixtures of sources (median correlation of their borrowing profiles X),
+rather than each from a few related diseases} (\cref{fig:borrowing-map}C), so the
+router's choice lay more in how much a disease leaned on the others than in which
+it leaned on, which is the behaviour of the partial pooling described above.
+\placeholder{Borrowing mattered most for X outcomes and least for Y}
+(\cref{fig:borrowing-map}D), \placeholder{and IPA agreed / differed}
+(\placeholder{Supplementary Table}). Pairs of diseases expected to share signal
+were listed before the test set was opened; because the router borrowed
+broadly, they are reported descriptively (\placeholder{Supplementary Table})
+rather than as a test.
 
 \begin{figure}[H]
   \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
     {A: what each source disease adds to each target disease. B: how much each
-    disease depends on borrowing. C: pairs expected to share signal, and negative
-    controls. D: AUC lost without borrowing, by clinical domain.}
+    disease depends on borrowing. C: similarity of the diseases' borrowing
+    profiles. D: AUC lost without borrowing, by clinical domain.}
   \caption{\textbf{What the model borrows from other diseases.} The routed
   model's readout adds one correction per source disease, so sources can be
   switched off in the trained model without retraining or changing anything else. Each comparison scores the same test patients over all outcomes and
@@ -844,13 +847,9 @@ agreed / differed} (\placeholder{Supplementary Table}).
   labels mark diseases with few estimable outcomes. AL, amyloidosis; SP,
   solitary plasmacytoma; tFL, transformed follicular lymphoma. \textbf{B}, On the
   same rows, the AUC the trained model loses when all its borrowed corrections
-  are switched off; dashed line, all diseases weighing equally. \textbf{C}, Pairs listed before the test set was
-  opened because they share biology, treatment or complications in a domain of
-  outcomes (purple), and negative controls with no such reason (grey), with the
-  gain from the source alone. The dashed line is the typical pair, the mean of
-  all other pairs in the same domains. As a set, the expected pairs gained
-  \placeholder{X} points more than the typical pair (permutation test,
-  \placeholder{P}) and the negative controls \placeholder{Y (P)}. \textbf{D},
+  are switched off; dashed line, all diseases weighing equally. \textbf{C}, \placeholder{Similarity of the diseases' borrowing profiles: for
+  each pair of target diseases, the correlation of the shares of borrowed
+  correction they draw from each source.} \textbf{D},
   The AUC lost without borrowing, as in B, by clinical domain, all diseases
   weighing equally; dashed line, all outcomes. This loss beside the gains over
   separately trained models, by disease size, the source left out and every clinical domain

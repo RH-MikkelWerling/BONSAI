@@ -565,7 +565,10 @@ def main():
                         help="Population file with subject_id and cohort_fine")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--split", choices=("tuning", "held_out"), default="held_out")
-    parser.add_argument("--model", default="R_L")
+    parser.add_argument("--model", default="R_L",
+                        help="the primary routed fit (R_AB_L after the 2026-10-27 amendment)")
+    parser.add_argument("--own-reference", default="RDH_L",
+                        help="the same router with its own sources only (RBH_AB_L for R_AB_L)")
     parser.add_argument("--hypotheses", type=Path, default=HYPOTHESES)
     parser.add_argument("--display-groups", type=Path, default=DISPLAY_GROUPS)
     parser.add_argument("--registry", type=Path, default=REGISTRY)
@@ -596,7 +599,7 @@ def main():
                          f"found {len(fits.get(args.model, {}))}")
     row, config = next(iter(fits[args.model].values()))
     references = {}
-    for name, alias in REFERENCES.items():
+    for name, alias in {**REFERENCES, "RDH": args.own_reference}.items():
         if len(fits.get(alias, {})) == 1:
             reference = next(iter(fits[alias].values()))[0]
             references[name] = (args.prediction_dir / reference["run_directory"]
@@ -684,8 +687,8 @@ def main():
         "removal": "source term dropped, other weights unchanged",
         "references": {name: str(path) for name, path in references.items()},
         "effects": {"dependence": "AUC(full) - AUC(none)",
-                    "routing": "AUC(R_L) - AUC(J_L)",
-                    "trained_borrowing": "AUC(R_L) - AUC(RDH_L)",
+                    "routing": f"AUC({args.model}) - AUC(J_L)",
+                    "trained_borrowing": f"AUC({args.model}) - AUC({args.own_reference})",
                     "in": "AUC(own + source) - AUC(none); map and claims",
                     "out": "AUC(full) - AUC(all but source)"},
         "units": "AUC points",

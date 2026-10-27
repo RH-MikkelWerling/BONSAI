@@ -261,3 +261,16 @@ def test_cells_pool_over_horizons_with_shared_draws():
     expected = np.mean([d["gain_draws"] for d in draws[:2]], axis=0)
     assert pooled.lower["A"] == pytest.approx(np.quantile(expected, 0.025))
     assert np.isnan(pooled.lower["B"])  # too few finite pooled replicates
+
+
+def test_descriptive_support_curve_fallback():
+    from opera.run.build_paper_plot_tables import descriptive_support_curve
+    rng = np.random.default_rng(0)
+    events = rng.integers(5, 3000, 300)
+    cells = pd.DataFrame({"contrast": "J-S", "metric": "auc", "horizon_days": 0,
+                          "n_events_train": events,
+                          "gain": 0.04 - 0.01 * np.log10(events) + rng.normal(0, 0.01, 300)})
+    curve = descriptive_support_curve(cells, n_boot=50)
+    assert set(curve.source) == {"descriptive_fallback"} and set(curve.contrast) == {"J-S"}
+    assert (curve.lower <= curve["mean"]).all() and (curve["mean"] <= curve.upper).all()
+    assert curve["mean"].iloc[0] > curve["mean"].iloc[-1]  # the gain falls with support

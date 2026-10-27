@@ -27,6 +27,9 @@
 \usepackage{titlesec}
 
 \input{opera_style}
+% Preview builds (e.g. opera_manuscript_tuning_preview.tex) hook in here.
+\providecommand{\previewsetup}{}
+\previewsetup
 
 \captionsetup{font=small,labelfont={bf,sf},labelsep=period,justification=raggedright,singlelinecheck=false}
 \raggedbottom
@@ -73,7 +76,11 @@
 % prints the generated value, or the placeholder text until it exists.
 \providecommand{\resultnumbersdir}{tables/generated/}
 \makeatletter
-\newcommand{\result}[2]{\@ifundefined{opera@res@#1}{\placeholder{#2}}{\@nameuse{opera@res@#1}}}
+% A preview build can mark every generated number (\resultstyle).
+\providecommand{\resultstyle}[1]{#1}
+% Notes shown only in a preview build (e.g. how a tuning-preview figure differs).
+\providecommand{\previewonly}[1]{}
+\newcommand{\result}[2]{\@ifundefined{opera@res@#1}{\placeholder{#2}}{\resultstyle{\@nameuse{opera@res@#1}}}}
 \makeatother
 \IfFileExists{\resultnumbersdir results_macros.tex}{\input{\resultnumbersdir results_macros.tex}}{}
 \newcommand{\todo}[1]{\textcolor{OperaSienna}{\textbf{TODO: #1}}}

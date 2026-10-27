@@ -457,3 +457,10 @@ problems; the rules below fix them without reference to any test result.
   whose string appears in the national vocabulary) would have been near zero
   for every patient under a different code system; it remains only as a
   fallback before the national sequences exist.
+- Borrowing pairs (proposed 2026-10-27, for supervisor review before the lock is
+  final): the primary routed model (R_AB) borrowed broadly on tuning (borrowing
+  profiles correlated 0.83-0.89 across diseases), so the prespecified pairs and
+  negative controls are reported descriptively, not tested; the borrowing map
+  reports what each source adds, how much each disease depends on borrowing,
+  and how similar the diseases' borrowing profiles are. Source removal runs on
+  the primary routed model, with its own-sources-only fit (RBH_AB) as reference.
