@@ -56,6 +56,31 @@ def mean_route_weights(routes: pd.DataFrame, names: list[str]) -> np.ndarray:
     return total / len(routes)
 
 
+def source_corrections(run_dir: Path, prediction_dir: Path, *, max_patients: int = 2000):
+    """(names, route rows, readout tensors, corrections) for a sample of tuning
+    patients; corrections is (patients, sources, hidden), scaled by shrinkage."""
+    tensors = readout_tensors(Path(run_dir) / "best.ckpt")
+    routes = pd.read_parquet(Path(prediction_dir) / "source_route_weights.parquet")
+    names = source_names(routes)
+    if len(names) != tensors["down"].shape[0]:
+        raise ValueError("Route export and checkpoint disagree on the number of sources")
+    embeddings = np.load(Path(prediction_dir) / "patient_embeddings.npz")["embeddings"]
+    rng = np.random.default_rng(0)
+    keep = rng.choice(len(embeddings), min(max_patients, len(embeddings)), replace=False)
+    patients = torch.as_tensor(embeddings[np.sort(keep)], dtype=torch.float32)
+    with torch.no_grad():
+        hidden = F.gelu(torch.einsum("bh,srh->bsr", patients, tensors["down"]))
+        corrections = torch.einsum("bsr,shr->bsh", hidden, tensors["up"])
+        corrections = corrections * tensors["source_shrinkage"][None, :, None]
+    return names, routes, tensors, corrections
+
+
+def correction_sizes(run_dir: Path, prediction_dir: Path, **kwargs) -> dict[str, float]:
+    """Each source's mean correction size (after shrinkage) over tuning patients."""
+    names, _, _, corrections = source_corrections(run_dir, prediction_dir, **kwargs)
+    return dict(zip(names, corrections.norm(dim=-1).mean(0).tolist()))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -66,20 +91,9 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    tensors = readout_tensors(args.run_dir / "best.ckpt")
-    routes = pd.read_parquet(args.prediction_dir / "source_route_weights.parquet")
-    names = source_names(routes)
-    if len(names) != tensors["down"].shape[0]:
-        raise ValueError("Route export and checkpoint disagree on the number of sources")
-    embeddings = np.load(args.prediction_dir / "patient_embeddings.npz")["embeddings"]
-    rng = np.random.default_rng(0)
-    keep = rng.choice(len(embeddings), min(args.max_patients, len(embeddings)), replace=False)
-    patients = torch.as_tensor(embeddings[np.sort(keep)], dtype=torch.float32)
-
-    with torch.no_grad():
-        hidden = F.gelu(torch.einsum("bh,srh->bsr", patients, tensors["down"]))
-        corrections = torch.einsum("bsr,shr->bsh", hidden, tensors["up"])
-        corrections = corrections * tensors["source_shrinkage"][None, :, None]
+    names, routes, tensors, corrections = source_corrections(
+        args.run_dir, args.prediction_dir, max_patients=args.max_patients)
+    n_patients = len(corrections)
     size = corrections.norm(dim=-1).mean(0).numpy()  # per source
     weights = mean_route_weights(routes, names)
     contribution = weights * size
@@ -87,7 +101,7 @@ def main():
 
     unit = F.normalize(corrections, dim=-1)
     to_hub = (unit * unit[:, hub : hub + 1]).sum(-1).mean(0).numpy()  # per source
-    pairwise = torch.einsum("bsh,bth->st", unit, unit).numpy() / len(patients)
+    pairwise = torch.einsum("bsh,bth->st", unit, unit).numpy() / n_patients
     upper = pairwise[np.triu_indices(len(names), k=1)]
 
     # Who borrows from whom: per target disease, the contribution (route weight x
@@ -119,7 +133,7 @@ def main():
     similar = [i for i in np.argsort(-to_hub) if i != hub][:10]
     report = {
         "run_dir": str(args.run_dir),
-        "patients": int(len(patients)),
+        "patients": int(n_patients),
         "hub": {"source": names[hub], "mean_weight": round(float(weights[hub]), 4),
                 "correction_size": round(float(size[hub]), 4),
                 "share_of_contribution": round(float(contribution[hub] / contribution.sum()), 4)},

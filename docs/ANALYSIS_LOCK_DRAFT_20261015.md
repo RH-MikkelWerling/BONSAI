@@ -394,3 +394,26 @@ choice is made before the test set is opened, and the ratings stay blind.
   risk no higher than the IPI low-risk group; high = the IPI high-risk group's
   specificity), both fixed on tuning data. Net benefit there is written to
   `decision_curve_operating_points.csv` and marked on the figure.
+
+## Display and subset rules after the tuning rehearsal (added 2026-10-27, before any test data were opened)
+The rehearsal of the full pipeline on tuning predictions showed three display
+problems; the rules below fix them without reference to any test result.
+- OPERA. The configuration chosen on tuning data (the router-fix rule, then the
+  national-arm decision) is analysed a second time under the name OPERA, with
+  contrasts O1 = OPERA vs per-task XGBoost, O2 = vs the joint model and O3 = vs
+  the specialist. The regional, calendar-year and patient-subgroup analyses and
+  the atlas report OPERA beside the joint model; J_L remains the model fixed
+  before any tuning result, and the headline family is unchanged.
+- Patient-subset re-analyses (regions, calendar years). Within a subset some
+  small cells resample to a single class in part of the bootstrap replicates,
+  which voided the whole panel interval. In these re-analyses the panel is the
+  cells whose estimate is finite in every replicate, shared by all models
+  compared within the subset; the number of cells left out is reported. The
+  full-panel analyses keep the strict fixed inventory.
+- Reliability-curve examples are chosen by rule from training counts only: per
+  listed clinical domain, the cell with the most training events among cells
+  with at least 200 training events and an event share of at least 10%.
+- Scatter plots of cell gains against training events draw cells with at
+  least 10 training events and a 95% interval narrower than 0.4 AUC; every
+  cell still enters the curves and summaries. Reliability bins with fewer
+  than 20 patients are not drawn.

@@ -390,6 +390,8 @@ def build_inventory(args):
     ).any():
         raise ValueError("Ambiguous duplicate canonical model cells")
     template.update(route_export)
+    if getattr(args, "opera_model", None):
+        template["opera_model"] = args.opera_model
     template.update(
         estimand=estimand,
         analysis_horizons_days=sorted(wanted_horizons),
@@ -480,6 +482,9 @@ def main():
     ):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--data-contract", required=True)
+    parser.add_argument("--opera-model",
+                        help="the configuration chosen on tuning data (overrides the "
+                             "template's opera_model), e.g. R_L, R_O_L or R_EA")
     parser.add_argument("--analysis-horizons", default="365")
     parser.add_argument("--registry-tabular-dir", type=Path,
                         help="Registry-augmented XGBoost runs (model XR), if run.")

@@ -367,6 +367,8 @@ def main():
     parser.add_argument("--analysis-config", type=Path, required=True)
     parser.add_argument("--score-config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--split", choices=("held_out", "tuning"), default="held_out",
+                        help="tuning only for rehearsing the pipeline")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     analysis = yaml.safe_load(args.analysis_config.read_text())
@@ -474,7 +476,7 @@ def main():
                 # Native endpoint: the longest prespecified horizon the test
                 # patients' follow-up supports (outcome-blind).
                 longest = {**spec, "horizon_days": max(spec["horizons_days"])}
-                held, _ = score_patients(predictions, metadata, longest, "held_out")
+                held, _ = score_patients(predictions, metadata, longest, args.split)
                 horizon, follow = followup_horizon(held, spec)
                 spec = {**spec, "horizon_days": horizon}
                 record.update(endpoint_role="native", horizon_days=horizon,
@@ -482,7 +484,7 @@ def main():
                               median_followup_days=follow["median_days"],
                               followup_q25_days=follow["q25_days"],
                               followup_q75_days=follow["q75_days"])
-            held, audit = score_patients(predictions, metadata, spec, "held_out")
+            held, audit = score_patients(predictions, metadata, spec, args.split)
             tuning, _ = score_patients(predictions, metadata, spec, "tuning")
             record.update(audit)
             if "median_followup_days" not in record:
@@ -574,7 +576,8 @@ def main():
 
                 dca = spec["decision_curve"]
                 comparators = list(dca.get("comparators", []))
-                paired, dropped = with_comparators(held, predictions, spec, comparators)
+                paired, dropped = with_comparators(held, predictions, spec, comparators,
+                                                   split=args.split)
                 # The model's risk-group cutoffs (fixed on tuning data) are the
                 # prespecified operating points: net benefit is computed there.
                 points = {"Low-risk cutoff": float(cuts[0]),

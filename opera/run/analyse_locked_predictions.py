@@ -192,6 +192,40 @@ def json_safe(value):
     return value
 
 
+# Router decomposition (lock addenda 2026-10-26), for every router-fix design
+# whose fits were analysed: own corrections (home-only vs global-only),
+# borrowing (routed vs home-only) and both (routed vs global-only).
+ROUTER_DESIGNS = {"O": ("R_O_L", "RBH_O_L"), "AB": ("R_AB_L", "RBH_AB_L")}
+GLOBAL_ONLY = "N_A_L"
+
+
+# The configuration chosen on tuning data (router-fix rule, then the national
+# arm) under one name, so every figure can show "the best model" against
+# XGBoost without knowing which fit won. Set ``opera_model`` in the analysis
+# config; absent or unavailable, no OPERA rows or contrasts are made.
+OPERA_CONTRASTS = {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)", "O3": "gain(OPERA,S_L)"}
+
+
+def with_opera_alias(predictions, model):
+    if not model or model not in set(predictions.model):
+        return predictions, {}
+    alias = predictions.loc[predictions.model == model].assign(model="OPERA")
+    present = set(predictions.model) | {"OPERA"}
+    contrasts = {name: expression for name, expression in OPERA_CONTRASTS.items()
+                 if expression[5:-1].split(",")[1] in present}
+    return pd.concat([predictions, alias], ignore_index=True), contrasts
+
+
+def router_decomposition(models):
+    contrasts = {}
+    for tag, (routed, home) in ROUTER_DESIGNS.items():
+        if {routed, home, GLOBAL_ONLY} <= set(models):
+            contrasts |= {f"router_own_{tag}": f"gain({home},{GLOBAL_ONLY})",
+                          f"router_borrow_{tag}": f"gain({routed},{home})",
+                          f"router_both_{tag}": f"gain({routed},{GLOBAL_ONLY})"}
+    return contrasts
+
+
 def read_route_artifact(config, metadata):
     """Accept long gates or the native JSON-bank route export."""
     frame = read_table(config["route_weights"])
@@ -323,6 +357,9 @@ def run(config, output_dir):
         for name, value in family.items()
     }
     contrasts.update(config.get("extra_contrasts", {}))
+    contrasts.update(router_decomposition(set(predictions.model)))
+    predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
+    contrasts.update(opera_contrasts)
     candidates = config.get("strategy_candidates", ["S_L", "D_L", "O_L"])
     stage("strategy selection")
     selected, selection = tuning_selected_strategies(predictions, candidates)
@@ -552,7 +589,11 @@ def run(config, output_dir):
             continue
         wanted = {k: v for k, v in contrasts.items() if k in spec.get("contrasts", contrasts)}
         effects, absolute = [], []
-        needed = models_for(wanted, spec.get("models", ["J_L", "X"]))
+        wanted = {k: v for k, v in wanted.items()
+                  if models_for({k: v}) <= set(predictions.model)}
+        summary_models = [m for m in spec.get("models", ["J_L", "X"])
+                          if m in set(predictions.model)]
+        needed = models_for(wanted, summary_models)
         relevant = predictions.loc[predictions.model.isin(needed)]
         for value, ids in metadata.dropna(subset=[column]).groupby(column).subject_id:
             subset = relevant.loc[relevant.subject_id.isin(set(ids))]
@@ -562,12 +603,13 @@ def run(config, output_dir):
             except ValueError:
                 continue
             _, summary = effect_summaries(result["contrasts"], result["bootstrap_draws"],
-                                          cell_metadata, strata=["no_strata"])
+                                          cell_metadata, strata=["no_strata"],
+                                          stable_cells_only=True)
             effects.append(summary.assign(covariate=column, stratum_value=str(value),
                                           n_subjects=len(set(ids))))
             absolute.append(panel_estimates(
                 result["estimates"], result["model_bootstrap_draws"],
-                {column: spec.get("models", ["J_L", "X"])},
+                {column: summary_models}, stable_cells_only=True,
             ).assign(covariate=column, stratum_value=str(value)))
         if effects:
             tables[f"stratified_{column}_effects"] = pd.concat(effects, ignore_index=True)

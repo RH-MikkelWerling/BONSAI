@@ -42,6 +42,13 @@ AUC is below R_L's by more than the noise floor. The borrowing contrasts
 (chosen vs RBH_AB and N_A; RBH_AB vs N_A; N_A vs J_L) are reported, never
 used to choose.
 
+Stage 4 (same phase, run on the stage-4 bundle; lock addendum "own sources
+outside the mix"): R_O replaces R_L if its routing is healthy by the same three
+criteria, with contributions measured as route weight x the source's
+correction size rebuilt from the checkpoint, and its panel AUC is not below
+R_L's by more than |R_O_s43 - R_O|; otherwise the stage-3 outcome stands.
+Borrowing is reported as R_O vs RBH_O, own corrections as RBH_O vs N_A.
+
 Decisions are written only with --write; the report is always saved.
 """
 
@@ -247,11 +254,17 @@ def routing_diagnostics(path):
     }
 
 
-def routing_health(routes_path, support_path):
-    """The prespecified routing-health criteria for one routed fit."""
+def routing_health(routes_path, support_path, sizes=None):
+    """The prespecified routing-health criteria for one routed fit.
+
+    Contributions are route weight x support shrinkage (stage 3) or, given
+    ``sizes`` (source -> mean correction size after shrinkage, rebuilt from the
+    checkpoint), route weight x correction size (stage 4)."""
     routes = pd.read_parquet(routes_path)
     support = json.loads(Path(support_path).read_text())
     shrinkage = dict(zip(support["sources"], support["shrinkage"]))
+    if sizes is not None:
+        shrinkage = {name: sizes[name] for name in shrinkage}
     tops, effective, top_borrowed = {}, [], {}
     for record in routes.itertuples(index=False):
         weights = {**json.loads(record.disease_weights), **json.loads(record.outcome_weights)}
@@ -298,12 +311,15 @@ def router_fix_rule(args, metadata):
         for name in canonical_models(row, config, bundle):
             by_alias.setdefault(name, []).append(row)
     names = ("J_L", "R_L", "N_A_L", "RBH_AB_L", "R_A_L", "R_AB_L", "R_ABT_L", "R_AB_s43_L")
+    stage4 = bool(by_alias.get("R_O_L"))  # own sources outside the mix (addendum)
+    if stage4:
+        names += STAGE4_FITS
     wanted = {}
     for name in names:
         fits = by_alias.get(name, [])
         if len(fits) != 1:
             raise ValueError(f"The router-fix rule needs exactly one {name} fit in the "
-                             f"stage-3 bundle; found {len(fits)}")
+                             f"bundle; found {len(fits)}")
         wanted[name] = fits[0]
     frames = []
     for name, row in wanted.items():
@@ -320,6 +336,16 @@ def router_fix_rule(args, metadata):
         **{f"{n}_vs_N_A_L": f"gain({n},N_A_L)" for n in ("R_A_L", "R_AB_L", "R_ABT_L", "RBH_AB_L")},
         "N_A_L_vs_J_L": "gain(N_A_L,J_L)", "R_L_vs_J_L": "gain(R_L,J_L)",
     }
+    if stage4:
+        contrasts |= {
+            "seed_noise_O": "gain(R_O_s43_L,R_O_L)",
+            # claim c: borrowing, with own sources applied outside the mix
+            "R_O_L_vs_RBH_O_L": "gain(R_O_L,RBH_O_L)",
+            # own corrections at full weight, without borrowing
+            "RBH_O_L_vs_N_A_L": "gain(RBH_O_L,N_A_L)",
+            "R_O_L_vs_R_L": "gain(R_O_L,R_L)", "R_O_L_vs_R_AB_L": "gain(R_O_L,R_AB_L)",
+            "R_O_L_vs_J_L": "gain(R_O_L,J_L)",
+        }
     tables = paired_analysis(predictions, contrasts, replicates=args.replicates, seed=2026,
                              patient_gain_contrasts=())
     summary = {name: {metric: panel(tables["contrasts"], tables["bootstrap_draws"], name, metric)
@@ -327,7 +353,8 @@ def router_fix_rule(args, metadata):
     noise = abs(summary["seed_noise"]["auc"]["gain"])
     by_disease = {}
     for name in ("R_AB_L_vs_RBH_AB_L", "R_AB_L_vs_N_A_L", "RBH_AB_L_vs_N_A_L",
-                 "R_AB_L_vs_R_L", "N_A_L_vs_J_L"):
+                 "R_AB_L_vs_R_L", "N_A_L_vs_J_L",
+                 *(("R_O_L_vs_RBH_O_L", "RBH_O_L_vs_N_A_L", "R_O_L_vs_R_L") if stage4 else ())):
         cells, draws = tables["contrasts"], tables["bootstrap_draws"]
         by_disease[name] = {
             cohort: {k: panel(cells.loc[cells.cohort == cohort], draws.loc[draws.cohort == cohort],
@@ -354,9 +381,46 @@ def router_fix_rule(args, metadata):
         primary = choice if vs_r[choice] >= -noise else "R_L"
     else:
         choice, primary = None, "R_L"
-    return wanted, {"seed_noise_auc": noise, "health": health, "candidates": candidates,
-                    "eligible": eligible, "chosen_fix": choice, "primary": primary,
-                    "contrasts": summary, "by_disease_auc": by_disease}
+    result = {"seed_noise_auc": noise, "health": health, "candidates": candidates,
+              "eligible": eligible, "chosen_fix": choice, "primary": primary,
+              "contrasts": summary, "by_disease_auc": by_disease}
+    if stage4:
+        result["stage3_primary"] = primary
+        result["stage4"] = stage4_rule(args, wanted, summary)
+        result["primary"] = result["stage4"]["primary"] or primary
+    return wanted, result
+
+
+STAGE4_FITS = ("R_O_L", "RBH_O_L", "R_O_s43_L")
+
+
+def stage4_rule(args, wanted, summary):
+    """Lock addendum, own sources outside the mix: R_O replaces R_L if its
+    routing is healthy (contributions = weight x correction size, over borrowed
+    sources) and its panel AUC is not below R_L's by more than |R_O_s43 - R_O|;
+    otherwise the stage-3 rule decides (primary None here)."""
+    from opera.run.audit_router_hub import correction_sizes
+
+    noise = abs(summary["seed_noise_O"]["auc"]["gain"])
+    runs = Path(args.runs_dir or Path(args.prediction_dir).parent / "neural_runs")
+    health = {}
+    for name in ("R_O_L", "R_O_s43_L"):
+        run = wanted[name]["run_directory"]
+        directory = Path(args.prediction_dir) / run / "tuning"
+        needed = [directory / f for f in ("source_route_weights.parquet",
+                                          "source_route_support.json", "patient_embeddings.npz")]
+        absent = [str(p) for p in needed if not p.is_file()]
+        if absent:
+            health[name] = {"missing": absent}
+            continue
+        sizes = correction_sizes(runs / run, directory)
+        health[name] = routing_health(needed[0], needed[1], sizes=sizes)
+    healthy = bool(health["R_O_L"].get("healthy"))
+    vs_r = summary["R_O_L_vs_R_L"]["auc"]["gain"]
+    replaces = healthy and vs_r >= -noise
+    return {"seed_noise_auc": noise, "health": health, "R_O_vs_R_L_auc": vs_r,
+            "borrowing_auc": summary["R_O_L_vs_RBH_O_L"]["auc"],
+            "replaces_R_L": replaces, "primary": "R_O_L" if replaces else None}
 
 
 def _same(source_name, target):
@@ -406,6 +470,8 @@ def main():
     parser.add_argument("--membership", type=Path, required=True,
                         help="Population file with subject_id and cohort_fine")
     parser.add_argument("--decisions", type=Path, required=True)
+    parser.add_argument("--runs-dir", type=Path,
+                        help="neural run directories (default: <prediction-dir>/../neural_runs)")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--router-lock", type=Path,
                         help="query step: also write the final router lock here")
@@ -428,8 +494,14 @@ def main():
         report.write_text(json.dumps(record, indent=2, default=float) + "\n")
         auc = {name: [round(v["auc"][k], 4) for k in ("gain", "lower", "upper")]
                for name, v in result["contrasts"].items()}
+        stage4 = result.get("stage4")
         print(json.dumps({"primary": result["primary"], "chosen_fix": result["chosen_fix"],
                           "seed_noise_auc": result["seed_noise_auc"],
+                          **({"stage4": {k: stage4[k] for k in (
+                              "seed_noise_auc", "R_O_vs_R_L_auc", "borrowing_auc",
+                              "replaces_R_L")} | {"healthy": {
+                                  n: h.get("healthy", h) for n, h in stage4["health"].items()}}}
+                             if stage4 else {}),
                           "healthy": {n: h.get("healthy", h) for n, h in result["health"].items()},
                           "auc_gain_with_interval": auc, "report": str(report)},
                          indent=2, default=float))

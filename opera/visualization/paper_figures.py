@@ -55,6 +55,7 @@ MODEL_STYLE = {
     "S": ("#7189BC", "Specialist"),
     "J": ("#2D3A8C", "Joint"),
     "R": ("#8974AC", "Routed"),
+    "OPERA": ("#8974AC", "OPERA"),  # the configuration chosen on tuning data
     "X": ("#408579", "XGBoost"),
     "LR": ("#9E9E9E", "Logistic regression"),
 }
@@ -67,6 +68,10 @@ GAIN_CMAP = LinearSegmentedColormap.from_list(
     "opera_gain", ["#B5451B", "#E7B9A5", "#F7F7F5", "#AEB8DA", "#2D3A8C"]
 )
 GAIN_CMAP.set_bad(PALETTE["missing"])
+# Calibration bias is not better or worse by sign: a neutral diverging scale
+# (ochre: predicted above observed; teal: below), unlike the gain map.
+BIAS_CMAP = LinearSegmentedColormap.from_list(
+    "opera_bias", ["#B18B4D", "#E6D5B5", "#F7F7F5", "#B5D3D1", "#3E8A87"])
 SHORT_GROUP = {
     "Disease course and later malignancy": "Disease course",
     "Infection and antimicrobial use": "Infection",
@@ -1497,7 +1502,8 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
         models = atlas.rename(columns={"cif_auc": "J"}).assign(
             cohort="All diseases", cohort_group="All")
     year = models.loc[models.horizon_days == horizon]
-    matrix = year.pivot_table(index="outcome", columns="cohort", values="J")
+    lead = "OPERA" if "OPERA" in year and year.OPERA.notna().any() else "J"
+    matrix = year.pivot_table(index="outcome", columns="cohort", values=lead)
     domains = (year.drop_duplicates("outcome").set_index("outcome").endpoint_group
                .reindex(matrix.index))
     rank = {d: i for i, d in enumerate(domain_order)}
@@ -1566,7 +1572,8 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     cax = fig.add_subplot(grid[2])
     cax.set_position([cax.get_position().x0 + 0.01, 0.35, 0.012, 0.3])
     bar = fig.colorbar(image, cax=cax)
-    bar.set_label("Held-out test AUC (joint model)", fontsize=6.6)
+    bar.set_label("Held-out test AUC (" + ("OPERA" if lead == "OPERA" else "joint model")
+                  + ")", fontsize=6.6)
     bar.ax.tick_params(labelsize=6)
     bar.outline.set_visible(False)
     watermark(fig, mark)
@@ -2885,8 +2892,13 @@ def _region_name(name):
     return text
 
 
-def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}"):
-    """Regions coloured by ``values`` (region -> number); Bornholm as an inset."""
+def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}", intervals=None,
+                  reference=None):
+    """Regions coloured by ``values`` (region -> number); Bornholm as an inset.
+
+    ``intervals`` (region -> (lower, upper)) prints each 95% CI under the value;
+    with a ``reference`` (e.g. 0 for gains), regions whose interval includes it
+    are hatched, so the colour alone never overstates a difference."""
     import matplotlib.patheffects as effects
     from matplotlib.patches import FancyBboxPatch, Polygon, Rectangle
 
@@ -2899,7 +2911,9 @@ def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}"):
             color = cmap(norm(value)) if np.isfinite(value) else PALETTE["missing"]
             ax.add_patch(FancyBboxPatch((x - 0.42, y - 0.4), 0.84, 0.8,
                                         boxstyle="round,pad=0.02,rounding_size=0.12",
-                                        facecolor=color, edgecolor="white", lw=1.2))
+                                        facecolor=color, edgecolor="white", lw=1.2,
+                                        hatch="//////" if _includes(intervals, name, reference)
+                                        else None))
             text = f"{name}\n{fmt.format(value)}" if np.isfinite(value) else name
             ax.text(x, y, text, ha="center", va="center", fontsize=6,
                     color=PALETTE["ink"], path_effects=halo)
@@ -2926,6 +2940,9 @@ def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}"):
                 ring = ring + shift
             ax.add_patch(Polygon(ring, closed=True, facecolor=color,
                                  edgecolor=PALETTE["ink_muted"], lw=0.25, zorder=2))
+            if _includes(intervals, name, reference):
+                ax.add_patch(Polygon(ring, closed=True, facecolor="none", hatch="//////",
+                                     edgecolor=(1, 1, 1, 0.75), lw=0, zorder=3))
         if name in anchors:
             ax.text(*anchors[name], name, ha="center", va="bottom", fontsize=5.6,
                     color=PALETTE["ink_secondary"], path_effects=halo, zorder=4)
@@ -2935,11 +2952,24 @@ def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}"):
                 ax.text(anchors[name][0], anchors[name][1] - 0.02, fmt.format(shown),
                         ha="center", va="top", fontsize=6.6, fontweight="bold",
                         color=PALETTE["ink"], path_effects=halo, zorder=4)
+                if intervals and name in intervals:
+                    low, high = (round(float(v), 3) + 0.0 for v in intervals[name])
+                    ax.text(anchors[name][0], anchors[name][1] - 0.17,
+                            f"{fmt.format(low)} to {fmt.format(high)}", ha="center",
+                            va="top", fontsize=4.9, color=PALETTE["ink_secondary"],
+                            path_effects=halo, zorder=4)
     ax.add_patch(Rectangle((12.12, 56.42), 0.78, 0.52, fill=False,
                            edgecolor=PALETTE["grid"], lw=0.6))
     ax.text(12.16, 56.9, "Bornholm", fontsize=5, va="top", color=PALETTE["ink_muted"])
     ax.set_xlim(8.0, 13.0)
     ax.set_ylim(54.55, 57.8)
+
+
+def _includes(intervals, name, reference):
+    if not intervals or reference is None or name not in intervals:
+        return False
+    low, high = intervals[name]
+    return bool(np.isfinite(low) and np.isfinite(high) and low <= reference <= high)
 
 
 def _region_forest(ax, table, series, value="gain", reference=0.0):
@@ -2974,10 +3004,12 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     region GeoJSON; by default the packaged geoBoundaries regions, ``False``
     for schematic tiles.
 
-    Maps: A, AUC gain of the joint model over XGBoost; B, the joint model's AUC;
-    C, its calibration in the large. Below, the same with 95% CI: D, gains over
-    the specialist and XGBoost; E, AUC of the joint model and XGBoost;
-    F, calibration in the large; G, records before treatment.
+    Maps: A, AUC gain over XGBoost of OPERA (the configuration chosen on tuning
+    data, when analysed) or else the joint model; B, its AUC; C, its calibration
+    in the large; each with its 95% CI, hatched where the interval includes 0.
+    Below, with 95% CI: D, gains over the specialist and XGBoost; E, AUC of the
+    joint model, OPERA and XGBoost; F, calibration in the large; G, records
+    before treatment.
     """
     import json
     from pathlib import Path
@@ -3000,9 +3032,17 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     fig = plt.figure(figsize=(7.2, 7.4))
     maps = fig.add_gridspec(1, 3, wspace=0.08, left=0.01, right=0.99, top=0.95, bottom=0.6)
 
-    def map_panel(index, letter, title, values, cmap, norm, label, fmt):
+    def intervals_of(frame):
+        if not {"lower", "upper"} <= set(frame):
+            return None
+        rows = frame.set_index("region")
+        return {r: (rows.lower[r], rows.upper[r]) for r in rows.index}
+
+    def map_panel(index, letter, title, values, cmap, norm, label, fmt, intervals=None,
+                  reference=None):
         ax = fig.add_subplot(maps[index])
-        _draw_denmark(ax, values, geometry, norm, cmap, fmt=fmt)
+        _draw_denmark(ax, values, geometry, norm, cmap, fmt=fmt, intervals=intervals,
+                      reference=reference)
         ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, color=PALETTE["ink"],
                      pad=3)
         box = ax.get_position()
@@ -3014,28 +3054,42 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         cb.outline.set_visible(False)
         cb.set_label(label, fontsize=6.2)
 
-    gain = auc.loc[auc.contrast == "J-X"].set_index("region").gain
+    # The best model (OPERA) where it was analysed, else the joint model.
+    lead = "OPERA" if (auc.contrast == "OPERA-X").any() else "J"
+    lead_name = "OPERA" if lead == "OPERA" else "Joint model"
+    vs_x = auc.loc[auc.contrast == f"{lead}-X"]
+    gain = vs_x.set_index("region").gain
     span = float(np.nanmax(np.abs(gain))) or 0.01
     map_panel(0, "A", "Gain over XGBoost", gain.to_dict(), GAIN_CMAP,
-              TwoSlopeNorm(0, -span, span), "One-year AUC gain", "{:+.3f}")
+              TwoSlopeNorm(0, -span, span), "One-year AUC gain", "{:+.3f}",
+              intervals_of(vs_x), reference=0.0)
     if absolute is not None:
-        joint = absolute.loc[(absolute.metric == "auc") & (absolute.model == "J")]
+        joint = absolute.loc[(absolute.metric == "auc") & (absolute.model == lead)]
         values = joint.set_index("region").gain
         low, high = float(values.min()), float(values.max())
         pad = max((high - low) * 0.15, 0.005)
-        map_panel(1, "B", "Joint model AUC", values.to_dict(), ATLAS_CMAP,
-                  plt.Normalize(low - pad, high + pad), "One-year AUC", "{:.3f}")
-        bias = absolute.loc[(absolute.metric == "calibration_bias")
-                            & (absolute.model == "J")].set_index("region").gain
+        map_panel(1, "B", f"{lead_name} AUC", values.to_dict(), ATLAS_CMAP,
+                  plt.Normalize(low - pad, high + pad), "One-year AUC", "{:.3f}",
+                  intervals_of(joint))
+        bias_rows = absolute.loc[(absolute.metric == "calibration_bias")
+                                 & (absolute.model == lead)]
+        bias = bias_rows.set_index("region").gain
         span = float(np.nanmax(np.abs(bias))) or 0.01
-        map_panel(2, "C", "Calibration in the large", bias.to_dict(), plt.get_cmap("RdBu_r"),
-                  TwoSlopeNorm(0, -span, span), "Observed − predicted risk", "{:+.3f}")
+        map_panel(2, "C", "Calibration in the large", bias.to_dict(), BIAS_CMAP,
+                  TwoSlopeNorm(0, -span, span), "Observed − predicted risk", "{:+.3f}",
+                  intervals_of(bias_rows), reference=0.0)
+    fig.text(0.01, 0.535, "Under each value: 95% CI. Hatched: the interval includes 0.",
+             fontsize=6.2, color=PALETTE["ink_muted"], ha="left")
 
     lower = fig.add_gridspec(1, 4, wspace=0.18, left=0.13, right=0.985, top=0.43,
                              bottom=0.1)
-    styles = {"J-S": (MODEL_STYLE["S"][0], "vs specialist"),
-              "J-X": (MODEL_STYLE["X"][0], "vs XGBoost")}
+    styles = {"J-S": (MODEL_STYLE["S"][0], "Joint vs specialist"),
+              "J-X": (MODEL_STYLE["X"][0], "Joint vs XGBoost")}
     model_styles = {"J": (MODEL_STYLE["J"][0], "Joint"), "X": (MODEL_STYLE["X"][0], "XGBoost")}
+    if lead == "OPERA":
+        styles["OPERA-X"] = (MODEL_STYLE["OPERA"][0], "OPERA vs XGBoost")
+        model_styles = {"J": model_styles["J"], "OPERA": MODEL_STYLE["OPERA"],
+                        "X": model_styles["X"]}
 
     def header(ax, letter, title):
         ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, pad=30,
@@ -3240,6 +3294,155 @@ def figure_support(cells, *, horizon=365, edges=(20, 100, 500), mark=None):
     ax.set_ylim(0, 1.02)
     _panel_title(ax, "B", "Cumulative")
     despine(ax, "y")
+    watermark(fig, mark)
+    return fig
+
+
+# Router decomposition: own corrections, borrowing, both (lock addenda 2026-10-26).
+HIERARCHY_STYLE = {"own": ("#B18B4D", "Own disease and outcome correction"),
+                   "borrow": (MODEL_STYLE["R"][0], "Borrowing from other tasks"),
+                   "both": (PALETTE["opera"], "Both (routed vs global-only)")}
+SUPPORT_BANDS = [(0, 20, "<20"), (20, 100, "20–100"), (100, 500, "100–500"),
+                 (500, np.inf, "≥500")]
+BAND_COLORS = ["#C3CAE6", "#8C9AD0", "#5367B0", "#1F2A72"]  # blue arm of GAIN_CMAP
+
+
+def _log_support_fit(x, y, grid, *, n_boot=200, seed=0):
+    """Quadratic in log10 training events, with a 95% bootstrap band over cells
+    (descriptive; the inferential support curves are the hierarchical ones)."""
+    rng = np.random.default_rng(seed)
+    lx, lg = np.log10(x), np.log10(grid)
+    centre = np.polyval(np.polyfit(lx, y, 2), lg)
+    fits = []
+    for _ in range(n_boot):
+        i = rng.integers(0, len(x), len(x))
+        fits.append(np.polyval(np.polyfit(lx[i], y[i], 2), lg))
+    return centre, *np.quantile(np.array(fits), [0.025, 0.975], axis=0)
+
+
+def figure_hierarchy(cells, *, metric="auc", horizon=365, mark=None):
+    """Where pooling hurts, and how routing's own corrections and borrowing
+    depend on training support.
+
+    ``cells`` is ``hierarchy_cells.csv``: per cell, ``tuning_joint_vs_specialist``
+    and the evaluation-split gains ``own`` (home-only vs global-only),
+    ``borrow`` (routed vs home-only) and ``both`` (routed vs global-only).
+    A: cells by tuning harm, coloured by support band. B: own corrections and
+    borrowing against training events. C: median and IQR by support band.
+    """
+    data = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)
+                     & cells.n_events_train.notna()].copy()
+    data["band"] = np.digitize(data.n_events_train, [b[1] for b in SUPPORT_BANDS[:-1]])
+    fig = plt.figure(figsize=(7.2, 6.6))
+    top = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.08], wspace=0.34, left=0.095,
+                           right=0.975, top=0.93, bottom=0.6)
+    bottom = fig.add_gridspec(1, 1, left=0.3, right=0.975, top=0.41, bottom=0.075)
+    unit = {"auc": "AUC", "brier": "Brier", "log_loss": "Log loss"}.get(metric, metric)
+
+    # A: cells by tuning harm, coloured by support band (the rows of C).
+    ax = fig.add_subplot(top[0])
+    shown = estimable_cells(data.rename(columns={"both": "gain", "both_lower": "lower",
+                                                 "both_upper": "upper"}))
+    for i, color in enumerate(BAND_COLORS):
+        part = shown.loc[shown.band == i]
+        ax.scatter(part.tuning_joint_vs_specialist, part.gain, s=6, color=color,
+                   alpha=0.85, linewidths=0, rasterized=True, zorder=2 + i)
+    ax.axhline(0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
+    ax.axvline(0, color=PALETTE["zero_line"], lw=0.7, ls=(0, (2, 2)), zorder=1)
+    harmed = data.loc[data.tuning_joint_vs_specialist < 0]
+    if len(harmed):
+        ax.text(0.03, 0.03, f"Left of the line (hurt by pooling):\n"
+                f"{(harmed.both > 0).mean():.0%} of cells better routed,\n"
+                f"median {harmed.both.median():+.3f}", transform=ax.transAxes,
+                ha="left", va="bottom", fontsize=6.5, color=PALETTE["ink_secondary"],
+                linespacing=1.3, zorder=10,
+                bbox=dict(facecolor="white", edgecolor="none", alpha=0.85, pad=1.5))
+    key = [Line2D([], [], ls="", marker="s", markersize=5, color=c, label=b[2])
+           for c, b in zip(BAND_COLORS, SUPPORT_BANDS)]
+    ax.legend(handles=key, title="Training events", loc="upper right", ncol=2,
+              frameon=False, fontsize=6.5, title_fontsize=6.5, handletextpad=0.2,
+              columnspacing=0.8, borderaxespad=0.2)
+    ax.set_xlabel(f"Joint vs specialist, tuning ({unit})")
+    ax.set_ylabel(f"Routed vs global-only ({unit})")
+    ax.xaxis.set_major_locator(MaxNLocator(4))
+    ax.yaxis.set_major_locator(MaxNLocator(5))
+    _panel_title(ax, "A", "Cells hurt by pooling")
+    despine(ax, "y")
+
+    # B: own corrections and borrowing against support; grey cells, coloured curves.
+    ax = fig.add_subplot(top[1])
+    x = data.n_events_train.clip(lower=1).to_numpy(float)
+    grid = np.logspace(np.log10(x.min()), np.log10(x.max()), 120)
+    curves = {}
+    for column in ("own", "borrow"):
+        points = estimable_cells(data.rename(columns={
+            column: "gain", f"{column}_lower": "lower", f"{column}_upper": "upper"}))
+        ax.scatter(points.n_events_train.clip(lower=1), points.gain, s=3, color="#9AA3B5",
+                   alpha=0.18, linewidths=0, rasterized=True, zorder=2)
+        color = HIERARCHY_STYLE[column][0]
+        centre, low, high = _log_support_fit(x, data[column].to_numpy(float), grid)
+        ax.fill_between(grid, low, high, color=color, alpha=0.18, linewidth=0, zorder=3)
+        ax.plot(grid, centre, color=color, lw=2.0, zorder=4, solid_capstyle="round")
+        curves[column] = centre
+    gap = curves["own"] - curves["borrow"]
+    crossings = np.nonzero(np.diff(np.sign(gap)))[0]
+    if len(crossings):
+        cross = grid[crossings[0]]
+        ax.axvline(cross, color=PALETTE["ink_muted"], lw=0.7, ls=(0, (2, 2)), zorder=1)
+        ax.text(cross * 1.12, 0.04, f"crossover\n≈{cross:,.0f} events",
+                transform=ax.get_xaxis_transform(), fontsize=6.5,
+                color=PALETTE["ink_muted"], va="bottom")
+    for column, offset, va in (("borrow", 8, "bottom"), ("own", -8, "top")):
+        ax.annotate(HIERARCHY_STYLE[column][1].split(" from")[0].replace(
+                        " disease and outcome", ""),
+                    (grid[2], curves[column][2]), xytext=(0, offset),
+                    textcoords="offset points", color=HIERARCHY_STYLE[column][0],
+                    fontsize=7.5, fontweight="bold", va=va)
+    ax.axhline(0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
+    ax.set_xscale("log")
+    edges = [x.min()] + [b[1] for b in SUPPORT_BANDS[:-1]] + [x.max()]
+    for i, color in enumerate(BAND_COLORS):
+        if edges[i + 1] > edges[i]:
+            ax.axvspan(edges[i], edges[i + 1], ymin=0, ymax=0.022, color=color, lw=0,
+                       zorder=5)
+    ax.set_xlabel("Target training events (log scale)")
+    ax.set_ylabel(f"{unit} gain")
+    ax.yaxis.set_major_locator(MaxNLocator(5))
+    _panel_title(ax, "B", "Own correction and borrowing")
+    despine(ax, "y")
+
+    # C: median and IQR by support band, with the band's cell count as a bar.
+    ax = fig.add_subplot(bottom[0])
+    labels = [f"{b[2]} events" for b in SUPPORT_BANDS]
+    data["band_label"] = [labels[i] for i in data.band]
+    long = data.melt(id_vars=["band_label"], value_vars=["own", "borrow", "both"],
+                     var_name="series", value_name="gain")
+    summary = _summary_rows(long, ["band_label", "series"])
+    present = [label for label in labels if label in set(data.band_label)]
+    handles = _diamond_forest(ax, summary, row_key="band_label", row_order=present,
+                              series_key="series", series_style=HIERARCHY_STYLE,
+                              xlabel=f"{unit} gain (median, IQR)", show_counts=False,
+                              spread=0.24)
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    counts = data.band_label.value_counts().reindex(present)
+    bars = ax.inset_axes([-0.16, 0, 0.14, 1])
+    bars.barh(range(len(present)), counts, height=0.42, linewidth=0,
+              color=[BAND_COLORS[labels.index(label)] for label in present])
+    bars.set_xlim(counts.max() * 1.25, 0)
+    bars.set_ylim(ax.get_ylim())
+    ax.set_yticks(range(len(present)), [])
+    bars.set_yticks(range(len(present)),
+                    [f"{label} ({n:,})" for label, n in zip(present, counts)])
+    bars.tick_params(axis="y", length=0, labelsize=7, pad=2)
+    bars.tick_params(axis="x", length=0, labelbottom=False)
+    for side in bars.spines.values():
+        side.set_visible(False)
+    bars.set_title("Cells", fontsize=6.4, color=PALETTE["ink_secondary"], loc="right", pad=2)
+    ax.tick_params(axis="y", length=0)
+    fig.text(0.095, 0.475, "C  By training support", fontsize=10.5, color=PALETTE["ink"],
+             ha="left", va="bottom")
+    ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.0, 1.02), ncol=3,
+              frameon=False, fontsize=7, handletextpad=0.3, columnspacing=1.1)
     watermark(fig, mark)
     return fig
 

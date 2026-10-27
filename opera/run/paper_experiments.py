@@ -396,6 +396,7 @@ def build_commands(args, env):
             "--membership", path_value(env, "BONSAI_COHORT_MEMBERSHIP"),
             "--decisions", path_value(env, "OPERA_PAPER_DECISIONS"),
             "--output-dir", root / "router_decisions",
+            "--runs-dir", root / "neural_runs",
             "--router-lock", root / "router_lock.json",
         )
         return [command + (["--write"] if getattr(args, "record", False) else [])]
@@ -419,6 +420,8 @@ def build_commands(args, env):
                 value(env, "OPERA_PAPER_INVENTORY_WORKERS", "8"),
                 *(("--splits", *env["OPERA_PAPER_INVENTORY_SPLITS"].split(","))
                   if env.get("OPERA_PAPER_INVENTORY_SPLITS") else ()),
+                *(("--opera-model", env["OPERA_PAPER_OPERA_MODEL"])
+                  if env.get("OPERA_PAPER_OPERA_MODEL") else ()),
                 "--template",
                 path_value(
                     env,
@@ -521,7 +524,9 @@ def build_commands(args, env):
         return [module("opera.run.build_paper_embedding_tables",
                        "--config", path_value(env, "OPERA_PAPER_EMBEDDING_CONFIG"),
                        "--patient-metadata", path_value(env, "OPERA_PAPER_PATIENT_METADATA"),
-                       "--output-dir", analysis_root / "figure_inputs" / "plot_tables")]
+                       "--output-dir", analysis_root / "figure_inputs" / "plot_tables")
+                + (["--rehearse-on-tuning"]
+                   if value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out") == "tuning" else [])]
     if args.action == "plot-tables":
         command = module("opera.run.build_paper_plot_tables",
                          "--analysis-root", analysis_root,
@@ -655,7 +660,8 @@ def build_commands(args, env):
         return [module("opera.run.render_clinical_score_panels",
                        "--analysis-config", analysis_root / "analysis_inventory" / "analysis.yaml",
                        "--score-config", path_value(env, "OPERA_PAPER_CLINICAL_SCORE_CONFIG"),
-                       "--output-dir", analysis_root / "clinical_scores")
+                       "--output-dir", analysis_root / "clinical_scores",
+                       "--split", value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out"))
                 + (["--execute"] if args.execute else [])]
     if args.action == "analyse":
         return [

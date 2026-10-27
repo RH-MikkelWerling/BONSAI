@@ -152,3 +152,21 @@ def test_selective_routing_passes_the_health_criteria(tmp_path):
     health = routing_health(*_routes(tmp_path, rows))
     assert health["healthy"], health
     assert health["criteria"]["distinct_top_borrowed_across_diseases"]["count"] == 4
+
+
+def test_health_can_weigh_routes_by_correction_size(tmp_path):
+    from opera.run.router_decision import routing_health
+
+    # Each disease leans on a different relative by weight, but one source's
+    # corrections dwarf the rest: by weight x size it carries every row.
+    partner = {0: 1, 1: 2, 2: 3, 3: 0}
+    rows = [(d, "inf", [0.0 if i == d else 0.3 if i == partner[d] else 0.1
+                        for i in range(4)] + [0.1, 0.1])
+            for d in range(4) for _ in range(5)]
+    paths = _routes(tmp_path, rows)
+    assert routing_health(*paths)["criteria"]["top_source_share"]["passed"]
+    sizes = {"disease:A": 1.0, "disease:B": 1.0, "disease:C": 1.0, "disease:D": 1.0,
+             "outcome:os": 100.0, "outcome:inf": 1.0}
+    health = routing_health(*paths, sizes=sizes)
+    assert not health["healthy"]
+    assert health["criteria"]["top_source_share"]["source"] == "outcome:os"

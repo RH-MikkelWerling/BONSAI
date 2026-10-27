@@ -25,3 +25,19 @@ def test_scatter_drops_imprecise_cells():
                           "n_events_train": [50, 3, 200, 80],
                           "lower": [-0.01, -1.0, -0.2, 0], "upper": [0.05, 0.1, 0.9, 0]})
     assert estimable_cells(cells).gain.tolist() == [0.02]
+
+
+def test_calibration_examples_skip_rare_cells():
+    from opera.run.build_paper_plot_tables import calibration_examples
+    metadata = pd.DataFrame({
+        "cohort": ["DLBCL", "MM", "CLL"], "outcome": ["sepsis", "sepsis", "sepsis"],
+        "horizon_days": 365, "endpoint_group": "Infection and antimicrobial use",
+        "n_events_train": [900, 400, 150], "n_patients_train": [8000, 2000, 500]})
+    rule = {"domains": ["Infection and antimicrobial use"], "min_events_train": 200,
+            "min_event_share": 0.10}
+    examples = calibration_examples({"calibration_example_rule": rule}, metadata)
+    # DLBCL: most events, share 900/8000 = 11%
+    assert [v[0] for v in examples.values()] == ["DLBCL"]
+    rule["min_event_share"] = 0.15
+    examples = calibration_examples({"calibration_example_rule": rule}, metadata)
+    assert [v[0] for v in examples.values()] == ["MM"]  # CLL: too few events

@@ -41,13 +41,21 @@ def load_stage(paths) -> pd.DataFrame:
     return frame
 
 
-def project(frame: pd.DataFrame, *, method="umap", seed=0) -> pd.DataFrame:
-    """2-D coordinates fitted on tuning patients, applied to held-out patients."""
+def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False) -> pd.DataFrame:
+    """2-D coordinates fitted on tuning patients, applied to held-out patients.
+
+    ``rehearse``: no held-out data; fit on half of the tuning patients and
+    display the other half (fixed by subject id), to test the pipeline."""
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
 
     tuning = frame.loc[frame.split == "tuning"]
     held = frame.loc[frame.split == "held_out"]
+    if rehearse:
+        if not held.empty:
+            raise ValueError("Rehearsal mode is for tuning-only exports")
+        shown = pd.util.hash_pandas_object(tuning.subject_id.astype(str), index=False) % 2 == 1
+        tuning, held = tuning.loc[~shown.to_numpy()], tuning.loc[shown.to_numpy()]
     if tuning.empty or held.empty:
         raise ValueError("Projection needs tuning (fit) and held-out (display) patients")
     fit = np.stack(tuning.embedding)
@@ -72,9 +80,9 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0) -> pd.DataFrame:
 
 
 def embedding_comparison(stages: dict, metadata: pd.DataFrame, *, method="umap",
-                         group_map=None):
+                         group_map=None, rehearse=False):
     """Long table of held-out coordinates per stage with shared colour columns."""
-    coordinates = {label: project(load_stage(paths), method=method)
+    coordinates = {label: project(load_stage(paths), method=method, rehearse=rehearse)
                    for label, paths in stages.items()}
     common = set.intersection(*(set(c.subject_id) for c in coordinates.values()))
     meta = metadata.set_index("subject_id")
@@ -151,13 +159,16 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--patient-metadata", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--rehearse-on-tuning", action="store_true",
+                        help="tuning-only exports: fit on half the tuning patients, "
+                             "show the other half (pipeline rehearsal)")
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())
     metadata = read_table(args.patient_metadata)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     comparison, coordinates = embedding_comparison(
         config["stages"], metadata, method=config.get("method", "umap"),
-        group_map=config.get("ipi_group_map"))
+        group_map=config.get("ipi_group_map"), rehearse=args.rehearse_on_tuning)
     comparison.to_csv(args.output_dir / "matched_patient_embeddings.csv", index=False)
     maps = config["calibration_maps"]
     coords, payload = calibration_map_inputs(

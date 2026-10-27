@@ -5,7 +5,7 @@ contrast_manifest: opera/configs/manifests/final_contrasts_20261014.yaml
 bootstrap_replicates: 1000
 bootstrap_seed: 2026
 analysis_horizons_days: [365]  # Run separate horizon/seed shards for large panels.
-patient_gain_contrasts: [P5, R1, T1, T2, E1, A1, A2, E3, E4]
+patient_gain_contrasts: [P5, R1, T1, T2, O1, E1, A1, A2, E3, E4]
 artifacts:
   # Add entries for every model/seed/split and each specialist shard as needed.
   # Pooled native exports use grouped cohort labels; map to fine diagnoses.
@@ -90,17 +90,22 @@ patient_groups:
     bins: [0, 0.8, 0.95, 1.0]
   # Add train-defined/pre-index token coverage, source mix and atypicality
   # columns with prespecified bins; never choose cutpoints on held-out gains.
+# The configuration chosen on tuning data, analysed under the name OPERA
+# (contrasts O1 = vs per-task XGBoost, O2 = vs joint, O3 = vs specialist).
+# Update after the router-fix rule and the national-arm decision; the
+# inventory's --opera-model (OPERA_PAPER_OPERA_MODEL) overrides it.
+opera_model: R_L
 # Same fits re-evaluated within each region where patients were treated
 # (models trained nationwide): panel effects and absolute metrics per region.
 stratified_reanalysis:
   predominant_region:
-    contrasts: [P5, T2]
-    models: [J_L, X]
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
   # Calendar year of treatment in the held-out test set: performance and
   # calibration as first-line treatment and the registers change.
   index_year:
-    contrasts: [P5, T2]
-    models: [J_L, X]
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
 strategy_candidates: [S_L, D_L, O_L]
 rescue:
   pooling: P5

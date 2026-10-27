@@ -22,6 +22,7 @@ required_figures:
 - supp_coverage
 - supp_support
 - supp_rescue
+- fig_hierarchy
 - supp_strategy
 - supp_calibration_maps
 - supp_embedding_gallery_1
@@ -135,6 +136,10 @@ figures:
   function: figure_rescue
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/rescue_cells.csv
+- id: fig_hierarchy
+  function: figure_hierarchy
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/hierarchy_cells.csv
 - id: supp_strategy
   function: figure_strategy
   tables:

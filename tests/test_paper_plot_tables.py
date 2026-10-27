@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pytest
 import pandas as pd
 
 from opera.evaluation.secondary_analysis import panel_estimates
@@ -182,3 +183,45 @@ def test_model_cells_hold_each_models_absolute_estimate():
     wide = model_cells(estimates, metadata, seed=42)
     assert wide.loc[0, ["J", "X", "XR"]].tolist() == [0.8, 0.75, 0.77]
     assert wide.loc[0, "n_events_train"] == 40
+
+
+def test_stable_panel_keeps_intervals_when_a_small_cell_fails_some_replicates():
+    rows, draws = [], []
+    for cohort in ("A", "B", "C"):
+        for model, value in (("J_L", 0.7), ("X", 0.6)):
+            identity = {"split": "held_out", "seed": 42, "cohort": cohort, "outcome": "o",
+                        "horizon_days": 365, "model": model, "metric": "auc"}
+            rows.append({**identity, "estimate": value})
+            sampled = np.full(50, value)
+            if cohort == "C" and model == "X":
+                sampled[::3] = np.nan  # a small cell: one class in some resamples
+            draws.append({**identity, "estimate_draws": sampled})
+    rows, draws = pd.DataFrame(rows), pd.DataFrame(draws)
+    strict = panel_estimates(rows, draws, {"region": ["J_L", "X"]})
+    # One unstable cell voids that model's interval.
+    assert strict.set_index("model").lower.isna().to_dict() == {"J_L": False, "X": True}
+    stable = panel_estimates(rows, draws, {"region": ["J_L", "X"]}, stable_cells_only=True)
+    assert stable.lower.notna().all()
+    assert set(stable.n_cells) == {2}  # C dropped for both models alike
+
+
+def test_effect_summaries_stable_panel_reports_dropped_cells():
+    from opera.evaluation.secondary_analysis import effect_summaries
+    contrasts, draws = [], []
+    for cohort in ("A", "B", "C"):
+        cell = {"split": "held_out", "seed": 42, "cohort": cohort, "outcome": "o",
+                "horizon_days": 365, "contrast": "T2", "metric": "auc"}
+        contrasts.append({**cell, "gain": 0.02})
+        sampled = np.full(50, 0.02)
+        if cohort == "C":
+            sampled[::3] = np.nan
+        draws.append({**cell, "gain_draws": sampled})
+    metadata = pd.DataFrame({"cohort": ["A", "B", "C"], "outcome": "o", "horizon_days": 365,
+                             "no_strata": "all"})
+    args = (pd.DataFrame(contrasts), pd.DataFrame(draws), metadata)
+    _, strict = effect_summaries(*args, strata=["no_strata"])
+    _, stable = effect_summaries(*args, strata=["no_strata"], stable_cells_only=True)
+    pick = lambda t: t.loc[(t.stratum == "all_cells") & (t.horizon_days == 365)].iloc[0]  # noqa: E731
+    assert np.isnan(pick(strict).lower)
+    assert pick(stable).lower == pytest.approx(0.02)
+    assert pick(stable).n_cells == 2 and pick(stable).n_cells_unstable == 1

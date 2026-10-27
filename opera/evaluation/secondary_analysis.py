@@ -747,7 +747,7 @@ def paired_analysis(
     }
 
 
-def panel_estimates(estimates, model_draws, groups):
+def panel_estimates(estimates, model_draws, groups, *, stable_cells_only=False):
     """Equal-cell panel mean of absolute metrics for sets of compared models.
 
     Each group (for example the joint and routed models under the three encoder
@@ -768,6 +768,7 @@ def panel_estimates(estimates, model_draws, groups):
             cells = complete[complete].index
             if not len(cells):
                 continue
+            per_model = {}
             for model in members:
                 selected = part.set_index(["cohort", "outcome"]).loc[cells]
                 selected = selected.loc[selected.model == model].reset_index()
@@ -776,6 +777,20 @@ def panel_estimates(estimates, model_draws, groups):
                     draws = draws.loc[draws[column] == value]
                 draws = draws.merge(selected[["cohort", "outcome"]],
                                     on=["cohort", "outcome"])
+                per_model[model] = (selected, draws)
+            if stable_cells_only:
+                # As in effect_summaries, on one panel shared by every member.
+                stable = None
+                for _, draws in per_model.values():
+                    ok = draws.loc[np.isfinite(np.stack(draws.estimate_draws)).all(axis=1),
+                                   ["cohort", "outcome"]]
+                    stable = ok if stable is None else stable.merge(ok)
+                if stable is None or stable.empty:
+                    continue
+                per_model = {m: (sel.merge(stable), dr.merge(stable))
+                             for m, (sel, dr) in per_model.items()}
+            for model in members:
+                selected, draws = per_model[model]
                 sampled = np.stack(draws.estimate_draws).mean(axis=0)
                 sampled[~np.isfinite(np.stack(draws.estimate_draws)).all(axis=0)] = np.nan
                 rows.append({
@@ -892,11 +907,16 @@ def claim_label(gain, lower, upper, margin):
     return "inconclusive"
 
 
-def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
+def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
+                     stable_cells_only=False):
     """Equal-cell descriptive summaries with subject-correlated intervals.
 
     No across-seed pooling: bootstrap intervals condition on one training seed.
     Strict fixed finite cell inventory is used in each replicate.
+    ``stable_cells_only`` (patient-subset re-analyses, e.g. per region): the
+    panel is the cells whose gain is finite in every replicate, so a few small
+    cells that resample to one class cannot void the whole interval; the cells
+    left out are counted in ``n_cells_unstable``.
     """
     keys = ["cohort", "outcome", "horizon_days"]
     if cell_metadata.duplicated(keys).any():
@@ -933,6 +953,15 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
             samples = draws_by_contrast[(group.contrast.iloc[0], group.metric.iloc[0])].merge(
                 selected, on=CELL, validate="many_to_one")
             arrays = np.stack(samples.gain_draws)
+            unstable = 0
+            if stable_cells_only:
+                stable = np.isfinite(arrays).all(axis=1)
+                unstable = int((~stable).sum())
+                if not stable.any():
+                    continue
+                kept = samples.loc[stable, CELL]
+                samples, arrays = samples.loc[stable], arrays[stable]
+                group = group.merge(kept, on=CELL, validate="one_to_one")
             sampled = arrays.mean(axis=0)
             sampled[~np.isfinite(arrays).all(axis=0)] = np.nan
             if len(samples) != len(group):
@@ -947,6 +976,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None):
                     "stratum_value": str(identity[-1]) if stratum else "all",
                     "gain": group.gain.mean(),
                     "n_cells": len(group),
+                    **({"n_cells_unstable": unstable} if stable_cells_only else {}),
                     "aggregation": "equal_cell_not_population_or_endpoint_group_macro",
                     "p_value": bootstrap_p_value(sampled),
                     **_interval(sampled),

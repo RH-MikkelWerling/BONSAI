@@ -44,6 +44,7 @@ CONTRAST_CODES = {
     **{f"LSE{f}": f"EA:F{f}-S" for f in (10, 25, 50)},
     **{f"FD{f}": f"EA:F{f}-L" for f in (10, 25, 50)},
     **{f"C{i}": f"C{i}" for i in range(1, 7)}, "RS1": "RS1",
+    "O1": "OPERA-X", "O2": "OPERA-J", "O3": "OPERA-S",
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
     **{f"R{i}": f"R{i}" for i in range(8)},
@@ -152,7 +153,7 @@ def calibration_tables(summary, reliability, metadata, *, seed=None):
 
 
 # Model codes in estimates.csv -> short figure names.
-MODEL_NAMES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R",
+MODEL_NAMES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R", "OPERA": "OPERA",
                "X": "X", "XR": "XR", "XP": "XP", "LR": "LR", "J_EA": "J_EA",
                "J_E": "J_E",
                **{f"J_{o}_F{f}": f"J_{o}_F{f}" for o in ("L", "EA") for f in (10, 25, 50)}}
@@ -202,6 +203,30 @@ def rescue_cells(contrasts, metadata, *, seed=None):
             columns={"gain": column})
         wide = data if wide is None else wide.merge(data, on=keys, how="inner")
     return to_display(_with_cells(wide.dropna(), metadata))
+
+
+def hierarchy_cells(contrasts, metadata, *, seed=None):
+    """Per cell: the router decomposition on the evaluation split (own
+    corrections, borrowing, both; design O if analysed, else AB) beside the
+    tuning joint-vs-specialist gain."""
+    keys = ["cohort", "outcome", "horizon_days", "metric"]
+    present = set(contrasts.contrast)
+    design = next((tag for tag in ("O", "AB") if f"router_both_{tag}" in present), None)
+    if design is None:
+        raise Missing("no router decomposition in the analysis (analyse the "
+                         "router-fix fits: inventory and analyse at stage 4)")
+    tuning = _select(contrasts, split="tuning", seed=seed)
+    wide = tuning.loc[tuning.contrast == "P5", keys + ["gain"]].rename(
+        columns={"gain": "tuning_joint_vs_specialist"})
+    evaluation = _select(contrasts, split=EVALUATION_SPLIT, seed=seed)
+    for column in ("own", "borrow", "both"):
+        part = evaluation.loc[evaluation.contrast == f"router_{column}_{design}",
+                              keys + ["gain", "lower", "upper"]]
+        part = part.rename(columns={"gain": column, "lower": f"{column}_lower",
+                                    "upper": f"{column}_upper"})
+        wide = wide.merge(part, on=keys, how="inner")
+    return to_display(_with_cells(wide.dropna(subset=["own", "borrow", "both"]),
+                                  metadata).assign(router_design=design))
 
 
 def coverage_table(metadata, contrast_coverage, model_coverage=None, *, horizon=365,
@@ -271,7 +296,8 @@ def route_table(routes, *, seed=None, model="R_L"):
 SUBGROUP_FIGURES = {
     "patient_subgroups": {
         "contrasts": {"P5": ("#2D3A8C", "Joint vs specialist"),
-                      "T2": ("#408579", "Joint vs XGBoost")},
+                      "T2": ("#408579", "Joint vs XGBoost"),
+                      "O1": ("#8974AC", "OPERA vs XGBoost")},
         "covariates": {"history_event_count": "Recorded history before treatment",
                        "age_at_index": "Age", "sex": "Sex",
                        "predominant_region": "Region",
@@ -364,10 +390,32 @@ def group_maps():
     return diseases, outcomes
 
 
-def calibration_examples(choices):
-    return {outcome_display_name(item["outcome"]): [disease_name(item["cohort"]),
-                                                     outcome_display_name(item["outcome"])]
-            for item in choices.get("calibration_examples", [])}
+def calibration_examples(choices, metadata=None, *, horizon=365):
+    """Reliability-curve examples: a fixed list, or (``calibration_example_rule``)
+    per listed clinical domain the cell with the most training events among
+    those common enough to calibrate visibly. Train-only counts: the rule never
+    sees test results, so it can be fixed now and applied unchanged later."""
+    rule = choices.get("calibration_example_rule")
+    if rule is None or metadata is None or not {"n_events_train", "n_patients_train"} <= set(metadata):
+        items = choices.get("calibration_examples", [])
+    else:
+        cells = metadata.loc[metadata.horizon_days == horizon].drop_duplicates(
+            ["cohort", "outcome"]).copy()
+        if "endpoint_group" not in cells:
+            cells["endpoint_group"] = cells.outcome.map(outcome_endpoint_groups())
+        share = cells.n_events_train / cells.n_patients_train
+        eligible = cells.loc[(cells.n_events_train >= rule.get("min_events_train", 200))
+                             & (share >= rule.get("min_event_share", 0.10))]
+        items = []
+        for domain in rule["domains"]:
+            part = eligible.loc[eligible.endpoint_group == domain]
+            if len(part):
+                best = part.sort_values(["n_events_train", "cohort", "outcome"],
+                                        ascending=[False, True, True]).iloc[0]
+                items.append({"cohort": best.cohort, "outcome": best.outcome})
+    return {f"{outcome_display_name(item['outcome'])} ({disease_name(item['cohort'])})":
+            [disease_name(item["cohort"]), outcome_display_name(item["outcome"])]
+            for item in items}
 
 
 def region_tables(effects, models, patients=None, *, seed=None):
@@ -396,6 +444,7 @@ PANEL_TABLE_ROWS = (
     ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
     ("T6", "Joint vs XGBoost pooled across diseases"),
     ("T9", "Joint vs XGBoost with registry variables"), ("R1", "Routed vs joint"),
+    ("O1", "OPERA vs per-task XGBoost"),
     ("E1", "National vs local encoder (joint)"),
     ("E3", "Adapted national vs local encoder (joint)"),
 )
@@ -562,7 +611,7 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         return summary
 
     table("calibration_summary.csv", calibration)
-    table("calibration_examples.json", lambda: calibration_examples(choice_spec))
+    table("calibration_examples.json", lambda: calibration_examples(choice_spec, metadata))
 
     def strategy():
         cells, selection = strategy_tables(
@@ -590,6 +639,7 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("model_cells.csv", lambda: model_cells(
         _read(analysis / "estimates.csv", sources), metadata, seed=seed))
     table("rescue_cells.csv", lambda: rescue_cells(contrasts(), metadata, seed=seed))
+    table("hierarchy_cells.csv", lambda: hierarchy_cells(contrasts(), metadata, seed=seed))
 
     def coverage():
         model_coverage = analysis / "model_coverage.csv"
