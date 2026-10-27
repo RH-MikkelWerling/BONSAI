@@ -307,14 +307,17 @@ the probability of every outcome by each of six horizons.}
 \end{figure}
 
 \begin{figure}[p]
-  \resultfigure[0.6\textwidth]{fig_who_benefits}{Gain by patient subgroup}
-    {Paired Brier improvement of the joint model over the specialist and over
-    XGBoost by patient subgroup.}
-  \caption{\textbf{Gain from joint learning by patient subgroup.} Patient-weighted
-  improvement in one-year Brier score ($\times$100, 95\% bootstrap CI) of the
-  joint model over the specialist and over XGBoost, pooled across cells, by
-  subgroups defined at the start of treatment. Positive values favour the
-  joint model.}
+  \resultfigure[\textwidth]{fig_who_benefits}{Gain by patient subgroup}
+    {Paired AUC and Brier improvement by patient subgroup.}
+  \caption{\textbf{Gain by patient subgroup.} (A) AUC improvement recomputed
+  within each subgroup and averaged equally over estimable disease--outcome--horizon
+  cells with finite estimates in every bootstrap replicate. (B) Patient-weighted
+  Brier improvement pooled across cells and horizons. Differences and 95\%
+  paired patient-bootstrap intervals are multiplied by 100; positive values
+  favour the first model in each comparison. Groups are defined from
+  pre-treatment characteristics; the two panels use different weighting rules
+  and can have different estimable cell inventories. Missing estimates are
+  left blank.}
   \label{fig:who-benefits}
 \end{figure}
 

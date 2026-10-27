@@ -463,7 +463,8 @@ class SecondaryAnalysisTest(unittest.TestCase):
             pd.DataFrame(
                 {
                     "subject_id": frame.subject_id.unique(),
-                    "age": 60,
+                    "age": [40, 70] * (frame.subject_id.nunique() // 2)
+                    + [40] * (frame.subject_id.nunique() % 2),
                     "predominant_region": ["Hovedstaden", "Sjælland"] * (
                         frame.subject_id.nunique() // 2) + ["Hovedstaden"] * (
                         frame.subject_id.nunique() % 2),
@@ -477,8 +478,8 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 "contrast_manifest": "opera/configs/manifests/final_contrasts_20261014.yaml",
                 "cell_metadata": str(root / "cells.csv"),
                 "patient_metadata": str(root / "patients.csv"),
-                "patient_groups": {"age": {"provenance": "pre_index"}},
-                "stratified_reanalysis": {"predominant_region": {}},
+                "patient_groups": {"age": {"provenance": "pre_index", "bins": [0, 50, 80]}},
+                "stratified_reanalysis": {"predominant_region": {}, "age": {}},
                 "bootstrap_replicates": 3,
             }
             manifest = run(config, root / "output")
@@ -493,9 +494,12 @@ class SecondaryAnalysisTest(unittest.TestCase):
                 "patient_subgroups",
                 "contrast_coverage",
                 "stratified_predominant_region_effects",
+                "stratified_age_effects",
             ]:
                 self.assertGreater(manifest["tables"][name], 0)
                 self.assertTrue((root / "output" / f"{name}.csv").is_file())
+            age_effects = pd.read_csv(root / "output" / "stratified_age_effects.csv")
+            self.assertEqual(set(age_effects.stratum_value), {"(-0.001, 50.0]", "(50.0, 80.0]"})
             self.assertTrue((root / "output" / "patient_gains_INTERNAL.csv").is_file())
             with self.assertRaises(FileExistsError):
                 run(config, root / "output")

@@ -98,6 +98,20 @@ opera_model: R_L
 # Same fits re-evaluated within each region where patients were treated
 # (models trained nationwide): panel effects and absolute metrics per region.
 stratified_reanalysis:
+  # AUC is recomputed within these patient groups, using patient_groups bins
+  # and the shared patient bootstrap (not averaged patient-level AUC gains).
+  history_event_count:
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
+  age_at_index:
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
+  sex:
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
+  IPI:
+    contrasts: [P5, T2, O1]
+    models: [J_L, OPERA, X]
   predominant_region:
     contrasts: [P5, T2, O1]
     models: [J_L, OPERA, X]

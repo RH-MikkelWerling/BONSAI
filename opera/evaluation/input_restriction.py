@@ -34,13 +34,16 @@ def kept_code_ids(vocabulary):
 
 
 def restrict_sample(sample, *, hidden_ids=frozenset(), protected_ids=frozenset(),
-                    keep_last_days=None, time_key="abspos"):
+                    keep_last_days=None, drop_last_days=None, time_key="abspos"):
     """Copy of one patient's sample with the restricted events removed.
 
     Every per-token tensor (same length as ``code``) is filtered with the same
-    mask. Outcome, time and event fields and scalars are left untouched.
-    ``keep_last_days`` keeps only events within that many days of the most
-    recent event (``abspos`` in hours), plus special and background tokens.
+    mask. Outcome, time and event fields and scalars are left untouched. The
+    latest time in a fine-tuning sample is the prediction token, placed at the
+    index date, so both windows count back from the index (``abspos`` in hours):
+    ``keep_last_days`` keeps only events within that many days of it, and
+    ``drop_last_days`` hides the events within that many days of it (a gap
+    before prediction). Special and background tokens are always kept.
     """
     code = sample["code"]
     protected = torch.isin(code, torch.tensor(sorted(protected_ids), dtype=code.dtype))
@@ -49,6 +52,10 @@ def restrict_sample(sample, *, hidden_ids=frozenset(), protected_ids=frozenset()
         times = sample[time_key].to(torch.float64)
         recent = times >= times.max() - float(keep_last_days) * HOURS_PER_DAY
         keep &= recent | protected
+    if drop_last_days is not None and time_key in sample:
+        times = sample[time_key].to(torch.float64)
+        gap = times > times.max() - float(drop_last_days) * HOURS_PER_DAY
+        keep &= ~gap | protected
     return keep_tokens(sample, keep)
 
 

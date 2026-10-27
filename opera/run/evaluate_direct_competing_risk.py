@@ -160,6 +160,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-last-days", type=float, default=None,
                         help="Input restriction: keep only events within this many days "
                              "of the last recorded event (background tokens are kept).")
+    parser.add_argument("--drop-last-days", type=float, default=None,
+                        help="Input restriction: hide events within this many days before "
+                             "the index date (a gap before prediction).")
     parser.add_argument("--content-reference", type=Path, default=None,
                         help="Timeline-only evaluation: replace every event's content by "
                              "this reference embedding (the IG baseline_INTERNAL.pt), keeping "
@@ -284,14 +287,14 @@ def main() -> None:
     )
 
     collate = contrastive_collate
-    if args.hide_prefixes or args.keep_last_days is not None:
+    if args.hide_prefixes or args.keep_last_days is not None or args.drop_last_days is not None:
         from opera.evaluation.input_restriction import (
             hidden_code_ids, kept_code_ids, restricting_collate)
         collate = restricting_collate(
             contrastive_collate,
             hidden_ids=hidden_code_ids(vocabulary, args.hide_prefixes.split(",")),
             protected_ids=kept_code_ids(vocabulary),
-            keep_last_days=args.keep_last_days)
+            keep_last_days=args.keep_last_days, drop_last_days=args.drop_last_days)
     reference = None
     if args.content_reference is not None:
         from opera.interpretability.token_attribution import (

@@ -252,13 +252,42 @@ setup_style()
 # ── Utility helpers ─────────────────────────────────────────────────────────────
 
 
+def align_panel_titles(fig: plt.Figure) -> None:
+    """Put every lettered panel title ("A  ...") at the top left of its whole
+    panel: the left edge of the axes together with its tick labels, axis label
+    and attached strips (inset axes), not the left edge of the plotting area."""
+    import re
+
+    fig.canvas.draw()  # resolve tick labels and layout before measuring extents
+    renderer = fig.canvas.get_renderer()
+    for ax in fig.axes:
+        title = ax.get_title(loc="left")
+        if not re.match(r"^[A-Z](\s|$)", title):
+            continue
+        text = ax._left_title  # the left-located title
+        title_y = text.get_position()[1]
+        text.set_visible(False)  # measure the panel without its own title
+        try:
+            box = ax.get_tightbbox(renderer)
+        finally:
+            text.set_visible(True)
+            text.set_y(title_y)
+        if box is None:
+            continue
+        left = ax.transAxes.inverted().transform((box.x0, box.y0))[0]
+        text.set_x(min(0.0, float(left)))
+        text.set_horizontalalignment("left")
+
+
 def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
     """Export publication artwork, keeping text vector and dense points raster.
 
     Raster requests also produce a PDF; PDF/SVG requests retain their format.
     Only dense scatter collections are rasterized, never curves or CI bands.
+    Lettered panel titles are aligned to the top left of their panels.
     """
     if path is not None:
+        align_panel_titles(fig)
         for ax in fig.axes:
             for collection in ax.collections:
                 if (

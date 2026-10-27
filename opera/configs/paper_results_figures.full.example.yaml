@@ -196,14 +196,13 @@ figures:
     models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/region_models.csv
     coverage: ${OPERA_PAPER_PLOT_TABLE_ROOT}/region_coverage.csv
 - id: fig_who_benefits
-  function: figure_subgroup_effects
+  function: figure_who_benefits
   tables:
     table: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups.csv
+    auc: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups_auc.csv
   json_inputs:
     contrast_styles: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups_styles.json
     covariate_order: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_subgroups_order.json
-  options:
-    xlabel: Brier score improvement (×100, 95% CI)
 - id: supp_national_where
   function: figure_subgroup_effects
   tables:

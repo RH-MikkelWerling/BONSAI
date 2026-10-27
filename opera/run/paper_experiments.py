@@ -616,7 +616,10 @@ def build_commands(args, env):
             "--config-dir", path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_DIR",
                                        str(REPO / "opera/configs")),
             "--split", config.get("run", {}).get("split", "held_out"))
-        commands = [base + ["--output-dir", str(out / "full")]]
+        def done(directory):  # restrictions already evaluated are reused
+            return (directory / "direct_cr_predictions.parquet").is_file()
+
+        commands = [] if done(out / "full") else [base + ["--output-dir", str(out / "full")]]
         compare = module("opera.run.compare_input_restrictions", "--full", out / "full",
                          "--output-dir", out)
         reference = analysis_root / "attributions" / "baseline_INTERNAL.pt"
@@ -629,7 +632,10 @@ def build_commands(args, env):
                 flags += ["--hide-prefixes", ",".join(item["hide_prefixes"])]
             if item.get("keep_last_days") is not None:
                 flags += ["--keep-last-days", str(item["keep_last_days"])]
-            commands.append(base + flags + ["--output-dir", str(out / slug)])
+            if item.get("drop_last_days") is not None:
+                flags += ["--drop-last-days", str(item["drop_last_days"])]
+            if not done(out / slug):
+                commands.append(base + flags + ["--output-dir", str(out / slug)])
             compare += ["--restricted", f"{name}={out / slug}"]
         return commands + [compare]
     if args.action == "attribution-figures":

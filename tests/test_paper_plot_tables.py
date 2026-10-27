@@ -289,3 +289,37 @@ def test_calibration_fit_returns_nan_on_separation_not_a_wild_slope():
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # no overflow warnings either
         assert np.isnan(_calibration_fit(labels, separated, np.ones(100))).all()
+
+
+def test_subgroup_auc_uses_pooled_auc_only_and_matches_brier_labels():
+    spec = plot_tables.SUBGROUP_FIGURES["patient_subgroups"]
+    effects = pd.DataFrame([
+        {"split": "held_out", "seed": 42, "horizon_days": h, "metric": m,
+         "covariate": "age_at_index", "stratum_value": "(50.0, 65.0]",
+         "contrast": "P5", "gain": g, "lower": g - 0.01, "upper": g + 0.01}
+        for h, m, g in [(0, "auc", 0.03), (365, "auc", 0.09), (0, "brier", 0.004)]
+    ])
+    table = plot_tables.subgroup_auc_table(effects, spec, seed=42)
+    assert len(table) == 1
+    assert table.iloc[0].gain == 0.03
+    assert table.iloc[0].subgroup == "51–65"
+
+
+def test_who_benefits_shares_rows_even_when_auc_is_not_estimable(tmp_path):
+    from opera.visualization.style import align_panel_titles, save_fig
+    brier = pd.DataFrame([
+        {"covariate": "sex", "subgroup": s, "contrast": "P5", "gain": 0.01,
+         "lower": 0.0, "upper": 0.02} for s in ["Female", "Male"]])
+    auc = brier.iloc[:1].copy()
+    fig = figures.figure_who_benefits(
+        brier, auc, contrast_styles={"P5": ("blue", "Joint vs specialist")},
+        covariate_order={"sex": "Sex"}, mark="SYNTHETIC")
+    assert [t.get_text() for t in fig.axes[0].get_yticklabels()] == ["Female", "Male"]
+    assert len(fig.axes[0].collections) == 1
+    assert len(fig.axes[1].collections) == 2
+    save_fig(fig, str(tmp_path / "who.png"))
+    positions = [ax._left_title.get_position() for ax in fig.axes]
+    align_panel_titles(fig)
+    assert positions == [ax._left_title.get_position() for ax in fig.axes]
+    assert (tmp_path / "who.pdf").is_file()
+    plt.close(fig)

@@ -83,7 +83,7 @@ def test_server_workspace_registers_every_plate_with_absolute_paths(tmp_path, mo
     monkeypatch.setattr(sys, "argv", ["prepare", "--output-dir", str(root), "--execute"])
     prepare()
     recipe = yaml.safe_load((root / "figures.yaml").read_text())
-    assert len(recipe["required_figures"]) == 28
+    assert len(recipe["required_figures"]) == 31
     assert set(recipe["required_figures"]) == {p["id"] for p in recipe["figures"]}
     for plate in recipe["figures"]:
         for section in ("tables", "json_inputs"):
@@ -91,6 +91,7 @@ def test_server_workspace_registers_every_plate_with_absolute_paths(tmp_path, mo
                 # Plot tables live in the workspace; outputs of other steps (the
                 # clinical-score headline table) stay where those steps write them.
                 assert (str(root / "plot_tables") in source
-                        or source == str(tmp_path / "clinical_scores" / "headline_scores.csv"))
-                assert "$" not in source
+                        or source == str(tmp_path / "clinical_scores" / "headline_scores.csv")
+                        or str(tmp_path / "source_removal") in source)
+                assert "$" not in source.replace("${OPERA_PAPER_PLOT_SPLIT}", "tuning")
     assert not list((root / "plot_tables").iterdir())

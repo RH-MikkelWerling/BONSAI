@@ -946,12 +946,12 @@ def main():
     renders["fig_headline"] = figures.figure_headline(
         cells, synthetic_model_cells(cells, np.random.default_rng(4)), who,
         synthetic_headline_scores(np.random.default_rng(5)), mark=mark)
-    renders["fig_who_benefits"] = figures.figure_subgroup_effects(
-        who, contrast_styles={"J-S": (figures.MODEL_STYLE["J"][0], "Joint vs specialist"),
+    renders["fig_who_benefits"] = figures.figure_who_benefits(
+        who, who.assign(gain=who.gain * 3, lower=who.lower * 3, upper=who.upper * 3), contrast_styles={"J-S": (figures.MODEL_STYLE["J"][0], "Joint vs specialist"),
                               "J-X": (figures.MODEL_STYLE["X"][0], "Joint vs XGBoost")},
         covariate_order={"history": "Recorded history before treatment", "age": "Age",
                          "sex": "Sex", "ipi": "Clinical risk score"},
-        xlabel="Brier score improvement (×100, 95% CI)", mark=mark)
+        mark=mark)
     renders["supp_national_where"] = figures.figure_subgroup_effects(
         national, contrast_styles={
             "EA-L:J": (figures.ORIGIN_STYLE["EA"][0], "Adapted national vs local"),

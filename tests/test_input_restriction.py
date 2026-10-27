@@ -35,3 +35,18 @@ def test_special_tokens_are_never_hidden_and_collate_wraps():
     collate = restricting_collate(lambda batch: [s["code"].tolist() for s in batch],
                                   hidden_ids={4}, protected_ids=kept_code_ids(VOCAB))
     assert collate([sample()]) == [[2, 5, 3, 3, 1]]
+
+
+def test_gap_uses_prediction_time_preserves_boundary_and_aligned_fields():
+    original = sample()
+    # Last clinical measurement is five days before index; the gap is counted
+    # from the prediction token, so the measurement exactly on the edge stays.
+    out = restrict_sample(original, protected_ids=kept_code_ids(VOCAB), drop_last_days=5)
+    assert out["code"].tolist() == original["code"].tolist()
+    out = restrict_sample(original, protected_ids=kept_code_ids(VOCAB), drop_last_days=6)
+    assert out["code"].tolist() == [2, 5, 3, 4, 1]
+    assert len(out["abspos"]) == len(out["attention_mask"]) == 5
+    assert torch.equal(out["outcome_x"], original["outcome_x"])
+    assert len(original["code"]) == 6
+    zero = restrict_sample(original, protected_ids=kept_code_ids(VOCAB), drop_last_days=0)
+    assert torch.equal(zero["code"], original["code"])

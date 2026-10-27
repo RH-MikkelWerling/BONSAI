@@ -1129,7 +1129,7 @@ def negative_transfer_strata(
     ).fillna({"stratum": "missing_tuning_evidence"})
 
 
-def _subgroup_labels(gains, metadata, specifications):
+def subgroup_labels(gains, metadata, specifications):
     """Yield (covariate, gains with a ``subgroup`` column) for each covariate."""
     if metadata.subject_id.duplicated().any():
         raise ValueError("Metadata must have one row per patient")
@@ -1184,7 +1184,7 @@ def subgroup_patient_gains(gains, metadata, specifications, *, draws):
     as computing every subgroup separately.
     """
     rows, samples = [], []
-    for column, enriched in _subgroup_labels(gains, metadata, specifications):
+    for column, enriched in subgroup_labels(gains, metadata, specifications):
         for key, group in _subgroup_cell_sums(enriched):
             mapping, counts = draws[key[:3]]
             weights = counts[:, [mapping[sid] for sid in group.subject_id]].astype(float)
@@ -1226,7 +1226,7 @@ def panel_subgroup_gains(gains, metadata, specifications, *, draws):
     """
     keys = ["split", "seed", "horizon_days", "contrast", "subgroup"]
     rows, samples = [], []
-    for column, enriched in _subgroup_labels(gains, metadata, specifications):
+    for column, enriched in subgroup_labels(gains, metadata, specifications):
         totals = {}
         for key, group in _subgroup_cell_sums(enriched):
             mapping, counts = draws[key[:3]]

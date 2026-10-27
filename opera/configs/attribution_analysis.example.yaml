@@ -61,6 +61,13 @@ restrictions:
   - {id: no_region_specialty, label: "Without region and specialty",
      hide_prefixes: [REGION, CONTACT_SPECIALTY, RC_REG, RC_SPEC]}
   - {id: last_year, label: "Only the last year", keep_last_days: 365}
+  # Gap before prediction (added 2026-10-27): the most recent weeks hidden, to see
+  # how much the predictions, laboratory outcomes above all, rest on the latest
+  # measurements.
+  - {id: gap_7d, label: "Last 7 days hidden", drop_last_days: 7}
+  - {id: gap_14d, label: "Last 14 days hidden", drop_last_days: 14}
+  - {id: gap_21d, label: "Last 21 days hidden", drop_last_days: 21}
+  - {id: gap_28d, label: "Last 28 days hidden", drop_last_days: 28}
 
 # Laboratory curves: the latest result before treatment, by value bin.
 lab_tests:

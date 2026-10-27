@@ -201,6 +201,8 @@ def test_dispatcher_exposes_pilot_resume_and_horizon_specific_cpu_commands(tmp_p
 
 
 def test_input_restrictions_evaluate_the_locked_model_and_compare_every_arm(tmp_path):
+    from pathlib import Path
+
     from test_paper_workflow import args, env
     from opera.run.paper_experiments import build_commands
     import yaml
@@ -209,21 +211,29 @@ def test_input_restrictions_evaluate_the_locked_model_and_compare_every_arm(tmp_
     settings.write_text(yaml.safe_dump({"restrictions": [
         {"id": "timeline", "label": "Timeline only", "content_reference": True},
         {"id": "no_labs", "label": "Without laboratory results", "hide_prefixes": ["LABTEST"]},
-        {"id": "last_year", "label": "Last year only", "keep_last_days": 365}]}))
+        {"id": "last_year", "label": "Last year only", "keep_last_days": 365},
+        {"id": "gap_7d", "label": "Last 7 days hidden", "drop_last_days": 7}]}))
     values = env(tmp_path) | {
         "OPERA_PAPER_ATTRIBUTION_CONFIG": str(settings),
         "OPERA_PAPER_ATTRIBUTION_CHECKPOINT": str(tmp_path / "model.ckpt"),
         "OPERA_PAPER_ATTRIBUTION_CONFIG_NAME": "model",
     }
     commands = build_commands(args("input-restrictions"), values)
-    assert len(commands) == 5  # full, three restrictions, comparison
-    full, timeline, labs, last_year, compare = commands
+    assert len(commands) == 6  # full, four restrictions, comparison
+    full, timeline, labs, last_year, gap, compare = commands
     assert "--content-reference" not in full
     assert timeline[timeline.index("--content-reference") + 1].endswith(
         "attributions/baseline_INTERNAL.pt")
     assert labs[labs.index("--hide-prefixes") + 1] == "LABTEST"
     assert last_year[last_year.index("--keep-last-days") + 1] == "365"
-    assert compare.count("--restricted") == 3
+    assert gap[gap.index("--drop-last-days") + 1] == "7"
+    assert compare.count("--restricted") == 4
+    completed = Path(gap[gap.index("--output-dir") + 1])
+    completed.mkdir(parents=True)
+    (completed / "direct_cr_predictions.parquet").touch()
+    resumed = build_commands(args("input-restrictions"), values)
+    assert len(resumed) == 5
+    assert resumed[-1] == compare
     assert compare[compare.index("--full") + 1].endswith("input_restrictions/full")
 
 

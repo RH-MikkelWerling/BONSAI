@@ -3227,17 +3227,25 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
 
 
 def figure_subgroup_effects(table, *, contrast_styles, covariate_order, xlabel,
-                            title_letters="A", panel_title="", scale=100, mark=None):
+                            title_letters="A", panel_title="", scale=100, mark=None,
+                            ax=None, row_order=None, show_legend=True):
     """Patient subgroup effects (diamond, 95% CI), grouped by covariate."""
     rows, labels, headers = [], [], []
     for covariate, title in covariate_order.items():
-        part = table.loc[table.covariate == covariate]
+        source = table if row_order is None else row_order
+        part = source.loc[source.covariate == covariate]
+        if part.empty:
+            continue
         headers.append((len(labels), title))
         for subgroup in part.subgroup.drop_duplicates():
             rows.append((covariate, subgroup))
             labels.append(f"  {subgroup}")
-    fig, ax = plt.subplots(figsize=(4.6, 0.24 * len(labels) + 0.9 * len(headers) * 0.3
-                                    + 1.0))
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(figsize=(4.6, 0.24 * len(labels) + 0.9 * len(headers) * 0.3
+                                        + 1.0))
+    else:
+        fig = ax.figure
     positions, y = {}, 0.0
     header_y = []
     for index, row in enumerate(rows):
@@ -3268,13 +3276,39 @@ def figure_subgroup_effects(table, *, contrast_styles, covariate_order, xlabel,
     ax.xaxis.set_major_locator(MaxNLocator(5))
     handles = [Line2D([], [], ls="none", marker="D", color=color, label=label)
                for color, label in contrast_styles.values()]
-    ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.0, 1.0), ncol=2,
-              frameon=False, fontsize=7, handletextpad=0.3, borderaxespad=0.3)
+    if show_legend:
+        ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.0, 1.0), ncol=2,
+                  frameon=False, fontsize=7, handletextpad=0.3, borderaxespad=0.3)
     if panel_title:
         _panel_title(ax, title_letters, panel_title)
     despine(ax, "x")
-    fig.subplots_adjust(left=0.42, right=0.97, top=1 - 0.75 / fig.get_figheight(),
-                        bottom=0.75 / fig.get_figheight())
+    if standalone:
+        fig.subplots_adjust(left=0.42, right=0.97, top=1 - 0.75 / fig.get_figheight(),
+                            bottom=0.75 / fig.get_figheight())
+        watermark(fig, mark)
+    return fig
+
+
+def figure_who_benefits(table, auc, *, contrast_styles, covariate_order, mark=None):
+    """Paired subgroup AUC and Brier gains, with a common row inventory."""
+    rows = pd.concat([table, auc], ignore_index=True).drop_duplicates(
+        ["covariate", "subgroup"])
+    height = 0.24 * len(rows) + 0.27 * len(covariate_order) + 1.4
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, height))
+    for ax, data, letter, title, label in zip(
+        axes, [auc, table], "AB", ["Discrimination", "Probability accuracy"],
+        ["AUC improvement (×100, 95% CI)", "Brier score improvement (×100, 95% CI)"]
+    ):
+        figure_subgroup_effects(
+            data, contrast_styles=contrast_styles, covariate_order=covariate_order,
+            xlabel=label, title_letters=letter, panel_title=title,
+            ax=ax, row_order=rows, show_legend=False)
+    handles = [Line2D([], [], ls="none", marker="D", color=color, label=label)
+               for color, label in contrast_styles.values()]
+    fig.legend(handles=handles, loc="upper center", ncol=len(handles),
+               frameon=False, fontsize=7)
+    fig.subplots_adjust(left=0.19, right=0.98, wspace=0.85,
+                        top=1 - 0.9 / height, bottom=0.75 / height)
     watermark(fig, mark)
     return fig
 

@@ -404,12 +404,13 @@ def _subgroup_sort_key(label) -> tuple:
     return (2, 0.0, shown)
 
 
-def subgroup_table(panels, summaries, spec, *, seed=None, horizon=ALL_HORIZONS):
+def subgroup_table(panels, summaries, spec, *, seed=None, horizon=ALL_HORIZONS,
+                   metric="brier_gain"):
     """Panel subgroup effects for one figure, with display labels and styles."""
     data = _select(panels, seed=seed)
     if horizon == ALL_HORIZONS and not (data.horizon_days == ALL_HORIZONS).any():
         horizon = 365  # an analysis from before subgroups were pooled over horizons
-    data = data.loc[(data.metric == "brier_gain") & (data.horizon_days == horizon)
+    data = data.loc[(data.metric == metric) & (data.horizon_days == horizon)
                     & data.contrast.isin(spec["contrasts"])
                     & data.covariate.isin(spec["covariates"])].copy()
     rows = [data[["covariate", "subgroup", "contrast", "gain", "lower", "upper"]]]
@@ -429,6 +430,13 @@ def subgroup_table(panels, summaries, spec, *, seed=None, horizon=ALL_HORIZONS):
              if name in set(table.covariate)}
     styles = {code: list(style) for code, style in spec["contrasts"].items()}
     return table, styles, order
+
+
+def subgroup_auc_table(effects, spec, *, seed=None, horizon=ALL_HORIZONS):
+    """Equal-cell AUC gains recomputed within prespecified patient groups."""
+    panels = effects.rename(columns={"stratum_value": "subgroup"}).copy()
+    panels = panels.loc[panels.metric == "auc"].copy()
+    return subgroup_table(panels, None, spec, seed=seed, horizon=horizon, metric="auc")[0]
 
 
 def group_maps():
@@ -760,6 +768,17 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
 
     for name, spec in SUBGROUP_FIGURES.items():
         table(f"{name}.csv", subgroups(name, spec))
+
+    def subgroup_auc():
+        spec = SUBGROUP_FIGURES["patient_subgroups"]
+        paths = [analysis / f"stratified_{column}_effects.csv"
+                 for column in spec["covariates"]]
+        parts = [_read(path, sources) for path in paths if path.is_file()]
+        if not parts:
+            raise Missing("No stratified patient-group effects; rerun analyse")
+        return subgroup_auc_table(pd.concat(parts, ignore_index=True), spec, seed=seed)
+
+    table("patient_subgroups_auc.csv", subgroup_auc)
 
     def regions():
         effects, models, coverage = region_tables(

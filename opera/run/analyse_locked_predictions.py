@@ -37,6 +37,7 @@ from opera.evaluation.secondary_analysis import (
     route_summaries,
     router_null_equivalence,
     seed_averaged_effects,
+    subgroup_labels,
     subgroup_patient_gains,
     tuning_selected_strategies,
 )
@@ -644,7 +645,12 @@ def run(config, output_dir):
                           if m in set(predictions.model)]
         needed = models_for(wanted, summary_models)
         relevant = predictions.loc[predictions.model.isin(needed)]
-        for value, ids in metadata.dropna(subset=[column]).groupby(column).subject_id:
+        # Use exactly the bins and missing-value labels of the Brier subgroups.
+        group_spec = (config.get("patient_groups") or {}).get(
+            column, {"provenance": "pre_index"})
+        _, labelled = next(subgroup_labels(
+            metadata[["subject_id"]], metadata, {column: group_spec}))
+        for value, ids in labelled.groupby("subgroup").subject_id:
             subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:
                 result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
