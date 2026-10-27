@@ -543,16 +543,16 @@ def synthetic_regions(rng):
         for contrast, base in (("J-S", 0.022), ("J-X", 0.025)):
             gain = base + rng.normal(0, 0.006)
             effects.append({"region": region, "contrast": contrast, "metric": "auc",
-                            "horizon_days": 365, "gain": gain, "lower": gain - 0.012,
+                            "horizon_days": 0, "gain": gain, "lower": gain - 0.012,
                             "upper": gain + 0.012})
         joint = 0.79 + rng.normal(0, 0.01)
         for model, value, bias in (("J", joint, rng.normal(0, 0.004)),
                                    ("X", joint - 0.025, rng.normal(0.004, 0.004))):
             models.append({"region": region, "model": model, "metric": "auc",
-                           "horizon_days": 365, "estimate": value,
+                           "horizon_days": 0, "estimate": value,
                            "lower": value - 0.015, "upper": value + 0.015})
             models.append({"region": region, "model": model, "metric": "calibration_bias",
-                           "horizon_days": 365, "estimate": bias,
+                           "horizon_days": 0, "estimate": bias,
                            "lower": bias - 0.006, "upper": bias + 0.006})
         history = rng.uniform(300, 900)
         labs = history * rng.uniform(0.25, 0.5)

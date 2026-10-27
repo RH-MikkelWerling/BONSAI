@@ -609,7 +609,7 @@ def run(config, output_dir):
                                           n_subjects=len(set(ids))))
             absolute.append(panel_estimates(
                 result["estimates"], result["model_bootstrap_draws"],
-                {column: summary_models}, stable_cells_only=True,
+                {column: summary_models}, stable_cells_only=True, pooled_horizons=True,
             ).assign(covariate=column, stratum_value=str(value)))
         if effects:
             tables[f"stratified_{column}_effects"] = pd.concat(effects, ignore_index=True)

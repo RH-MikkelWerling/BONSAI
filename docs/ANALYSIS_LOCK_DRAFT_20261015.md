@@ -410,6 +410,9 @@ problems; the rules below fix them without reference to any test result.
   cells whose estimate is finite in every replicate, shared by all models
   compared within the subset; the number of cells left out is reported. The
   full-panel analyses keep the strict fixed inventory.
+  Regional and calendar-year figures report the panel pooled over every
+  horizon (each disease-outcome-horizon cell weighing equally, as in Table 2),
+  not one year.
 - Reliability-curve examples are chosen by rule from training counts only: per
   listed clinical domain, the cell with the most training events among cells
   with at least 200 training events and an event share of at least 10%.

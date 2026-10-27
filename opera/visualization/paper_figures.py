@@ -2990,7 +2990,14 @@ def _region_forest(ax, table, series, value="gain", reference=0.0):
     despine(ax, "x")
 
 
-def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizon=365,
+def _horizon_phrase(horizon):
+    """'All-horizon' for the pooled panel (horizon_days == 0), else e.g. 'One-year'."""
+    if horizon == 0:
+        return "All-horizon"
+    return {365: "One-year", 730: "Two-year"}.get(horizon, f"{horizon}-day")
+
+
+def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizon=0,
                    mark=None):
     """One national model across Denmark's regions.
 
@@ -3004,6 +3011,8 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     region GeoJSON; by default the packaged geoBoundaries regions, ``False``
     for schematic tiles.
 
+    ``horizon``: 0 (default) is the panel pooled over every horizon, each
+    disease-outcome-horizon cell weighing equally, as in Table 2.
     Maps: A, AUC gain over XGBoost of OPERA (the configuration chosen on tuning
     data, when analysed) or else the joint model; B, its AUC; C, its calibration
     in the large; each with its 95% CI, hatched where the interval includes 0.
@@ -3054,6 +3063,8 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         cb.outline.set_visible(False)
         cb.set_label(label, fontsize=6.2)
 
+    # Default: the panel pooled over every horizon (the headline estimand).
+    when = _horizon_phrase(horizon)
     # The best model (OPERA) where it was analysed, else the joint model.
     lead = "OPERA" if (auc.contrast == "OPERA-X").any() else "J"
     lead_name = "OPERA" if lead == "OPERA" else "Joint model"
@@ -3061,7 +3072,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     gain = vs_x.set_index("region").gain
     span = float(np.nanmax(np.abs(gain))) or 0.01
     map_panel(0, "A", "Gain over XGBoost", gain.to_dict(), GAIN_CMAP,
-              TwoSlopeNorm(0, -span, span), "One-year AUC gain", "{:+.3f}",
+              TwoSlopeNorm(0, -span, span), f"{when} AUC gain", "{:+.3f}",
               intervals_of(vs_x), reference=0.0)
     if absolute is not None:
         joint = absolute.loc[(absolute.metric == "auc") & (absolute.model == lead)]
@@ -3069,7 +3080,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         low, high = float(values.min()), float(values.max())
         pad = max((high - low) * 0.15, 0.005)
         map_panel(1, "B", f"{lead_name} AUC", values.to_dict(), ATLAS_CMAP,
-                  plt.Normalize(low - pad, high + pad), "One-year AUC", "{:.3f}",
+                  plt.Normalize(low - pad, high + pad), f"{when} AUC", "{:.3f}",
                   intervals_of(joint))
         bias_rows = absolute.loc[(absolute.metric == "calibration_bias")
                                  & (absolute.model == lead)]
@@ -3078,8 +3089,9 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         map_panel(2, "C", "Calibration in the large", bias.to_dict(), BIAS_CMAP,
                   TwoSlopeNorm(0, -span, span), "Observed − predicted risk", "{:+.3f}",
                   intervals_of(bias_rows), reference=0.0)
-    fig.text(0.01, 0.535, "Under each value: 95% CI. Hatched: the interval includes 0.",
-             fontsize=6.2, color=PALETTE["ink_muted"], ha="left")
+    fig.text(0.01, 0.004, ("Panel pooled over every horizon. " if horizon == 0 else "")
+             + "Maps: 95% CI under each value; hatched where the interval includes 0.",
+             fontsize=6.2, color=PALETTE["ink_muted"], ha="left", va="bottom")
 
     lower = fig.add_gridspec(1, 4, wspace=0.18, left=0.13, right=0.985, top=0.43,
                              bottom=0.1)

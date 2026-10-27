@@ -225,3 +225,17 @@ def test_effect_summaries_stable_panel_reports_dropped_cells():
     assert np.isnan(pick(strict).lower)
     assert pick(stable).lower == pytest.approx(0.02)
     assert pick(stable).n_cells == 2 and pick(stable).n_cells_unstable == 1
+
+
+def test_panel_estimates_can_pool_every_horizon():
+    rows, draws = [], []
+    for horizon, value in ((365, 0.7), (730, 0.6)):
+        identity = {"split": "held_out", "seed": 42, "cohort": "A", "outcome": "o",
+                    "horizon_days": horizon, "model": "J_L", "metric": "auc"}
+        rows.append({**identity, "estimate": value})
+        draws.append({**identity, "estimate_draws": np.full(50, value)})
+    panel = panel_estimates(pd.DataFrame(rows), pd.DataFrame(draws), {"g": ["J_L"]},
+                            pooled_horizons=True)
+    pooled = panel.loc[panel.horizon_days == 0].iloc[0]
+    assert pooled.estimate == pytest.approx(0.65) and pooled.n_cells == 2
+    assert set(panel.horizon_days) == {0, 365, 730}

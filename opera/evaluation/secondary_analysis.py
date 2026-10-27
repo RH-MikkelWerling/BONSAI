@@ -747,7 +747,8 @@ def paired_analysis(
     }
 
 
-def panel_estimates(estimates, model_draws, groups, *, stable_cells_only=False):
+def panel_estimates(estimates, model_draws, groups, *, stable_cells_only=False,
+                    pooled_horizons=False):
     """Equal-cell panel mean of absolute metrics for sets of compared models.
 
     Each group (for example the joint and routed models under the three encoder
@@ -802,7 +803,17 @@ def panel_estimates(estimates, model_draws, groups, *, stable_cells_only=False):
                     "aggregation": "equal_cell_common_panel",
                     **_interval(sampled),
                 })
-    return pd.DataFrame(rows)
+    table = pd.DataFrame(rows)
+    if pooled_horizons and len(estimates):
+        # Also every disease-outcome-horizon cell weighing equally
+        # (horizon_days == ALL_HORIZONS), as in effect_summaries.
+        def pooled(frame):
+            return frame.assign(outcome=frame.outcome.astype(str) + "@"
+                                + frame.horizon_days.astype(str), horizon_days=ALL_HORIZONS)
+        table = pd.concat([table, panel_estimates(
+            pooled(estimates), pooled(model_draws), groups,
+            stable_cells_only=stable_cells_only)], ignore_index=True)
+    return table
 
 
 ROUTER_GATED_CONTRASTS = ("R2", "R3", "R4", "R5", "R6", "R7")
