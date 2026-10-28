@@ -62,3 +62,30 @@ def test_clinical_score_event_on_horizon_is_positive():
     known, labels = _known_status(frame, 730)
     assert known.index.tolist() == [0, 2]
     assert labels.tolist() == [1, 0]
+
+
+def test_binary_metrics_at_frozen_group_boundaries():
+    import pandas as pd
+    import numpy as np
+    from sklearn.metrics import matthews_corrcoef
+    from opera.run.render_clinical_score_panels import classification_at_boundaries
+    data = pd.DataFrame(dict(subject_id=list('abcdefgh'),
+        model_risk=[.1,.2,.3,.4,.6,.7,.8,.9],
+        ipi_group=['Low']*3+['Intermediate']*2+['High']*3,
+        time_days=[500,500,20,500,20,20,500,20], event=[0,0,1,0,1,1,0,1]))
+    spec = dict(id='score',model='R_L',horizon_days=365,threshold_split='train',
+                group_order=['Low','Intermediate','High'])
+    rows = pd.DataFrame(classification_at_boundaries(data,spec,[.3,.7],'tuning'))
+    assert len(rows) == 8
+    row = rows.loc[(rows.system=='model') & (rows.boundary=='High') & (rows.estimand=='known_status')].iloc[0]
+    assert (row.tp,row.fp,row.fn,row.tn) == (2,1,2,3)
+    assert row.recall == .5
+    assert row.precision == 2/3
+    assert np.isclose(row.mcc,matthews_corrcoef([0,0,1,0,1,1,0,1],[0,0,0,0,0,1,1,1]))
+    assert set(rows.threshold_split) == {'train'}
+    data.loc[0,['time_days','event']] = [10,0]
+    data.loc[1,['time_days','event']] = [20,2]
+    rows = pd.DataFrame(classification_at_boundaries(data,spec,[.3,.7],'held_out'))
+    ordinary = rows.loc[rows.estimand=='known_status']
+    assert ordinary.n_known.eq(7).all()
+    assert (ordinary[['tp','fp','fn','tn']].sum(axis=1)==7).all()

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from opera.run.analyse_locked_predictions import read_table
 
-SCORES = [('ipi_computed', 5, [1, 3]), ('nccn_ipi', 8, [1, 5])]
+SCORES = [('ipi_computed', 5, [1, 2, 3]), ('nccn_ipi', 8, [1, 3, 5])]
 
 
 def prepare(base, extra_paths, output):
@@ -29,7 +29,7 @@ def prepare(base, extra_paths, output):
                 if field.endswith('_score'):
                     agree = np.isclose(pd.to_numeric(left), pd.to_numeric(right))
                 else:
-                    from opera.run.prepare_available_plot_configs import GROUP_MAP
+                    from opera.run.prepare_available_plot_configs import NATIVE_GROUP_MAP as GROUP_MAP
                     agree = left.astype(str).str.lower().str.strip().map(GROUP_MAP).eq(
                         right.astype(str).str.lower().str.strip().map(GROUP_MAP))
                 if not np.all(agree):
@@ -45,12 +45,15 @@ def prepare(base, extra_paths, output):
             observed = values.dropna()
             if not (observed.between(0, maximum) & observed.eq(np.floor(observed))).all():
                 raise ValueError(f'Invalid numeric score: {score}')
-            # Coarsen only presentation categories; numeric scores stay unchanged.
-            labels = pd.cut(values, [-np.inf, *cuts, np.inf], labels=['Low', 'Intermediate', 'High']).astype('string')
-            if group not in data:
+            from opera.run.prepare_available_plot_configs import FOUR_GROUP_ORDER
+            labels = pd.cut(values, [-np.inf, *cuts, np.inf], labels=FOUR_GROUP_ORDER).astype('string')
+            # Numeric totals recover the native strata even if an earlier export
+            # collapsed its intermediate groups. Preserve source labels for audit.
+            if group in data:
+                data[group + '_source'] = data[group]
                 data[group] = labels
             else:
-                data[group] = data[group].fillna(labels)
+                data[group] = labels
         missing = sorted({score, group} - set(data))
         complete = int(data[[score, group]].notna().all(axis=1).sum()) if not missing else 0
         report[prefix] = dict(missing_columns=missing, n_complete=complete,

@@ -87,6 +87,8 @@ def main():
     parser.add_argument('--score-registry', type=Path, help='Optional real registry components')
     parser.add_argument('--score-column-map', type=Path, help='Explicit approved JSON mapping for those components')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--clinical-only', action='store_true',
+                        help='Export training predictions and refresh clinical scores only')
     args = parser.parse_args()
     if args.resume and args.output_dir is None:
         parser.error('--resume requires --output-dir of the existing completion workspace')
@@ -110,7 +112,7 @@ def main():
         clinical_sources += [p for p in [args.score_registry, args.score_column_map] if p]
         repo = Path(__file__).resolve().parents[2]
         source_code = hashlib.sha256(b''.join(p.read_bytes() for p in sorted((repo / 'opera').rglob('*.py')))).hexdigest()
-        scientific_inputs = dict(source_code_sha256=source_code,
+        scientific_inputs = dict(clinical_only=args.clinical_only, source_code_sha256=source_code,
                                  clinical_source_sha256={str(p.resolve()): sha(p) for p in clinical_sources},
                                  source_analysis_sha256=sha(old / 'analysis_inventory/analysis.yaml'),
                                  fit=fit, source_env_sha256=sha(old / 'overnight.env'))
@@ -123,9 +125,9 @@ def main():
             report = dict(inputs=scientific_inputs, source_analysis=str(old), steps={}, status='running')
             from opera.run.run_tuning_plot_rebuild import copy_aggregate_inputs
             report['reused_auxiliary_aggregates'] = {name: copy_aggregate_inputs(old / name, root / name)
-                for name in ('attributions', 'input_restrictions')}
+                for name in ('attributions',)}
             report['notes'] = ['Main paired analysis reused read-only; borrowing is freshly inferred and analysed.',
-                'Existing attribution/input-restriction aggregates are reused, not newly validated.']
+                'Existing attribution aggregates are reused, not newly validated; recent-record gaps are evaluated afresh.']
             (root / 'prediction_analysis').symlink_to(old / 'prediction_analysis', target_is_directory=True)
             (root / 'analysis_inventory').mkdir()
             metadata = root / 'patient_metadata.parquet'
@@ -142,8 +144,12 @@ def main():
                 extras.append(computed)
             report['clinical_availability'] = prepare(analysis['patient_metadata'], extras, metadata)
             analysis['patient_metadata'] = str(metadata)
+            analysis['clinical_threshold_artifacts'] = [dict(model=analysis.get('opera_model', 'R_L'),
+                seed=42, split='train', format='direct_cif', cohort_from_metadata=True,
+                path=str(root / 'clinical_training/direct_cr_predictions.parquet'))]
             (root / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(analysis, sort_keys=False))
             embedding, clinical = build(analysis, root / 'configs')
+            report['recorded_category_audit'] = json.loads((root / 'configs/config_audit.json').read_text())['recorded_category_audit']
             embedding['calibration_maps']['routed_vectors'] = {name: str(root / 'routed_vectors' / name /
                 'routed_patient_vectors_INTERNAL.npz') for name in embedding['calibration_maps']['outcomes']}
             (root / 'configs/embedding_tables.tuning.yaml').write_text(yaml.safe_dump(embedding, sort_keys=False))
@@ -182,16 +188,22 @@ def main():
             if name == 'borrowing_inference' and result.returncode == 0:
                 complete_borrowing_export(root / 'borrowing_inference', fit, command)
             expected = {'init_figures': [root / 'figure_inputs/figures.yaml'],
-                'clinical_scores': [root / 'clinical_scores/headline_scores.csv'],
+                'clinical_training_predictions': [root / 'clinical_training/direct_cr_predictions.parquet'],
+                'clinical_scores': [root / 'clinical_scores/headline_scores.csv', root / 'clinical_scores/classification_at_thresholds.csv'],
                 'borrowing_inference': [root / 'borrowing_inference/source_removal/design.json', root / 'borrowing_inference/evaluation_complete.json'],
                 'borrowing_analysis_zero': [root / 'source_removal/tuning/zero_ablation/borrowing_map.csv', root / 'source_removal/tuning/zero_ablation/analysis_provenance.json'],
                 'borrowing_analysis': [root / 'source_removal/tuning/borrowing_map.csv', root / 'source_removal/tuning/analysis_provenance.json'],
                 'embedding_tables': [root / 'figure_inputs/plot_tables/calibration_map_outcomes.json'],
                 'plot_tables': [root / 'figure_inputs/plot_tables/plot_tables_manifest.json'],
+                'recent_record_gap_figure': [root / 'recent_record_figures/supp_recent_record_gaps.pdf'],
+                'recent_record_gaps': [root / 'input_restrictions/input_restriction_summary.csv', root / 'input_restrictions/input_restriction_auc.csv'],
                 'figures': [root / 'figures/figure_manifest.json'],
                 'audit': [root / 'figure_results_audit.json'],
+                'assemble_review': [root / 'figure_review/review_manifest.json'],
                 'supplement_tables': [root / 'supplement_tables/supplement_tables.tex'],
                 'paper_numbers': [root / 'paper_numbers/results_macros.tex']}.get(name, [])
+            if name.startswith('gap_'):
+                expected = [root / 'input_restrictions' / name / 'direct_cr_predictions.parquet']
             if name.startswith('arrows_'):
                 directory = root / 'routed_vectors' / name.removeprefix('arrows_')
                 expected = [directory / 'routed_patient_vectors_INTERNAL.npz', directory / 'routed_patient_vectors_INTERNAL.json']
@@ -207,12 +219,23 @@ def main():
         save(); print(f'Workspace: {root}', flush=True)
         print('Clinical input availability: ' + json.dumps(report['clinical_availability']), flush=True)
         run('init_figures', action('init-figures'))
-        run('clinical_scores', action('clinical-scores'))
+        run('clinical_training_predictions', module('evaluate_direct_competing_risk',
+            '--checkpoint', fit['checkpoint'], '--config-dir', Path(fit['config']).parent,
+            '--config-name', Path(fit['config']).stem, '--split', 'train',
+            '--batch-size', env.get('OPERA_PAPER_BATCH_SIZE', '1'),
+            '--output-dir', root / 'clinical_training'))
+        run('clinical_scores', action('clinical-scores'), needs=['clinical_training_predictions'])
         inventory = root / 'clinical_scores/score_inventory.csv'
         if inventory.is_file():
             import pandas as pd
             report['clinical_score_inventory'] = pd.read_csv(inventory).fillna('').to_dict('records')
             save()
+        if args.clinical_only:
+            report['status'] = 'complete' if (all(s['status'] == 'complete' for s in report['steps'].values())
+                and all(s['status'] == 'available' for s in report['clinical_availability'].values())
+                and all(s.get('status') == 'rendered' for s in report.get('clinical_score_inventory', []))) else 'finished_with_gaps'
+            save(); print(f"{report['status']}: {manifest}", flush=True)
+            return
         embed = yaml.safe_load((root / 'configs/embedding_tables.tuning.yaml').read_text())
         export_steps = []
         for outcome in embed['calibration_maps']['outcomes']:
@@ -238,6 +261,27 @@ def main():
                 '--own-reference', fit['own_reference'], '--ablation', ablation,
                 '--replicates', env.get('OPERA_PAPER_REMOVAL_REPLICATES', '1000')),
                 needs=['borrowing_inference'])
+        # Fixed checkpoint, same tuning patients and endpoints, fresh inference.
+        # These gaps do not require attribution baselines or model retraining.
+        gap_steps, gap_args = [], []
+        for days in (7, 14, 21, 28):
+            name = f'gap_{days}d'
+            gap_steps.append(name)
+            destination = root / 'input_restrictions' / name
+            run(name, module('evaluate_direct_competing_risk', '--checkpoint', fit['checkpoint'],
+                '--config-dir', Path(fit['config']).parent, '--config-name', Path(fit['config']).stem,
+                '--split', 'tuning', '--drop-last-days', days,
+                '--batch-size', env.get('OPERA_PAPER_BATCH_SIZE', '1'), '--output-dir', destination))
+            gap_args += ['--restricted', f'Last {days} days hidden={destination}']
+        run('recent_record_gaps', module('compare_input_restrictions', '--full', fit['predictions'],
+            *gap_args, '--horizon', '365', '--draws', env.get('OPERA_PAPER_RESTRICTION_DRAWS', '1000'),
+            '--output-dir', root / 'input_restrictions'), needs=gap_steps)
+        gap_recipe = root / 'configs/recent_record_gaps.yaml'
+        gap_recipe.write_text(yaml.safe_dump({'figures': [dict(id='supp_recent_record_gaps',
+            function='figure_recent_record_gaps', tables=dict(restrictions=str(root /
+            'input_restrictions/input_restriction_summary.csv')), options=dict(mark='TUNING SET — not test results'))]}))
+        run('recent_record_gap_figure', module('render_paper_results', '--config', gap_recipe,
+            '--output-dir', root / 'recent_record_figures', '--execute'), needs=['recent_record_gaps'])
         run('embedding_tables', action('embedding-tables'), needs=['init_figures', *export_steps])
         run('plot_tables', action('plot-tables'), needs=['init_figures'])
         if (root / 'figures').exists() and report['steps'].get('figures', {}).get('status') != 'complete':
@@ -249,8 +293,10 @@ def main():
         run('audit', module('audit_figure_results', '--analysis-root', root, '--output', root / 'figure_results_audit.json'))
         run('paper_numbers', action('paper-numbers'), needs=['plot_tables'])
         run('supplement_tables', action('supplement-tables'), needs=['plot_tables'])
+        run('assemble_review', module('assemble_figure_review', '--analysis-root', root,
+            '--output-dir', root / 'figure_review'))
         report['status'] = 'complete' if all(s['status'] == 'complete' for s in report['steps'].values()) and all(
-            s['status'] == 'available' for s in report['clinical_availability'].values()) and all(
+            s['status'] == 'available' for s in report['clinical_availability'].values()) and not any(s['status'] == 'source_categories_coarsened' for s in report.get('recorded_category_audit', {}).values()) and all(
             s.get('status') == 'rendered' for s in report.get('clinical_score_inventory', [])) else 'finished_with_gaps'
         save(); print(f"{report['status']}: {manifest}", flush=True)
 

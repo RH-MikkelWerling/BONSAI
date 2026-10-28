@@ -293,7 +293,7 @@ token was never trained and is not a suitable reference. Integrated gradients
 record to the patient's own, and add up how much each event's content changes
 the prediction along the way; the integral below is that running sum, and
 $\alpha$ runs from the average record ($\alpha=0$) to the patient's record
-($\alpha=1$). Event $j$ thus receives the credit
+($\alpha=1$). Event $j$ receives the credit
 \begin{equation}
  a_{jk}=\sum_d(E_{jd}-E^0_{jd})
  \int_0^1\frac{\partial f_{k}(E^0+\alpha(E-E^0);C)}

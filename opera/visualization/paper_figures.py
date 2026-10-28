@@ -2883,7 +2883,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                           event_free=False, model_threshold=None):
     """The model against the clinical score on the patients who have one.
 
-    Supply ``model_threshold`` locked on tuning data for held-out evaluation.
+    Supply ``model_threshold`` locked on training data for held-out evaluation.
     Without it, the matched-specificity point is descriptive on this sample.
     ``event_free`` shows KM complements for a death-inclusive composite;
     it rejects competing-cause records.
@@ -2903,9 +2903,9 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     data["model_group"] = pd.cut(data.model_risk, [-np.inf, *thresholds, np.inf],
                                  labels=names, right=False).astype(str)
     known, label = _known_status(data, horizon_days)
-    fig = plt.figure(figsize=(7.2, 6.0))
-    top = fig.add_gridspec(1, 2, width_ratios=[1, 1.15], wspace=0.42, left=0.09,
-                           right=0.97, top=0.9, bottom=0.57)
+    fig = plt.figure(figsize=(8.8, 7.6))
+    top = fig.add_gridspec(1, 2, width_ratios=[1, 1.15], wspace=0.46, left=0.09,
+                           right=0.97, top=0.86, bottom=0.59)
     ax = fig.add_subplot(top[0])
     precision, recall, _ = precision_recall_curve(label, known.model_risk)
     model_ap = average_precision_score(label, known.model_risk)
@@ -2924,10 +2924,17 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     ax.plot(score_recall, score_precision, color=PALETTE["ink_muted"], ls="none",
             marker="o", ms=3.5, label=f"{ipi_label} thresholds (AP {score_ap:.2f})")
     rank_scores = max(cuts) < len(ipi_order)
-    for cut_value, x, y in zip(cuts, score_recall, score_precision):
+    # Spread threshold labels vertically and keep edge labels inside the panel.
+    label_y = -np.inf
+    for index in np.argsort(score_precision):
+        cut_value, x, y = cuts[index], score_recall[index], score_precision[index]
         name = ipi_order[int(cut_value)] if rank_scores else f"{int(cut_value)}"
-        ax.annotate(f"≥ {name}", (x, y), xytext=(3, -8), textcoords="offset points",
-                    fontsize=5.6, color=PALETTE["ink_muted"])
+        label_y = max(float(y), label_y + 0.055)
+        label_x = min(max(float(x) + (0.04 if x < .82 else -.04), .06), .94)
+        ax.annotate(f"≥ {name}", (x, y), xytext=(label_x, label_y),
+                    textcoords="data", ha="left" if x < .82 else "right",
+                    va="center", fontsize=6.2, color=PALETTE["ink_muted"],
+                    arrowprops=dict(arrowstyle="-", color=PALETTE["ink_muted"], lw=.45))
     high = known.ipi_score >= ipi_high
     specificity = float((~high[label == 0]).mean())
     cut = (float(model_threshold) if model_threshold is not None else
@@ -2949,19 +2956,23 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     ax.plot([reference[1], at_precision], [reference[0], reference[0]], **projection)
     ax.scatter([reference[1], at_precision], [at_recall, reference[0]], s=10,
                color=MODEL_STYLE["J"][0], zorder=4)
-    ax.text(0.03, 0.47,
-            f"Same recall as {ipi_label}:\n  precision {reference[0]:.2f} → {at_recall:.2f}\n"
-            f"Same precision as {ipi_label}:\n  recall {reference[1]:.2f} → {at_precision:.2f}\n"
-            f"Same specificity ({specificity:.2f}, diamond):\n"
-            f"  recall {matched[1]:.2f}, precision {matched[0]:.2f}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=5.8,
-            color=PALETTE["ink_secondary"], linespacing=1.25)
+    # Dedicated space below A: numerical comparisons never cover the curve.
+    summary = [
+        f"Matched recall: precision {reference[0]:.2f} → {at_recall:.2f}",
+        f"Matched precision: recall {reference[1]:.2f} → {at_precision:.2f}",
+        f"Frozen high-risk cutoff (diamond): recall {matched[1]:.2f}, precision {matched[0]:.2f}"]
+    for y, text in zip((.475, .450, .425), summary):
+        fig.text(.09, y, text, ha="left", va="top", fontsize=7,
+                 color=PALETTE["ink_secondary"])
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
-    ax.legend(loc="lower right", frameon=False, fontsize=6.6)
-    _panel_title(ax, "A", f"Events by {horizon_days // 365} years")
+    ax.legend(loc="upper left", bbox_to_anchor=(0, -.25),
+              borderaxespad=0, frameon=False, fontsize=7, ncol=1)
+    horizon_label = "1 year" if horizon_days == 365 else (f"{horizon_days / 365:g} years" if horizon_days % 365 == 0 else f"{horizon_days:g} days")
+    _panel_title(ax, "A", f"Events by {horizon_label}")
+    ax.set_title(f"A  Events by {horizon_label}", loc="left", fontsize=10.5, pad=34)
     despine(ax, "both")
 
     ax = fig.add_subplot(top[1])
@@ -2978,11 +2989,11 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     band_labels = names
     for index, label_text in enumerate(band_labels):
         centre = (edges[index] + edges[index + 1]) / 2
-        ax.text(centre, 1.025, label_text, transform=ax.get_xaxis_transform(),
+        ax.text(centre, 1.015 + .055 * (index % 2), label_text.replace("-", "-\n"), transform=ax.get_xaxis_transform(),
                 ha="center", va="bottom", fontsize=5.8,
                 color=_risk_colors(len(band_labels))[index],
                 fontweight="bold", clip_on=False)
-    ax.text(0, -0.25, "Model groups (cutoffs fixed on tuning data): " + " / ".join(
+    ax.text(0, -0.30, "Model cutoffs (fixed on training):\n" + " / ".join(
                 [f"< {thresholds[0]:.2f}",
                  *[f"{lo:.2f}–< {hi:.2f}" for lo, hi in zip(thresholds[:-1], thresholds[1:])],
                  f"≥ {thresholds[-1]:.2f}"]),
@@ -2999,7 +3010,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     ax.set_yticks(range(len(ipi_order)), list(ipi_order), fontsize=6.8)
     ax.invert_yaxis()
     ax.set_xlim(0, 1)
-    ax.set_xlabel(f"Model risk at {horizon_days // 365} years")
+    ax.set_xlabel(f"Model risk at {horizon_label}")
     ax.grid(False)
     ax.legend(handles=[Line2D([], [], ls="none", marker="o", ms=3.5, color="#B5451B",
                               label="Event"),
@@ -3008,11 +3019,11 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
               loc="upper right", frameon=True, facecolor="white", framealpha=0.95,
               edgecolor="none", fontsize=6.6, ncol=1, handletextpad=0.1)
     _panel_title(ax, "B", f"Model risk by {ipi_label} group")
-    ax.title.set_y(1.1)  # clear of the risk-group band labels
+    ax.set_title(f"B  Model risk by {ipi_label} group", loc="left", fontsize=10.5, pad=34)
     despine(ax, "none")
 
-    bottom = fig.add_gridspec(1, 2, wspace=0.12, left=0.13, right=0.97, top=0.41,
-                              bottom=0.2)
+    bottom = fig.add_gridspec(1, 2, wspace=0.12, left=0.13, right=0.97, top=0.35,
+                              bottom=0.16)
     ages = pd.cut(data.age, list(age_bins), right=False)
     age_labels = [f"< {int(b.right)}" if not np.isfinite(b.left) or b.left <= 0
                   else (f"≥ {int(b.left)}" if not np.isfinite(b.right)
@@ -3061,7 +3072,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     metric_label = (_survival_label(outcome_label) if event_free
                     else f"Cumulative incidence of {outcome_label.lower()}")
     fig.text(0.55, 0.015, f"{metric_label} by "
-             f"{horizon_days // 365} years (95% CI), with patients per cell below", ha="center",
+             f"{horizon_label} (95% CI), with patients per cell below", ha="center",
              fontsize=7, color=PALETTE["ink_secondary"])
     watermark(fig, mark)
     return fig
@@ -4229,3 +4240,29 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
 def figure_patient_tracks(episodes, *, outcomes=None, scale="logit", mark=None):
     from opera.visualization.attribution_overview import figure_patient_tracks as render
     return render(episodes, outcomes=outcomes, scale=scale, mark=mark)
+
+
+def figure_recent_record_gaps(restrictions, *, mark=None):
+    """Paired one-year AUC change after hiding recent history, by domain."""
+    labels = [f'Last {days} days hidden' for days in (7, 14, 21, 28)]
+    data = restrictions.loc[restrictions.restriction.isin(labels)]
+    if data.empty:
+        raise ValueError('No recent-record gap results available')
+    groups = list(dict.fromkeys(data.group))
+    fig, ax = plt.subplots(figsize=(8, max(3, len(groups) * .42)))
+    for i, label in enumerate(labels):
+        part = data.loc[data.restriction == label].set_index('group').reindex(groups)
+        y = np.arange(len(groups)) + (i - 1.5) * .16
+        ax.hlines(y, 100 * part.lower, 100 * part.upper, color=HORIZON_COLORS[(30, 90, 180, 365)[i]], alpha=.65)
+        ax.scatter(100 * part.mean_delta, y, s=22, marker='D',
+                   color=HORIZON_COLORS[(30, 90, 180, 365)[i]], label=label)
+    ax.axvline(0, color='.35', linewidth=1)
+    ax.set(yticks=np.arange(len(groups)), yticklabels=groups,
+           xlabel='One-year AUC change (×100; mean, paired 95% CI)',
+           title='Prediction with recent records hidden')
+    ax.invert_yaxis()
+    ax.legend(loc='best', fontsize=8)
+    despine(ax)
+    watermark(fig, mark)
+    fig.tight_layout()
+    return fig

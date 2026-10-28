@@ -180,7 +180,7 @@ def test_identity_evidence_date_and_assignment_source_are_carried():
     assert metadata.cohort_identity_post_index.tolist() == [False, True]
 
 
-def test_model_cutoffs_are_chosen_on_tuning_patients():
+def test_model_cutoffs_are_chosen_on_training_patients():
     from opera.run.render_clinical_score_panels import select_model_cutoffs
     from opera.visualization.paper_figures import _known_status
 
@@ -193,6 +193,7 @@ def test_model_cutoffs_are_chosen_on_tuning_patients():
         "model_risk": risk, "ipi_group": np.array(["Low", "Intermediate", "High"])[group],
         "time_days": np.minimum(event_time, 1000.0),
         "event": (event_time <= 1000).astype(int)})
+    tuning["subject_id"] = np.arange(len(tuning)).astype(str)
     spec = dict(three_group_spec(), horizon_days=730)
     size = select_model_cutoffs(tuning, {**spec, "cutoff_rule": "size_matched"})
     shares = tuning.ipi_group.value_counts(normalize=True)
@@ -357,3 +358,15 @@ def test_history_summary_records_the_predominant_region():
     assert table.loc[1, "predominant_region"] == "Hovedstaden"
     assert pd.isna(table.loc[2, "predominant_region"])  # tie
     assert table.loc[1, "history_event_count"] == 4  # DX + 3 region tokens, post-index DX dropped
+
+
+def test_crossed_clinical_cutoffs_are_not_silently_separated():
+    from opera.run.render_clinical_score_panels import select_model_cutoffs
+    data = pd.DataFrame(dict(model_risk=np.linspace(.01, .99, 100),
+        ipi_group=['Low']*50+['Intermediate']*25+['High']*25,
+        time_days=[100.]*50+[1000.]*50, event=[1]*50+[0]*50))
+    data["subject_id"] = np.arange(len(data)).astype(str)
+    spec = dict(group_order=['Low','Intermediate','High'], horizon_days=365,
+                cutoff_rule='risk_matched_low')
+    with pytest.raises(ValueError, match='not estimable'):
+        select_model_cutoffs(data, spec)

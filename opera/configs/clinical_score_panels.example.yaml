@@ -5,7 +5,7 @@
 # disease becomes one comparison (all_indices). There is no numeric score for
 # these, so the category rank serves as the score for discrimination.
 #
-# Model risk groups are chosen on tuning patients. risk_matched_low (default):
+# Model risk groups are developed on training patients. risk_matched_low (default):
 # low cutoff = largest model low-risk group no riskier than the index's;
 # high cutoff = the index's high-risk specificity; middle groups split in the
 # index's proportions. size_matched: the index's group sizes. Fixed
@@ -33,6 +33,7 @@ all_indices:
     death_in_endpoint: true
     group_column: IPI
     group_map: {low: Low, medium: Intermediate, high: High}
+    threshold_split: train
     group_order: [Low, Intermediate, High]
     score_high_group: High
     age_column: age_at_index
@@ -60,6 +61,7 @@ scores:  # explicit entries (scores not in the `index` column)
     group_column: ipi_computed_group
     group_map: {low: Low, low-intermediate: Low-intermediate,
                 high-intermediate: High-intermediate, high: High}
+    threshold_split: train
     group_order: [Low, Low-intermediate, High-intermediate, High]
     score_high_group: High
     age_column: age_at_index
@@ -89,6 +91,7 @@ scores:  # explicit entries (scores not in the `index` column)
     group_column: ipi_computed_group
     group_map: {low: Low, low-intermediate: Low-intermediate,
                 high-intermediate: High-intermediate, high: High}
+    threshold_split: train
     group_order: [Low, Low-intermediate, High-intermediate, High]
     score_high_group: High
     age_column: age_at_index
@@ -115,6 +118,7 @@ scores:  # explicit entries (scores not in the `index` column)
     group_column: nccn_ipi_group
     group_map: {low: Low, low-intermediate: Low-intermediate,
                 high-intermediate: High-intermediate, high: High}
+    threshold_split: train
     group_order: [Low, Low-intermediate, High-intermediate, High]
     score_high_group: High
     age_column: age_at_index

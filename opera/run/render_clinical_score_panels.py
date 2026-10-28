@@ -99,8 +99,48 @@ def score_patients(predictions, metadata, spec, split):
 CUTOFF_RULES = ("size_matched", "risk_matched_low")
 
 
+def clinical_weights(patients, horizon):
+    """CIF labels and disease-specific censoring weights on the score population."""
+    from opera.evaluation.secondary_analysis import attach_ipcw_weights
+    data = patients.copy().reset_index(drop=True)
+    for key, value in dict(model="clinical", seed=0, split="clinical", cohort="all",
+                           outcome="clinical", horizon_days=horizon).items():
+        if key not in data:
+            data[key] = value
+    data["horizon_days"] = horizon
+    return attach_ipcw_weights(data)
+
+
+def classification_at_boundaries(patients, spec, cuts, evaluation_split):
+    """Both ordinary known-status and IPCW confusion metrics at frozen cutoffs."""
+    from opera.evaluation.operating_points import threshold_metrics
+    data = clinical_weights(patients, spec["horizon_days"])
+    labels = data.label.to_numpy(bool)
+    rank = data.ipi_group.map({g: i for i, g in enumerate(spec["group_order"])}).to_numpy()
+    rows = []
+    for i, (group, cut) in enumerate(zip(spec["group_order"][1:], cuts), 1):
+        for system, flag in (("model", data.model_risk.to_numpy() >= cut),
+                             ("index", rank >= i)):
+            for estimand, weights in (("known_status", data.known.to_numpy(float)),
+                                      ("cif_ipcw", data.ipcw_weight.to_numpy(float))):
+                tp, fp, fn, tn = [float(weights[mask].sum()) for mask in
+                    (flag & labels, flag & ~labels, ~flag & labels, ~flag & ~labels)]
+                metrics = {k: float(v) for k,v in threshold_metrics(tp,fp,fn,tn).items()}
+                denominator = tp+fp+fn+tn
+                rows.append(dict(score_id=spec["id"], model=spec["model"], split=evaluation_split,
+                    horizon_days=spec["horizon_days"], threshold_split=spec.get("threshold_split", "train"),
+                    system=system, boundary=group, estimand=estimand,
+                    threshold=float(cut) if system == "model" else i,
+                    threshold_units="predicted_risk" if system == "model" else "zero_based_group_rank",
+                    n_patients=len(data), n_known=int(data.known.sum()), tp=tp,fp=fp,fn=fn,tn=tn,
+                    recall=metrics["sensitivity"], precision=metrics["ppv"],
+                    accuracy=(tp+tn)/denominator if denominator else np.nan,
+                    f1=2*tp/(2*tp+fp+fn) if 2*tp+fp+fn else np.nan, **metrics))
+    return rows
+
+
 def select_model_cutoffs(tuning, spec, *, minimum_group=20):
-    """Model risk-group cutoffs chosen on tuning patients only.
+    """Model risk-group cutoffs developed on the designated development split.
 
     ``risk_matched_low`` (default; as in the earlier DLBCL study) anchors both
     ends of the stratification to the index:
@@ -121,30 +161,53 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20):
         raise ValueError(f"cutoff_rule must be one of {CUTOFF_RULES}")
     order = list(spec["group_order"])
     shares = tuning.ipi_group.value_counts(normalize=True).reindex(order).fillna(0)
+    if tuning.empty:
+        raise ValueError("No threshold-development predictions available")
     risk = tuning.model_risk.to_numpy(float)
     if rule == "size_matched":
         cuts = [float(np.quantile(risk, q)) for q in shares.cumsum().to_numpy()[:-1]]
     else:
-        known, labels = _known_status(tuning, spec["horizon_days"])
+        weighted = clinical_weights(tuning, spec["horizon_days"])
+        known = weighted.loc[weighted.known].copy()
         model_risk = known.model_risk.to_numpy(float)
-        events = labels.to_numpy()
-        low_rate = float(events[(known.ipi_group == order[0]).to_numpy()].mean())
+        events = known.label.to_numpy()
+        weights = known.ipcw_weight.to_numpy(float)
+        if len(np.unique(events)) != 2:
+            raise ValueError("Threshold development requires cases and controls")
+        low_group = (known.ipi_group == order[0]).to_numpy()
+        if not low_group.any():
+            raise ValueError("No index low-risk patients for threshold development")
+        low_rate = float(np.average(events[low_group], weights=weights[low_group]))
         candidates = np.unique(np.quantile(model_risk, np.linspace(0.01, 0.99, 197)))
         feasible = [c for c in candidates
                     if (model_risk < c).sum() >= minimum_group
-                    and events[model_risk < c].mean() <= low_rate]
-        low = float(max(feasible)) if feasible else float(np.quantile(risk, shares.iloc[0]))
+                    and np.average(events[model_risk < c], weights=weights[model_risk < c]) <= low_rate]
+        if not feasible:
+            raise ValueError("No model low-risk cutoff matches the training index event risk")
+        low = float(max(feasible))
         high_group = (known.ipi_group == order[-1]).to_numpy()
-        specificity = float((~high_group[events == 0]).mean())
-        high = float(np.quantile(model_risk[events == 0], specificity))
+        if not high_group.any():
+            raise ValueError("No index highest-risk patients for threshold development")
+        specificity = float(np.average(~high_group[events == 0], weights=weights[events == 0]))
+        control_risk, control_weights = model_risk[events == 0], weights[events == 0]
+        sort = np.argsort(control_risk)
+        cumulative = np.cumsum(control_weights[sort]) / control_weights.sum()
+        high = float(control_risk[sort[min(np.searchsorted(cumulative, specificity), len(sort)-1)]])
         middle = shares.iloc[1:-1].to_numpy()
         between = np.sort(risk[(risk >= low) & (risk < high)])
         inner = ([float(np.quantile(between, q)) for q in np.cumsum(middle)[:-1] / middle.sum()]
                  if len(middle) > 1 and len(between) and middle.sum() > 0 else [])
         cuts = [low, *inner, high]
-    for i in range(1, len(cuts)):  # strictly increasing
-        cuts[i] = max(cuts[i], cuts[i - 1] + 1e-6)
-    return [round(float(c), 6) for c in cuts]
+    rounded = [round(float(c), 6) for c in cuts]
+    if (len(rounded) != len(order) - 1 or not np.isfinite(rounded).all()
+            or any(right <= left for left, right in zip(rounded, rounded[1:]))):
+        raise ValueError("Model risk-group cutoffs are not estimable: matched anchors "
+                         "cross or intermediate thresholds coincide; no artificial separation applied")
+    assigned = np.digitize(risk, rounded)
+    if any(not np.any(assigned == i) for i in range(len(order))):
+        raise ValueError("Model risk-group cutoffs produce an empty development group; "
+                         "stratification is not estimable under the specified matching rule")
+    return rounded
 
 
 def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
@@ -428,7 +491,7 @@ def main():
         if spec.get("cutoff_rule"):
             if spec["cutoff_rule"] not in CUTOFF_RULES:
                 raise ValueError(f"cutoff_rule must be one of {CUTOFF_RULES}")
-            continue  # cutoffs are chosen on tuning patients during rendering
+            continue  # cutoffs are chosen on the declared development split during rendering
         cuts = spec["model_cutoffs"]
         if (
             len(cuts) != len(spec["group_order"]) - 1
@@ -455,13 +518,13 @@ def main():
     hashes = {}
     wanted = {s["model"] for s in specs} | {
         m for s in specs for m in (s.get("decision_curve") or {}).get("comparators", [])}
-    for artifact in analysis["artifacts"]:
+    for artifact in [*analysis["artifacts"], *analysis.get("clinical_threshold_artifacts", [])]:
         if artifact["model"] not in wanted:
             continue
         frame, _ = read_artifact(
             artifact,
             metadata,
-            analysis.get("estimand", "binary_known_status_unweighted"),
+            "cif_ipcw",
         )
         tables.append(frame)
         hashes[str(artifact["path"])] = file_hash(artifact["path"])
@@ -485,6 +548,7 @@ def main():
     records = []
     group_rows = []
     stratification = []
+    classification = []
     overview = []
     decision_tables = []
     for spec in specs:
@@ -503,7 +567,14 @@ def main():
                               followup_q25_days=follow["q25_days"],
                               followup_q75_days=follow["q75_days"])
             held, audit = score_patients(predictions, metadata, spec, args.split)
-            tuning, _ = score_patients(predictions, metadata, spec, "tuning")
+            development_split = spec.get("threshold_split", "train")
+            if development_split == args.split:
+                raise ValueError("Threshold development and evaluation must use different splits")
+            tuning, _ = score_patients(predictions, metadata, spec, development_split)
+            if set(held.subject_id) & set(tuning.subject_id):
+                raise ValueError("Threshold development and evaluation patients overlap")
+            record.update(threshold_split=development_split, threshold_n=len(tuning),
+                          threshold_estimand="cif_ipcw", threshold_prediction_kind="apparent_training" if development_split == "train" else "development_split")
             record.update(audit)
             if "median_followup_days" not in record:
                 record.update(population_followup(predictions, held, spec))
@@ -515,19 +586,27 @@ def main():
                     else list(spec["model_cutoffs"]))
             record["model_cutoffs"] = json.dumps(cuts)
             record["cutoff_rule"] = spec.get("cutoff_rule", "fixed_in_config")
-            known, labels = figures._known_status(tuning, spec["horizon_days"])
+            classification.extend(classification_at_boundaries(held, spec, cuts, args.split))
+            weighted_development = clinical_weights(tuning, spec["horizon_days"])
+            known = weighted_development.loc[weighted_development.known]
+            labels = known.label
             if labels.nunique() != 2:
                 raise ValueError(
-                    "Tuning operating-point selection requires cases/controls"
+                    "Training operating-point selection requires cases/controls"
                 )
             specificity = float(
                 (
                     known.loc[labels == 0, "ipi_score"] < high_score_threshold(spec)
-                ).mean()
+                ).astype(float).dot(known.loc[labels == 0, "ipcw_weight"])
+                / known.loc[labels == 0, "ipcw_weight"].sum()
             )
-            threshold = float(
-                np.quantile(known.loc[labels == 0, "model_risk"], specificity)
-            )
+            low_development = known.loc[known.ipi_group == spec["group_order"][0]]
+            record.update(development_n_known=len(known),
+                development_n_cases=int(labels.sum()),
+                development_n_controls=int((labels == 0).sum()),
+                development_low_risk=float(np.average(low_development.label,
+                    weights=low_development.ipcw_weight)) if len(low_development) else None)
+            threshold = cuts[-1]
             directory = args.output_dir / spec["id"]
             directory.mkdir()
             common = dict(
@@ -634,8 +713,8 @@ def main():
                 "event_free": spec["death_in_endpoint"]})
             record.update(
                 status="rendered",
-                tuning_operating_threshold=threshold,
-                tuning_target_specificity=specificity,
+                development_operating_threshold=threshold,
+                development_target_specificity=specificity,
             )
         except (ValueError, KeyError) as exc:
             record.update(status="blocked", reason=str(exc))
@@ -668,6 +747,7 @@ def main():
             suffix = "" if page == 1 else f"_{page}"
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)
+    pd.DataFrame(classification).to_csv(args.output_dir / "classification_at_thresholds.csv", index=False)
     pd.DataFrame(records).to_csv(args.output_dir / "score_inventory.csv", index=False)
     availability = config.get("availability")
     if availability:

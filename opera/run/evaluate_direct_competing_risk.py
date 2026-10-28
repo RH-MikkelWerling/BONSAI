@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(__file__).resolve().parents[1] / "configs",
     )
     parser.add_argument("--override", action="append", default=[])
-    parser.add_argument("--split", choices=["tuning", "held_out"], default="held_out")
+    parser.add_argument("--split", choices=["train", "tuning", "held_out"], default="held_out")
     parser.add_argument("--horizons", default="30,60,90,180,365,730")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=4)

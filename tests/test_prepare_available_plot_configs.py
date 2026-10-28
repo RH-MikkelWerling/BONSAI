@@ -82,3 +82,14 @@ def test_computed_ipi_unavailability_is_explicit(tmp_path):
     for name in ('IPI (computed)', 'NCCN-IPI'):
         assert audit['computed_score_availability'][name]['status'] == 'missing_columns'
         assert audit['computed_score_availability'][name]['missing_columns']
+
+
+def test_recorded_four_strata_preserved_in_clinical_recipe(tmp_path):
+    analysis, metadata = fixture(tmp_path)
+    metadata['IPI'] = ['Low', 'Low-intermediate', 'High-intermediate', 'High'] * 15
+    metadata.to_parquet(analysis['patient_metadata'])
+    _, clinical = build(analysis, tmp_path / 'recipes')
+    spec = expand_index_scores(clinical, metadata)[0]
+    assert spec['group_order'] == ['Low', 'Low-intermediate', 'High-intermediate', 'High']
+    assert spec['group_map']['low-intermediate'] == 'Low-intermediate'
+    assert spec['group_map']['high-intermediate'] == 'High-intermediate'

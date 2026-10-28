@@ -18,6 +18,26 @@ GROUP_MAP = {
     'high': 'High', 'high risk': 'High', 'high-risk': 'High',
     'very high': 'High', 'very high risk': 'High', 'very-high': 'High',
 }
+# Clinical score strata must not use the embedding's coarsened IPI palette.
+NATIVE_ORDER = ['Low', 'Low-intermediate', 'Intermediate', 'High-intermediate', 'High', 'Very high']
+NATIVE_GROUP_MAP = dict(GROUP_MAP)
+for label in NATIVE_ORDER:
+    for spelling in (label.lower(), label.lower().replace('-', ' ')):
+        for suffix in ('', ' risk'):
+            NATIVE_GROUP_MAP[spelling + suffix] = label
+FOUR_GROUP_ORDER = ['Low', 'Low-intermediate', 'High-intermediate', 'High']
+
+
+def recorded_group_settings(values):
+    raw = values.dropna().astype(str).str.lower().str.strip()
+    unknown = sorted(set(raw) - set(NATIVE_GROUP_MAP))
+    if unknown:
+        raise ValueError(f'Unmapped clinical score categories: {unknown}')
+    observed = set(raw.map(NATIVE_GROUP_MAP))
+    return dict(group_map=NATIVE_GROUP_MAP,
+                group_order=[v for v in NATIVE_ORDER if v in observed])
+
+
 OUTCOMES = ['infection_diagnosis_or_antimicrobial_use_composite',
             'overall_survival', 'anemia_g2plus', 'hospitalisation',
             'creatinine_increased_g2plus']
@@ -65,18 +85,40 @@ def build(analysis, output):
                                            horizon_days=365, outcomes=outcomes))
     template = dict(model=model, seed=42, outcome='overall_survival',
                     outcome_label='Overall survival', horizon_days=365,
-                    death_in_endpoint=True, group_column='IPI', group_map=GROUP_MAP,
+                    death_in_endpoint=True, group_column='IPI', group_map=NATIVE_GROUP_MAP,
                     group_order=['Low', 'Intermediate', 'High'], score_high_group='High',
                     age_column='age_at_index', score_date_column=None,
                     score_timing='Recorded at diagnosis in the registry; timing requires verification before final publication',
-                    cutoff_rule='risk_matched_low', minimum_patients=50,
-                    lock_provenance='Tuning rehearsal recipe; model cutoffs fitted on tuning patients',
+                    cutoff_rule='risk_matched_low', threshold_split='train', minimum_patients=50,
+                    lock_provenance='Tuning rehearsal recipe; model cutoffs fitted on training patients',
                     applicability_review='Descriptive comparison restricted to patients with this recorded index; not a claim of validated use in other diseases')
     clinical = dict(availability=dict(cohort_column='cohort_fine', index_column='index', group_column='IPI'),
                     all_indices=dict(index_column='index', cohort_column='cohort_fine',
                                      minimum_patients=1, pooled=True, per_cohort=False,
                                      manuscript=dict(index='IPI'), template=template),
                     scores=[], index_endpoint='shared')
+    clinical['all_indices']['overrides'] = {str(index): recorded_group_settings(part.IPI)
+        for index, part in metadata.loc[metadata['index'].notna()].groupby('index')}
+    # Keep the complete scale even when this sample lacks one native stratum.
+    for index, settings in clinical['all_indices']['overrides'].items():
+        if index.upper().replace(' ', '') in {'IPI', 'NCCN-IPI', 'NCCNIPI'} and 'Intermediate' not in settings['group_order']:
+            settings['group_order'] = FOUR_GROUP_ORDER
+        elif index.upper().replace(' ', '') in {'CLL-IPI', 'CLLIPI'}:
+            settings['group_order'] = ['Low', 'Intermediate', 'High', 'Very high']
+            settings['score_high_group'] = 'Very high'
+        elif len(settings['group_order']) < 2:
+            settings['group_order'] = ['Low', 'Intermediate', 'High']
+    recorded_category_audit = {}
+    for index, settings in clinical['all_indices']['overrides'].items():
+        values = metadata.loc[metadata['index'].astype(str).eq(index), 'IPI'].dropna().astype(str)
+        observed = sorted(set(values.str.strip().str.lower().map(NATIVE_GROUP_MAP)))
+        key = index.upper().replace(' ', '')
+        coarsened = (key in {'IPI', 'NCCN-IPI', 'NCCNIPI'} and 'Intermediate' in observed)
+        incomplete_cll = key in {'CLL-IPI', 'CLLIPI'} and 'Very high' not in observed
+        recorded_category_audit[index] = dict(observed_categories=observed,
+            status='source_categories_coarsened' if coarsened else
+                   'native_category_absent_or_coarsened' if incomplete_cll else 'recorded_categories_preserved',
+            native_definition_verified=False)
     score_availability = {}
     # Include available computed scores only in populations where they were recorded.
     for slug, label, score, group in [
@@ -88,11 +130,12 @@ def build(analysis, output):
             n_complete=int(metadata[[score, group]].notna().all(axis=1).sum()) if not missing else 0)
         if {score, group} <= set(metadata):
             values = metadata[group].dropna().astype(str)
-            bad = sorted(set(values) - {v for v in values if v.strip().lower() in GROUP_MAP})
+            bad = sorted(set(values) - {v for v in values if v.strip().lower() in NATIVE_GROUP_MAP})
             if bad:
                 raise ValueError(f'Unmapped {group} categories: {bad}')
             clinical['scores'].append(dict(template, id=slug, score_label=label,
-                cohorts='all', score_column=score, group_column=group,
+                cohorts=['DLBCL'] if slug == 'nccn_ipi' else 'all', score_column=score, group_column=group,
+                group_map=NATIVE_GROUP_MAP, group_order=FOUR_GROUP_ORDER,
                 score_high_threshold=4 if slug == 'ipi_computed' else 6,
                 manuscript_figures=False))
     if not {'index', 'cohort_fine', 'age_at_index'} <= set(metadata):
@@ -115,7 +158,7 @@ def build(analysis, output):
         required = [spec['group_column']] + ([spec['score_column']] if spec.get('score_column') else [])
         n = int(patients[required].notna().all(axis=1).sum())
         if n >= spec.get('minimum_patients', 50):
-            priority = {'ipi_computed': 0, 'nccn_ipi': 1}.get(spec['id'],
+            priority = {'nccn_ipi': 0, 'ipi_computed': 1}.get(spec['id'],
                 2 if spec['score_label'] == 'IPI' else 3 if spec['score_label'] == 'R-IPI' else 4)
             eligible_specs.append((priority, -n, spec['id'], spec))
     primary = min(eligible_specs, key=lambda row: row[:3])[3] if eligible_specs else None
@@ -129,9 +172,10 @@ def build(analysis, output):
     (output / 'config_audit.json').write_text(json.dumps(dict(model=model, categories=raw,
         selected_map_outcomes=outcomes, unavailable_map_outcomes=[o for o in OUTCOMES if o not in available and OUTCOME_ALIASES.get(o) not in available],
         computed_score_availability=score_availability,
+        recorded_category_audit=recorded_category_audit,
         clinical_primary=primary['id'] if primary else None,
         clinical_populations=[s['id'] for s in specs],
-        note='Shared one-year overall-survival comparison; harmonized categories are a coarsened score. Tuning figures are exploratory.'), indent=2))
+        note='Shared one-year overall-survival comparison; numeric IPI and NCCN-IPI use four native strata. Recorded scores preserve available categories; already-coarsened source categories cannot be reconstructed. Tuning figures are exploratory.'), indent=2))
     return embedding, clinical
 
 

@@ -19,7 +19,7 @@ def test_score_merge_preserves_population_and_derives_display_groups(tmp_path):
     merged = pd.read_parquet(tmp_path / 'merged.parquet')
     assert merged.subject_id.tolist() == ['1', '2', '3']
     assert merged.history_event_count.tolist() == [7, 8, 9]
-    assert merged.ipi_computed_group.iloc[:2].tolist() == ['Intermediate', 'High']
+    assert merged.ipi_computed_group.iloc[:2].tolist() == ['Low-intermediate', 'High']
     assert merged.nccn_ipi_group.iloc[:2].tolist() == ['Low', 'High']
     assert pd.isna(merged.ipi_computed_score.iloc[2])
     assert result['nccn_ipi']['n_complete'] == 2
@@ -125,18 +125,32 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
                 'figures': 'figures/figure_manifest.json', 'paper-numbers': 'paper_numbers/results_macros.tex',
                 'supplement-tables': 'supplement_tables/supplement_tables.tex'}
             if action in paths: write(paths[action])
-            if action == 'clinical-scores': write('clinical_scores/score_inventory.csv', 'status\nrendered\n')
+            if action == 'clinical-scores':
+                write('clinical_scores/score_inventory.csv', 'status\nrendered\n')
+                write('clinical_scores/classification_at_thresholds.csv')
         elif module == 'evaluate_direct_competing_risk':
             destination = Path(command[command.index('--output-dir') + 1])
             destination.mkdir(parents=True, exist_ok=True)
             if '--export-routed-outcome' in command:
                 (destination / 'routed_patient_vectors_INTERNAL.npz').write_bytes(b'export')
                 (destination / 'routed_patient_vectors_INTERNAL.json').write_text('{}')
-            else:
+            elif '--borrowing-design' in command:
                 write('borrowing_inference/source_removal/design.json', json.dumps({'variants': ['none'], 'ablations': {'mean': '', 'zero': ''}, 'horizons_days': [30,60,90,180,365,730]}))
                 write('borrowing_inference/direct_cr_predictions.parquet')
                 for ablation in ('mean', 'zero'):
                     write(f'borrowing_inference/source_removal/{ablation}/none.parquet')
+            elif '--split' in command and command[command.index('--split')+1] == 'train':
+                (destination / 'direct_cr_predictions.parquet').write_bytes(b'training')
+            else:
+                assert '--drop-last-days' in command
+                (destination / 'direct_cr_predictions.parquet').write_bytes(b'gap')
+        elif module == 'compare_input_restrictions':
+            write('input_restrictions/input_restriction_summary.csv')
+            write('input_restrictions/input_restriction_auc.csv')
+        elif module == 'render_paper_results':
+            write('recent_record_figures/supp_recent_record_gaps.pdf')
+        elif module == 'assemble_figure_review':
+            write('figure_review/review_manifest.json')
         elif module == 'audit_figure_results':
             write('figure_results_audit.json')
         elif module == 'source_removal':
@@ -150,14 +164,33 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
     runner.main()
     report = json.loads((output / 'completion.json').read_text())
     assert report['status'] == 'complete'
+    assert sum('--split' in c and c[c.index('--split')+1] == 'train' for c in commands) == 1
     assert sum('--export-routed-outcome' in c for c in commands) == 5
     assert not any('--outcome' in c for c in commands)
     assert sum('--borrowing-design' in c for c in commands) == 1
+    assert {int(c[c.index('--drop-last-days') + 1]) for c in commands if '--drop-last-days' in c} == {7, 14, 21, 28}
     assert not any(c[3] in ['analyse', 'inventory', 'train'] for c in commands)
     assert (old / 'prediction_analysis/original.txt').read_text() == 'unchanged'
     embed = yaml.safe_load((output / 'configs/embedding_tables.tuning.yaml').read_text())
     assert len(embed['calibration_maps']['routed_vectors']) == 5
+    clinical = yaml.safe_load((output / 'configs/clinical_score_panels.tuning.yaml').read_text())
+    main_scores = [s for s in clinical['scores'] if s.get('manuscript_figures')]
+    assert [s['id'] for s in main_scores] == ['nccn_ipi']
+    assert main_scores[0]['cohorts'] == ['DLBCL']
     commands.clear()
     monkeypatch.setattr('sys.argv', ['completion', '--analysis-root', str(old), '--output-dir', str(output), '--resume'])
     runner.main()
     assert commands == []
+
+
+def test_native_score_strata_recovered_from_coarsened_export(tmp_path):
+    base = tmp_path / 'base.parquet'
+    pd.DataFrame(dict(subject_id=list('abcdefghi'), nccn_ipi_score=list(range(9)),
+                     nccn_ipi_group=['Intermediate']*9,
+                     ipi_computed_score=[0,1,2,3,4,5,None,None,None])).to_parquet(base)
+    prepare(base, [], tmp_path / 'native.parquet')
+    data = pd.read_parquet(tmp_path / 'native.parquet')
+    assert data.nccn_ipi_group.tolist() == ['Low','Low','Low-intermediate','Low-intermediate',
+        'High-intermediate','High-intermediate','High','High','High']
+    assert data.ipi_computed_group.iloc[:6].tolist() == ['Low','Low','Low-intermediate','High-intermediate','High','High']
+    assert data.nccn_ipi_group_source.eq('Intermediate').all()

@@ -148,8 +148,11 @@ or were followed beyond it negative, and those censored earlier did not
 contribute at that horizon. Censoring weights were used in evaluation, not in
 training. Losses were averaged within each outcome and then across endpoints,
 treating the grade variants and nested definitions of one finding as one
-endpoint (69 outcomes, 52 endpoints), so that a finding defined at two grades
-did not count twice.
+endpoint family (69 separately predicted outcomes, 52 endpoint families).
+Losses were averaged within each family before families received equal weight,
+so that findings represented by several grades or nested definitions did not
+receive disproportionate training weight. This grouping affected loss weighting,
+not the number of outputs or their separate evaluation.
 
 \paragraph{Supervision scopes.} The four scopes, described in Methods, differed
 only in which cells of the disease-by-outcome grid provided labels
@@ -179,6 +182,12 @@ Laboratory outcomes were defined with reference to the CTCAE laboratory
 criteria; for each outcome, the definitions supplement states whether it equals a
 CTCAE grade, follows one with a stated difference, or has no counterpart
 \citep{nci2017ctcae}.
+The laboratory correspondence audit identified 13 outcomes matching CTCAE grade
+thresholds, 13 following a grade with a documented deviation, and three without
+a direct CTCAE counterpart. Deviations include boundary conventions and omitted
+baseline-dependent criteria. Symptom- and intervention-dependent grades cannot
+be reproduced from laboratory measurements alone. The ascertainment supplement
+provides the version-specific correspondence and implementation qualifications.
 Infection was also captured through antimicrobial treatment, labelled as such.
 A patient contributed to an outcome only if it could be ascertained for them,
 for example if laboratory follow-up was available, and was otherwise left out
@@ -293,11 +302,15 @@ tract or lung, and performance status $\geq$2 (1 point each), grouped as low
 (0--1), low-intermediate (2--3), high-intermediate (4--5) and high ($\geq$6).
 Patients missing a component were not scored.
 
-Model risk groups were fixed on tuning patients with known two-year status and
-applied unchanged to the test set, anchored to the index at both ends. The low
+Model risk groups were developed using the fitted model's training-cohort
+predictions at the designated endpoint and horizon, then applied unchanged
+to tuning and test patients. Index event risks and matching specificity were
+censoring-weighted within the score-available training population. These are
+apparent training predictions, not out-of-fold estimates. Matching in training
+does not guarantee matched risks or specificity in evaluation. The low
 cutoff was the highest predicted risk at which the group below it, of at least
 20 patients, had an observed risk no higher than the index's low-risk category.
-The high cutoff matched the specificity of the index's high-risk category, so
+The high cutoff approximately matched the specificity of the index's high-risk category, so
 that both flagged the same share of patients without the event; this is also
 the operating point marked in the precision--recall comparison. Patients in
 between were divided in the proportions of the index's intermediate categories.
@@ -322,24 +335,6 @@ indices were developed for longer horizons, usually five years, so these are
 shorter-horizon evaluations, not reproductions of the original analyses.
 Discrimination used the index category (or NCCN-IPI points) as an ordinal
 score.
-
-Decision curves ask whether acting on a prediction does more good than harm
-\citep{vickers2006dca}. For each threshold probability $p$, net benefit is the
-share of patients correctly flagged minus the share wrongly flagged, weighted by
-the odds $p/(1-p)$ at which a clinician would trade one for the other. The
-action was closer monitoring and supportive care for patients above a predicted
-two-year risk of death, at thresholds from 5\% to 40\%, fixed before the test
-set was opened. The action changes how closely patients are followed, not which
-treatment they receive; a prediction that changed treatment would have to meet
-the evidence standards of that treatment \citep{blythe2026economic}. Many test patients were followed for less than two years, so
-true and false positives were weighted by the inverse probability of remaining
-uncensored, as for the primary metrics; dropping them instead would overstate
-the risk and the benefit. An index has categories rather than probabilities, so
-each category entered as its observed two-year risk among tuning patients,
-giving a curve fixed before testing. \opera{}, the index, per-task XGBoost,
-acting for everyone and acting for no one were compared on the same patients,
-with 95\% intervals for the differences in net benefit from 1,000 patient
-resamples.
 
 \operasubsection{Routing formulation and selection}
 To test whether a joint model benefits from conditioning its predictions on
@@ -502,3 +497,90 @@ diagnostics.}
 
 
 \FloatBarrier
+
+\operasubsection{Analysis identities and clinical comparison implementation}
+The primary cohort-pretrained OPERA fit uses the amended two-bank router
+R\textsubscript{AB}. In the analysis inventory, \texttt{R\_L} and
+\texttt{R\_AB\_L} refer to this same fit; \texttt{J\_L} identifies the separate
+joint-model reference. The earlier router, \texttt{R\_ORIG\_L}, and
+importance-weighted event-sampling fits are sensitivity analyses. Natural
+patient sampling defines the primary fits. Population-pretrained and
+cohort-adapted models are separate transfer arms.
+\input{tables/model_identity}
+
+In the current tuning figures, clinical indices are compared with the primary
+local OPERA model on patients with the corresponding index recorded, without
+an additional disease-specific inclusion list. The shared benchmark is
+one-year overall survival; native-endpoint analyses are identified separately
+by endpoint and horizon. Comparisons with fewer than 50 evaluated patients are
+reported as insufficient support. Model risk groups are matched on tuning data
+to the index's low-risk observed risk and high-risk specificity, making
+same-data tuning comparisons exploratory. Native categories and numeric totals
+are retained where available; already-coarsened registry categories cannot be
+reconstructed without the original score or labels.
+
+\operasubsection{Statistical inference and descriptive analyses}
+Time-dependent AUC was the prespecified primary performance metric. Brier score,
+IPA and calibration provided complementary assessments of probability accuracy.
+Each pooled difference was labelled by a rule fixed before testing: better (or
+worse) if its 95\% interval lay above (below) zero, noted as beyond the practical
+margin when the difference exceeded 0.01 AUC; otherwise equivalent if the
+interval lay within $\pm$0.01; otherwise inconclusive; each with a paired
+bootstrap $P$ value. The headline comparisons form one family, with $P$ values
+adjusted by Holm's method: sharing across diseases, across outcomes and both
+(each against the specialists), the joint model and \opera{} against per-task
+XGBoost, borrowing by the routed model, the national encoder against the cohort
+encoder, and \opera{} against the clinical indices. Everything else, including
+results for individual diseases, outcomes, cells and disease pairs, is reported
+as estimates with intervals and is descriptive. Across disease--outcome cells, effects were also summarised,
+descriptively, by hierarchical models that estimate the typical effect, its variation between diseases and outcomes,
+and its relation to the number of training events; estimates for individual
+cells are shown in the Supplementary figures.
+Calibration regression estimated the intercept and slope jointly from the
+unchanged model probabilities. These coefficients describe calibration and
+were not applied to update risks. Fits without a finite solution, including
+separation of events and non-events, were reported as not estimable.
+Medians and interquartile ranges describe variation between cells, rather than
+uncertainty in a pooled mean. Compute, training time and storage were compared
+for one shared model and the separate models it replaces. Integrated gradients
+and their event-removal and randomisation checks are described in the
+interpretability supplement \citep{sundararajan2017ig,adebayo2018sanity}.
+
+The generated tuning recipe required at least 50 evaluated patients per
+clinical-score illustration. This is an operational display threshold, not a
+sample-size justification or a guarantee of adequate events within score
+strata. Group counts and uncertainty remain necessary. Crossed or coincident
+matched thresholds, or thresholds leaving empty training strata, were reported
+as not estimable rather than artificially separated.
+
+\operasubsection{Temporal differences between study periods}
+The three periods differed in ways that a temporal evaluation has to absorb.
+National laboratory capture is complete only from 2017, so patients treated
+earlier had far fewer recorded results (median 119 in the training period
+against 524 in the test period), and later patients had longer recorded
+histories (median 11.6 against 22.0 years). Performance status and the
+disease-specific index category, recorded in the quality registries, were
+missing for 47\% and 58\% of test patients against 24\% and 36\% in training.
+The reason for this difference in registry completeness was not established. The
+disease mix shifted too: DLBCL made up 27.5\% of training and 22.7\% of test
+patients, while indolent B-cell lymphomas rose from 13.4\% to 18.8\%, partly
+through more unspecified B-cell and splenic marginal-zone lymphoma, and test
+patients were older (median 72 against 69 years). The test set therefore
+measures performance under clear data shift.
+\operasubsection{Reference variability in the original router screen}
+The joint model and the router trained with every source masked implement the
+same shared prediction architecture but were fitted separately. Their AUC
+difference was \result{R0_auc}{X}. This difference supplied the operational
+noise floor for the original screening comparisons. It is a comparison of two
+fits, rather than a general estimate of training variability. The primary
+amended router used matched global-only and own-only controls, as specified
+above.
+
+Classification at every ordered risk-group boundary was reported for the index
+and model in \texttt{classification\_at\_thresholds.csv}. Higher groups were positive,
+with model risk greater than or equal to the stored cutoff. Metrics included
+TP, FP, FN, TN, recall, precision, specificity, NPV, MCC, accuracy and F1.
+Known-status metrics excluded early censoring and treated competing death as
+negative. A separate IPCW version used disease-specific censoring weights.
+Undefined quantities were missing, not zero. The source split, cutoff and input
+prediction hashes were retained with the report.
