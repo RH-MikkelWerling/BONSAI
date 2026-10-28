@@ -22,15 +22,23 @@ PY
 plot_stamp="$(date +%Y%m%d_%H%M%S)"
 plot_logs="$plot_root/logs/recovery_$plot_stamp"
 mkdir -p "$plot_logs"
-# Retain partial results and all earlier figure renders for comparison.
-if [[ -e "$plot_root/prediction_analysis" ]]; then
-    mv "$plot_root/prediction_analysis" "$plot_root/prediction_analysis_before_$plot_stamp"
+if [[ "${2:-}" != "--render-only" ]]; then
+    # Retain partial results and all earlier figure renders for comparison.
+    if [[ -e "$plot_root/prediction_analysis" ]]; then
+        mv "$plot_root/prediction_analysis" "$plot_root/prediction_analysis_before_$plot_stamp"
+    fi
+    for plot_action in analyse embedding-tables plot-tables; do
+        echo "$(date +%H:%M:%S) $plot_action"
+        "$plot_python" -m opera.run.paper_experiments "$plot_action" \
+            --env-file "$plot_env" --execute > "$plot_logs/$plot_action.log" 2>&1
+    done
 fi
-for plot_action in analyse embedding-tables plot-tables figure-readiness; do
-    echo "$(date +%H:%M:%S) $plot_action"
-    "$plot_python" -m opera.run.paper_experiments "$plot_action" \
-        --env-file "$plot_env" --execute > "$plot_logs/$plot_action.log" 2>&1
-done
+# Readiness deliberately exits nonzero for partial previews. Report its gaps,
+# then let the available-only renderer produce the supported figures.
+if ! "$plot_python" -m opera.run.paper_experiments figure-readiness \
+    --env-file "$plot_env" --execute > "$plot_logs/figure-readiness.log" 2>&1; then
+    echo "Readiness reported gaps; inspect $plot_logs/figure-readiness.log. Continuing available figures."
+fi
 if [[ -e "$plot_root/figures" ]]; then
     mv "$plot_root/figures" "$plot_root/figures_before_$plot_stamp"
 fi

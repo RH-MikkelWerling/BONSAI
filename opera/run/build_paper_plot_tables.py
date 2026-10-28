@@ -843,7 +843,8 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("outcome_groups.json", lambda: outcomes)
     for name in ("patient_coordinates.csv",
                  "calibration_map_outcomes.json", "matched_patient_embeddings.csv"):
-        report.setdefault(name, {"status": "pending_upstream_builder"})
+        report.setdefault(name, {"status": "present_upstream" if (output_dir / name).is_file()
+                                 else "pending_upstream_builder"})
     manifest = {"analysis_root": str(analysis_root), "seed": seed,
                 "bayes_variant": bayes_variant, "tables": report,
                 "input_sha256": sources}

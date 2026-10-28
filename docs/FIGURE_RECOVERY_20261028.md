@@ -39,3 +39,19 @@ Missing routed vectors require genuine per-target exports before an arrow row
 can be produced. These changes do not add fabricated arrows, change predictions,
 or establish whether every unseen figure is correct. Old cached source-removal
 results are not recomputed by this recovery script.
+
+## Continue after successful analysis stopped at readiness
+
+Readiness is advisory for available-only previews. The recovery script now continues
+to rendering after reporting gaps. Preserve the completed analysis and plot tables:
+
+```bash
+nohup bash scripts/rerun_tuning_figure_outputs.sh \
+  data/paper_256_v3/analysis/plot_rebuild_20261028_080223 --render-only \
+  > logs/figure_render_continue_20261028.log 2>&1 &
+```
+
+This skips analysis, embedding export and plot-table generation. It archives old
+figure renders, renders available plates, and updates paper numbers and tables.
+Missing external origin estimates, clinical plates and synthetic illustrative
+patient timelines remain separately reported gaps.
