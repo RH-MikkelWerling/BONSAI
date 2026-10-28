@@ -184,3 +184,22 @@ def test_headline_uses_one_year_absolute_auc_and_excludes_pooled_log_horizon():
         if len(x) > 2:
             assert (x > 0).all()
     plt.close(fig)
+
+
+def test_subgroup_small_and_empty_panels_have_room_for_margins():
+    table = pd.DataFrame([dict(covariate='sex', subgroup='Female', contrast='R1',
+                              gain=.01, lower=0., upper=.02)])
+    styles = {'R1': ('purple', 'Router versus joint')}
+    for data in (table, table.iloc[:0]):
+        fig = figures.figure_subgroup_effects(
+            data, contrast_styles=styles, covariate_order={'sex': 'Sex'}, xlabel='Gain')
+        fig.canvas.draw()
+        assert fig.subplotpars.bottom < fig.subplotpars.top
+        if data.empty:
+            assert any('No matching subgroup' in t.get_text() for t in fig.axes[0].texts)
+        plt.close(fig)
+        fig = figures.figure_who_benefits(
+            data, data, contrast_styles=styles, covariate_order={'sex': 'Sex'})
+        fig.canvas.draw()
+        assert fig.subplotpars.bottom < fig.subplotpars.top
+        plt.close(fig)

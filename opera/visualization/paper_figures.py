@@ -3366,8 +3366,8 @@ def figure_subgroup_effects(table, *, contrast_styles, covariate_order, xlabel,
             labels.append(f"  {subgroup}")
     standalone = ax is None
     if standalone:
-        fig, ax = plt.subplots(figsize=(4.6, 0.24 * len(labels) + 0.9 * len(headers) * 0.3
-                                        + 1.0))
+        fig, ax = plt.subplots(figsize=(4.6, max(3.0, 0.24 * len(labels) + 0.9 * len(headers) * 0.3
+                                        + 1.0)))
     else:
         fig = ax.figure
     positions, y = {}, 0.0
@@ -3396,6 +3396,9 @@ def figure_subgroup_effects(table, *, contrast_styles, covariate_order, xlabel,
         ax.text(-0.02, yy, title, transform=ax.get_yaxis_transform(), ha="right",
                 va="center", fontsize=7.4, fontweight="bold", color=PALETTE["ink"])
     ax.set_ylim(y - 0.4, -0.6)
+    if not rows:
+        ax.text(0.5, 0.5, "No matching subgroup estimates",
+                transform=ax.transAxes, ha="center", va="center", fontsize=8)
     ax.set_xlabel(xlabel)
     ax.xaxis.set_major_locator(MaxNLocator(5))
     handles = [Line2D([], [], ls="none", marker="D", color=color, label=label)
@@ -3417,7 +3420,7 @@ def figure_who_benefits(table, auc, *, contrast_styles, covariate_order, mark=No
     """Paired subgroup AUC and Brier gains, with a common row inventory."""
     rows = pd.concat([table, auc], ignore_index=True).drop_duplicates(
         ["covariate", "subgroup"])
-    height = 0.24 * len(rows) + 0.27 * len(covariate_order) + 1.4
+    height = max(3.2, 0.24 * len(rows) + 0.27 * len(covariate_order) + 1.4)
     fig, axes = plt.subplots(1, 2, figsize=(10.8, height))
     for ax, data, letter, title, label in zip(
         axes, [auc, table], "AB", ["Discrimination", "Probability accuracy"],

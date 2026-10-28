@@ -48,3 +48,11 @@ def test_no_overwrite_of_original(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(SystemExit):
         runner.main()
+
+
+def test_bootstrap_preflight_rejects_incompatible_module(monkeypatch):
+    import pytest
+    from opera.evaluation import secondary_analysis
+    monkeypatch.setattr(secondary_analysis, 'patient_bootstrap', lambda frame, replicates, seed: {})
+    with pytest.raises(RuntimeError, match='Sync opera/evaluation/secondary_analysis.py'):
+        runner.check_bootstrap_api()

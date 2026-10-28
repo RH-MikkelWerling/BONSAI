@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import shutil
@@ -41,6 +42,18 @@ def copy_aggregate_inputs(source, target):
     return count
 
 
+def check_bootstrap_api():
+    # Fail before the expensive inventory scan if only part of an update arrived.
+    from opera.evaluation import secondary_analysis
+    function = secondary_analysis.patient_bootstrap
+    if 'method' not in inspect.signature(function).parameters:
+        raise RuntimeError(
+            'Incompatible bootstrap API in ' + str(secondary_analysis.__file__) +
+            '. Sync opera/evaluation/secondary_analysis.py together with '
+            'opera/run/analyse_locked_predictions.py; do not remove method= '
+            'or silently fall back to a different bootstrap.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file', type=Path, default=Path('.env.rehearsal'))
@@ -48,6 +61,10 @@ def main():
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
     env = load_environment(args.env_file)
+    check_bootstrap_api()
+    for key in ("OPERA_PAPER_EMBEDDING_CONFIG", "OPERA_PAPER_CLINICAL_SCORE_CONFIG"):
+        if not env.get(key):
+            print(f"Missing {key}: its figures will remain unavailable until configured.", flush=True)
     old = path_value(env, 'OPERA_PAPER_ANALYSIS_ROOT')
     stamp = datetime.now(ZoneInfo('Europe/Copenhagen')).strftime('%Y%m%d_%H%M%S')
     root = (args.output_dir or old.parent / f'overnight_tuning_{stamp}').resolve()
