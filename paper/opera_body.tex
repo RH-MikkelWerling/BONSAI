@@ -1,77 +1,79 @@
 % OPERA manuscript body, shared by the article (opera_manuscript.tex) and the
 % thesis (Paper III). Edit here; both pick it up.
 \begin{abstract}
-Prognostic tools are built for one disease and one outcome, so each learns only
-from the events of its own patients, which for many clinical questions are few.
-Learning across related diseases and outcomes could recover the signal this
-leaves unused, but how much comes from other diseases, how much from other
-outcomes, and whether a model can learn what to borrow, and from whom, is largely
-unknown. We studied this in the lymphoid cancers, many small diseases with many
-important but individually rare complications, still served by simple prognostic
-indices.
-In 37,531 Danish adults starting first-line treatment for one of 24 lymphoid
-cancers, including plasma-cell neoplasms, sequence models read each patient's
-records before treatment and predicted 69 outcomes over 30 days to two years.
-Viewing the tasks as a grid of diseases by outcomes, we compared otherwise
-identical models that learned from a single cell, from one outcome across all
-diseases, from all outcomes of one disease, or from the whole grid; a router
-that weights disease- and outcome-specific corrections for each prediction; and
-encoders pretrained on the records of the entire Danish population.
-More than \result{n_neural_fits}{1,750} sequence and
-\result{n_tabular_fits}{20,000} tabular models were evaluated on patients
-treated from 2023, against gradient-boosted trees trained and tuned for every
-task and against the prognostic indices in clinical use. \opera{},
-the cohort-pretrained joint-scope model with the selected two-bank router, differed from the
-tuned trees by \result{O1_auc}{X} in AUC over all cells and horizons
-\placeholder{(claim label)} and had the higher AUC in \result{O1_better}{X of Y}
-disease--outcome cells, in place of \result{narrow_fits}{N} separately trained
-models. Learning from other diseases changed AUC by \result{P1_auc}{X}, from
-other outcomes by \result{P2_auc}{Y}, learning what to borrow by
-\result{R1_auc}{Z}, and population pretraining by \result{E1_auc}{W}
-\placeholder{, which matched the cohort-pretrained model with X\% of the
-labelled patients}; \placeholder{the gains were largest where a prediction had
-least data of its own}. \placeholder{Own disease corrections helped where a prediction had many
-training events and borrowing where it had few, the pattern of partial pooling,
-and switching diseases off in the fitted model showed that it borrowed broadly
-rather than from a few related diseases.} Ten of the 24 diseases have no validated prognostic
-index, and the index was missing for 58\% of test patients; \opera{} predicted
-every outcome for every patient \placeholder{and, where an index was recorded,
-placed X more per 1,000 patients at low risk with no higher observed risk}.
-\placeholder{Concrete attribution finding, e.g. which pre-treatment findings
-drove infection risk and which drove treatment failure.} \placeholder{If the
-results hold: prognosis in lymphoid cancers need not be built one disease and one
-outcome at a time, and a model pretrained on the whole population opens the same
-route to every specialty that shares the national registers.}
+Prognosis guides treatment and helps patients plan. Most prognostic tools,
+however, learn from one disease and one outcome at a time. Related diseases share
+biology, treatments and complications, leaving information unused when their
+predictions are developed separately. Lymphoid cancers provide a proving ground:
+many uncommon subtypes share clinically important outcomes, but each subtype
+has few events from which to learn. We asked whether learning jointly across
+diseases and outcomes improves prediction, whether shared learning can be
+adjusted to limit negative transfer, and whether pretraining on nationwide
+health records improves specialised prognosis.
+
+We studied 37,531 Danish adults starting first-line treatment for 24 lymphoid
+cancers, including plasma-cell neoplasms, predicting 69 outcomes from 30 days
+to two years from records available before treatment. Matched sequence models
+learned from a single disease--outcome task, across diseases, across outcomes,
+or across both. \opera{} extends joint learning with disease- and
+outcome-specific corrections, combining a shared prediction with information
+from the target task and other tasks. This architecture permits partial
+pooling: retaining common information while allowing task-specific departures.
+Separately, we compared cohort pretraining with pretraining on nationwide
+population records, both transferred directly and adapted to the clinical
+cohort, and assessed performance with fewer labelled patients. Comparators
+included per-task and disease-pooled XGBoost and available clinical prognostic
+indices, including IPI and NCCN-IPI. Evaluation used patients treated from 2023.
+
+Across evaluable cells and horizons, \opera{} differed from per-task XGBoost by
+\result{O1_auc}{X} in mean AUC and differed from the joint model by
+\result{R1_auc}{Y}. Learning across diseases changed AUC by
+\result{P1_auc}{X}, and across outcomes by \result{P2_auc}{Y}; national
+pretraining changed AUC by \result{E1_auc}{Z}.
+\placeholder{Report paired confidence intervals and both equal-cell and
+disease-balanced summaries; quantify national adaptation and label efficiency
+when available.}
+\placeholder{If confirmed after adding IPI and NCCN-IPI: the same OPERA model
+captured more one-year deaths than each of N evaluable clinical indices at its
+matched specificity, with paired differences and population sizes.}
+\placeholder{Quantify whether own-task corrections and borrowing showed the
+support-dependent pattern expected of partial pooling; distinguish this from
+selective borrowing between particular diseases.}
+
+\placeholder{Conclude from the held-out results whether partial pooling across
+diseases and outcomes improves prognosis, how it compares with strong tabular
+models and existing indices, and what nationwide pretraining adds. Broader
+prediction coverage is a separate finding from better predictive performance.}
 \end{abstract}
 
 \noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{%
 \small\textbf{Key findings} \placeholder{(confirm each against the locked test-set analysis)}
 \begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=3pt]
-  \item One model predicted 69 outcomes in 24 lymphoid cancers, differed from
-  per-task XGBoost by \result{O1_auc}{X} in AUC \placeholder{(claim label)} and
-  had the higher AUC in \result{O1_better}{X of Y} disease--outcome cells,
-  covering the tasks of \result{narrow_fits}{N} separately trained models.
-  \item \placeholder{What learning across diseases, learning across outcomes and
-  learning what to borrow each added, with their claim labels, and where the
-  gains were largest.}
-  \item \placeholder{The routed model behaved like partial pooling: corrections
-  for a patient's own disease helped where a prediction had many training events,
-  borrowing from other diseases where it had few, and it borrowed broadly rather
-  than from a few related diseases.}
-  \item In DLBCL, per 1,000 patients, it flagged \result{ipi_extra_per1000}{N}
-  more of the patients who died within two years at the specificity of the IPI
-  high-risk group, and, at a cutoff matched to the IPI low-risk group's observed
-  risk, placed \result{ipi_low_extra_per1000}{M} more at low risk.
-  \item \placeholder{National pretraining improved specialised prediction
-  directly / after adaptation to the cohort, and reached the full-data
-  cohort-pretrained model within the prespecified margin using X\% of its
-  labelled training patients.}
-  \item \placeholder{It relied on findings clinicians recognise, read
-  differently for each complication, and can show which episodes of care each
-  patient's risks rest on.}
-  \item All results are from one evaluation of patients treated from 2023, after
-  every modelling decision had been fixed and while first-line treatment was
-  changing.
+  \item One model predicted 69 outcomes across 24 lymphoid cancers. Its mean
+  paired AUC difference from per-task XGBoost was \result{O1_auc}{X}; it had
+  higher AUC in \result{O1_better}{X of Y} evaluable disease--outcome cells.
+  Report equal-cell and disease-balanced summaries together.
+  \item Learning across diseases changed AUC by \result{P1_auc}{X}, across
+  outcomes by \result{P2_auc}{Y}, and adding the selected routed readout to
+  joint learning by \result{R1_auc}{Z}.
+  \item \placeholder{The architecture supports partial pooling. Quantify
+  whether own-task corrections were more useful with ample training support
+  and borrowing with little support; report negative transfer as well as gains.
+  Broad sharing need not imply selective routing to a few related diseases.}
+  \item \placeholder{Clinical headline, conditional on complete comparisons:
+  one model captured more one-year deaths than every evaluable recorded index,
+  including IPI and NCCN-IPI, at each index's specificity. Supply N indices,
+  population sizes, paired differences and uncertainty. Do not describe a
+  missing or unsupported comparison as a win.}
+  \item National pretraining changed AUC by \result{E1_auc}{X} before cohort
+  adaptation and by \result{E3_auc}{Y} after adaptation, relative to local
+  pretraining. \placeholder{Quantify label efficiency and whether these gains
+  altered the comparison with XGBoost.}
+  \item Prediction availability, evaluable performance and clinical-index
+  availability are reported separately: producing a prediction does not by
+  itself establish its accuracy or clinical benefit.
+  \item All final claims refer to patients treated from 2023, evaluated after
+  modelling decisions were fixed. Tuning previews are exploratory.
 \end{itemize}}}
 
 \operasection{Introduction}
@@ -110,18 +112,20 @@ generalised across both \citep{lubberstedt2026labs}. But sharing does not always
 help. Multi-task
 studies of health records report uneven benefits and negative transfer
 \citep{harutyunyan2019multitask,mcdermott2020mtl}, and joint learning has helped
-rare phenotypes while hurting common ones \citep{ding2019phenotyping}. Ideally,
-a model would not borrow indiscriminately but learn what to borrow, and from
-whom, weighing each related disease and outcome by how much it helps the
-prediction at hand, much as partial pooling weighs each estimate by its evidence
-\citep{EfronMorris1975}. A prediction of infection in a patient with chronic
-lymphocytic leukaemia should then draw on what was learned about infection in
-multiple myeloma, where the immune deficiency is similar, and set aside what was
-learned about relapse in aggressive lymphoma. Mechanisms for selective sharing
-exist, from automated grouping of prediction tasks \citep{cui2024autodp} to
-mixtures of experts that route patients to specialised subnetworks
-\citep{lee2022residualmoe,wang2025moehealth}, but how much they add across the
-diseases and outcomes of a clinical specialty has not been tested.
+rare phenotypes while hurting common ones \citep{ding2019phenotyping}. The question is therefore not only whether tasks should share a model, but
+whether the model can retain useful common information while allowing
+well-supported differences between tasks. Partial pooling offers a statistical
+analogy: estimates combine shared and task-specific information, with the
+balance depending on the evidence available \citep{EfronMorris1975}.
+In a neural model, disease- and outcome-specific corrections could provide
+similar flexibility, preserving the benefits of joint learning while limiting
+negative transfer. Mechanisms for adjusting sharing include automated grouping
+of prediction tasks \citep{cui2024autodp} and mixtures of experts that route
+patients to specialised subnetworks
+\citep{lee2022residualmoe,wang2025moehealth}. Their value need not depend on
+selecting a few biologically related sources: broad sharing with appropriate
+task-specific departures may also be useful. How much these mechanisms add
+across the diseases and outcomes of a clinical specialty remains uncertain.
 
 Over the past few years, the wider field of clinical prediction has turned
 towards exactly this philosophy: large models trained on the records of many
@@ -295,22 +299,21 @@ one column (one outcome in every disease), an outcome-pooled model from one row
 Comparing them shows how much a prediction gains from other diseases, from other
 outcomes and from both.
 
-Sharing the whole grid has a cost: the joint model represents each patient once,
-so every disease and every outcome must make do with the same representation.
-The routed model keeps that shared representation and lets each prediction
-adjust it, in the spirit of partial pooling (\cref{fig:source-router}). Each
-disease has an adapter, or expert: a small correction learned only from its own
-patients' labels and shrunk towards zero when it has few events. For every
-patient and target outcome, a router decides how much of each disease's adapter
-to apply, the patient's own and those of other diseases
-\citep{ma2018mmoe,houlsby2019adapters,hu2022lora}. The model thus learns what to
-borrow, and from whom. The joint model knows the patient's disease from the
-record, but everything it learns about a disease must be built into one encoder
-that all diseases share and the largest dominate, and at the readout every
-outcome has parameters of its own but no disease has. A disease adapter adds a
-patient-by-disease-by-outcome term that the router turns up or down for each
-patient. Outcome adapters, which add little to an outcome's own output layer,
-were screened as well.
+Joint learning represents each patient with a shared encoder and uses
+outcome-specific output heads. The routed model adds flexibility at the readout
+without discarding this shared representation, in the spirit of partial pooling
+(\cref{fig:source-router}). Its two banks contain small disease-specific and
+outcome-specific adapters. For each patient and target outcome, the router
+weights corrections from the target disease and outcome together with those
+from other tasks \citep{ma2018mmoe,houlsby2019adapters,hu2022lora}.
+The selected architecture also retains a global correction outside the routed
+mixture. Predictions thus combine a shared path, own-task corrections and
+borrowed corrections; the source banks are not a replacement for the shared
+encoder. Whether these departures from joint learning improve prediction,
+reduce negative transfer and vary with training support are empirical questions,
+assessed by the matched models and ablations below. We also examine whether
+borrowing is concentrated or broad, without requiring selective source choice
+for the architecture to be useful.
 
 The original router screening used the tuning set in three steps: which adapters
 (disease only, outcome only or both), their size (rank 8, 16 or 32), and how the

@@ -181,7 +181,7 @@ def _support_strip(ax, totals, *, axis, labels=None, fontsize=6.2, label=None):
         bars.set_ylim(ax.get_ylim())
         if labels is not None:
             ax.set_yticks(range(len(labels)), [])
-            bars.set_yticks(positions, [f"{name} ({value:,.0f})"
+            bars.set_yticks(positions, [f"{name} ({value:,.0f})" if np.isfinite(value) else f"{name} (unavailable)"
                                         for name, value in zip(labels, values)])
         else:
             bars.set_yticks([])
@@ -471,7 +471,7 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     year = cells.loc[(cells.metric == metric) & _horizon_mask(cells, horizon)]
     for offset, contrast in zip((-0.22, 0, 0.22), ("D-S", "O-S", "J-S")):
         color, label = CONTRAST_STYLE[contrast]
-        medians = (year.loc[year.contrast == contrast].groupby("cohort").gain.median()
+        medians = (year.loc[year.contrast == contrast].groupby("cohort").gain.mean()
                    .reindex(diseases))
         bx.scatter(medians.to_numpy(float), np.arange(len(diseases)) + offset,
                    marker="D", s=13 if contrast == "J-S" else 9, color=color,
@@ -479,7 +479,7 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     bx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
     bx.tick_params(axis="y", labelleft=False, length=0)
     bx.xaxis.set_major_locator(MaxNLocator(3))
-    bx.set_xlabel(f"{METRIC_LABEL[metric]} over specialist\n(median per disease)")
+    bx.set_xlabel(f"{METRIC_LABEL[metric]} over specialist\n(mean per disease)")
     bx.grid(axis="y", visible=False)
     bx.legend(handles=[Line2D([], [], marker="D", ls="", color=CONTRAST_STYLE[c][0],
                               markersize=4.5, label=name)
@@ -3854,7 +3854,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     sizes = 4 + 40 * np.sqrt(data.n_events_train / data.n_events_train.max())
     for column, (x, letter, title, label) in enumerate((
             ("specialist", "A", "Joint vs specialist", "Specialist AUC"),
-            ("best_tuning", "B", "Joint vs best per cell", "Best-per-cell AUC"))):
+            ("best_tuning", "B", "Joint vs best\nper cell", "Best-per-cell AUC"))):
         ax = fig.add_subplot(grid[column])
         paired = data.loc[data[['joint', x]].notna().all(axis=1)]
         if paired.empty:
@@ -3898,7 +3898,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     ax.xaxis.set_major_locator(MaxNLocator(3))
     ax.set_xlabel("Share of cells")
     ax.grid(False)
-    _panel_title(ax, "C", "Model selected on tuning data")
+    _panel_title(ax, "C", "Model selected\non tuning data")
     fig.legend(*ax.get_legend_handles_labels(), loc="upper right", ncol=3,
                frameon=False, fontsize=6.6, handlelength=1, columnspacing=0.8,
                bbox_to_anchor=(0.985, 0.995))

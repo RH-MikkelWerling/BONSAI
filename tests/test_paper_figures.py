@@ -305,3 +305,22 @@ def test_patient_map_default_colours_final_predictions():
     assert not fig.axes[1].images
     assert fig.axes[1].collections[0].get_array() is not None
     plt.close(fig)
+
+
+def test_horizon_router_domain_labels_preserve_injected_effects():
+    cells = proto.synthetic_cells(np.random.default_rng(60))
+    target = 'Disease course and later malignancy'
+    cardio = 'Cardiovascular and thrombotic events'
+    cells['group_mean'] = np.where(cells.endpoint_group == target, .04,
+                                  np.where(cells.endpoint_group == cardio, -.02, .01))
+    cells['group_lower'] = cells.group_mean - .005
+    cells['group_upper'] = cells.group_mean + .005
+    fig = figures.figure_horizons(cells)
+    labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
+    for domain, expected in [('Disease course', .04), ('Cardiovascular', -.02)]:
+        y = labels.index(domain)
+        points = np.concatenate([c.get_offsets() for c in fig.axes[-1].collections])
+        selected = points[np.abs(points[:, 1] - y) < .3]
+        assert len(selected) == 6
+        np.testing.assert_allclose(selected[:, 0], expected)
+    plt.close(fig)
