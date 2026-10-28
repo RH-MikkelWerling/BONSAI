@@ -696,8 +696,24 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         [metadata, metadata.loc[metadata.horizon_days == 365].assign(horizon_days=ALL_HORIZONS)],
         ignore_index=True)
     summaries = lambda: _read(analysis / "effect_summaries.csv", sources)  # noqa: E731
-    table("paired_cells.csv", lambda: paired_cells(cell_contrasts(), cell_metadata_all,
-                                                    seed=seed))
+    def plotted_cells():
+        cells = paired_cells(cell_contrasts(), cell_metadata_all, seed=seed)
+        effects = _select(summaries(), seed=seed).copy()
+        effects["contrast"] = effects.contrast.map(CONTRAST_CODES)
+        for stratum, prefix, keys in [
+                ("all_cells", "panel", ["contrast", "metric", "horizon_days"]),
+                ("endpoint_group", "group", ["contrast", "metric", "horizon_days", "endpoint_group"])]:
+            selected = effects.loc[effects.stratum == stratum].copy()
+            if stratum == "endpoint_group":
+                selected["endpoint_group"] = selected.stratum_value
+                selected = to_display(selected)
+            selected = selected.rename(columns={"gain": f"{prefix}_mean",
+                "lower": f"{prefix}_lower", "upper": f"{prefix}_upper"})
+            columns = [f"{prefix}_{suffix}" for suffix in ("mean", "lower", "upper")]
+            cells = cells.merge(selected[keys + columns], on=keys, how="left", validate="many_to_one")
+        return cells
+
+    table("paired_cells.csv", plotted_cells)
     def curve():
         try:
             return support_curve([
@@ -779,9 +795,24 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
 
     def coverage():
         model_coverage = analysis / "model_coverage.csv"
+        inventory = _read(model_coverage, sources) if model_coverage.exists() else None
+        estimates = analysis / "estimates.csv"
+        if (inventory is not None and estimates.is_file()
+                and {"n_cases", "n_controls"} <= set(pd.read_csv(estimates, nrows=0))):
+            # Older inventories counted early-censored rows as controls. Saved
+            # estimates already carry the correct positive-IPCW support counts.
+            keys = ["split", "seed", "cohort", "outcome", "horizon_days", "model"]
+            counts = _read(estimates, sources)[keys + ["n_cases", "n_controls"]].drop_duplicates()
+            inventory = inventory.merge(counts, on=keys, how="left", suffixes=("", "_evaluated"),
+                                        validate="one_to_one")
+            for column in ("n_cases", "n_controls"):
+                inventory[column] = inventory[f"{column}_evaluated"].fillna(inventory[column])
+            present = inventory.n_cases + inventory.n_controls
+            inventory["prediction_status"] = inventory.prediction_status.mask(
+                present > 0, "two_class").mask(
+                (present > 0) & ((inventory.n_cases == 0) | (inventory.n_controls == 0)), "single_class")
         return coverage_table(
-            metadata, _read(analysis / "contrast_coverage.csv", sources),
-            _read(model_coverage, sources) if model_coverage.exists() else None,
+            metadata, _read(analysis / "contrast_coverage.csv", sources), inventory,
             seed=seed, registry_outcomes=registry_outcomes)
 
     table("coverage.csv", coverage)

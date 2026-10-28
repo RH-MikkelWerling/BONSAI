@@ -601,12 +601,19 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.scatter(gains, row + rng.uniform(-0.28, 0.28, len(gains)), s=3.5,
                    color=color, alpha=0.28, linewidths=0, rasterized=True)
         q1, median, q3 = np.quantile(gains, [0.25, 0.5, 0.75])
+        center_label = "median"
+        if "panel_mean" in year:
+            summary = year.loc[year.contrast == contrast,
+                               ["panel_mean", "panel_lower", "panel_upper"]].drop_duplicates()
+            if len(summary) == 1 and np.isfinite(summary.panel_mean.iloc[0]):
+                median, q1, q3 = summary.iloc[0]
+                center_label = "paired mean (95% CI)"
         ax.plot([q1, q3], [row, row], color=PALETTE["ink"], lw=2.2,
                 solid_capstyle="round", zorder=3)
         ax.scatter([median], [row], marker="D", s=34, color="white",
                    edgecolors=PALETTE["ink"], linewidths=1.1, zorder=4)
         ax.text(1.02, row, f"{np.mean(gains > 0):.0%} of cells better\n"
-                f"median {median:+.3f}", transform=ax.get_yaxis_transform(),
+                f"{center_label} {median:+.3f}", transform=ax.get_yaxis_transform(),
                 va="center", fontsize=6.6, color=PALETTE["ink_secondary"])
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.8)
     ax.set_yticks(range(len(references)), [label for _, label, _ in references], fontsize=7)
@@ -650,6 +657,13 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax = fig.add_subplot(middle[1])
     if scores is not None and len(scores):
         rows = scores.reset_index(drop=True)
+        # One pooled comparison per recorded index when both pooled and older
+        # disease-specific exports are present. Keep every distinct index.
+        if "label" in rows:
+            rows = rows.assign(_index=rows.label.str.split(" · ").str[0],
+                               _pooled=rows.label.str.endswith(" · all subtypes"))
+            pooled = set(rows.loc[rows._pooled, "_index"])
+            rows = rows.loc[rows._pooled | ~rows._index.isin(pooled)].reset_index(drop=True)
         for y, row in rows.iterrows():
             ax.plot([row.index_sensitivity, row.model_sensitivity], [y, y],
                     color=PALETTE["grid"], lw=2, zorder=1)
@@ -661,7 +675,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.set_yticks(range(len(rows)), rows.label, fontsize=6.3)
         ax.invert_yaxis()
         ax.legend(frameon=False, fontsize=6.4, loc="lower left", handletextpad=0.2)
-    ax.set_xlim(0, 1)
+    ax.set_xlim(-0.02, 1.04)
     ax.xaxis.set_major_locator(MaxNLocator(3))
     ax.set_xlabel("Events in the high-risk group\n(at the index's specificity)")
     _panel_title(ax, "C", "Clinical indices")
@@ -674,7 +688,13 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         gains = _cell_sum(data, terms)
         if gains is None or gains.empty:
             continue
-        medians = gains.loc[gains.horizon_days > 0].groupby("horizon_days").gain.median()
+        # Deriving a contrast can change its roster; do not add panel means
+        # from different contrasts. Use saved paired means only for direct terms.
+        if len(terms) == 1 and "panel_mean" in data:
+            direct = data.loc[(data.contrast == terms[0]) & (data.horizon_days > 0)]
+            medians = direct.groupby("horizon_days").panel_mean.first()
+        else:
+            medians = gains.loc[gains.horizon_days > 0].groupby("horizon_days").gain.mean()
         ax.plot(medians.index, medians.values, color=color, lw=1.6 if label == "Joint" else 1.1,
                 marker="D", markersize=3.4 if label == "Joint" else 2.6, label=label,
                 zorder=3 if label == "Joint" else 2)
@@ -685,7 +705,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax.set_xticklabels([str(d) for d in horizons], fontsize=6.5)
     ax.minorticks_off()
     ax.set_xlabel("Horizon (days)")
-    ax.set_ylabel("Median AUC gain over XGBoost")
+    ax.set_ylabel("Mean AUC gain over XGBoost")
     ax.legend(frameon=False, fontsize=6.2, ncol=2, loc="upper center",
               bbox_to_anchor=(0.5, -0.27), handlelength=1.2, columnspacing=1)
     _panel_title(ax, "D", "Gain by horizon")
@@ -694,12 +714,12 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     # E: by recorded history.
     ax = fig.add_subplot(lower[1])
     if subgroups is not None:
-        part = subgroups.loc[subgroups.covariate == "history"]
+        part = subgroups.loc[subgroups.covariate.isin(["history", "history_event_count"])]
         order = list(dict.fromkeys(part.subgroup))
         for offset, (contrast, label, color) in zip(
                 (-0.12, 0.12), (("J-S", "vs specialist", MODEL_STYLE["S"][0]),
                                 ("J-X", "vs XGBoost", MODEL_STYLE["X"][0]))):
-            rows = part.loc[part.contrast == contrast].set_index("subgroup").reindex(order)
+            rows = part.loc[part.contrast.isin([contrast, {"J-S": "P5", "J-X": "T2"}.get(contrast, contrast)])].set_index("subgroup").reindex(order)
             x = np.arange(len(order)) + offset
             ax.errorbar(x, rows.gain * 100, yerr=[(rows.gain - rows.lower) * 100,
                                                   (rows.upper - rows.gain) * 100],
@@ -1500,22 +1520,28 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
 def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "R1"), mark=None):
     """Supplement: pooling and routed-versus-joint effects over follow-up."""
     fig, axes = plt.subplots(1, len(contrasts), figsize=(max(7.2, 2.15 * len(contrasts)), 3.8), sharey=True,
-                             sharex=True, squeeze=False)
+                             sharex=False, squeeze=False)
     axes = axes.ravel()
     data = cells.loc[cells.metric == metric]
     order = (data.loc[(data.contrast == "J-S") & (data.horizon_days == 365)]
              .groupby("endpoint_group").gain.median().sort_values(ascending=False)
              .index.tolist())
     for index, (ax, contrast) in enumerate(zip(axes, contrasts)):
-        summary = _summary_rows(data.loc[data.contrast == contrast],
-                                ["endpoint_group", "horizon_days"])
+        part = data.loc[(data.contrast == contrast) & (data.horizon_days > 0)]
+        paired_means = "group_mean" in part
+        if paired_means:
+            summary = part[["endpoint_group", "horizon_days", "group_mean", "group_lower", "group_upper"]].drop_duplicates()
+            summary = summary.rename(columns={"group_mean": "median", "group_lower": "q25", "group_upper": "q75"})
+            summary = summary.loc[np.isfinite(summary["median"])]
+        else:
+            summary = _summary_rows(part, ["endpoint_group", "horizon_days"])
         summary["endpoint_group"] = summary.endpoint_group.map(lambda g: SHORT_GROUP.get(g, g))
         handles = _diamond_forest(
             ax, summary, row_key="endpoint_group",
             row_order=[SHORT_GROUP.get(g, g) for g in order],
             series_key="horizon_days",
             series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
-            xlabel=METRIC_LABEL[metric], show_counts=False)
+            xlabel=f"{METRIC_LABEL[metric]} " + ("(mean, 95% CI)" if paired_means else "(median, IQR)"), show_counts=False)
         if index:
             ax.tick_params(axis="y", labelleft=False)
         _panel_title(ax, chr(65 + index), ("Routed vs joint" if contrast == "R1" else CONTRAST_STYLE[contrast][1]).replace(" vs ", "\nvs "))
@@ -1720,10 +1746,12 @@ def _matched_embedding_tables(coords, outcomes):
 
 def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
                              horizon=365, grid_size=90, min_effective_support=25.0,
-                             bandwidth=None, mark=None):
-    """Where each outcome's observed risk concentrates in one patient embedding.
+                             bandwidth=None, mode="predicted_points", mark=None):
+    """Patient-level final predictions, or observed risk, in a shared embedding.
 
-    ``coords``: ``subject_id``, ``x``, ``y`` (the joint model's projection).
+    ``coords``: ``subject_id``, ``x``, ``y`` (the selected checkpoint's shared projection).
+    Default colours are final-model patient risk, including the fitted readout.
+    ``mode="observed_surface"`` restores the observed-outcome kernel diagnostic.
     ``outcomes``: long table with ``subject_id``, ``outcome`` (display name),
     ``domain``, ``domain_order``, ``time_days`` and ``event``. Each panel is the
     IPCW kernel estimate of the observed risk at the horizon among the
@@ -1736,7 +1764,11 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     from opera.visualization.censoring_aware_embeddings import (
         _default_bandwidth, _display_grid, _kernel_surfaces, horizon_ipcw_data)
 
+    if mode not in {"predicted_points", "observed_surface"}:
+        raise ValueError("Choose predicted_points or observed_surface")
     coords, outcomes = _matched_embedding_tables(coords, outcomes)
+    if mode == "predicted_points" and "risk" not in outcomes:
+        raise ValueError("Predicted point atlas requires final-model risk exports")
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
     bandwidth = bandwidth if bandwidth is not None else 1.4 * _default_bandwidth(points)
@@ -1748,13 +1780,13 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     if selected.empty:
         raise ValueError(f"Page {page} has no outcomes")
     nrows = int(np.ceil(len(selected) / ncols))
-    fig = plt.figure(figsize=(7.2, 1.85 * nrows + 0.7))
+    fig = plt.figure(figsize=(7.2, 2.0 * nrows + 0.9))
     height = fig.get_figheight()
-    grid = fig.add_gridspec(nrows, ncols, wspace=0.06, hspace=0.42, left=0.02,
-                            right=0.98, top=1 - 0.42 / height, bottom=0.62 / height)
+    grid = fig.add_gridspec(nrows, ncols, wspace=0.06, hspace=0.55, left=0.02,
+                            right=0.98, top=1 - 0.65 / height, bottom=0.62 / height)
     cmap = plt.get_cmap("plasma").copy()
     cmap.set_bad((1, 1, 1, 0))
-    norm = LogNorm(vmin=0.25, vmax=4)
+    norm = plt.Normalize(0, 1) if mode == "predicted_points" else LogNorm(vmin=0.25, vmax=4)
     image = None
     position = dict(zip(coords.subject_id, range(len(coords))))
     axes = []
@@ -1773,7 +1805,13 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
         used = data.eligible
         overall = (np.sum(data.weights[used] * data.target[used])
                    / max(np.sum(data.weights[used]), 1e-12))
-        if used.sum() and overall > 0:
+        if mode == "predicted_points":
+            risk = part.risk.to_numpy(float)
+            if not np.isfinite(risk).all() or ((risk < 0) | (risk > 1)).any():
+                raise ValueError("Predicted atlas risks must be finite probabilities")
+            image = ax.scatter(points[at, 0], points[at, 1], c=risk, s=5,
+                               cmap=cmap, norm=norm, linewidths=0, rasterized=True, zorder=4)
+        elif used.sum() and overall > 0:
             _, _, surface, support, density = _kernel_surfaces(
                 points[at][used], data.target[used], data.weights[used],
                 bandwidth=bandwidth, grid_size=grid_size, bounds_coords=points,
@@ -1791,12 +1829,12 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
         elif overall == 0:
             ax.text(0.5, 0.5, "No events at horizon", transform=ax.transAxes,
                     ha="center", va="center", fontsize=7)
-        ax.set_title(f"{row.outcome}\n{100 * overall:.1f}% at {horizon} days",
+        ax.set_title(f"{_embedding_title(row.outcome, width=29)}\n{100 * overall:.1f}% observed at {horizon} days",
                      fontsize=6.4, pad=2, color=PALETTE["ink"], loc="center",
                      linespacing=1.25)
     # Domain brackets: one labelled rule over each run of panels in a row.
     fig.canvas.draw()
-    lift = 0.2 / height
+    lift = 0.38 / height
     for row_start in range(0, len(selected), ncols):
         members = selected.iloc[row_start:row_start + ncols]
         runs = (members.domain != members.domain.shift()).cumsum()
@@ -1812,11 +1850,16 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     if image is not None:
         bar = fig.add_axes([0.3, 0.22 / height, 0.4, 0.1 / height])
         cb = fig.colorbar(image, cax=bar, orientation="horizontal")
-        cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
+        if mode == "predicted_points":
+            cb.set_ticks([0, .25, .5, .75, 1])
+        else:
+            cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
         cb.ax.minorticks_off()
         cb.ax.tick_params(labelsize=6)
-        cb.set_label(f"Observed {horizon}-day risk (IPCW kernel) relative to the "
-                     "outcome's average", fontsize=6.4)
+        cb.set_label(f"Final-model predicted {horizon}-day risk (one point per patient)"
+                     if mode == "predicted_points" else
+                     f"Observed {horizon}-day risk (IPCW kernel) relative to the outcome's average",
+                     fontsize=6.4)
     watermark(fig, mark)
     return fig
 
@@ -2318,7 +2361,7 @@ def _risk_colors(n):
     """Lowest to highest risk; three-group scores keep the extreme colours."""
     return [RISK_COLORS[int(round(i))] for i in np.linspace(0, len(RISK_COLORS) - 1, n)]
 COVERAGE_STYLE = {
-    "evaluated": ("#AEB8DA", "All models evaluated"),
+    "evaluated": ("#AEB8DA", "Joint–specialist comparison evaluable"),
     "no_training_events": ("#E7B9A5", "Too few training events for a specialist"),
     "single_class_test": ("#F2DDB0", "Only one evaluable class"),
     "insufficient_test_support": ("#D9D1E5", "Fewer than 5 cases or controls"),
@@ -3418,6 +3461,9 @@ def figure_subgroup_effects(table, *, contrast_styles, covariate_order, xlabel,
     if not rows:
         ax.text(0.5, 0.5, "No matching subgroup estimates",
                 transform=ax.transAxes, ha="center", va="center", fontsize=8)
+    if table.empty and rows:
+        ax.text(0.5, 0.5, "No supported estimates available", transform=ax.transAxes,
+                ha="center", va="center", fontsize=8, color=PALETTE["ink_secondary"])
     ax.set_xlabel(xlabel)
     ax.xaxis.set_major_locator(MaxNLocator(5))
     handles = [Line2D([], [], ls="none", marker="D", color=color, label=label)
@@ -3787,7 +3833,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
         ax = fig.add_subplot(grid[column])
         paired = data.loc[data[['joint', x]].notna().all(axis=1)]
         if paired.empty:
-            ax.text(.5, .5, 'Selected-strategy evaluation unavailable\n(selection is made on tuning;\nevaluation requires held-out predictions)',
+            ax.text(.5, .5, 'Comparison unavailable\nRequires held-out predictions',
                     transform=ax.transAxes, ha='center', va='center', fontsize=7,
                     color=PALETTE['ink_muted'])
             _panel_title(ax, letter, title)

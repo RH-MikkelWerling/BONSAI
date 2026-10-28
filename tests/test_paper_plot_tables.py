@@ -361,3 +361,27 @@ def test_tuning_only_strategy_shows_unavailable_held_out_comparison():
     fig = figures.figure_strategy(cells, choices)
     assert any('unavailable' in t.get_text() for ax in fig.axes for t in ax.texts)
     plt.close(fig)
+
+
+def test_rebuild_carries_saved_means_and_repairs_legacy_coverage(tmp_path):
+    root = analysis_root(tmp_path)
+    analysis = root / 'prediction_analysis'
+    estimates = pd.read_csv(analysis / 'estimates.csv').assign(n_cases=10, n_controls=10)
+    estimates.loc[estimates.cohort == 'DLBCL', 'n_controls'] = 0
+    estimates.to_csv(analysis / 'estimates.csv', index=False)
+    inventory = pd.read_csv(analysis / 'model_coverage.csv').assign(n_cases=10, n_controls=20)
+    inventory.to_csv(analysis / 'model_coverage.csv', index=False)
+    summary = pd.read_csv(analysis / 'effect_summaries.csv')
+    row = summary.iloc[0].to_dict()
+    row.update(contrast='P5', stratum='all_cells', gain=.123, lower=.1, upper=.15)
+    summary = pd.concat([summary, pd.DataFrame([row])], ignore_index=True)
+    summary.to_csv(analysis / 'effect_summaries.csv', index=False)
+    metadata = tmp_path / 'cells.csv'
+    cell_metadata().to_csv(metadata, index=False)
+    output = tmp_path / 'plots'
+    plot_tables.build(root, metadata, output, seed=42)
+    cells = pd.read_csv(output / 'paired_cells.csv')
+    assert cells.loc[(cells.contrast == 'J-S') & (cells.metric == 'auc'), 'panel_mean'].eq(.123).all()
+    coverage = pd.read_csv(output / 'coverage.csv')
+    applicable = coverage.loc[(coverage.cohort == 'DLBCL') & (coverage.status != 'not_applicable'), 'status']
+    assert len(applicable) == 1 and applicable.eq('single_class_test').all()

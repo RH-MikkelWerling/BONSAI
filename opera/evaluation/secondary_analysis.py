@@ -1546,7 +1546,8 @@ def coverage_inventory(frame, roster):
                           else table[key].astype(str))
         return table
 
-    counts = (keyed(frame[[*keys, "label"]]).groupby(keys, sort=False)
+    known_frame = frame.loc[frame.ipcw_weight > 0] if "ipcw_weight" in frame else frame
+    counts = (keyed(known_frame[[*keys, "label"]]).groupby(keys, sort=False)
               .label.agg(n_known_predictions="size", n_cases="sum").reset_index())
     merged = keyed(roster[keys]).merge(counts, on=keys, how="left", validate="many_to_one")
     n = merged.n_known_predictions.fillna(0).astype(int).to_numpy()

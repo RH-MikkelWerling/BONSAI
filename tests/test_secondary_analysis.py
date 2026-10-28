@@ -652,3 +652,14 @@ def test_calendar_year_strata_accept_long_registry_but_reject_continuous_values(
     with pytest.raises(ValueError, match='prespecified bins'):
         next(subgroup_labels(metadata[['subject_id']], metadata,
                              {'continuous_measure': {'provenance': 'pre_index'}}))
+
+
+def test_ipcw_coverage_does_not_count_early_censoring_as_controls():
+    frame = pd.DataFrame(dict(model=['J'] * 4, seed=[42] * 4,
+        cohort=['d'] * 4, outcome=['o'] * 4, horizon_days=[365] * 4,
+        split=['tuning'] * 4, label=[1, 1, 0, 0], ipcw_weight=[1., 1., 0., 0.]))
+    roster = frame.drop(columns=['label', 'ipcw_weight']).drop_duplicates().assign(status='fit')
+    result = coverage_inventory(frame, roster)
+    assert result.n_cases.iloc[0] == 2
+    assert result.n_controls.iloc[0] == 0
+    assert result.prediction_status.iloc[0] == 'single_class'

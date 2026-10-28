@@ -134,7 +134,7 @@ def test_embedding_csv_parquet_identifier_types_do_not_hide_outcomes():
     mapping = dict(zip(ids, range(len(ids))))
     outcomes["subject_id"] = outcomes.subject_id.map(mapping)
     fig = figures.figure_embedding_gallery(coords, outcomes, per_page=4, grid_size=25,
-                                            min_effective_support=1)
+                                            min_effective_support=1, mode="observed_surface")
     assert any(ax.images for ax in fig.axes)
     plt.close(fig)
     with pytest.raises(ValueError, match="No matching patient IDs"):
@@ -245,4 +245,41 @@ def test_long_calibration_titles_fit_their_columns():
     for ax in fig.axes[:3 * len(names):3]:
         bounds = ax.title.get_window_extent(renderer)
         assert bounds.width <= ax.get_window_extent(renderer).width + 5
+    plt.close(fig)
+
+
+def test_gallery_default_uses_final_risk_points():
+    coords, outcomes = proto.synthetic_gallery(np.random.default_rng(55), n=100)
+    fig = figures.figure_embedding_gallery(coords, outcomes, per_page=1)
+    displayed = fig.axes[0].collections[0]
+    name = outcomes[['outcome', 'domain_order']].drop_duplicates().sort_values(
+        ['domain_order', 'outcome']).outcome.iloc[0]
+    expected = outcomes.loc[outcomes.outcome == name, 'risk'].to_numpy()
+    np.testing.assert_allclose(displayed.get_array(), expected)
+    assert displayed.norm.vmin == 0 and displayed.norm.vmax == 1
+    plt.close(fig)
+
+
+def test_horizons_uses_saved_paired_means_with_independent_scales():
+    cells = proto.synthetic_cells(np.random.default_rng(56))
+    cells['group_mean'] = .012
+    cells['group_lower'] = .005
+    cells['group_upper'] = .019
+    fig = figures.figure_horizons(cells)
+    assert all('(mean, 95% CI)' in ax.get_xlabel() for ax in fig.axes)
+    assert not fig.axes[0].get_shared_x_axes().joined(fig.axes[0], fig.axes[-1])
+    plt.close(fig)
+
+
+def test_headline_history_accepts_real_covariate_and_contrast_codes():
+    rng = np.random.default_rng(57)
+    cells = proto.synthetic_cells(rng)
+    subgroups = pd.DataFrame([
+        dict(covariate='history_event_count', subgroup=label, contrast=contrast,
+             gain=.001, lower=0., upper=.002)
+        for label in ['≤ 99', '100–999'] for contrast in ['P5', 'T2']])
+    fig = figures.figure_headline(cells, subgroups=subgroups)
+    panel = next(ax for ax in fig.axes if ax.get_xlabel() == 'Recorded events before treatment')
+    assert len(panel.containers) == 2
+    assert len(panel.get_xticklabels()) == 2
     plt.close(fig)
