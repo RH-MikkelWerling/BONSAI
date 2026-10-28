@@ -74,8 +74,8 @@ def build(analysis, output):
                     applicability_review='Descriptive comparison restricted to patients with this recorded index; not a claim of validated use in other diseases')
     clinical = dict(availability=dict(cohort_column='cohort_fine', index_column='index', group_column='IPI'),
                     all_indices=dict(index_column='index', cohort_column='cohort_fine',
-                                     minimum_patients=50, pooled=True,
-                                     manuscript=dict(index='IPI', cohort='DLBCL'), template=template),
+                                     minimum_patients=1, pooled=True, per_cohort=False,
+                                     manuscript=dict(index='IPI'), template=template),
                     scores=[], index_endpoint='shared')
     # Include available computed scores only in populations where they were recorded.
     for slug, label, score, group in [
@@ -95,7 +95,7 @@ def build(analysis, output):
     from opera.run.render_clinical_score_panels import expand_index_scores
     specs = expand_index_scores(clinical, metadata)
     if not specs:
-        raise ValueError('No available clinical score populations meet the minimum of 50 patients')
+        raise ValueError('No recorded clinical scores available')
     for name, recipe in [('embedding_tables.tuning.yaml', embedding), ('clinical_score_panels.tuning.yaml', clinical)]:
         (output / name).write_text(yaml.safe_dump(recipe, sort_keys=False))
     (output / 'config_audit.json').write_text(json.dumps(dict(model=model, categories=raw,

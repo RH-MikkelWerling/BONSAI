@@ -203,3 +203,46 @@ def test_subgroup_small_and_empty_panels_have_room_for_margins():
         fig.canvas.draw()
         assert fig.subplotpars.bottom < fig.subplotpars.top
         plt.close(fig)
+
+
+def test_atlas_matrix_keeps_joint_identity_when_opera_is_available():
+    atlas = pd.DataFrame(dict(outcome=['anemia_g2plus'], horizon_days=[365],
+        cif_auc=[.65], endpoint_group=['Erythroid findings and transfusion']))
+    models = pd.DataFrame(dict(cohort=['DLBCL'], cohort_group=['DLBCL-like'],
+        outcome=['anemia_g2plus'], endpoint_group=['Erythroid findings and transfusion'],
+        horizon_days=[365], J=[.65], OPERA=[.9]))
+    fig = figures.figure_atlas_matrix(atlas, models)
+    np.testing.assert_allclose(fig.axes[0].images[0].get_array(), [[.65]])
+    fig.canvas.draw()
+    plt.close(fig)
+
+
+def test_patient_map_honours_configured_highlight_order():
+    coords, outcomes = proto.synthetic_gallery(np.random.default_rng(41), n=300)
+    selected = outcomes.outcome.drop_duplicates().tolist()[-5:][::-1]
+    outcomes['highlight_order'] = outcomes.outcome.map(dict(zip(selected, range(5))))
+    fig = figures.figure_patient_map(coords, outcomes, grid_size=25,
+                                     min_effective_support=1)
+    assert [ax.get_title(loc='left') for ax in fig.axes[1:6]] == [
+        f'{letter}  {figures._embedding_title(name, width=17)}'
+        for letter, name in zip('BCDEF', selected)]
+    # Default disease map communicates overlapping patients without KDE regions.
+    assert all(type(collection).__name__ != 'QuadContourSet'
+               for collection in fig.axes[0].collections)
+    fig.canvas.draw()
+    plt.close(fig)
+
+
+def test_long_calibration_titles_fit_their_columns():
+    coords, data = proto.synthetic_maps(np.random.default_rng(42), n=300)
+    values = list(data.values())
+    names = ['Infection diagnosis or antimicrobial use', 'Overall survival',
+             'Anemia (G2+)', 'Hospital admission', 'Creatinine increased (G2+)']
+    outcomes = {name: values[i % len(values)] for i, name in enumerate(names)}
+    fig = figures.figure_calibration_maps(coords, outcomes, grid_size=25)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    for ax in fig.axes[:3 * len(names):3]:
+        bounds = ax.title.get_window_extent(renderer)
+        assert bounds.width <= ax.get_window_extent(renderer).width + 5
+    plt.close(fig)

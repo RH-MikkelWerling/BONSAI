@@ -35,7 +35,19 @@ The rule for the sensitivity fit's starting point (Supplementary Methods, model 
 their tuning-panel results or any test result had been seen.
 
 \operasubsection{Weighting of summaries}
-Summaries over cells weigh them in one of three ways, each fixed before testing.
+We report two mean paired summaries of AUC, IPA and Brier differences on the
+same supported disease--outcome--horizon cells. The equal-cell summary gives
+each cell--horizon combination equal weight. The disease-balanced summary
+gives each disease equal weight, each outcome equal weight within a disease,
+and each evaluated horizon equal weight within an outcome. Point-estimate
+weights and the included cells are held fixed across the paired patient
+bootstrap draws; unavailable cell estimates are not treated as zero. The
+Brier difference is oriented as reference minus candidate, so positive
+values favour the candidate for all three measures. These means describe
+different task distributions; neither is a patient-population utility measure.
+Endpoint-family or clinical-domain weighting is distinct from this
+disease-balanced definition and is labelled separately when used.
+
 Headline differences and \cref{tab:panel-effects} weigh every
 disease--outcome--horizon cell equally. Panel summaries and the hierarchical
 models weigh every disease equally and, within a disease, every loss endpoint
@@ -252,9 +264,9 @@ was trained once, so intervals describe sampling of test patients only. The
 complete cell-level results, including every confusion matrix, accompany the
 paper as machine-readable files, with counts below five suppressed.
 
-\IfFileExists{tables/generated/supplement_tables.tex}{%
+\IfFileExists{\resultnumbersdir supplement_tables.tex}{%
   \operasubsection{Reviewed numerical summaries}
-  \input{tables/generated/supplement_tables}
+  \input{\resultnumbersdir supplement_tables.tex}
 }{%
   \noindent\placeholder{Reviewed aggregate summary tables have not yet been
   exported. Complete cell-level numerical tables will accompany the figures.}

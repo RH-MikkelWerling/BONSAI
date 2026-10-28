@@ -10,14 +10,15 @@ model on the same patients. The router spreads its weight widely, so zeroing
 many terms would move the model far from anything it saw in training; the mean
 keeps the average shift and removes only the patient-specific part:
 
-* full: every source; none: the patient's own disease only (no borrowing);
+* full: every disease source; none: other-disease terms replaced by their means;
+  the patient's own disease, outcome bank and shared encoder remain active;
 * in:X: own disease and X, so X's contribution on its own, which redundant
   sources cannot mask (primary; the map and the named claims);
 * out:X: every source but X, so what only X provides (necessity).
 
-Leave-one-in and leave-one-out are the two extremes of a source's Shapley
-value (its marginal value with no other source, and with all of them), so
-together they bracket its attribution: both positive, a main source; in only,
+Leave-one-in and leave-one-out measure two contexts, with no other borrowed
+disease sources and with all of them. They do not bound a Shapley value when
+source interactions are arbitrary. Read them descriptively: both positive, a main source; in only,
 useful but redundant with similar sources; out only, useful in combination.
 
 * Effects are AUC differences in AUC points (x100) on the full-risk-set IPCW
@@ -35,10 +36,11 @@ useful but redundant with similar sources; out only, useful in combination.
   used in the pooling, so any lineage pattern comes from the data. The
   unshrunk estimates are kept alongside. The map's dots use the pooled
   interval (unpooled intervals would mark about one in twenty null pairs).
-* Primary claim: the prespecified pairs as a set gain more from their source
-  alone than the other pairs of their domains (permutation test); the
-  negative controls should not. IPA is reported as a secondary metric.
-* Named claims only for the prespecified pairs and negative controls
+* Candidate pairs and draft negative controls are exploratory: the clinician
+  review/analysis lock is not established. The set permutation statistic is
+  retained as an exploratory diagnostic, not confirmatory evidence.
+  IPA is reported as a secondary metric.
+* Descriptive interval classifications for the candidate pairs and controls
   (opera/configs/borrowing_hypotheses.yaml), on the unshrunk leave-one-in
   estimate, with the prespecified labels and the plan's practical margin
   (``margin_points``, AUC points; smaller than the model-comparison margin,
@@ -64,6 +66,7 @@ The effects describe the fitted model, not biology.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -77,6 +80,7 @@ from opera.evaluation.secondary_analysis import (
     claim_label,
     normalize_predictions,
     paired_analysis,
+    patient_bootstrap,
 )
 from opera.run.router_decision import panel
 
@@ -200,7 +204,8 @@ def pooled_effects(predictions, contrasts, domains, *, replicates=1000, seed=202
     """
     predictions = estimable(predictions)
     tables = paired_analysis(predictions, contrasts, replicates=replicates, seed=seed,
-                             patient_gain_contrasts=())
+                             draws=patient_bootstrap(predictions, replicates, seed, method="multiplier"),
+                             patient_gain_contrasts=(), min_cases=MINIMUM, min_controls=MINIMUM)
     every = tables["contrasts"].assign(
         endpoint_group=lambda t: t.outcome.map(domains))
     rows, kept = [], {}
@@ -353,6 +358,11 @@ def hypothesis_test(raw, plan, *, permutations=10000, seed=2026):
         others = pairs.loc[[k not in named for k in key]]
         pools = {d: others.loc[others.endpoint_group == d, "in_effect"].to_numpy()
                  for d in chosen.endpoint_group.unique()}
+        counts = chosen.endpoint_group.value_counts()
+        if any(len(pools[d]) < n for d, n in counts.items()):
+            rows.append({"kind": kind, "n_pairs": len(chosen),
+                         "status": "not estimable: insufficient domain-matched reference pairs"})
+            continue
         reference = np.mean([pools[d].mean() for d in chosen.endpoint_group])
         observed = chosen.in_effect.mean() - reference
         domains_of = chosen.endpoint_group.tolist()
@@ -533,7 +543,7 @@ def ipa_summary(levels, hypotheses):
             })
     for row in hypotheses.itertuples():
         rows.append({
-            "section": "Prespecified pair" if row.kind == "hypothesis" else "Negative control",
+            "section": "Candidate pair" if row.kind == "hypothesis" else "Negative control",
             "comparison": f"{row.source} to {row.target}, {row.domain}",
             "auc": _points(row.effect, row.lower, row.upper),
             "ipa": _points(getattr(row, "ipa_effect", np.nan), getattr(row, "ipa_lower", np.nan),
@@ -549,6 +559,52 @@ def validate_plan(plan, diseases, domains):
             raise ValueError(f"Unknown diseases in borrowing hypotheses: {sorted(unknown)}")
         if entry["domain"] != ALL_OUTCOMES and entry["domain"] not in set(domains.values()):
             raise ValueError(f"Unknown clinical domain: {entry['domain']!r}")
+
+
+def analysis_provenance(directory, *, row, model, split, ablation, replicates,
+                        membership, hypotheses, display_groups, registry, references):
+    """Bind CPU caches to code, configuration and input file versions.
+
+    Large prediction files use size/mtime signatures to avoid repeatedly hashing
+    all source-removal exports. Small code/config/marker files use SHA256.
+    """
+    def digest(path):
+        path = Path(path)
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    def version(path):
+        path = Path(path).resolve()
+        if not path.is_file():
+            return {'path': str(path), 'missing': True}
+        stat = path.stat()
+        return {'path': str(path), 'bytes': stat.st_size, 'mtime_ns': stat.st_mtime_ns}
+    code = [Path(__file__), REPO / 'opera/evaluation/secondary_analysis.py',
+            REPO / 'opera/run/router_decision.py']
+    files = sorted(Path(directory).rglob('*.parquet'))
+    return dict(schema=1, model=model, scientific_hash=row['scientific_hash'],
+                run_directory=row['run_directory'], split=split, ablation=ablation,
+                replicates=replicates, bootstrap_method='multiplier', bootstrap_seed=2026,
+                estimand='cif_ipcw', minimum_cases=MINIMUM, minimum_controls=MINIMUM,
+                horizons=list(HORIZONS),
+                code_sha256={str(p.relative_to(REPO)): digest(p) for p in code},
+                config_sha256={str(p): digest(p) for p in (hypotheses, display_groups, registry)},
+                evaluation_marker_sha256=digest(Path(directory) / 'evaluation_complete.json'),
+                inputs=[version(p) for p in [membership, *files]],
+                references={name: version(p) for name, p in references.items()},
+                prediction_signature='path_size_mtime_ns; not a content hash')
+
+
+def validate_cache_provenance(output, provenance):
+    """Never accept legacy per-source caches merely because a CSV exists."""
+    path = Path(output) / 'analysis_provenance.json'
+    if path.is_file():
+        if json.loads(path.read_text()) != provenance:
+            raise ValueError('Borrowing cache provenance changed; rerun CPU borrowing-map '
+                             'in a fresh analysis root. Existing results were preserved.')
+    elif any((Path(output) / 'per_source').glob('*.csv')):
+        raise ValueError('Legacy borrowing cache has no analysis provenance; rerun CPU '
+                         'borrowing-map in a fresh analysis root, reusing verified inference.')
+    else:
+        path.write_text(json.dumps(provenance, indent=2) + '\n')
 
 
 def main():
@@ -610,6 +666,11 @@ def main():
     if args.ablation != "mean":
         output = output / f"{args.ablation}_ablation"
     (output / "per_source").mkdir(parents=True, exist_ok=True)
+    provenance = analysis_provenance(
+        directory, row=row, model=args.model, split=args.split, ablation=args.ablation,
+        replicates=args.replicates, membership=args.membership, hypotheses=args.hypotheses,
+        display_groups=args.display_groups, registry=args.registry, references=references)
+    validate_cache_provenance(output, provenance)
 
     if not args.combine_only:
         if not (directory / "evaluation_complete.json").is_file():
@@ -622,7 +683,8 @@ def main():
         metadata = metadata.drop_duplicates("subject_id")
         for unit in [LEVELS, *sources][args.shard_index :: args.shard_count]:
             done = output / "per_source" / f"{unit}.csv"
-            if done.is_file():
+            if done.is_file() and (unit == LEVELS or
+                    (output / "per_source" / f"{unit}_draws.npz").is_file()):
                 print(f"{unit}: done")
                 continue
             if unit == LEVELS:
@@ -665,6 +727,7 @@ def main():
     raw = pd.concat([pd.read_csv(finished[s]) for s in sources], ignore_index=True)
     borrowing_map(raw, diseases).to_csv(output / "borrowing_map.csv", index=False)
     hypotheses = hypothesis_table(raw, plan)
+    hypotheses["analysis_role"] = "exploratory candidate pair"
     hypotheses.to_csv(output / "borrowing_hypotheses.csv", index=False)
     pair_draws = {}
     for source in sources:
@@ -679,12 +742,17 @@ def main():
     lineage_summary(pair_effects, pair_draws, diseases, exclude=sparse).to_csv(
         output / "borrowing_lineage.csv", index=False)
     test = hypothesis_test(raw, plan)
+    test["analysis_role"] = "exploratory; not a locked confirmatory test"
     test.to_csv(output / "borrowing_hypothesis_test.csv", index=False)
     ipa_summary(levels, hypotheses).to_csv(output / "borrowing_ipa_table.csv", index=False)
     (output / "source_removal.json").write_text(json.dumps({
         "model": args.model, "fit": row["name"], "split": args.split,
         "sources": sources, "replicates": args.replicates, "horizons": list(HORIZONS),
-        "removal": "source term dropped, other weights unchanged",
+        "ablation": args.ablation,
+        "removal": ("Other-disease terms replaced by tuning means" if args.ablation == "mean"
+                    else "Other-disease terms zeroed") + "; outcome bank and shared encoder retained; weights not renormalised",
+        "analysis_role": "exploratory candidate pairs; clinician review/analysis lock not established",
+        "provenance": "analysis_provenance.json",
         "references": {name: str(path) for name, path in references.items()},
         "effects": {"dependence": "AUC(full) - AUC(none)",
                     "routing": f"AUC({args.model}) - AUC(J_L)",

@@ -974,8 +974,8 @@ def claim_label(gain, lower, upper, margin):
 
 
 def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
-                     stable_cells_only=False):
-    """Equal-cell descriptive summaries with subject-correlated intervals.
+                     stable_cells_only=False, aggregation="equal_cell"):
+    """Paired means with equal-cell or disease/outcome/horizon-balanced weights.
 
     No across-seed pooling: bootstrap intervals condition on one training seed.
     Strict fixed finite cell inventory is used in each replicate.
@@ -984,6 +984,8 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
     cells that resample to one class cannot void the whole interval; the cells
     left out are counted in ``n_cells_unstable``.
     """
+    if aggregation not in {"equal_cell", "disease_balanced"}:
+        raise ValueError("Unknown effect-summary aggregation")
     keys = ["cohort", "outcome", "horizon_days"]
     if cell_metadata.duplicated(keys).any():
         raise ValueError("Duplicate cell metadata")
@@ -1028,7 +1030,15 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                 kept = samples.loc[stable, CELL]
                 samples, arrays = samples.loc[stable], arrays[stable]
                 group = group.merge(kept, on=CELL, validate="one_to_one")
-            sampled = arrays.mean(axis=0)
+            def weights_for(frame):
+                if aggregation == "equal_cell":
+                    return np.full(len(frame), 1.0 / len(frame))
+                diseases = frame.cohort.nunique()
+                outcomes = frame.groupby("cohort").outcome.transform("nunique")
+                horizons = frame.groupby(["cohort", "outcome"]).horizon_days.transform("nunique")
+                return (1.0 / (diseases * outcomes * horizons)).to_numpy(float)
+            weights = weights_for(samples)
+            sampled = weights @ arrays
             sampled[~np.isfinite(arrays).all(axis=0)] = np.nan
             if len(samples) != len(group):
                 raise ValueError(
@@ -1040,13 +1050,16 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                     **({} if by_horizon else {"horizon_days": ALL_HORIZONS}),
                     "stratum": stratum or "all_cells",
                     "stratum_value": str(identity[-1]) if stratum else "all",
-                    "gain": group.gain.mean(),
+                    "gain": float(weights_for(group) @ group.gain.to_numpy(float)),
+                    "n_diseases": group.cohort.nunique(),
                     "n_cells": len(group),
                     "n_cells_unstable": unstable,
                     "bootstrap_cell_policy": "stable_cells_only" if stable_cells_only else "strict_fixed_roster",
                     "n_bootstrap_replicates": arrays.shape[1],
                     "minimum_finite_cells_per_draw": int(np.isfinite(arrays).sum(axis=0).min()),
-                    "aggregation": "equal_cell_not_population_or_endpoint_group_macro",
+                    "aggregation": ("equal_cell_not_population_or_endpoint_group_macro"
+                                    if aggregation == "equal_cell" else
+                                    "equal_disease_then_outcome_then_horizon"),
                     "p_value": bootstrap_p_value(sampled),
                     **_interval(sampled),
                 }
@@ -1180,6 +1193,14 @@ def subgroup_labels(gains, metadata, specifications):
                 bins=specification["bins"],
                 include_lowest=True,
             )
+        elif column == "index_year" or specification.get("kind") == "calendar_year":
+            # Calendar years are discrete strata, even across a long registry.
+            # Retain the cardinality safeguard for other numeric covariates.
+            year = pd.to_numeric(value, errors="raise")
+            known = year.dropna()
+            if not (known.between(1800, 2200) & known.eq(np.floor(known))).all():
+                raise ValueError(f"Invalid calendar-year subgroup: {column}")
+            value = year.astype("Int64")
         elif value.nunique() > specification.get("max_categories", 20):
             raise ValueError(
                 f"Continuous/high-cardinality subgroup needs prespecified bins: {column}"

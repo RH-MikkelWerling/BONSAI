@@ -742,6 +742,20 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("strategy_cells.csv", strategy)
     # Printed tables (Table 2 and the supplementary tables).
     table("panel_effects.csv", lambda: panel_effects(summaries(), contrasts(), seed=seed))
+    table("panel_effects_disease_balanced.csv", lambda: panel_effects(
+        _read(analysis / "effect_summaries_disease_balanced.csv", sources),
+        contrasts(), seed=seed))
+    def paired_means():
+        frames = []
+        for filename, weighting in [("effect_summaries.csv", "Equal cell"),
+                                    ("effect_summaries_disease_balanced.csv", "Disease balanced")]:
+            data = _select(_read(analysis / filename, sources), seed=seed)
+            data = data.loc[(data.stratum == "all_cells") & data.metric.isin(["auc", "brier", "ipa"])]
+            frames.append(data.assign(weighting=weighting))
+        combined = pd.concat(frames, ignore_index=True)
+        combined["interval"] = [_interval(low, high) for low, high in zip(combined.lower, combined.upper)]
+        return combined
+    table("paired_mean_comparison.csv", paired_means)
     # Supplement: Table 2 at each horizon.
     table("panel_effects_by_horizon.csv", lambda: pd.concat(
         [panel_effects(summaries(), contrasts(), horizon=h, seed=seed).assign(horizon_days=h)

@@ -52,8 +52,8 @@ CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6",
          "J_vs_best_tuning", "O1", "O2", "O3", "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
          *(f"router_{part}_{design}" for part in ("own", "borrow", "both")
            for design in ("O", "AB")))
-# Table 2, grouped by question; (None, title) starts a group. The T contrasts
-# are computed for the configuration selected as OPERA.
+# Table 2, grouped by question; fixed T contrasts retain joint identities.
+# O1 is the explicitly selected OPERA-versus-XGBoost comparison.
 TABLE_ROWS = (
     (None, "Learning across diseases and outcomes (against the specialist)"),
     ("P1", "Other diseases (disease-pooled)"), ("P2", "Other outcomes (outcome-pooled)"),
@@ -63,8 +63,9 @@ TABLE_ROWS = (
     ("E1", "National vs cohort encoder"), ("E3", "Adapted national vs cohort encoder"),
     (None, "Sequence models against tabular models"),
     ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
-    ("T2", "OPERA vs per-task XGBoost"), ("T6", "OPERA vs pooled XGBoost"),
-    ("T9", "OPERA vs XGBoost with registry variables"),
+    ("O1", "OPERA vs per-task XGBoost"),
+    ("T2", "Joint vs per-task XGBoost"), ("T6", "Joint vs pooled XGBoost"),
+    ("T9", "Joint vs XGBoost with registry variables"),
 )
 
 
@@ -178,7 +179,7 @@ def decision_numbers(points):
         return numbers
     part = points.loc[(points.horizon_days == HORIZON) & (points.status == "estimated")
                       & (points.rule == "tuning_specificity:0.90")]
-    for model, name in (("J_L", "joint"), ("X", "xgb")):
+    for model, name in (("OPERA", "opera"), ("J_L", "joint"), ("X", "xgb")):
         rows = part.loc[part.model == model]
         if len(rows):
             numbers[f"dp90_sens_{name}"] = fmt(rows.sensitivity.median(), 2)
@@ -251,7 +252,8 @@ RESTRICTION_KEYS = {"Only the timing of care": "restrict_timeline",
                     "Without medication": "restrict_no_medication",
                     "Without diagnoses": "restrict_no_diagnoses",
                     "Without region and specialty": "restrict_no_region",
-                    "Only the last year": "restrict_last_year"}
+                    "Only the last year": "restrict_last_year",
+                    **{f"Last {d} days hidden": f"restrict_gap_{d}d" for d in (7, 14, 21, 28)}}
 
 
 def restriction_numbers(path, sources):
@@ -327,6 +329,10 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     # horizon); the one-year values shown in the main figures carry ``_1y``.
     numbers.update(contrast_numbers(effects, contrasts, pooled_cells=pooled_cells))
     numbers.update(contrast_numbers(effects, contrasts, horizon=HORIZON, suffix="_1y"))
+    balanced = _read(analysis / "effect_summaries_disease_balanced.csv", sources)
+    numbers.update(contrast_numbers(balanced, None, suffix="_disease_balanced"))
+    numbers.update(contrast_numbers(balanced, None, horizon=HORIZON,
+                                    suffix="_1y_disease_balanced"))
     numbers.update(coverage_numbers(_read(analysis / "estimates.csv", sources),
                                     _read(cell_metadata, sources) if cell_metadata else None))
     numbers.update(decision_numbers(_read(analysis / "operating_points.csv", sources)))
@@ -336,7 +342,7 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     numbers.update(restriction_numbers(
         analysis_root / "input_restrictions" / "input_restriction_summary.csv", sources))
     numbers.update(attribution_numbers(
-        analysis_root / "attributions" / "summary" / "attribution_numbers.json", sources))
+        analysis_root / "attributions" / "summary_365d" / "attribution_numbers.json", sources))
     numbers = {key: value for key, value in numbers.items() if value}
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

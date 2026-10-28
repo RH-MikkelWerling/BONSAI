@@ -15,15 +15,15 @@ records before treatment and predicted 69 outcomes over 30 days to two years.
 Viewing the tasks as a grid of diseases by outcomes, we compared otherwise
 identical models that learned from a single cell, from one outcome across all
 diseases, from all outcomes of one disease, or from the whole grid; a router
-that learns, for each patient and outcome, how much to draw on each disease; and
+that weights disease- and outcome-specific corrections for each prediction; and
 encoders pretrained on the records of the entire Danish population.
 More than \result{n_neural_fits}{1,750} sequence and
 \result{n_tabular_fits}{20,000} tabular models were evaluated on patients
 treated from 2023, against gradient-boosted trees trained and tuned for every
 task and against the prognostic indices in clinical use. \opera{},
-\placeholder{the configuration: scope, routing and encoder}, differed from the
-tuned trees by \result{T2_auc}{X} in AUC over all cells and horizons
-\placeholder{(claim label)} and had the higher AUC in \result{T2_better}{X of Y}
+the cohort-pretrained joint-scope model with the selected two-bank router, differed from the
+tuned trees by \result{O1_auc}{X} in AUC over all cells and horizons
+\placeholder{(claim label)} and had the higher AUC in \result{O1_better}{X of Y}
 disease--outcome cells, in place of \result{narrow_fits}{N} separately trained
 models. Learning from other diseases changed AUC by \result{P1_auc}{X}, from
 other outcomes by \result{P2_auc}{Y}, learning what to borrow by
@@ -48,8 +48,8 @@ route to every specialty that shares the national registers.}
 \small\textbf{Key findings} \placeholder{(confirm each against the locked test-set analysis)}
 \begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=3pt]
   \item One model predicted 69 outcomes in 24 lymphoid cancers, differed from
-  per-task XGBoost by \result{T2_auc}{X} in AUC \placeholder{(claim label)} and
-  had the higher AUC in \result{T2_better}{X of Y} disease--outcome cells,
+  per-task XGBoost by \result{O1_auc}{X} in AUC \placeholder{(claim label)} and
+  had the higher AUC in \result{O1_better}{X of Y} disease--outcome cells,
   covering the tasks of \result{narrow_fits}{N} separately trained models.
   \item \placeholder{What learning across diseases, learning across outcomes and
   learning what to borrow each added, with their claim labels, and where the
@@ -200,22 +200,32 @@ question, because a general encoder may not fit a specialised population. The
 established remedy is domain adaptation, continued pretraining on the target
 population \citep{gururangan2020dont,guo2024multicenter,lemmon2023pediatric}.
 
-We therefore asked how much each of these sources of signal is worth for the
-questions a haematologist faces at the start of treatment: other diseases, other
-outcomes, learning how much to draw on each, and the whole population; and
-whether, together, they improve on the tools haematology uses today. In 37,531
-patients with 24 lymphoid cancers, we predicted 69 outcomes at six horizons from
-the start of first-line treatment. We compared the approaches in
-\cref{fig:paradigms}: the prognostic indices used in the clinic, gradient-boosted
-trees tuned for every prediction, as the established improvement from machine
-learning, and sequence models pretrained across the cohort, the current
-instantiation of learning across diseases and outcomes. To isolate what the
-additional information adds, we compared specialist models, each trained on one
-disease and one outcome, with models trained across diseases, across outcomes or
-both, with a router that learns how much to draw on each disease, and with
-encoders pretrained on the whole Danish population. Finally, we asked whether
-what the model learns to borrow follows clinical knowledge, against pairs of
-diseases expected to share signal and negative controls fixed before testing.
+For a clinician and patient choosing how to approach first-line treatment,
+a useful prediction system would describe several risks together: disease
+control, infection, cytopenia, organ injury and acute admission. Such a profile
+could inform discussions of monitoring and supportive care, and identify
+patients and outcomes for prospective studies. It would also extend prediction
+to questions for which a dedicated model is difficult to develop. Whether
+these possibilities improve care depends first on whether the risks can be
+estimated accurately and reliably.
+
+We studied 69 outcomes at six horizons in 37,531 patients with 24 lymphoid
+cancers, organizing the investigation around three questions. First,
+\emph{can one model provide useful prediction across a clinical specialty?}
+The Results on predictability, reference methods and clinical indices examine
+which risks can be anticipated, how widely predictions can be evaluated, and
+how the shared model compares with task-specific tabular models and recorded
+prognostic indices. Second, \emph{where does its predictive information come
+from?} The pooling, routing and population-pretraining analyses distinguish
+supervision from other diseases, supervision from other outcomes,
+source-specific corrections and transfer from a population encoder
+(\cref{fig:paradigms}). Third, \emph{what does the model rely on, and where does
+it work reliably?} Source-removal and attribution analyses examine dependence
+on learned sources and recorded events, while sensitivity analyses assess
+recent-record gaps and variation over time, across regions and between
+patients. Together, these analyses test the value and limits of shared
+prediction; they do not establish the benefit of changing treatment in
+response to its estimates.
 
 \clearpage
 \begin{figure}[H]
@@ -302,7 +312,7 @@ patient-by-disease-by-outcome term that the router turns up or down for each
 patient. Outcome adapters, which add little to an outcome's own output layer,
 were screened as well.
 
-The router was configured on the tuning set in three steps: which adapters
+The original router screening used the tuning set in three steps: which adapters
 (disease only, outcome only or both), their size (rank 8, 16 or 32), and how the
 router combines patient, disease and outcome (additive, or interacting with a
 width of 128 or 512). Each step took the option with the highest tuning AUC,
@@ -312,8 +322,11 @@ between two fits of the same model counted as tied and went to the simplest;
 that difference was measured as the router trained with every source masked,
 which computes the joint model, against the joint model itself. An option whose
 IPA fell short of the simplest option's by more than the same kind of noise
-floor was not eligible. The screen chose disease adapters only
-\placeholder{rank and interaction}. The sources were screened at the smallest
+floor was not eligible. The source screen compared disease-only, outcome-only and two-bank readouts.
+The audited primary local
+model uses both adapter banks, rank 8 and an interacting query of
+width 512, under the subsequent router amendment described below and in
+Supplementary Methods. The sources were screened at the smallest
 rank, and the choice may differ at another rank or query; the four adapter banks
 (none, disease, outcome, both) are therefore all trained with the locked rank
 and query and compared on the test set as a secondary analysis. Three
@@ -344,18 +357,29 @@ and frozen encoders are references for pretraining and fine-tuning;
 architecture, training and the national data are described in the
 Supplementary Methods.
 
-\opera{} (\modelname) is the configuration of scope, routing and encoder with
-the highest AUC on the tuning set, averaged over diseases, outcomes and all six
-horizons; configurations within the difference between two fits of the same
-model counted as tied, and the simplest was chosen, the joint before the routed
-model and the cohort before the national encoder \placeholder{selected
-configuration}. The routed candidate is the router variant whose routing was
-verified to work as intended, chosen by an amendment fixed before the test set
-was opened (Supplementary Methods, router variants). \opera{} is the model
-compared with tabular models and clinical indices. Because \opera{} was chosen on tuning data, the joint model, fixed before
-any tuning result was seen, is compared with the tabular models as well; both
-comparisons are reported. The contrasts between scopes, routing and encoders use
-their fixed arms.
+\opera{} (\modelname) denotes the primary local model in the analyses reported
+here: the cohort-pretrained encoder, fine-tuned jointly across diseases and
+outcomes with the amended two-bank router R\textsubscript{AB}
+(\cref{tab:model-identity}). Its disease and outcome adapters have rank 8;
+queries interact through a width-512 network. A global adapter acts outside
+the routed mixture, and the router is held fixed for the first two training
+epochs while the adapters learn. The base encoder path remains active
+regardless of the routing weights. In the analysis inventory, \texttt{R\_L}
+and \texttt{R\_AB\_L} identify this same fit, not two independent models.
+The earlier router is retained as \texttt{R\_ORIG\_L}, a sensitivity analysis.
+
+The joint model \texttt{J\_L} is a separate, fixed reference, not another name
+for \opera{}. Supervision-scope comparisons use the fixed S, D, O and J arms;
+routing is the amended router against J. Clinical-index and primary tabular
+comparisons use \opera{} on the same evaluated patients, while joint-versus-tabular
+comparisons are reported separately. Natural patient sampling defines the
+primary fits; importance-weighted event-sampling fits are sensitivities and
+do not replace them. Population-pretrained and cohort-adapted national models
+are separate transfer arms. Their final results and any subsequent change of
+the selected encoder remain pending in this draft; the local model is not
+presented as the winner of an unfinished national comparison.
+
+\input{tables/model_identity}
 
 \operasubsection{Comparators}
 We compared all models with tabular comparators, which remain hard to beat on
@@ -366,12 +390,17 @@ within each disease with the pipeline of our earlier DLBCL study
 \citep{werling2026dlbcl,bernstorff2023tsflattener}. XGBoost pooled across
 diseases, on features built across all patients, tests whether pooling also
 helps tabular prediction, and XGBoost given the quality-registry variables shows
-what curated clinical fields add. Clinical indices were compared with \opera{}
-and the tabular models on the patients with the index recorded, on the endpoint
-each index was developed for: the IPI and NCCN-IPI in DLBCL
-\citep{IPI1993,zhou2014nccnipi} and every other index recorded for at least 50
-patients of a disease. Model risk groups were fixed on tuning data to match the
-index's low-risk observed risk and high-risk specificity.
+what curated clinical fields add. In the current tuning analysis, each recorded clinical index is compared
+with the same primary local \opera{} model on all patients with that index
+available; no additional disease-specific inclusion list is imposed. The
+common benchmark is one-year overall survival. Recorded categories are
+harmonized to low, intermediate and high for the displays; numeric scores
+are retained where available. Comparisons with fewer than 50 evaluated
+patients are reported as insufficient support. Model risk groups are matched
+on tuning data to the index's low-risk observed risk and high-risk specificity;
+these same-data tuning comparisons are exploratory. Native-endpoint
+comparisons and the detailed clinical illustrations described below remain
+separate analyses and must be identified by their own endpoint and horizon.
 
 \operasubsection{Evaluation}
 The primary metric was the time-dependent area under the ROC curve (AUC) at each
@@ -380,7 +409,12 @@ six horizons, each disease--outcome--horizon cell weighing equally, and so do th
 figures: a cell's gain is its mean over the horizons at which it was evaluated,
 with an interval from the same patient resamples. How performance varies with
 the horizon is shown separately (\cref{fig:atlas}, \cref{fig:supp-horizons}), and
-reliability curves, which need a single horizon, are shown at one year. The index of
+reliability curves, which need a single horizon, are shown at one year. Alongside the equal-cell mean, we report a disease-balanced mean paired
+difference, giving each disease equal weight, each outcome equal weight
+within a disease and each horizon equal weight within an outcome, on the
+same supported cells. Both summaries are reported for AUC, IPA and Brier
+differences; medians and interquartile ranges describe the distribution
+of cell effects rather than uncertainty in these means. The index of
 prediction accuracy (IPA), Brier score and calibration measured probability
 accuracy
 \citep{blanche2013competingauc,gerds2006brier,schoop2011competing,kattan2018ipa};
@@ -450,8 +484,8 @@ AUC differences were primary and IPA secondary. The analysis concerns borrowing
 at the readout; sharing through the common encoder is measured by the joint
 against the specialist models.
 
-% Result macros (T2, T9, ipi_*, ig_*) must be computed for the selected OPERA
-% configuration; the scope contrasts (P*, R*, E*) use the fixed arms.
+% O1 reports OPERA versus per-task XGBoost. T2/T6/T9 remain fixed joint-model
+% comparisons; never relabel them as selected-model comparisons.
 \FloatBarrier
 \operasection{Results}
 
@@ -480,23 +514,24 @@ through more unspecified B-cell and splenic marginal-zone lymphoma, and test
 patients were older (median 72 against 69 years). The test set therefore
 measures performance under clear data shift. Of the 24 diseases and 69 outcomes,
 \result{cells_evaluable}{N} cells had enough test events to be evaluated at one year. Event rates ranged from \placeholder{range}, and \result{cells_low_support}{N} cells had fewer than 20 events to train on
-(\cref{fig:supp-coverage,fig:supp-support}). The tuning set selected
-\placeholder{configuration} as \opera{}.
+(\cref{fig:supp-coverage,fig:supp-support}). The primary local model was the cohort-pretrained R\textsubscript{AB} router
+(\cref{tab:model-identity}); the original router and event-sampling variants
+were retained as sensitivities.
 
 \input{tables/table1}
 
 \FloatBarrier
 \operasubsection{Which risks can be anticipated at the start of treatment?}
-\placeholder{At one year, \opera{} discriminated outcomes in the X and Y
+\placeholder{At one year, the fixed joint model discriminated outcomes in the X and Y
 domains well (AUC A--B) and those in Z poorly (AUC C--D)} (\cref{fig:atlas}).
 \placeholder{Change in AUC from 30 days to two years, and variation across
 diseases} (\cref{fig:supp-atlas-matrix}).
 
 \begin{figure}[H]
   \resultfigure{fig_atlas}{Discrimination across outcomes}
-    {Test-period AUC of OPERA for every outcome at six horizons,
+    {AUC of the fixed joint model for every outcome at six horizons,
     with clinical-domain summaries.}
-  \caption{\textbf{Discrimination of \opera{} across outcomes and
+  \caption{\textbf{Discrimination of the joint model across outcomes and
   horizons.} \textbf{A}, Test-period AUC for each of the 69
   outcomes at each horizon (colour), against its training events.
   \textbf{B}, The same results summarised by clinical domain. Outcomes or
@@ -506,7 +541,7 @@ diseases} (\cref{fig:supp-atlas-matrix}).
 
 \FloatBarrier
 \operasubsection{Does one model outperform the methods in use?}
-Pooled over cells and horizons, \opera{} differed from per-task XGBoost by \result{T2_auc}{X} in AUC and \result{T2_ipa}{Y} in IPA \placeholder{(claim labels)}. It had the higher AUC in \result{T2_better}{X of Y} disease--outcome--horizon cells (median difference \result{T2_median}{Z}) and in \result{T9_better}{X of Y} against XGBoost given the quality-registry variables, and the joint model had the higher AUC than the specialist trained on each cell alone in \result{P5_better}{X of Y} (\cref{fig:headline}A--B, \cref{tab:panel-effects}). \placeholder{Its median gain
+Pooled over cells and horizons, \opera{} differed from per-task XGBoost by \result{O1_auc}{X} in AUC and \result{O1_ipa}{Y} in IPA \placeholder{(claim labels)}. It had the higher AUC in \result{O1_better}{X of Y} disease--outcome--horizon cells (median difference \result{O1_median}{Z}) whereas the joint model had the higher AUC in \result{T9_better}{X of Y} cells against XGBoost given the quality-registry variables, and the joint model had the higher AUC than the specialist trained on each cell alone in \result{P5_better}{X of Y} (\cref{fig:headline}A--B, \cref{tab:panel-effects}). \placeholder{Its median gain
 over XGBoost was positive / not at every horizon from 30 days to two years}
 (\cref{fig:headline}D) \placeholder{and its patient-level Brier improvement did
 / did not differ with the number of events recorded before treatment}
@@ -552,8 +587,9 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
 \quad Specialist vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \quad Pooled vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \quad \opera{} vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
-\quad \opera{} vs pooled XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
-\quad \opera{} vs XGBoost with registry variables & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs pooled XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs XGBoost with registry variables & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \bottomrule}
 \end{tabular}}
 \end{table}
@@ -564,7 +600,7 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
     clinical indices, across horizons and by recorded history.}
   \caption{\textbf{Performance of \opera{} relative to reference
   methods.} \textbf{A}, AUC gain over each reference, pooled over the six
-  horizons, one point per disease--outcome cell with enough test events. Diamonds show medians, bars interquartile ranges, and the figures on the right the share of cells in which \opera{} was better. \textbf{B}, AUC of \opera{} (pooled over horizons)
+  horizons, one point per disease--outcome cell with enough test events. Diamonds show medians, bars interquartile ranges, and the figures on the right the share of cells in which \opera{} was better. \textbf{B}, One-year AUC of \opera{}
   against per-task XGBoost in each cell, with point size reflecting training events.
   \textbf{C}, Share of patients with the event placed in the high-risk group by
   each clinical index and by \opera{} at the index's specificity (cutoffs
@@ -575,8 +611,8 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
   \label{fig:headline}
 \end{figure}
 
-Against XGBoost trained and tuned for each disease, outcome and horizon on the same patients, \opera{}'s AUC, averaged over all horizons, differed by \result{T2_auc}{X} and its IPA by \result{T2_ipa}{Y} (\cref{fig:tabular}). Most of this comes in two steps. The change from tabular summaries to the sequence model itself, with no sharing, is the specialist against XGBoost on the same task: \result{T3_auc}{X} in AUC. Sharing is the joint model against the specialist, \result{P5_auc}{Y}; routing and the choice of encoder make up the rest (\cref{tab:panel-effects}). Pooling helped the tabular models less: XGBoost pooled across diseases differed from per-disease XGBoost by \result{T7_auc}{Y}, and \opera{} from pooled XGBoost by \result{T6_auc}{X}. XGBoost differed from logistic regression by \result{T4_auc}{Y}. \placeholder{Clinical domains and diseases in which XGBoost remained better.}
-At a specificity of 90\% fixed on tuning data, \opera{}'s median sensitivity was \result{dp90_sens_joint}{X} against \result{dp90_sens_xgb}{Y} for XGBoost, and its median MCC \result{dp90_mcc_joint}{X} against \result{dp90_mcc_xgb}{Y}. \placeholder{Whether the ordering held at the other decision points.} Adding the quality-registry variables changed XGBoost's AUC by \result{T10_auc}{X}, and \opera{}, without them, differed from this reference by \result{T9_auc}{Y}.
+Against XGBoost trained and tuned for each disease, outcome and horizon on the same patients, \opera{}'s AUC, averaged over all horizons, differed by \result{O1_auc}{X} and its IPA by \result{O1_ipa}{Y} (\cref{fig:tabular}). Most of this comes in two steps. The change from tabular summaries to the sequence model itself, with no sharing, is the specialist against XGBoost on the same task: \result{T3_auc}{X} in AUC. Sharing is the joint model against the specialist, \result{P5_auc}{Y}; routing and the choice of encoder make up the rest (\cref{tab:panel-effects}). Pooling helped the tabular models less: XGBoost pooled across diseases differed from per-disease XGBoost by \result{T7_auc}{Y}, and the joint model from pooled XGBoost by \result{T6_auc}{X}. XGBoost differed from logistic regression by \result{T4_auc}{Y}. \placeholder{Clinical domains and diseases in which XGBoost remained better.}
+At a specificity of 90\% fixed on tuning data, \opera{}'s median sensitivity was \result{dp90_sens_opera}{X} against \result{dp90_sens_xgb}{Y} for XGBoost, and its median MCC \result{dp90_mcc_opera}{X} against \result{dp90_mcc_xgb}{Y}. \placeholder{Whether the ordering held at the other decision points.} Adding the quality-registry variables changed XGBoost's AUC by \result{T10_auc}{X}, and the joint model, without them, differed from this reference by \result{T9_auc}{Y}.
 \placeholder{Calibration slopes and calibration-in-the-large by model and
 clinical domain} (\cref{fig:tabular}B, \cref{fig:calibration}).
 
@@ -692,15 +728,15 @@ model differed from specialists trained on all of them by \result{LS10_auc}{X},
 adapted national encoder by \result{LSE10_auc}{X}, \result{LSE25_auc}{Y} and
 \result{LSE50_auc}{Z}. In the subtypes with fewer than 500 training patients,
 \opera{}'s AUC differed from per-task XGBoost by
-\result{T2_auc_rare}{X} and from pooled XGBoost by \result{T6_auc_rare}{Y}, and
-the joint model's from the specialist by \result{P5_auc_rare}{Z}
+\result{O1_auc_rare}{X}; the joint model differed from pooled XGBoost by
+\result{T6_auc_rare}{Y} and from the specialist by \result{P5_auc_rare}{Z}
 (\cref{tab:panel-effects}). In
 the ten subtypes without a dedicated, externally validated index
 (\cref{tab:index-availability}), which are assessed today with an index borrowed
 from another disease, most often the IPI \citep{IPI1993}, \opera{} differed from
-the two XGBoost models by \result{T2_auc_noindex}{X} and \result{T6_auc_noindex}{Y},
-and the joint model from the specialist by \result{P5_auc_noindex}{Z}, over
-\result{T2_cells_noindex}{N} cells, and the IPI
+per-task XGBoost by \result{O1_auc_noindex}{X}; the joint model differed from
+pooled XGBoost by \result{T6_auc_noindex}{Y} and from the specialist by \result{P5_auc_noindex}{Z}, over
+\result{O1_cells_noindex}{N} cells, and the IPI
 computed from its registry components was compared with \opera{} on the same
 patients \placeholder{result} (\placeholder{Supplementary Table}). \placeholder{Number and
 share of cells in which sharing was worse than the specialist, with examples.}
@@ -738,13 +774,16 @@ no patients in the tuning year and so no model of its own, with \placeholder{abs
 % keeps the gains of sharing and avoids its costs".
 The joint model gives every prediction the same shared signal. The routed model
 learns, for each patient and target, which diseases to draw on
-(\cref{fig:source-router}); on the tuning set, disease adapters were chosen over
-outcome adapters and both. Routing changed AUC by \result{R1_auc}{X} and IPA by
+(\cref{fig:source-router}); the primary local fit uses both disease and outcome adapter banks, a global
+adapter and router warm-up (\cref{tab:model-identity}). The earlier source
+screen and the subsequent amendment are distinguished in Supplementary Methods. Routing changed AUC by \result{R1_auc}{X} and IPA by
 \result{R1_ipa}{Y} relative to the joint model \placeholder{(claim labels)}, and
 had the higher AUC in \result{R1_better}{N of M} cells (\cref{fig:routing}A).
-The joint model and the router trained with every source masked, two fits of
-the same model, differed by \result{R0_auc}{X}, which sets the noise floor for
-these comparisons. \placeholder{The gain was not knowing the diagnosis or the
+The original no-source control and the joint model differed by
+\result{R0_auc}{X}; this is a diagnostic comparison of those fits, not a
+general estimate of training variability. For the amended router, the
+matched global-only and own-only controls are \texttt{N\_A\_L} and
+\texttt{RBH\_AB\_L}, respectively. \placeholder{The gain was not knowing the diagnosis or the
 adapters' added capacity: the joint model told the disease and the own-disease
 router accounted for X and Y of the routing gain, so Z came from borrowing from
 other diseases.} \placeholder{On the test set, at the locked rank and query, disease adapters,
@@ -1035,8 +1074,8 @@ other, repeat the same information or conflict. \placeholder{Which pattern
 occurred here, and how the gain varied with the data a prediction had of its
 own.} The asymmetry between the axes matters for how such models should be
 built: as described in Methods, the joint model gives every outcome parameters
-of its own but no disease any, and disease adapters were chosen on the tuning set
-\placeholder{and added more on the test set}, so the room for improvement
+of its own but no disease any, and the primary local router adds disease and outcome corrections to the
+shared model, with their separate contributions assessed by matched controls, so the room for improvement
 lies in letting each disease adjust a shared representation rather than in
 pooling more outcomes. Sharing
 everything is not guaranteed to help: multi-task studies of health records have

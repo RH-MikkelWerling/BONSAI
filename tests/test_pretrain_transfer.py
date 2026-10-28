@@ -125,3 +125,17 @@ def test_domain_adapted_checkpoint_audits_for_opera(tmp_path):
     assert result["status"] == "opera_strict_load_and_forward_passed"
     with pytest.raises(ValueError, match="vocabulary differs"):
         audit_dapt_to_opera(dapt_checkpoint, source_vocab)
+
+
+def test_original_upstream_fixed_head_count_is_recovered():
+    from bonsai.functional.pretrain_transfer import resolve_source_encoder_config
+    raw = dict(vocab_size=8, max_seqlen=32, hidden_size=256, num_layers=2,
+               bias=False, dropout=0., causal=True, attn_type='sdpa',
+               value_embedding_mode=None)
+    result = resolve_source_encoder_config(raw)
+    assert result['num_attention_heads'] == 4
+    assert result['abspos_encoding'] == 'scaled_time2vec'
+    assert result['value_embedding_mode'] == 'legacy'
+    assert resolve_source_encoder_config({**raw, 'num_attention_heads': 8})['num_attention_heads'] == 8
+    with pytest.raises(ValueError, match='fixed 64-dimensional heads'):
+        resolve_source_encoder_config({**raw, 'hidden_size': 255})

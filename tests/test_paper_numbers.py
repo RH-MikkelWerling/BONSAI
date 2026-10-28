@@ -42,3 +42,29 @@ def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
 def test_percent_ci_is_a_wilson_interval():
     assert percent_ci(20, 100) == "20\\% (95\\% CI 13--29)"
     assert percent_ci(0, 0) is None
+
+
+def test_gap_restriction_numbers_are_available_for_manuscript(tmp_path):
+    from opera.run.build_paper_numbers import restriction_numbers
+    path = tmp_path / 'restrictions.csv'
+    pd.DataFrame([dict(group='All outcomes', restriction='Last 14 days hidden',
+                       mean_delta=-.3, lower=-.5, upper=-.1)]).to_csv(path, index=False)
+    sources = {}
+    result = restriction_numbers(path, sources)
+    assert 'restrict_gap_14d' in result
+
+
+def test_selected_and_joint_comparisons_keep_distinct_labels():
+    from opera.run.build_paper_numbers import table_rows, decision_numbers
+    panel = pd.DataFrame([
+        dict(contrast=code, cells=12, auc_gain=value, auc_interval='interval')
+        for code, value in [('O1', .02), ('T2', -.01)]])
+    rows = table_rows(panel)
+    assert 'OPERA vs per-task XGBoost & 12 & 0.020' in rows
+    assert 'Joint vs per-task XGBoost & 12 & $-$0.010' in rows
+    points = pd.DataFrame([dict(model=model, horizon_days=365, status='estimated',
+        rule='tuning_specificity:0.90', sensitivity=sens, mcc=.2)
+        for model, sens in [('OPERA', .7), ('J_L', .4), ('X', .5)]])
+    result = decision_numbers(points)
+    assert result['dp90_sens_opera'] == '0.70'
+    assert result['dp90_sens_joint'] == '0.40'

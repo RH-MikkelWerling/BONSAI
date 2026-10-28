@@ -91,6 +91,15 @@ def resolve_source_encoder_config(
         if raw.get("value_embedding_mode") is None:
             raw["value_embedding_mode"] = "legacy"
         raw.setdefault("abspos_encoding", "scaled_time2vec")
+        if "num_attention_heads" not in raw:
+            # Original BONSAI MHA used a fixed head_dim=64 and did not save
+            # the derived head count. Do not apply this inference to local
+            # native checkpoints or overwrite an explicitly recorded count.
+            width = int(raw.get("hidden_size", 0))
+            if width <= 0 or width % 64:
+                raise ValueError("Legacy upstream checkpoint lacks num_attention_heads "
+                                 "and hidden_size does not support fixed 64-dimensional heads")
+            raw["num_attention_heads"] = width // 64
     config = require_native_checkpoint_config(raw)
     config["rope_interleaved"] = resolve_source_rope_interleaved(
         hparams, source_rope_layout

@@ -349,22 +349,27 @@ is adjusted for each target outcome $k$ by a weighted combination of small
 residual adapters, one per source $s$:
 \begin{equation}
  \begin{aligned}
- h_{ik}&=h_i+\lambda\sum_s\pi_{iks}\,c_s\,A_s(h_i),\\
+ h_{ik}&=h_i+\lambda\left[G(h_i)+\sum_s\pi_{iks}\,c_s\,A_s(h_i)\right],\\
  A_s(h)&=U_s\,\mathrm{GELU}(V_s h),
  \qquad c_s=\frac{e_s}{e_s+\tau}.
  \end{aligned}
  \label{eq:router}
 \end{equation}
 Here $A_s$ is a low-rank adapter, $\lambda=0.7$ a fixed residual scale and $c_s$ shrinks sources with few training events $e_s$
-($\tau=10$ events). The weights $\pi_{iks}$ come from a softmax over
-the sources and one further slot that applies no adapter (its logit starting at 0), so the router can
-leave the shared representation unchanged; they depend on the patient, the
+($\tau=10$ events). In the primary local model, $G$ is a global adapter
+trained across the panel and applied outside the routed mixture. The weights $\pi_{iks}$ come from a softmax over
+the sources and one further slot that applies no adapter (its logit starting at 0).
+That slot adds no source correction; the base path, global adapter and own-source
+floor remain active. The weights depend on the patient, the
 patient's disease and the target outcome, and the patient's own disease always
 receives at least a floor weight of 0.05. The adapted representation
 enters the same linear head as in the joint model. Each adapter is updated only
 by the supervision of its own source; when another disease borrows it, its
 parameters are used but not updated. The sources can be diseases, outcomes or
-both; the locked routed model uses diseases only. The approach relates to
+both; the primary local model uses both banks. Its adapters have rank 8,
+the query is interacting with width 512, and the router is held fixed for
+the first two epochs. The primary seed is 42. This is R\textsubscript{AB},
+aliased as \texttt{R\_L} in the analysis inventory (\cref{tab:model-identity}). The approach relates to
 mixtures of experts and parameter-efficient adapters
 \citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion,hu2022lora}.
 
@@ -383,11 +388,12 @@ router trained with every source masked, which computes exactly the joint
 model's prediction from a different initialisation, against the joint model
 (\placeholder{about 0.004} tuning AUC); a difference within 0.005 also confirms
 that the routing machinery changes nothing by itself. The 0.01 margin applies
-only to claims on the test set, not to these choices. The source step chose
-disease adapters only; \placeholder{the rank and query steps chose X and Y}.
-\opera{} was then chosen among the scopes, routing and encoders by the same rule,
-with the joint model simpler than the routed one and the cohort encoder simpler
-than the national.
+only to claims on the test set, not to these choices. These screens describe the original selection procedure, not a new choice
+made independently for each figure. The later amendment fixed the current
+primary local model to the two-bank R\textsubscript{AB} configuration above.
+The original router remains a sensitivity fit. Population-pretrained arms
+are reported separately while their matched downstream comparisons remain
+pending; the current local \opera{} identity is not changed by their availability.
 
 Three controls separate borrowing from simpler explanations. The joint model
 told the patient's disease adds a learned, zero-initialised shift per disease to
@@ -460,10 +466,10 @@ R\textsubscript{AB} routes as intended in both seeds; choosing the model with
 the lower tuning score cannot bias the test results upwards; and the cost on
 tuning was small, with an interval including zero. The first router is
 reported throughout as a sensitivity analysis, and the national routed models
-use the same readout as R\textsubscript{AB}. In R\textsubscript{AB},
-\cref{eq:router} gains a global term, $h_{ik}=h_i+\lambda\,[\,G(h_i)+\sum_s
-\pi_{iks}c_sA_s(h_i)\,]$, with $G$ an adapter of the same form trained on every
-prediction, and the router is held fixed for the first two epochs.
+use the same readout as R\textsubscript{AB}. Equation~\ref{eq:router} describes this primary R\textsubscript{AB} fit,
+including its global adapter; the earlier router omitted $G$ and had no
+router warm-up. The fitted encoder and all adapters are matched to each
+variant's own predictions. They are not interchanged at inference.
 
 \operasubsection{Hierarchy for effect heterogeneity}
 Claims rest on the pooled paired-bootstrap differences and their labels

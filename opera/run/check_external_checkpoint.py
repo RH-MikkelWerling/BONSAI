@@ -98,6 +98,9 @@ def check(checkpoint_path, vocabulary_path, data_config, *, width=256, rope_layo
     elif mode != "joined_binning" and not bins:
         problems.append(f"data config {data_config!r} uses {mode!r}, but the encoder has no "
                         "value-bin input: values would be dropped")
+    if "num_attention_heads" not in raw:
+        notes.append(f"attention head count not recorded; inferred {config['num_attention_heads']} "
+                     "from original BONSAI's fixed head_dim=64; confirm the training implementation")
     if "abspos_encoding" not in raw:
         notes.append(f"time encoding not recorded; assumed {config['abspos_encoding']!r} "
                      "(confirm with the national run)")

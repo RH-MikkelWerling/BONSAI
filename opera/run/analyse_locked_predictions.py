@@ -377,6 +377,16 @@ def run(config, output_dir):
         inputs.append(data)
         audit.append({"path": specification["path"], **summary})
         hashes[specification["path"]] = digest
+    # Validate configured strata before any expensive bootstrap work. Only the
+    # evaluated patients determine category counts, never unrelated registry rows.
+    if metadata is not None:
+        evaluated_ids = pd.concat(inputs, ignore_index=True)[["subject_id"]].drop_duplicates()
+        specifications = dict(config.get("patient_groups") or {})
+        for column in config.get("stratified_reanalysis") or {}:
+            specifications.setdefault(column, {"provenance": "pre_index"})
+        available = {k: v for k, v in specifications.items() if k in metadata}
+        for _ in subgroup_labels(evaluated_ids, metadata, available):
+            pass
     stage("censoring weights")
     predictions, combined_audit = normalize_predictions(
         pd.concat(inputs, ignore_index=True), estimand
@@ -470,6 +480,12 @@ def run(config, output_dir):
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])),
     )
+    stage("disease-balanced effect summaries")
+    _, tables["effect_summaries_disease_balanced"] = effect_summaries(
+        tables["contrasts"], tables["bootstrap_draws"], cell_metadata,
+        strata=config.get("cell_summary_strata") or list(dict.fromkeys(
+            ["support_bin", "outcome_family", "endpoint_group", "cohort",
+             *config.get("cell_groups", {})])), aggregation="disease_balanced")
     stage("calibration, strategies, negative transfer")
     tables.update(
         contrasts=annotated,
@@ -653,7 +669,7 @@ def run(config, output_dir):
         group_spec = (config.get("patient_groups") or {}).get(
             column, {"provenance": "pre_index"})
         _, labelled = next(subgroup_labels(
-            metadata[["subject_id"]], metadata, {column: group_spec}))
+            relevant[["subject_id"]].drop_duplicates(), metadata, {column: group_spec}))
         for value, ids in labelled.groupby("subgroup").subject_id:
             subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:

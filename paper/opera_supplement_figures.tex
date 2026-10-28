@@ -81,10 +81,10 @@ the probability of every outcome by each of six horizons.}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_atlas_matrix}{Every outcome in every disease}
-    {Test-period AUC of OPERA for each outcome in each disease.}
-  \caption{\textbf{Discrimination of \opera{} for each outcome in each
+    {AUC of the fixed joint model for each outcome in each disease.}
+  \caption{\textbf{Discrimination of the joint model for each outcome in each
   disease.} \textbf{A}, Test-period
-  one-year AUC of \opera{} for each outcome (rows, by clinical domain)
+  one-year AUC of the joint model for each outcome (rows, by clinical domain)
   in each disease (columns, by disease group). Grey cells had too few events to estimate. \textbf{B}, The same outcomes over all diseases at each horizon.}
   \label{fig:supp-atlas-matrix}
 \end{figure}
@@ -277,7 +277,7 @@ the probability of every outcome by each of six horizons.}
   exceed the trained gain because the encoder was trained alongside the
   borrowed corrections. \textbf{B}, Cross-disease dependence and the gain over the own-source control against
   the number of patients with the disease. \textbf{C}, The pairs of
-  the prespecified plan with the source alone (filled) and the loss when only
+  the draft candidate-pair plan, shown descriptively, with the source alone (filled) and the loss when only
   that source is left out of the full model (open).
   \textbf{D}, Mean partially pooled gain from a source disease alone between
   disease groups (rows: target, columns: source) in each of the 12 clinical

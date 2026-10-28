@@ -8,6 +8,12 @@ tables:
     caption: Panel-level comparisons at one year (Table 2), pooled paired differences with 95% intervals.
     columns: [comparison, cells, auc_gain, auc_interval, ipa_gain, cells_better]
     labels: {comparison: Comparison, cells: Cells, auc_gain: AUC difference, auc_interval: 95% interval, ipa_gain: IPA difference, cells_better: Cells better}
+  - id: paired_mean_comparison
+    source: plot_tables/paired_mean_comparison.csv
+    optional: true
+    caption: Mean paired AUC, Brier and IPA gains with equal-cell and disease-balanced weights, on the same supported cells and patient draws. Positive values favour the first model; Brier gain is reference minus candidate. Horizon zero denotes pooling across specified horizons.
+    columns: [contrast, metric, horizon_days, weighting, gain, interval]
+    labels: {contrast: Comparison, metric: Metric, horizon_days: Horizon, weighting: Weighting, gain: Mean gain, interval: 95% interval}
   - id: paired_effects
     source: plot_tables/paired_domain_summary.csv
     caption: Paired differences by comparison and clinical domain at one year, median and interquartile range across cells.

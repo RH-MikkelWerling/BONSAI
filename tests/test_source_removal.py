@@ -300,3 +300,17 @@ def test_lineage_summary_keeps_the_pairing_of_the_bootstrap():
     difference = table.loc["within - across"]
     assert difference.lower > 0.4 and difference.upper < 0.6
     assert table.loc["within", "upper"] - table.loc["within", "lower"] > 1.0
+
+
+def test_source_cache_requires_matching_provenance(tmp_path):
+    import pytest
+    from opera.run.source_removal import validate_cache_provenance
+    (tmp_path / 'per_source').mkdir()
+    validate_cache_provenance(tmp_path, {'ablation': 'mean'})
+    validate_cache_provenance(tmp_path, {'ablation': 'mean'})
+    with pytest.raises(ValueError, match='provenance changed'):
+        validate_cache_provenance(tmp_path, {'ablation': 'zero'})
+    (tmp_path / 'analysis_provenance.json').unlink()
+    (tmp_path / 'per_source/CLL.csv').write_text('cached')
+    with pytest.raises(ValueError, match='Legacy borrowing cache'):
+        validate_cache_provenance(tmp_path, {'ablation': 'mean'})

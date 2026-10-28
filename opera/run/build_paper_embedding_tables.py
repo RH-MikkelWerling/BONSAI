@@ -230,6 +230,9 @@ def main():
     gallery_coords, gallery_outcomes = embedding_gallery_inputs(
         coordinates[gallery["stage"]], read_table(gallery["predictions"]), metadata,
         horizon=gallery.get("horizon_days", 365))
+    selected = [outcome_display_name(name) for name in maps["outcomes"]]
+    gallery_outcomes["highlight_order"] = gallery_outcomes.outcome.map(
+        {name: i for i, name in enumerate(selected)})
     # Finish validation before replacing any existing derived tables.
     comparison.to_csv(args.output_dir / "matched_patient_embeddings.csv", index=False)
     coords.to_csv(args.output_dir / "patient_coordinates.csv", index=False)

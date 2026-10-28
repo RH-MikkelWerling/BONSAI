@@ -1,0 +1,14 @@
+% Editorial reading copy: same source, main text and references only.
+\newcommand{\resultfiguredir}{figures/tuning_preview/}
+\newcommand{\resultnumbersdir}{tables/tuning_preview/}
+\newcommand{\resultstyle}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewonly}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewnotice}{\par\textbf{\textcolor{teal}{EDITORIAL READING COPY:
+  tuning analyses remain under verification; placeholders are not findings.}}}
+\newcommand{\previewsetup}{%
+  \usepackage{lineno}
+  \AtBeginDocument{\linenumbers}
+  \AddToHook{shipout/background}{%
+    \put(0.5\paperwidth,-0.9cm){\makebox[0pt]{\sffamily\scriptsize\bfseries\color{teal}%
+      EDITORIAL DRAFT --- tuning results under verification}}}}
+\input{opera_manuscript}

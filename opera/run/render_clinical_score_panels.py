@@ -329,7 +329,8 @@ def expand_index_scores(config, metadata):
     counts = recorded.groupby([index_column, cohort_column]).size()
     manuscript = block.get("manuscript") or {}
     generated = []
-    for (value, cohort), n in counts.items():
+    per_cohort = block.get("per_cohort", True)
+    for (value, cohort), n in (counts.items() if per_cohort else []):
         if n < block.get("minimum_patients", 50) or (str(value), cohort) in covered:
             continue
         slug = re.sub(r"[^a-z0-9]+", "_", f"{value}_{cohort}".lower()).strip("_")
@@ -347,14 +348,15 @@ def expand_index_scores(config, metadata):
         totals = counts.groupby(level=0).sum()
         for value, cohorts in counts.groupby(level=0):
             names = sorted(cohorts.index.get_level_values(1))
-            if len(names) < 2 or totals[value] < block.get("minimum_patients", 50):
+            if (per_cohort and len(names) < 2) or totals[value] < block.get("minimum_patients", 50):
                 continue
             slug = re.sub(r"[^a-z0-9]+", "_", f"{value}_all_subtypes".lower()).strip("_")
             spec = {**block["template"], **(block.get("overrides", {}).get(str(value), {}))}
             spec.update(id=slug, score_label=str(value), cohorts=names,
                         population_label="all subtypes", index_column=index_column,
                         index_values=[value], group_column=group_column,
-                        manuscript_figures=False)
+                        manuscript_figures=(not per_cohort and
+                                            str(value) == str(manuscript.get("index"))))
             generated.append(spec)
     specs = explicit + generated
     native = native_entries(specs, config.get("native_endpoints") or {})

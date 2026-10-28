@@ -60,3 +60,15 @@ def test_requested_map_set_and_legacy_infection_name(tmp_path):
     assert embedding['calibration_maps']['outcomes'] == [
         'infections_all_definitions', 'overall_survival', 'anemia_g2plus',
         'hospitalisation', 'creatinine_increased_g2plus']
+
+
+def test_recorded_index_compares_all_scored_patients_once(tmp_path):
+    analysis, metadata = fixture(tmp_path)
+    metadata.loc[30:, 'cohort_fine'] = 'FL'
+    metadata.to_parquet(analysis['patient_metadata'])
+    _, clinical = build(analysis, tmp_path / 'recipes')
+    specs = expand_index_scores(clinical, metadata)
+    assert len(specs) == 1
+    assert set(specs[0]['cohorts']) == {'DLBCL', 'FL'}
+    assert specs[0]['index_values'] == ['IPI']
+    assert specs[0]['manuscript_figures']

@@ -1592,7 +1592,7 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
         models = atlas.rename(columns={"cif_auc": "J"}).assign(
             cohort="All diseases", cohort_group="All")
     year = models.loc[models.horizon_days == horizon]
-    lead = "OPERA" if "OPERA" in year and year.OPERA.notna().any() else "J"
+    lead = "J"  # Both the cell matrix and native pooled strip describe the joint fit.
     matrix = year.pivot_table(index="outcome", columns="cohort", values=lead)
     domains = (year.drop_duplicates("outcome").set_index("outcome").endpoint_group
                .reindex(matrix.index))
@@ -1821,15 +1821,23 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
     return fig
 
 
+def _embedding_title(name, width=19):
+    """Compact, wrapped map labels; endpoint definitions stay unchanged."""
+    compact = {"Infection diagnosis or antimicrobial use": "Infection diagnosis / antimicrobial use",
+               "Creatinine increased (G2+)": "Creatinine increase (G2+)"}
+    return textwrap.fill(compact.get(str(name), str(name)), width=width,
+                         break_long_words=False, break_on_hyphens=False)
+
+
 def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_size=110,
-                       min_effective_support=25.0, mark=None):
-    """Where risk lies in the joint model's shared patient representation.
+                       min_effective_support=25.0, disease_contours=False, mark=None):
+    """Where risk lies in the selected model's shared patient representation.
 
     ``coords``: ``subject_id``, ``x``, ``y`` and ``disease``; ``outcomes`` as for
     :func:`figure_embedding_gallery`, with predicted ``risk`` for the residual
     panel. A: disease groups on the map. B-F: five outcomes from different
     clinical domains, observed risk relative to each outcome's average
-    (IPCW kernel). G: observed minus predicted risk of the joint model for the
+    (IPCW kernel). G: observed minus predicted risk of the selected model for the
     first of them (local calibration).
     """
     from matplotlib.colors import LogNorm
@@ -1846,9 +1854,20 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
     xx, yy, _ = _display_grid(points, grid_size, min_padding=0.8)
     extent = (xx.min(), xx.max(), yy.min(), yy.max())
     if highlights is None:
-        order = (outcomes[["outcome", "domain", "domain_order"]].drop_duplicates()
-                 .sort_values(["domain_order", "outcome"]))
-        highlights = order.groupby("domain_order").outcome.first().tolist()[::2][:5]
+        if "highlight_order" in outcomes and outcomes.highlight_order.notna().any():
+            highlights = (outcomes.loc[outcomes.highlight_order.notna(),
+                                      ["outcome", "highlight_order"]].drop_duplicates()
+                          .sort_values("highlight_order").outcome.tolist())
+        else:
+            # Compatibility with earlier exports lacking explicit selection.
+            from opera.visualization.outcome_names import outcome_display_name
+            preferred = [outcome_display_name(name) for name in (
+                "infection_diagnosis_or_antimicrobial_use_composite", "overall_survival",
+                "anemia_g2plus", "hospitalisation", "creatinine_increased_g2plus")]
+            present = set(outcomes.outcome)
+            highlights = [name for name in preferred if name in present]
+            if not highlights:
+                highlights = outcomes.outcome.drop_duplicates().tolist()[:5]
     highlights = list(highlights)[:5]
     position = dict(zip(coords.subject_id, range(len(coords))))
     fig = plt.figure(figsize=(7.2, 5.0))
@@ -1868,7 +1887,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
     colors = {name: palette[i % len(palette)] for i, name in enumerate(names)}
     if names:
         _category_regions(ax, coords.rename(columns={"disease": "group"}), "group", colors,
-                          extent)
+                          extent, contours=disease_contours)
         ax.legend(handles=[Line2D([], [], marker="o", ls="", color=colors[n], label=n,
                                   markersize=4) for n in names],
                   loc="upper left", bbox_to_anchor=(0.0, -0.01), ncol=3, frameon=False,
@@ -1911,7 +1930,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
                     else "No events at horizon", transform=ax.transAxes,
                     ha="center", va="center", fontsize=6)
         domain = part.domain.iloc[0] if len(part) else ""
-        ax.set_title(f"{'BCDEF'[index]}  {textwrap.shorten(outcome, 19, placeholder='…')}",
+        ax.set_title(f"{'BCDEF'[index]}  {_embedding_title(outcome, width=17)}",
                      loc="left", fontsize=7.6, color=PALETTE["ink"], pad=3)
         ax.text(0.5, -0.04, SHORT_GROUP.get(domain, domain), transform=ax.transAxes,
                 ha="center", va="top", fontsize=6, color=PALETTE["ink_secondary"])
@@ -1997,7 +2016,7 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
     grid = fig.add_gridspec(len(rows), len(names) + 1,
                             width_ratios=[1] * len(names) + [0.06],
                             wspace=0.04, hspace=0.08, left=0.09, right=0.91,
-                            top=0.93, bottom=0.03)
+                            top=0.85, bottom=0.045)
     risk_cmap = plt.get_cmap("plasma").copy()
     risk_cmap.set_bad((1, 1, 1, 0))
     residual_cmap = plt.get_cmap("RdBu_r").copy()
@@ -2048,7 +2067,7 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                                   color=MODEL_STYLE["R"][0], angles="xy", scale_units="xy",
                                   scale=1, width=0.007, headwidth=4.0, zorder=3)
                 else:
-                    ax.text(0.5, 0.5, "shared readout", transform=ax.transAxes,
+                    ax.text(0.5, 0.5, "Router vectors\nnot exported", transform=ax.transAxes,
                             ha="center", va="center", fontsize=6.5,
                             color=PALETTE["ink_muted"])
             elif kind == "risk":
@@ -2064,10 +2083,10 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                     norm=TwoSlopeNorm(0, -residual_limit, residual_limit),
                     interpolation="bilinear", zorder=2)
             if row == 0:
-                ax.set_title(name, fontsize=8.2, loc="center", pad=4)
+                ax.set_title(_embedding_title(name), fontsize=7.2, loc="center", pad=7)
             if column == 0:
                 ax.set_ylabel(titles[kind], fontsize=7.6)
-                ax.text(-0.14, 1.0, "ABCD"[row], transform=ax.transAxes, fontsize=10.5,
+                ax.text(-0.30, 1.0, "ABCD"[row], transform=ax.transAxes, fontsize=10.5,
                         va="bottom", color=PALETTE["ink"])
     for row, kind in enumerate(rows):
         cax = fig.add_subplot(grid[row, -1])

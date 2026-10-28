@@ -81,6 +81,7 @@ patient_groups:
     bins: [-1, 99, 999, 9999, .inf]
   index_year:
     provenance: pre_index
+    kind: calendar_year
   predominant_region:  # region of most pre-index contacts; the model is trained nationwide
     provenance: pre_index
   IPI:  # recorded prognostic-index category (low/medium/high); missing = not recorded

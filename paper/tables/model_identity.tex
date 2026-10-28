@@ -1,0 +1,31 @@
+\begin{table}[htbp]
+\centering\small
+\caption{\textbf{Models and contrasts in the local analysis.}
+All local sequence models use the cohort-pretrained encoder. The primary
+local model is \opera{}; fixed-arm scientific comparisons retain their own
+model identities. Population-pretrained arms are separate comparisons and do
+not change the meaning of the local results.}
+\label{tab:model-identity}
+\begin{tabularx}{\textwidth}{@{}p{0.19\textwidth}p{0.17\textwidth}X@{}}
+\toprule
+Model & Analysis identifier & Role \\
+\midrule
+Specialist & \texttt{S\_L} & One disease and one outcome; reference for supervised pooling. \\
+Disease-pooled & \texttt{D\_L} & One outcome across diseases. \\
+Outcome-pooled & \texttt{O\_L} & All outcomes within one disease. \\
+Joint & \texttt{J\_L} & All diseases and outcomes, shared readout; the fixed pooling and routing reference. \\
+\opera{}, primary local router & \texttt{R\_L} = \texttt{R\_AB\_L} & Both disease and outcome adapter banks, global adapter outside the routed mixture, and two epochs of router warm-up. \\
+Global-only control & \texttt{N\_A\_L} & Global adapter with no source adapters; reference for own and borrowed corrections. \\
+Own-only control & \texttt{RBH\_AB\_L} & Matched routed architecture restricted to the patient's own disease and target outcome sources. \\
+Original router & \texttt{R\_ORIG\_L} & Earlier router; sensitivity analysis, not the primary model. \\
+Sampling sensitivities & \texttt{J\_IPW\_L}, \texttt{R\_AB\_IPW\_L} & Importance-weighted event sampling, compared with the corresponding naturally sampled fit. \\
+\bottomrule
+\end{tabularx}
+\par\smallskip\footnotesize
+The local routed fit uses rank-8 adapters, an interacting query of width 512,
+a residual scale of 0.7, source-support shrinkage with $\tau=10$, and an
+own-source floor of 0.05. Seed 42 is the primary local analysis; repeat seeds
+are diagnostics or sensitivities. The cohort encoder has hidden size 256.
+The primary run is \texttt{seed42/L/fix\_R\_AB}; the joint reference is
+\texttt{seed42/L/J\_all\_diseases\_all\_outcomes}.
+\end{table}

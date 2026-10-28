@@ -634,3 +634,21 @@ def test_ipa_is_brier_relative_to_the_event_rate_and_matches_bootstrap():
         assert np.allclose(draws["ipa"], point["ipa"])
     # The event rate itself scores IPA 0.
     assert np.isclose(metric_values(y, np.full(400, y.mean()))["ipa"], 0)
+
+
+def test_calendar_year_strata_accept_long_registry_but_reject_continuous_values():
+    from opera.evaluation.secondary_analysis import subgroup_labels
+    import pytest
+    metadata = pd.DataFrame({'subject_id': [str(i) for i in range(40)],
+                             'index_year': np.arange(1980, 2020)})
+    specification = {'index_year': {'provenance': 'pre_index'}}
+    _, labelled = next(subgroup_labels(metadata[['subject_id']], metadata, specification))
+    assert labelled.subgroup.tolist() == [str(i) for i in range(1980, 2020)]
+    metadata['index_year'] = metadata.index_year.astype(float)
+    metadata.loc[0, 'index_year'] = 1980.5
+    with pytest.raises(ValueError, match='Invalid calendar-year'):
+        next(subgroup_labels(metadata[['subject_id']], metadata, specification))
+    metadata = metadata.rename(columns={'index_year': 'continuous_measure'})
+    with pytest.raises(ValueError, match='prespecified bins'):
+        next(subgroup_labels(metadata[['subject_id']], metadata,
+                             {'continuous_measure': {'provenance': 'pre_index'}}))
