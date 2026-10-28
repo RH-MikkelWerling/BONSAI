@@ -617,6 +617,8 @@ def main():
                         help="Bundles holding the locked router and its references "
                              "(J_L, RDH_L); repeatable")
     parser.add_argument("--prediction-dir", type=Path, required=True)
+    parser.add_argument("--removal-dir", type=Path,
+                        help="Fresh borrowing-design export; reference predictions remain in --prediction-dir")
     parser.add_argument("--membership", type=Path, required=True,
                         help="Population file with subject_id and cohort_fine")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -661,7 +663,7 @@ def main():
             references[name] = (args.prediction_dir / reference["run_directory"]
                                 / args.split / "direct_cr_predictions.parquet")
     sources = list(config["competing_risk"].get("fine_names") or [])
-    directory = removal_directory(args.prediction_dir, row["run_directory"], args.split)
+    directory = args.removal_dir or removal_directory(args.prediction_dir, row["run_directory"], args.split)
     output = args.output_dir / args.split
     if args.ablation != "mean":
         output = output / f"{args.ablation}_ablation"

@@ -101,11 +101,35 @@ def build(analysis, output):
     specs = expand_index_scores(clinical, metadata)
     if not specs:
         raise ValueError('No recorded clinical scores available')
+    # Root clinical plates need one explicitly selected illustration. The old
+    # hardcoded recorded index 'IPI' produced none when only R-IPI was recorded.
+    evaluated = metadata.copy()
+    if 'subject_id' in data:
+        ids = set(data.loc[data.outcome == 'overall_survival', 'subject_id'].astype(str))
+        evaluated = evaluated.loc[evaluated.subject_id.astype(str).isin(ids)]
+    eligible_specs = []
+    for spec in specs:
+        patients = evaluated.loc[evaluated.cohort_fine.isin(spec['cohorts'])]
+        if spec.get('index_values'):
+            patients = patients.loc[patients[spec.get('index_column', 'index')].isin(spec['index_values'])]
+        required = [spec['group_column']] + ([spec['score_column']] if spec.get('score_column') else [])
+        n = int(patients[required].notna().all(axis=1).sum())
+        if n >= spec.get('minimum_patients', 50):
+            priority = {'ipi_computed': 0, 'nccn_ipi': 1}.get(spec['id'],
+                2 if spec['score_label'] == 'IPI' else 3 if spec['score_label'] == 'R-IPI' else 4)
+            eligible_specs.append((priority, -n, spec['id'], spec))
+    primary = min(eligible_specs, key=lambda row: row[:3])[3] if eligible_specs else None
+    clinical['all_indices']['manuscript'] = {}
+    for spec in clinical['scores']:
+        spec['manuscript_figures'] = bool(primary and spec['id'] == primary['id'])
+    if primary and primary.get('index_values'):
+        clinical['all_indices']['manuscript'] = {'index': primary['score_label']}
     for name, recipe in [('embedding_tables.tuning.yaml', embedding), ('clinical_score_panels.tuning.yaml', clinical)]:
         (output / name).write_text(yaml.safe_dump(recipe, sort_keys=False))
     (output / 'config_audit.json').write_text(json.dumps(dict(model=model, categories=raw,
         selected_map_outcomes=outcomes, unavailable_map_outcomes=[o for o in OUTCOMES if o not in available and OUTCOME_ALIASES.get(o) not in available],
         computed_score_availability=score_availability,
+        clinical_primary=primary['id'] if primary else None,
         clinical_populations=[s['id'] for s in specs],
         note='Shared one-year overall-survival comparison; harmonized categories are a coarsened score. Tuning figures are exploratory.'), indent=2))
     return embedding, clinical

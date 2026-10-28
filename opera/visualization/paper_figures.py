@@ -2131,6 +2131,9 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                                   vectors[:, 0] * router_arrow_scale, vectors[:, 1] * router_arrow_scale,
                                   color=MODEL_STYLE["R"][0], angles="xy", scale_units="xy",
                                   scale=1, width=0.007, headwidth=4.0, zorder=3)
+                    else:
+                        ax.text(.5, .5, "No coherent local shift\nat this resolution",
+                                transform=ax.transAxes, ha="center", va="center", fontsize=6)
                 else:
                     ax.text(0.5, 0.5, "Router vectors\nnot exported", transform=ax.transAxes,
                             ha="center", va="center", fontsize=6.5,

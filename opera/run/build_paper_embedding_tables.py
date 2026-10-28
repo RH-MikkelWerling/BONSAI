@@ -49,7 +49,7 @@ def load_stage(paths) -> pd.DataFrame:
     return frame
 
 
-def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None) -> pd.DataFrame:
+def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None, allow_partial_routed=False) -> pd.DataFrame:
     """2-D coordinates fitted on tuning patients, applied to held-out patients.
 
     ``rehearse``: no held-out data; fit on half of the tuning patients and
@@ -96,15 +96,20 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, route
         if ids.has_duplicates:
             raise ValueError('Duplicate IDs in routed vector export')
         positions = ids.get_indexer(held.subject_id.astype(str))
-        if (positions < 0).any():
+        present = positions >= 0
+        if not present.all() and not allow_partial_routed:
             raise ValueError('Routed vectors do not cover displayed patients')
-        shared, adapted = vectors['shared'][positions], vectors['adapted'][positions]
-        if not np.allclose(shared, np.stack(held.embedding), atol=1e-5, rtol=1e-4):
+        if not present.any():
+            raise ValueError('Routed vectors cover no displayed patients')
+        shared, adapted = vectors['shared'][positions[present]], vectors['adapted'][positions[present]]
+        if not np.allclose(shared, np.stack(held.embedding)[present], atol=1e-5, rtol=1e-4):
             raise ValueError('Router arrows require the same checkpoint shared embedding as the map')
         reduced = pca.transform(scaler.transform(adapted))
         after = reducer.transform(reduced) if used == 'umap' else reduced[:, :2]
-        result[f'routed:{outcome}:x'] = after[:, 0]
-        result[f'routed:{outcome}:y'] = after[:, 1]
+        result[f'routed:{outcome}:x'] = np.nan
+        result[f'routed:{outcome}:y'] = np.nan
+        result.loc[present, f'routed:{outcome}:x'] = after[:, 0]
+        result.loc[present, f'routed:{outcome}:y'] = after[:, 1]
     return result
 
 
@@ -156,6 +161,9 @@ def calibration_map_inputs(coords: pd.DataFrame, predictions: pd.DataFrame, outc
     payload = {}
     for outcome in outcomes:
         part = data.loc[data.outcome == outcome].set_index("subject_id").loc[order]
+        routed_columns = [f'routed:{outcome}:x', f'routed:{outcome}:y']
+        if routed_columns[0] in coords and not np.isfinite(coords[routed_columns].to_numpy(float)).all():
+            raise ValueError(f'Missing routed vectors for common calibration patients: {outcome}')
         payload[outcome_display_name(outcome)] = [
             part.time_days.astype(float).tolist(), part.event.astype(int).tolist(),
             part[column].astype(float).tolist(),
@@ -221,10 +229,25 @@ def main():
         map_coords = project(load_stage(config['stages'][maps['stage']]),
                              method=config.get('method', 'umap'),
                              rehearse=args.rehearse_on_tuning,
-                             routed_vectors=maps['routed_vectors'])
+                             routed_vectors=maps['routed_vectors'], allow_partial_routed=True)
     coords, payload = calibration_map_inputs(
         map_coords, read_table(maps["predictions"]), maps["outcomes"],
         horizon=maps.get("horizon_days", 365))
+    from opera.visualization.censoring_aware_embeddings import _binned_router_displacement
+    projection_diagnostics = {}
+    for name, values in payload.items():
+        if len(values) < 4 or values[3] is None:
+            projection_diagnostics[name] = {'status': 'vectors_not_exported'}
+            continue
+        before = coords[['x', 'y']].to_numpy(float)
+        after = np.asarray(values[3], float)
+        arrows = _binned_router_displacement(before, after, min_count=20)
+        lengths = np.linalg.norm(after - before, axis=1)
+        keep = arrows['coherence'] >= .3
+        projection_diagnostics[name] = dict(status='exported', n_patients=len(before),
+            supported_bins=len(keep), coherent_bins=int(keep.sum()),
+            median_projected_shift=float(np.median(lengths)),
+            maximum_projected_shift=float(np.max(lengths)))
     # Supplementary gallery: every outcome on the same projection, by domain.
     gallery = config.get("gallery", maps)
     gallery_coords, gallery_outcomes = embedding_gallery_inputs(
@@ -239,6 +262,7 @@ def main():
     gallery_coords.to_csv(args.output_dir / "gallery_coordinates.csv", index=False)
     gallery_outcomes.to_parquet(args.output_dir / "embedding_gallery.parquet", index=False)
     (args.output_dir / "calibration_map_outcomes.json").write_text(json.dumps(payload))
+    (args.output_dir / "router_projection_diagnostics.json").write_text(json.dumps(projection_diagnostics, indent=2))
     print(json.dumps({"stages": list(config["stages"]),
                       "patients_compared": int(comparison.patient_id.nunique()),
                       "map_patients": len(coords),
