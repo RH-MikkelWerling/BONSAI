@@ -72,3 +72,13 @@ def test_recorded_index_compares_all_scored_patients_once(tmp_path):
     assert set(specs[0]['cohorts']) == {'DLBCL', 'FL'}
     assert specs[0]['index_values'] == ['IPI']
     assert specs[0]['manuscript_figures']
+
+
+def test_computed_ipi_unavailability_is_explicit(tmp_path):
+    import json
+    analysis, _ = fixture(tmp_path)
+    build(analysis, tmp_path / 'recipes')
+    audit = json.loads((tmp_path / 'recipes/config_audit.json').read_text())
+    for name in ('IPI (computed)', 'NCCN-IPI'):
+        assert audit['computed_score_availability'][name]['status'] == 'missing_columns'
+        assert audit['computed_score_availability'][name]['missing_columns']

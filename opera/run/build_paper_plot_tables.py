@@ -82,8 +82,11 @@ def _select(frame: pd.DataFrame, *, split=None, seed=None) -> pd.DataFrame:
     split = split or EVALUATION_SPLIT
     if "split" in frame:
         frame = frame.loc[frame.split == split]
+    if "horizon_days" in frame:
+        frame = frame.copy()
+        frame["horizon_days"] = pd.to_numeric(frame.horizon_days, errors="raise")
     if seed is not None and "seed" in frame:
-        frame = frame.loc[frame.seed.astype(str) == str(seed)]
+        frame = frame.loc[pd.to_numeric(frame.seed, errors="coerce").eq(float(seed))]
     if "seed" in frame and frame.seed.nunique() > 1:
         raise ValueError("Several training seeds present; pass --seed")
     return frame
@@ -699,6 +702,7 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     def plotted_cells():
         cells = paired_cells(cell_contrasts(), cell_metadata_all, seed=seed)
         effects = _select(summaries(), seed=seed).copy()
+        effects = effects.loc[effects.contrast.isin(CONTRAST_CODES)]
         effects["contrast"] = effects.contrast.map(CONTRAST_CODES)
         for stratum, prefix, keys in [
                 ("all_cells", "panel", ["contrast", "metric", "horizon_days"]),

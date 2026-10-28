@@ -283,3 +283,25 @@ def test_headline_history_accepts_real_covariate_and_contrast_codes():
     assert len(panel.containers) == 2
     assert len(panel.get_xticklabels()) == 2
     plt.close(fig)
+
+
+def test_performance_forest_uses_saved_domain_means_and_ci():
+    frame = pd.DataFrame(dict(endpoint_group=['a', 'a'], contrast=['J-S', 'J-S'],
+        gain=[-.1, .1], group_mean=[.03, .03], group_lower=[.01, .01], group_upper=[.05, .05]))
+    summary = figures._summary_rows(frame, ['endpoint_group', 'contrast'])
+    assert summary['median'].iloc[0] == .03
+    assert summary.q25.iloc[0] == .01 and summary.q75.iloc[0] == .05
+    fig, ax = plt.subplots()
+    figures._diamond_forest(ax, summary, row_key='endpoint_group', row_order=['a'],
+        series_key='contrast', series_style={'J-S': ('blue', 'Joint vs specialist')},
+        xlabel='AUC gain (median, IQR)')
+    assert ax.get_xlabel() == 'AUC gain (mean, 95% CI)'
+    plt.close(fig)
+
+
+def test_patient_map_default_colours_final_predictions():
+    coords, outcomes = proto.synthetic_gallery(np.random.default_rng(58), n=100)
+    fig = figures.figure_patient_map(coords, outcomes, grid_size=20)
+    assert not fig.axes[1].images
+    assert fig.axes[1].collections[0].get_array() is not None
+    plt.close(fig)

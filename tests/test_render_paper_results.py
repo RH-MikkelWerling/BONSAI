@@ -95,3 +95,34 @@ def test_server_workspace_registers_every_plate_with_absolute_paths(tmp_path, mo
                         or str(tmp_path / "source_removal") in source)
                 assert "$" not in source.replace("${OPERA_PAPER_PLOT_SPLIT}", "tuning")
     assert not list((root / "plot_tables").iterdir())
+
+
+def test_execution_records_save_failure_and_keeps_other_plates(tmp_path, monkeypatch):
+    import pytest
+    import matplotlib.pyplot as plt
+    from opera.visualization import paper_figures, style
+    def figure_failure_fixture(mark=None):
+        return plt.subplots()[0]
+    monkeypatch.setattr(paper_figures, 'figure_failure_fixture', figure_failure_fixture, raising=False)
+    original = style.save_fig
+    def save(fig, path):
+        if Path(path).stem == 'bad':
+            Path(path).write_text('partial')
+            raise RuntimeError('simulated disk save failure')
+        return original(fig, path)
+    from pathlib import Path
+    monkeypatch.setattr(style, 'save_fig', save)
+    config = tmp_path / 'recipe.yaml'
+    config.write_text(yaml.safe_dump({'figures': [dict(id=name, function='figure_failure_fixture')
+                                                for name in ('bad', 'good')]}))
+    out = tmp_path / 'figures'
+    report = tmp_path / 'report.json'
+    monkeypatch.setattr(sys, 'argv', ['render', '--config', str(config), '--output-dir', str(out),
+                                     '--available-only', '--execute', '--report', str(report)])
+    with pytest.raises(ValueError, match='simulated disk save failure'):
+        main()
+    manifest = json.loads(report.read_text())
+    assert 'bad' in manifest['render_failures'] and not manifest['complete']
+    assert [r['id'] for r in manifest['figures']] == ['good']
+    assert not (out / 'bad.png').exists()
+    assert (out / 'good.pdf').exists()

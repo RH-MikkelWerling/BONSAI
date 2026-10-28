@@ -8,6 +8,7 @@ import argparse
 import inspect
 import json
 import os
+import sys
 from pathlib import Path
 import yaml
 from opera.run.analyse_locked_predictions import file_hash, read_table
@@ -122,30 +123,50 @@ def main():
         raise FileExistsError("Use a fresh output directory")
     args.output_dir.mkdir(parents=True)
     records = []
+    failures = {}
     for name, function, inputs, hashes in prepared:
+        fig = None
         try:
             fig = function(**inputs)
-        except Exception as exc:
-            if not args.available_only:
-                raise
-            skipped[name] = f"render failed: {exc}"
-            plt.close("all")
-            continue
-        save_fig(fig, str(args.output_dir / (name + ".png")))
-        plt.close(fig)
-        records.append(
-            {
-                "id": name,
-                "function": function.__name__,
+            fig.canvas.draw()
+            save_fig(fig, str(args.output_dir / (name + ".png")))
+            warnings = []
+            for source in hashes:
+                path = Path(source)
+                if path.name.startswith('borrowing_') and not (path.parent / 'analysis_provenance.json').is_file():
+                    warnings.append('borrowing: analysis provenance absent; cached results are not newly verified')
+                    break
+            for key, value in inputs.items():
+                if hasattr(value, 'columns') and 'interval_status' in value:
+                    count = int(value.interval_status.eq('insufficient_draws').sum())
+                    if count:
+                        warnings.append(f'{key}: {count} rows have insufficient bootstrap draws')
+                if key == 'cells' and hasattr(value, 'columns') and not {'panel_mean', 'group_mean'} <= set(value):
+                    warnings.append('cells: saved paired-summary columns absent; descriptive fallbacks may be used')
+            records.append({"id": name, "function": function.__name__, "warnings": warnings,
                 "input_hashes": hashes,
-                "output_pdf_sha": file_hash(args.output_dir / (name + ".pdf")),
-            }
-        )
-    (args.output_dir / "figure_manifest.json").write_text(
-        json.dumps({"recipe_sha": file_hash(args.config), 'code_sha256': code_hashes,
-                    'mark': os.environ.get('OPERA_PAPER_FIGURE_MARK'), "figures": records,
-                    "skipped": skipped}, indent=2)
-    )
+                "output_pdf_sha": file_hash(args.output_dir / (name + ".pdf"))})
+        except Exception as exc:
+            failures[name] = str(exc)
+            skipped[name] = f"render failed: {exc}"
+            for suffix in (".png", ".pdf", ".svg"):
+                (args.output_dir / (name + suffix)).unlink(missing_ok=True)
+        finally:
+            if fig is not None:
+                plt.close(fig)
+            else:
+                plt.close("all")
+    manifest = {"recipe_sha": file_hash(args.config), 'code_sha256': code_hashes,
+                'mark': os.environ.get('OPERA_PAPER_FIGURE_MARK'), "figures": records,
+                "skipped": skipped, "render_failures": failures,
+                "complete": not skipped, "python_executable": sys.executable,
+                "figure_module": str(Path(inspect.getsourcefile(figures)).resolve())}
+    (args.output_dir / "figure_manifest.json").write_text(json.dumps(manifest, indent=2))
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(manifest, indent=2))
+    if failures:
+        raise ValueError("Figure rendering failed; completed figures and manifest retained: " + json.dumps(failures))
     if skipped:
         print(json.dumps({"rendered": [r["id"] for r in records], "skipped": skipped}, indent=2))
 

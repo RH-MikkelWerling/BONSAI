@@ -77,10 +77,15 @@ def build(analysis, output):
                                      minimum_patients=1, pooled=True, per_cohort=False,
                                      manuscript=dict(index='IPI'), template=template),
                     scores=[], index_endpoint='shared')
+    score_availability = {}
     # Include available computed scores only in populations where they were recorded.
     for slug, label, score, group in [
         ('ipi_computed', 'IPI (computed)', 'ipi_computed_score', 'ipi_computed_group'),
         ('nccn_ipi', 'NCCN-IPI', 'nccn_ipi_score', 'nccn_ipi_group')]:
+        missing = sorted({score, group} - set(metadata))
+        score_availability[label] = dict(missing_columns=missing,
+            status='missing_columns' if missing else 'available',
+            n_complete=int(metadata[[score, group]].notna().all(axis=1).sum()) if not missing else 0)
         if {score, group} <= set(metadata):
             values = metadata[group].dropna().astype(str)
             bad = sorted(set(values) - {v for v in values if v.strip().lower() in GROUP_MAP})
@@ -100,6 +105,7 @@ def build(analysis, output):
         (output / name).write_text(yaml.safe_dump(recipe, sort_keys=False))
     (output / 'config_audit.json').write_text(json.dumps(dict(model=model, categories=raw,
         selected_map_outcomes=outcomes, unavailable_map_outcomes=[o for o in OUTCOMES if o not in available and OUTCOME_ALIASES.get(o) not in available],
+        computed_score_availability=score_availability,
         clinical_populations=[s['id'] for s in specs],
         note='Shared one-year overall-survival comparison; harmonized categories are a coarsened score. Tuning figures are exploratory.'), indent=2))
     return embedding, clinical

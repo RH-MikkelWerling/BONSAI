@@ -385,3 +385,12 @@ def test_rebuild_carries_saved_means_and_repairs_legacy_coverage(tmp_path):
     coverage = pd.read_csv(output / 'coverage.csv')
     applicable = coverage.loc[(coverage.cohort == 'DLBCL') & (coverage.status != 'not_applicable'), 'status']
     assert len(applicable) == 1 and applicable.eq('single_class_test').all()
+
+
+def test_subgroup_auc_selection_accepts_numeric_seed_serialization():
+    effects = pd.DataFrame([dict(split='held_out', seed=42.0, horizon_days='0',
+        metric='auc', covariate='sex', stratum_value='Female', contrast='O1',
+        gain=.02, lower=.01, upper=.03)])
+    result = plot_tables.subgroup_auc_table(effects,
+        plot_tables.SUBGROUP_FIGURES['patient_subgroups'], seed=42)
+    assert len(result) == 1 and result.gain.iloc[0] == .02

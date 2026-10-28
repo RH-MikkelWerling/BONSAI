@@ -177,7 +177,7 @@ def _support_strip(ax, totals, *, axis, labels=None, fontsize=6.2, label=None):
         bars = ax.inset_axes([-0.17, 0, 0.155, 1])
         bars.barh(positions, values, height=0.7, color=colour, linewidth=0)
         bars.set_xscale("log")
-        bars.set_xlim(values.max() * 1.3, 0.8)  # bars grow leftward
+        bars.set_xlim((np.nanmax(values) if np.isfinite(values).any() else 1.) * 1.3, 0.8)  # bars grow leftward
         bars.set_ylim(ax.get_ylim())
         if labels is not None:
             ax.set_yticks(range(len(labels)), [])
@@ -214,7 +214,7 @@ def _group_breaks(order, groups):
 
 
 def _summary_rows(frame, by):
-    """Median and IQR of cell gains per group (atlas-style spread, not CI)."""
+    """Saved paired domain means/CIs, or explicitly labelled median/IQR fallback."""
     rows = []
     for key, group in frame.groupby(by, sort=False):
         values = group.gain.dropna().to_numpy()
@@ -222,16 +222,25 @@ def _summary_rows(frame, by):
             continue
         q25, q75 = (np.quantile(values, [0.25, 0.75]) if len(values) > 1
                     else (values[0], values[0]))
+        center = float(np.median(values))
+        kind = "median_iqr"
+        if {"group_mean", "group_lower", "group_upper"} <= set(group):
+            saved = group[["group_mean", "group_lower", "group_upper"]].drop_duplicates()
+            if len(saved) == 1 and np.isfinite(saved.group_mean.iloc[0]):
+                center, q25, q75 = saved.iloc[0]
+                kind = "paired_mean_ci"
         rows.append({**dict(zip(by if isinstance(by, list) else [by],
                                 key if isinstance(key, tuple) else (key,))),
-                     "median": float(np.median(values)), "q25": q25, "q75": q75,
-                     "n": len(values)})
+                     "median": center, "q25": q25, "q75": q75,
+                     "summary_kind": kind, "n": len(values)})
     return pd.DataFrame(rows)
 
 
 def _diamond_forest(ax, summary, *, row_key, row_order, series_key, series_style,
                     xlabel, low="q25", high="q75", show_counts=True, zero_line=True,
                     spread=0.27):
+    if "summary_kind" in summary and set(summary.summary_kind) == {"paired_mean_ci"}:
+        xlabel = xlabel.replace("median, IQR", "mean, 95% CI")
     series = [s for s in series_style if s in set(summary[series_key])]
     offsets = np.linspace(-spread, spread, len(series)) if len(series) > 1 else [0.0]
     for name, offset in zip(series, offsets):
@@ -1873,14 +1882,14 @@ def _embedding_title(name, width=19):
 
 
 def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_size=110,
-                       min_effective_support=25.0, disease_contours=False, mark=None):
+                       min_effective_support=25.0, disease_contours=False, mode="predicted_points", mark=None):
     """Where risk lies in the selected model's shared patient representation.
 
     ``coords``: ``subject_id``, ``x``, ``y`` and ``disease``; ``outcomes`` as for
     :func:`figure_embedding_gallery`, with predicted ``risk`` for the residual
-    panel. A: disease groups on the map. B-F: five outcomes from different
-    clinical domains, observed risk relative to each outcome's average
-    (IPCW kernel). G: observed minus predicted risk of the selected model for the
+    panel. A: disease groups on the map. B-F: patient-level final-model
+    predicted risks by default; mode="observed_surface" gives observed risk
+    relative to each outcome's average (IPCW kernel). G: observed minus predicted risk of the selected model for the
     first of them (local calibration).
     """
     from matplotlib.colors import LogNorm
@@ -1889,7 +1898,11 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
         spatial_calibration_residual)
     from opera.visualization.style import CATEGORICAL
 
+    if mode not in {"predicted_points", "observed_surface"}:
+        raise ValueError("Choose predicted_points or observed_surface")
     coords, outcomes = _matched_embedding_tables(coords, outcomes)
+    if mode == "predicted_points" and "risk" not in outcomes:
+        raise ValueError("Predicted patient map requires risk exports")
     coords = coords.sort_values("subject_id").reset_index(drop=True)
     points = coords[["x", "y"]].to_numpy(float)
     # Tighter than the gallery so the maps follow the shape of the patient map.
@@ -1939,7 +1952,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
 
     cmap = plt.get_cmap("plasma").copy()
     cmap.set_bad((1, 1, 1, 0))
-    norm = LogNorm(vmin=0.25, vmax=4)
+    norm = plt.Normalize(0, 1) if mode == "predicted_points" else LogNorm(vmin=0.25, vmax=4)
     image, residual_image = None, None
     slots = [(0, 2), (0, 3), (0, 4), (1, 2), (1, 3)]
     first = None
@@ -1962,10 +1975,14 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
             relative = np.clip(surface / overall, 0.25, 4)
             relative[_embedding_surface_mask(xx, yy, points[at][used], support,
                                               density, 2 * min_effective_support)] = np.nan
-            image = ax.imshow(relative, origin="lower", extent=extent, cmap=cmap,
-                              norm=norm, interpolation="bilinear", zorder=2)
+            if mode == "observed_surface":
+                image = ax.imshow(relative, origin="lower", extent=extent, cmap=cmap,
+                                  norm=norm, interpolation="bilinear", zorder=2)
             if first is None:
                 first = (outcome, part, at, data, support, density)
+        if mode == "predicted_points":
+            image = ax.scatter(points[at, 0], points[at, 1], c=part.risk.to_numpy(float),
+                               s=5, cmap=cmap, norm=norm, linewidths=0, rasterized=True, zorder=4)
         ax.scatter(points[:, 0], points[:, 1], s=1.4, alpha=0.2, linewidths=0,
                    color=PALETTE["ink_secondary"], rasterized=True, zorder=3)
         if not used.any() or overall == 0:
@@ -2001,10 +2018,14 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
     if image is not None:
         bar = fig.add_axes([0.43, 0.1, 0.3, 0.018])
         cb = fig.colorbar(image, cax=bar, orientation="horizontal")
-        cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
+        if mode == "predicted_points":
+            cb.set_ticks([0, .25, .5, .75, 1])
+        else:
+            cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
         cb.ax.minorticks_off()
         cb.ax.tick_params(labelsize=6)
-        cb.set_label("B–F: observed risk relative to the outcome's average", fontsize=6.4)
+        cb.set_label("B–F: final-model predicted risk" if mode == "predicted_points"
+                     else "B–F: observed risk relative to the outcome's average", fontsize=6.4)
     if residual_image is not None:
         bar = fig.add_axes([0.8, 0.1, 0.17, 0.018])
         cb = fig.colorbar(residual_image, cax=bar, orientation="horizontal")
@@ -2018,7 +2039,7 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                             grid_size=140, min_effective_support=25.0,
                             residual_limit=0.2, router_bins=None, router_min_count=20,
                             router_min_coherence=0.3, router_arrow_scale=None, mark=None):
-    """Status, router movement, IPCW kernel risk and local calibration per outcome.
+    """Status, router movement, observed risk, final predictions and calibration.
 
     ``outcomes`` maps a display name to ``(times, events, predicted_cif)`` or
     ``(times, events, predicted_cif, routed_coords)``, aligned with ``coords``.
@@ -2052,9 +2073,10 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                                            np.median(positive), 1, 20)) if len(positive) else 1.)
     if not np.isfinite(router_arrow_scale) or router_arrow_scale <= 0:
         raise ValueError('Router arrow scale must be positive and finite')
-    rows = ["status", *(["router"] if has_router else []), "risk", "residual"]
+    rows = ["status", *(["router"] if has_router else []), "risk", "prediction", "residual"]
     titles = {"status": "Status at horizon", "router": "Projected router correction",
-              "risk": "IPCW kernel risk", "residual": "Calibration residual"}
+              "risk": "Observed IPCW kernel risk", "prediction": "Final-model predicted risk",
+              "residual": "Calibration residual"}
     fig = plt.figure(figsize=(7.2, 1.62 * len(rows) + 0.55))
     grid = fig.add_gridspec(len(rows), len(names) + 1,
                             width_ratios=[1] * len(names) + [0.06],
@@ -2113,6 +2135,9 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                     ax.text(0.5, 0.5, "Router vectors\nnot exported", transform=ax.transAxes,
                             ha="center", va="center", fontsize=6.5,
                             color=PALETTE["ink_muted"])
+            elif kind == "prediction":
+                images["prediction"] = ax.scatter(coords[:, 0], coords[:, 1], c=predicted,
+                    s=5, cmap=risk_cmap, norm=plt.Normalize(0, 1), linewidths=0, rasterized=True)
             elif kind == "risk":
                 images["risk"] = ax.imshow(
                     np.ma.masked_where(blank, surface), origin="lower", extent=extent,
@@ -2129,13 +2154,13 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
                 ax.set_title(_embedding_title(name), fontsize=7.2, loc="center", pad=7)
             if column == 0:
                 ax.set_ylabel(titles[kind], fontsize=7.6)
-                ax.text(-0.30, 1.0, "ABCD"[row], transform=ax.transAxes, fontsize=10.5,
+                ax.text(-0.30, 1.0, "ABCDE"[row], transform=ax.transAxes, fontsize=10.5,
                         va="bottom", color=PALETTE["ink"])
     for row, kind in enumerate(rows):
         cax = fig.add_subplot(grid[row, -1])
         if kind in images:
             bar = fig.colorbar(images[kind], cax=cax)
-            bar.set_label("Local cumulative\nincidence" if kind == "risk"
+            bar.set_label("Cumulative\nincidence" if kind in {"risk", "prediction"}
                           else "Observed −\npredicted", fontsize=7)
             bar.ax.tick_params(labelsize=6.5)
             bar.outline.set_visible(False)
@@ -3326,14 +3351,14 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     lead_name = "OPERA" if lead == "OPERA" else "Joint model"
     vs_x = auc.loc[auc.contrast == f"{lead}-X"]
     gain = vs_x.set_index("region").gain
-    span = float(np.nanmax(np.abs(gain))) or 0.01
+    span = (float(np.nanmax(np.abs(gain))) or 0.01) if np.isfinite(gain).any() else 0.01
     map_panel(0, "A", "Gain over XGBoost", gain.to_dict(), GAIN_CMAP,
               TwoSlopeNorm(0, -span, span), f"{when} AUC gain", "{:+.3f}",
               intervals_of(vs_x), reference=0.0)
     if absolute is not None:
         joint = absolute.loc[(absolute.metric == "auc") & (absolute.model == lead)]
         values = joint.set_index("region").gain
-        low, high = float(values.min()), float(values.max())
+        low, high = (float(values.min()), float(values.max())) if np.isfinite(values).any() else (0., 1.)
         pad = max((high - low) * 0.15, 0.005)
         map_panel(1, "B", f"{lead_name} AUC", values.to_dict(), ATLAS_CMAP,
                   plt.Normalize(low - pad, high + pad), f"{when} AUC", "{:.3f}",
@@ -3341,7 +3366,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         bias_rows = absolute.loc[(absolute.metric == "calibration_bias")
                                  & (absolute.model == lead)]
         bias = bias_rows.set_index("region").gain
-        span = float(np.nanmax(np.abs(bias))) or 0.01
+        span = (float(np.nanmax(np.abs(bias))) or 0.01) if np.isfinite(bias).any() else 0.01
         map_panel(2, "C", "Calibration in the large", bias.to_dict(), BIAS_CMAP,
                   TwoSlopeNorm(0, -span, span), "Observed − predicted risk", "{:+.3f}",
                   intervals_of(bias_rows), reference=0.0)
