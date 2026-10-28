@@ -45,7 +45,7 @@ the probability of every outcome by each of six horizons.}
 \begin{figure}[p]
   \centering
   \resizebox{!}{0.84\textheight}{\input{figures/cohort_flow}}
-  \caption{\textbf{CONSORT diagram.} Of the pretraining population of 78,668
+  \caption{\textbf{Cohort flow diagram.} Of the local pretraining population of 78,668
   adults in DALY-CARE with a lymphoid cancer or precursor (MGUS, MBL) diagnosis, whose pre-2022 histories
   were used for pretraining, 38,635 started first-line treatment. A diagnosis
   was assigned to 37,566 of them: to 37,357 from diagnoses recorded up to 14
@@ -131,55 +131,35 @@ the probability of every outcome by each of six horizons.}
   region of most of their pre-treatment contacts and every comparison is
   repeated within each region on the same fits. Maps show \textbf{A}, the one-year AUC gain of \opera{} over per-task XGBoost, \textbf{B}, its one-year AUC, and \textbf{C}, its calibration in the large (observed minus predicted risk). Below, the same with 95\% paired bootstrap intervals over
   equally weighted cells: \textbf{D}, gains over the specialist and XGBoost, \textbf{E}, AUC of \opera{} and XGBoost, \textbf{F}, calibration in the large, and \textbf{G}, recorded events and laboratory results before
-  treatment (median and interquartile range), which may explain regional
+  treatment (median and interquartile range), alongside regional
   differences. Region boundaries from geoBoundaries (CC BY 4.0)
   \citep{runfola2020geoboundaries}, with Bornholm as an inset.}
   \label{fig:supp-regions}
 \end{figure}
 
 \begin{figure}[p]
-  \resultfigure{fig_clinical_score}{Operating points relative to the IPI}
+  \resultfigure{fig_clinical_score}{Operating points relative to NCCN-IPI}
     {A: precision--recall with matched-specificity operating point. B: model
     risk within index groups. C--D: incidence by age and risk group.}
-  \caption{\textbf{Operating points and reclassification relative to the IPI
+  \caption{\textbf{Operating points and reclassification relative to NCCN-IPI
   in DLBCL.} \textbf{A},
-  Precision--recall curves for death within two years (patients with known status at two years) for the model and for each IPI category
-  threshold. The square marks the IPI high-risk category. Dotted lines project it onto the model's curve: straight up gives the model's precision at the IPI's recall, and straight right its recall at the IPI's precision. The diamond marks the model at a threshold chosen on tuning data to match the IPI's specificity. AP, average
-  precision. \textbf{B}, Predicted two-year risk of each patient within each
-  IPI category, coloured by whether the patient died, with the model risk groups shaded. \textbf{C--D}, Two-year overall survival (95\% bootstrap
+  Precision--recall curves for death within one year (patients with known status at one year) for the model and for each NCCN-IPI category
+  threshold. The square marks the NCCN-IPI high-risk category. Dotted lines project it onto the model's curve: straight up gives the model's precision at the NCCN-IPI's recall, and straight right its recall at the NCCN-IPI's precision. The diamond marks the model at a threshold fixed on training data to target the index's highest-category specificity. AP, average
+  precision. \textbf{B}, Predicted one-year risk of each patient within each
+  NCCN-IPI category, coloured by whether the patient died, with the model risk groups shaded. \textbf{C--D}, One-year overall survival (95\% bootstrap
   interval) and number of patients by age band and risk group for the model
-  (\textbf{C}) and the IPI (\textbf{D}). Counts below five are shown as $<$5,
+  (\textbf{C}) and the NCCN-IPI (\textbf{D}). Counts below five are shown as $<$5,
   and estimates are suppressed for cells with fewer than ten patients.}
   \label{fig:clinical-score}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure{supp_clinical_score_age}{Risk groups by age}{Patient counts, predictions and observed risk separately.}
-  \caption{\textbf{Model and IPI risk groups by age in DLBCL.} Patients with DLBCL and a
-  recorded IPI, grouped by model risk group (left) and IPI category (right).
-  Rows show, by age band, the number of patients, the mean predicted two-year overall survival and the observed Kaplan--Meier estimate, each
+  \caption{\textbf{Model and NCCN-IPI risk groups by age in DLBCL.} Patients with DLBCL and a
+  recorded NCCN-IPI, grouped by model risk group (left) and NCCN-IPI category (right).
+  Rows show, by age band, the number of patients, the mean predicted one-year overall survival and the observed Kaplan--Meier estimate, each
   with its 95\% bootstrap interval. Estimates are suppressed for cells with fewer than ten patients, but counts remain visible.}
   \label{fig:clinical-score-age}
-\end{figure}
-
-\begin{figure}[p]
-  \resultfigure[0.9\textwidth]{fig_decision_curve}{Decision curves}
-    {Net benefit of acting on OPERA, the IPI and XGBoost.}
-  \caption{\textbf{Decision curves for death within two years in DLBCL.}
-  \textbf{A}, Net benefit, as true positives per 1,000 patients net of false
-  positives weighted by the threshold odds, of offering closer monitoring and
-  supportive care to patients above each threshold of predicted two-year risk
-  of death, for
-  \opera{}, the IPI (each category at its observed risk in tuning patients),
-  per-task XGBoost, and acting for everyone or no one, in patients with an IPI
-  recorded (shaded: 95\% interval for \opera{}). Censored patients are accounted
-  for by inverse-probability weighting. \textbf{B}, Difference in net benefit
-  between \opera{} and each comparator, as net true positives per 1,000 patients,
-  with 95\% bootstrap intervals; values above zero favour \opera{}. Dotted lines:
-  the model's low- and high-risk cutoffs, fixed on tuning data by matching the
-  IPI's low-risk observed risk and high-risk specificity, at which net benefit
-  is also reported.}
-  \label{fig:decision-curve}
 \end{figure}
 
 \begin{figure}[p]
@@ -189,9 +169,9 @@ the probability of every outcome by each of six horizons.}
   \caption{\textbf{Model risk groups compared with each recorded prognostic
   index.} One row
   per index and the population it applies to, on patients with that index
-  recorded at diagnosis. Left, survival (or freedom from the endpoint) by model risk group. Middle, the same by index category, on the same patients. Right, estimates at two years with 95\% CI (M, model, and I, index). Shaded bands are 95\%
-  bootstrap intervals and the dashed line marks two years. Model cutoffs were
-  fixed on tuning data for each index, matching its low-risk observed risk and
+  recorded at diagnosis. Left, survival (or freedom from the endpoint) by model risk group. Middle, the same by index category, on the same patients. Right, estimates at one year with 95\% CI (M, model, and I, index). Shaded bands are 95\%
+  bootstrap intervals and the dashed line marks one year. Model cutoffs were
+  fixed on training data for each index, matching its low-risk observed risk and
   high-risk specificity. Every index recorded for at least 50 patients of a
   subtype is shown, and the NCCN-IPI in DLBCL. Group sizes, observed risk,
   sensitivity and specificity of both systems are in Supplementary
@@ -231,8 +211,8 @@ the probability of every outcome by each of six horizons.}
   against the joint model (the noise floor of refitting, and a check that the
   architecture alone changes nothing), disease adapters, outcome adapters, each
   added to the other, both, and their interaction; and the controls (the joint
-  model told the disease, the own-disease and own-outcome routers). The source
-  bank was chosen on the tuning set (disease adapters only).}
+  model told the disease, the own-disease and own-outcome routers). The primary amended router uses both disease and outcome adapter banks.
+  The earlier router is a sensitivity analysis.}
   \label{fig:routing}
 \end{figure}
 
@@ -373,54 +353,52 @@ the probability of every outcome by each of six horizons.}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_1}{Outcome risk across the representation (1/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (1 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (1 of 6).}
   Every panel shows the same two-dimensional projection of \opera{}'s
   patient embedding (fitted on tuning patients) for test patients. Colour is
-  the censoring-weighted kernel estimate of the observed one-year risk of one
-  outcome, relative to that outcome's average (shown under its name): bright
-  regions carry up to four times the average risk and dark regions a quarter.
-  Regions with too few evaluable patients are blank. Outcomes are grouped by
+  the predicted one-year risk for each patient. Observed-risk surfaces, when
+  supplied as a separate sensitivity view, are labelled as IPCW kernel estimates. Outcomes are grouped by
   clinical domain, named above each group.}
   \label{fig:supp-embedding-gallery-1}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_2}{Outcome risk across the representation (2/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (2 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (2 of 6).}
   As \cref{fig:supp-embedding-gallery-1}, continued.}
   \label{fig:supp-embedding-gallery-2}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_3}{Outcome risk across the representation (3/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (3 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (3 of 6).}
   As \cref{fig:supp-embedding-gallery-1}, continued.}
   \label{fig:supp-embedding-gallery-3}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_4}{Outcome risk across the representation (4/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (4 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (4 of 6).}
   As \cref{fig:supp-embedding-gallery-1}, continued.}
   \label{fig:supp-embedding-gallery-4}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_5}{Outcome risk across the representation (5/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (5 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (5 of 6).}
   As \cref{fig:supp-embedding-gallery-1}, continued.}
   \label{fig:supp-embedding-gallery-5}
 \end{figure}
 
 \begin{figure}[p]
   \resultfigure[0.95\textwidth]{supp_embedding_gallery_6}{Outcome risk across the representation (6/6)}
-    {Observed one-year risk of each outcome on OPERA's patient map.}
-  \caption{\textbf{Observed one-year risk of each outcome across the patient representation (6 of 6).}
+    {Predicted one-year risk of each outcome on OPERA's patient map.}
+  \caption{\textbf{Predicted one-year risk of each outcome across the patient representation (6 of 6).}
   As \cref{fig:supp-embedding-gallery-1}, continued.}
   \label{fig:supp-embedding-gallery-6}
 \end{figure}
@@ -472,4 +450,86 @@ the probability of every outcome by each of six horizons.}
   its contributions are invented, and records of real patients stay in the
   secure environment.}
   \label{fig:attribution-patient}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{supp_recent_record_gaps}{Prediction with recent records hidden}
+    {One-year AUC differences after hiding the last 7, 14, 21 or 28 days before treatment.}
+  \caption{\textbf{Dependence on recent records.} The selected checkpoint was
+  evaluated with the last 7, 14, 21 or 28 days of clinical events removed.
+  Earlier history and prediction/background tokens were retained. Differences
+  are restricted-input minus full-input AUC at one year, averaged across
+  evaluable outcomes overall and within clinical domains, with paired
+  patient-bootstrap 95\% intervals. The model was not retrained.}
+  \label{fig:recent-record-gaps}
+\end{figure}
+
+% Full displays supporting the shared-information narrative.
+\begin{figure}[p]
+  \resultfigure{fig_atlas}{Discrimination across outcomes}
+    {AUC of the fixed joint model for every outcome at six horizons,
+    with clinical-domain summaries.}
+  \caption{\textbf{Discrimination of the joint model across outcomes and
+  horizons.} \textbf{A}, Test-period AUC for each of the 69
+  outcomes at each horizon (colour), against its training events.
+  \textbf{B}, The same results summarised by clinical domain. Outcomes or
+  horizons without enough test events are not shown, and every outcome in every disease is in \cref{fig:supp-atlas-matrix}.}
+  \label{fig:atlas}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
+    {A: shrunken source-alone gains. B: cross-disease source dependence.
+    C: concentration within disease lineages. D: dependence by clinical domain.}
+  \caption{\textbf{What the fitted model borrows from other diseases.}
+  Other-disease adapter terms are replaced by their tuning means without
+  retraining or renormalizing the remaining gates; own-disease terms, the
+  outcome bank, global corrections and the base encoder path are retained.
+  Comparisons use the same evaluated patients (AUC points).
+  \textbf{A}, Adaptively shrunken gains when one source disease is retained
+  alongside the target's own disease. The diagonal is grey; dots indicate
+  positive shrunken approximate intervals. Lineage groups organize the display
+  but do not enter the shrinkage prior. \textbf{B}, Unshrunk cross-disease
+  dependence: full-model AUC minus AUC with other-disease terms replaced;
+  paired patient-bootstrap intervals and a dashed all-disease mean.
+  \textbf{C}, The share of positive shrunken source-alone estimates from the
+  target's lineage against that lineage's share of available sources. These
+  normalized shares are descriptive, particularly when absolute effects are
+  small. Color denotes effective source count.
+  \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
+  weighing equally; dashed line, all outcomes. Source-alone gains are not
+  additive in AUC and need not sum to the total dependence. Further contrasts
+  appear in \cref{fig:supp-borrowing-detail}.}
+  \label{fig:borrowing-map}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure{fig_attribution}{What OPERA relies on}
+    {Differences between patients by source, what each part of the record adds,
+    findings by domain, and one patient's history read for three risks.}
+  \caption{\textbf{What \opera{} relies on.} Rows in A--C are clinical
+  domains. Integrated gradients split each held-out patient's prediction into a
+  reference, which keeps the timing of care, age and subtype but replaces every
+  recorded event by an average one, and the contribution of each event.
+  \textbf{A}, The signed covariance decomposition of predicted one-year log-odds
+  between patients, including the share carried by the reference retaining timing, age and subtype (grey) and by each source of records,
+  averaged over the outcomes of each domain. \textbf{B}, Change in held-out AUC
+  ($\times$100) when the fitted model reads only part of the record, without
+  retraining: reference event content, no laboratory results, no medication, no
+  diagnoses, no region or specialty of care, or only the last year of history. \textbf{C}, Mean change in
+  predicted log-odds among the patients with each finding, averaged over the
+  outcomes of each domain and shown as the corresponding odds ratio, with findings grouped by source. Boxed cells contain
+  a prespecified expected effect, drawn solid where it was seen and dashed where
+  it was not; grey cells had too few patients with the finding to report.
+  \textbf{D}, One synthetic patient's history read for three risks, with the
+  episodes that move them most labelled above the tracks. Each track is one
+  outcome, and each circle is an episode of care at its time before treatment,
+  sized by how much it changes the predicted one-year risk (percentage points)
+  and coloured by direction. The predicted risk is given at the right, with the
+  risk for the same timing of care and average findings. Sienna and indigo mark
+  effects throughout (raising risk or losing AUC, and lowering risk), and the
+  other colours identify sources of records. Every outcome is shown in
+  \cref{fig:attribution-atlas,fig:attribution-structure}, and the patient's
+  history read for six complications in \cref{fig:attribution-patient}.}
+  \label{fig:attribution-main}
 \end{figure}

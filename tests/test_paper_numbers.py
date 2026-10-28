@@ -34,7 +34,7 @@ def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
     assert r"\@namedef{opera@res@P5_auc}" in macros
     rows = (tmp_path / "out" / "panel_effects_rows.tex").read_text()
     assert rows.rstrip().endswith(r"\bottomrule")  # tables cannot end with \IfFileExists
-    assert "OPERA vs per-task XGBoost & -- " in rows  # absent comparisons stay explicit
+    assert "\\opera{} (local) vs per-task XGBoost & -- " in rows  # absent comparisons stay explicit
     assert rows.splitlines()[0].startswith(r"\rlap{\textit{")  # grouped by question
     assert rows.splitlines()[1].count("&") == 6  # seven columns, rare subtypes included
 
@@ -60,7 +60,7 @@ def test_selected_and_joint_comparisons_keep_distinct_labels():
         dict(contrast=code, cells=12, auc_gain=value, auc_interval='interval')
         for code, value in [('O1', .02), ('T2', -.01)]])
     rows = table_rows(panel)
-    assert 'OPERA vs per-task XGBoost & 12 & 0.020' in rows
+    assert '\\opera{} (local) vs per-task XGBoost & 12 & 0.020' in rows
     assert 'Joint vs per-task XGBoost & 12 & $-$0.010' in rows
     points = pd.DataFrame([dict(model=model, horizon_days=365, status='estimated',
         rule='tuning_specificity:0.90', sensitivity=sens, mcc=.2)
@@ -68,3 +68,14 @@ def test_selected_and_joint_comparisons_keep_distinct_labels():
     result = decision_numbers(points)
     assert result['dp90_sens_opera'] == '0.70'
     assert result['dp90_sens_joint'] == '0.40'
+
+
+def test_national_opera_rows_do_not_use_joint_model_effects():
+    from opera.run.build_paper_numbers import table_rows
+    panel = pd.DataFrame([dict(contrast=code,cells=12,auc_gain=value,auc_interval='interval')
+        for code,value in [('E1',.01),('E2',.02),('E3',.03),('E4',.04),('T5_router',.05)]])
+    rows = table_rows(panel)
+    assert '\\opera{} (national) vs \\opera{} (local) & 12 & 0.020' in rows
+    assert '\\opera{} (national + adaptation) vs \\opera{} (local) & 12 & 0.040' in rows
+    assert '\\opera{} (national + adaptation) vs per-task XGBoost & 12 & 0.050' in rows
+    assert 'National vs cohort encoder & 12 & 0.010' in rows

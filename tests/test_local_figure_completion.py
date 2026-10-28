@@ -194,3 +194,15 @@ def test_native_score_strata_recovered_from_coarsened_export(tmp_path):
         'High-intermediate','High-intermediate','High','High','High']
     assert data.ipi_computed_group.iloc[:6].tolist() == ['Low','Low','Low-intermediate','High-intermediate','High','High']
     assert data.nccn_ipi_group_source.eq('Intermediate').all()
+
+
+def test_metadata_merge_ignores_table1_risk_display_fields(tmp_path):
+    base, extra = tmp_path / 'base.parquet', tmp_path / 'extra.parquet'
+    pd.DataFrame(dict(subject_id=['1','2'],nccn_ipi_score=[2,6],
+        nccn_ipi_risk=['Intermediate','Not recorded'])).to_parquet(base)
+    pd.DataFrame(dict(subject_id=['1','2'],nccn_ipi_score=[2,6],
+        nccn_ipi_risk=['Low-intermediate','Not recorded'])).to_parquet(extra)
+    prepare(base,[extra],tmp_path / 'out.parquet')
+    result = pd.read_parquet(tmp_path / 'out.parquet')
+    assert result.nccn_ipi_risk.tolist() == ['Intermediate','Not recorded']
+    assert result.nccn_ipi_group.tolist() == ['Low-intermediate','High']

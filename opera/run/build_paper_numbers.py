@@ -61,9 +61,12 @@ TABLE_ROWS = (
     (None, "Learning how much to borrow"), ("R1", "Routed vs joint"),
     (None, "Population pretraining (joint model)"),
     ("E1", "National vs cohort encoder"), ("E3", "Adapted national vs cohort encoder"),
+    (None, "Population pretraining (OPERA)"),
+    ("E2", "OPERA-N vs OPERA-L"), ("E4", "OPERA-NA vs OPERA-L"),
     (None, "Sequence models against tabular models"),
     ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
-    ("O1", "OPERA vs per-task XGBoost"),
+    ("O1", "OPERA-L vs per-task XGBoost"),
+    ("T5_router", "OPERA-NA vs per-task XGBoost"),
     ("T2", "Joint vs per-task XGBoost"), ("T6", "Joint vs pooled XGBoost"),
     ("T9", "Joint vs XGBoost with registry variables"),
 )
@@ -298,6 +301,9 @@ def table_rows(panel):
             # \rlap, not \multicolumn: the rows are read inside \IfFileExists.
             lines.append(f"\\rlap{{\\textit{{{label}}}}} & & & & & & \\\\")
             continue
+        for variant in ("NA", "N", "L"):
+            label = label.replace("OPERA-" + variant, r"\opera{} ("
+                                  + {"L": "local", "N": "national", "NA": "national + adaptation"}[variant] + ")")
         label = "\\quad " + label
         found = panel.loc[panel.contrast == code]
         if not len(found):

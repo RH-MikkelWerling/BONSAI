@@ -93,8 +93,8 @@ cohort (37,531 patients).
 
 \paragraph{Sampling and loss weighting.} Patients were sampled in their natural
 proportions, without oversampling patients with events or reweighting classes,
-so that the predicted risks keep the base rates of the population and stay
-calibrated. Each training patient has events for a few of the 69 outcomes and
+to avoid deliberately changing class proportions. This does not guarantee
+calibration, which is evaluated separately. Each training patient has events for a few of the 69 outcomes and
 none for most, so no single weighting of patients could balance all
 disease--outcome--horizon tasks at once; balance between tasks instead comes
 from the loss, averaged so that each endpoint group weighs equally. As a
@@ -379,10 +379,10 @@ Options whose panel AUC lay within the noise floor of the best were treated as
 tied and the simplest of them was chosen; an option whose panel IPA was worse
 than the simplest option's by more than the IPA noise floor was not eligible.
 The noise floor is the difference between two fits of the same model: the
-router trained with every source masked, which computes exactly the joint
-model's prediction from a different initialisation, against the joint model
-(\placeholder{about 0.004} tuning AUC); a difference within 0.005 also confirms
-that the routing machinery changes nothing by itself. The 0.01 margin applies
+router trained with every source masked, which has the joint
+model's effective architecture but is fitted independently, against the joint model
+(\placeholder{about 0.004} tuning AUC). This comparison estimates variation between these two fits and does not
+prove equivalence of the architectures. The 0.01 margin applies
 only to claims on the test set, not to these choices. These screens describe the original selection procedure, not a new choice
 made independently for each figure. The later amendment fixed the current
 primary local model to the two-bank R\textsubscript{AB} configuration above.
@@ -457,8 +457,7 @@ router, since R\textsubscript{AB} was below it by more than the seed-to-seed
 difference. We amended the rule before any test data were opened and made
 R\textsubscript{AB} the primary routed model: the first router's routing is
 known to have collapsed, so nothing it appears to borrow could be interpreted;
-R\textsubscript{AB} routes as intended in both seeds; choosing the model with
-the lower tuning score cannot bias the test results upwards; and the cost on
+R\textsubscript{AB} routes as intended in both seeds; the selection amendment was informed by tuning diagnostics; and the cost on
 tuning was small, with an interval including zero. The first router is
 reported throughout as a sensitivity analysis, and the national routed models
 use the same readout as R\textsubscript{AB}. Equation~\ref{eq:router} describes this primary R\textsubscript{AB} fit,
@@ -513,9 +512,10 @@ local OPERA model on patients with the corresponding index recorded, without
 an additional disease-specific inclusion list. The shared benchmark is
 one-year overall survival; native-endpoint analyses are identified separately
 by endpoint and horizon. Comparisons with fewer than 50 evaluated patients are
-reported as insufficient support. Model risk groups are matched on tuning data
-to the index's low-risk observed risk and high-risk specificity, making
-same-data tuning comparisons exploratory. Native categories and numeric totals
+reported as insufficient support. Model risk-group thresholds are estimated from training predictions by
+matching the index's low-risk observed risk and highest-category specificity,
+then frozen for tuning and test evaluation. Tuning comparisons remain
+exploratory because model development used that split. Native categories and numeric totals
 are retained where available; already-coarsened registry categories cannot be
 reconstructed without the original score or labels.
 
@@ -584,3 +584,15 @@ Known-status metrics excluded early censoring and treated competing death as
 negative. A separate IPCW version used disease-specific censoring weights.
 Undefined quantities were missing, not zero. The source split, cutoff and input
 prediction hashes were retained with the report.
+
+\operasubsection{Validation of integrated-gradient explanations}
+Removing the five most credited events lowered the predicted risk more than
+removing five random events for \result{ig_faithful_outcomes}{[n]} of
+\result{ig_faithful_total}{[n]} check outcomes, attributions of a model with
+randomised weights agreed little with those of the trained model (median rank
+agreement \result{ig_rho_random_model}{[x]}), and attributions were stable to
+the choice of reference (\result{ig_rho_baseline_source_mean}{[x]}).
+
+Recent-record removal measures reliance on recent information. It does not
+validate the attribution method, which was assessed by event-removal,
+randomisation and reference-sensitivity checks separately.

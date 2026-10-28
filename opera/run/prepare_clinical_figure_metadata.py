@@ -17,7 +17,10 @@ def prepare(base, extra_paths, output):
         extra['subject_id'] = extra.subject_id.astype(str)
         if extra.subject_id.duplicated().any():
             raise ValueError(f'Clinical score source has duplicate patients: {path}')
-        fields = [c for c in extra if c.startswith(('ipi_computed_', 'nccn_ipi_'))]
+        # Only merge fields used by clinical-score comparisons. *_risk is a
+        # separate, coarsened Table 1 display field and may contain Not recorded.
+        fields = [c for c in extra if c in {
+            'ipi_computed_score', 'ipi_computed_group', 'nccn_ipi_score', 'nccn_ipi_group'}]
         if not fields:
             continue
         extra = extra.set_index('subject_id').reindex(data.subject_id)
@@ -30,8 +33,10 @@ def prepare(base, extra_paths, output):
                     agree = np.isclose(pd.to_numeric(left), pd.to_numeric(right))
                 else:
                     from opera.run.prepare_available_plot_configs import NATIVE_GROUP_MAP as GROUP_MAP
-                    agree = left.astype(str).str.lower().str.strip().map(GROUP_MAP).eq(
-                        right.astype(str).str.lower().str.strip().map(GROUP_MAP))
+                    left_raw = left.astype(str).str.lower().str.strip()
+                    right_raw = right.astype(str).str.lower().str.strip()
+                    agree = left_raw.map(GROUP_MAP).fillna(left_raw).eq(
+                        right_raw.map(GROUP_MAP).fillna(right_raw))
                 if not np.all(agree):
                     raise ValueError(f'Conflicting clinical values: {field}')
                 data[field] = data[field].fillna(value)

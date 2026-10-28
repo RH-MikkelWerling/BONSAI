@@ -341,9 +341,11 @@ records carry a date but no time, events on the index date cannot be ordered
 relative to treatment start; such events were not counted as outcomes.
 
 \paragraph{Pretraining.} The cohort encoder was pretrained with an exclusive
-calendar cutoff of 1 January 2022, applied in the same way, and its vocabulary
-was derived from pre-2022 events of pretraining patients only; the national
-encoder has its own vocabulary, fitted on national data with the same cutoff. Pre-2022
+calendar cutoff of 1 January 2022, applied in the same way, but this cutoff alone does not establish the provenance of vocabulary counts
+or laboratory-bin boundaries. The local and national preprocessing artifacts
+must separately document their fitting populations and dates. National
+vocabulary counts may include a wider period than encoder training, as noted
+in the model-details supplement. Pre-2022
 histories of patients later assigned to tuning or held-out test were included
 in pretraining; the evaluation therefore concerns future treatment episodes,
 not unseen individuals.
@@ -792,8 +794,8 @@ Candidate outcomes & 87 & \\
 Definition not reliable & $-$6 & Hypofibrinogenaemia grade $\ge$2 and grade $\ge$3 (sparse; assay and grading not verified); leukocytosis grade $\ge$2 (grading did not match the label, and the term is discouraged for disease-related rises); DIC-like coagulopathy, Hy's-law liver injury and tumour lysis syndrome (laboratory co-occurrence proxies without monitoring-based ascertainment).\\
 Definition concerns, excluded & $-$5 & Lymphopenia grade $\ge$2 and grade $\ge$3 (CTCAE v6 has no grade 2/3 tier); hypokalaemia grade $\ge$2 and grade $\ge$3 (local thresholds $\le$3.0 and $\le$2.5 mmol/L, not CTCAE v6); major adverse cardiovascular events (composite included atrial fibrillation, venous thromboembolism and heart failure).\\
 Below support threshold & $-$9 & AST increased grade $\ge$2 and grade $\ge$3; herpes zoster; hypermagnesaemia grade $\ge$3; hypoglycaemia grade $\ge$2 and grade $\ge$3; hypomagnesaemia grade $\ge$3; invasive fungal infection; myocardial infarction.\\
-Met support, no concern & 60 & \\
-Retained, renamed & $+$7 & Named for what they measure: alkaline phosphatase elevation tier $\ge$2/$\ge$3; sodium $<$125 mmol/L (for hyponatraemia grade $\ge$3); intravenous, prescription and combined infection outcomes as antimicrobial-use proxies; hyponatraemia grade $\ge$2. ALT increased and hepatotoxicity use the baseline-relative ALT definition.\\
+Retained without renaming & 60 & \\
+Retained with revised names (part of the 67 retained) & 7 & Named for what they measure: alkaline phosphatase elevation tier $\ge$2/$\ge$3; sodium $<$125 mmol/L (for hyponatraemia grade $\ge$3); intravenous, prescription and combined infection outcomes as antimicrobial-use proxies; hyponatraemia grade $\ge$2. ALT increased and hepatotoxicity use the baseline-relative ALT definition.\\
 Added & $+$2 & Creatinine rise $>$1.5$\times$ pre-index baseline; potassium $<$3.0 mmol/L.\\
 \midrule
 Final panel & 69 & \\

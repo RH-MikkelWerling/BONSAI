@@ -1,27 +1,15 @@
 % Evaluation methods in reported form; empirical tables are filled from the locked analysis.
 \operasubsection{Prespecification}
-Every modelling choice was made on the tuning set (patients treated in 2022),
-and the test set (patients treated from 2023) was evaluated once, after the
-analysis plan had been locked \placeholder{lock date; the plan as a
-supplementary file}. Fixed before testing were: the outcomes, horizons and
-estimand; the primary and secondary metrics; the paired resampling scheme and
-the hierarchical models with their priors; the practical margin (0.01 AUC and
-0.01 IPA, one point on the scale of 100 used in the figures) and the labels
-better, worse, equivalent and inconclusive, with the paired bootstrap test; the
-rules by which the router configuration was chosen on tuning data
-(Supplementary Methods, model details); the selection of \opera{}; the
-risk-group cut-offs for the comparison with clinical indices; the design of the
-borrowing analysis and its candidate pairs, reported descriptively (below); and the sensitivity
-analyses (known-status estimand, excluding the 209 patients whose disease was
-assigned after day 14, size-matched cut-offs, equal weight per clinical domain,
-and the stratum without a dedicated index without nodal marginal-zone lymphoma
-and with angioimmunoblastic and Burkitt lymphoma added). The action and
-threshold range of the decision curves were fixed before testing: closer
-monitoring and supportive care for patients above the threshold, from 5\% to
-40\%, with the model's risk-group cutoffs as the two prespecified operating
-points.
+Model development and analysis amendments used the training and tuning splits.
+The held-out test split comprises patients treated from 2023. The current
+figure previews use tuning data and are exploratory. Final reporting must
+identify the dated analysis lock, the fitted checkpoints and any departures
+from that plan. \placeholder{Attach the final plan, amendment history and
+held-out evaluation manifest before describing analyses as prespecified or
+completed.} Clinical risk-group thresholds are estimated from training data.
+The separate panel-wide operating-point analysis uses tuning-derived thresholds.
 
-The router rule was revised once, on 21 October 2026, after rough source-screen
+An initial router-rule amendment was made on 21 October 2026, after rough source-screen
 estimates had been seen and before the test set was opened; all four source
 banks are compared on the test set, and the rank, query and \opera{} results had
 not been seen.
@@ -48,16 +36,15 @@ different task distributions; neither is a patient-population utility measure.
 Endpoint-family or clinical-domain weighting is distinct from this
 disease-balanced definition and is labelled separately when used.
 
-Headline differences and \cref{tab:panel-effects} weigh every
-disease--outcome--horizon cell equally. Panel summaries and the hierarchical
-models weigh every disease equally and, within a disease, every loss endpoint
-(the grade variants of one finding together; 52 endpoints) equally; a
-sensitivity analysis weighs every clinical domain equally. Router choices and
-the borrowing analysis weigh every disease equally, every outcome equally within
-a disease and every horizon equally within an outcome. Only estimable cells
-enter a summary: at least five cases and five controls, and at least 80\% of
-bootstrap replicates with a finite estimate; other cells are shown but not
-pooled.
+Headline differences and \cref{tab:panel-effects} give each supported
+cell--horizon combination equal weight. Disease-balanced summaries use the
+nested disease, outcome and horizon weighting described above. The 52 endpoint
+families define training-loss weights, not evaluation weights. Clinical-domain
+weighting is a separate sensitivity analysis. Eligibility and finite-bootstrap
+support are recorded for each contrast rather than silently replacing missing
+estimates by zero. AUC requires at least five cases and five controls for the
+supported-cell summaries. This restriction does not define whether a model
+can produce a prediction or whether a Brier score can be calculated.
 
 \operasubsection{Borrowing map}
 The routed readout adds to the shared patient representation one routed
@@ -66,17 +53,17 @@ output), and the risk head is linear, so each source's contribution to every
 hazard can be switched off exactly while all other weights stay as trained; no weight
 is renormalised. A switched-off source's term is replaced by its mean over tuning
 patients for the same target disease and outcome (mean ablation); diseases
-without tuning patients use the mean over all tuning patients. The router spreads
-its weight over many sources, so setting terms to zero would move the
-representation far from anything seen in training; the mean keeps the average
-shift and removes only what the source contributes for the individual patient.
+without tuning patients use the mean over all tuning patients. Mean replacement retains the average source contribution while removing its
+patient-specific variation. Zero replacement changes both components.
 Zero ablation is reported as a sensitivity analysis. One evaluation of the locked model scored, on the same
-patients, the full model, the model without borrowing (the patient's own disease
-only), each source alone (own disease plus that source) and each source left
+patients, the full model, the model with other-disease corrections mean-replaced, each source alone
+(own disease plus that source) and each source left
 out (all sources but that one). Differences in AUC used one paired patient
 bootstrap shared by all variants: the AUC lost without borrowing (full minus
 none), the source alone (alone minus none; primary) and the source left out (full
-minus left out). The source alone is what a disease adds with no other source,
+minus left out). The outcome-adapter bank, global correction and shared encoder remain active
+in these disease-bank ablations. The source-alone contrast measures what a
+disease adds beyond that baseline,
 the source left out what it adds with all the others present. The loss without
 borrowing measures what the fitted model uses; it can exceed the gain over a model
 trained without borrowing (the own-disease router), because the encoder was
@@ -98,9 +85,8 @@ router trained with its own disease adapter only), and against disease size
 (\cref{fig:supp-borrowing-detail}A--B). Candidate pairs (a source disease, a
 target disease and a clinical domain) were listed from clinical reasoning and
 the literature and kept only if a single-pair estimate could be informative: at
-least 200 training patients in the source, so that its correction learned
-something to remove, and at least 50 test patients in the target, so that the
-estimate was not inconclusive by construction. Smaller diseases remain in the
+least 200 training patients in the source, and at least 50 test patients in the target. These support criteria do not
+guarantee that an individual pair can be estimated precisely. Smaller diseases remain in the
 descriptive map. A confirmatory test of these pairs was planned, with the
 expected pairs and negative controls to be rated by study haematologists
 without our rationale. Before any rating or test-set evaluation, the routed
@@ -120,8 +106,8 @@ The cohort was not sized for this study. It comprises every eligible patient in
 Denmark over the study period, so the relevant question is what precision this
 fixed sample allows, not how many patients would be needed. Formal criteria for
 the sample size of a new prediction model \citep{Riley2020} assume one outcome
-and a fixed set of predictors, and do not carry over to a model whose learned
-parameters are shared across 69 outcomes. We therefore report, for every
+and a fixed set of predictors, and were not used to justify the size of this shared-parameter model.
+Shared training does not remove the need for adequately supported validation. We therefore report, for every
 disease--outcome cell, the number of training events and of test events and
 non-events (\cref{fig:supp-support}), evaluate a cell only when the test period
 has at least five events and five non-events, and judge each estimate by the
@@ -168,10 +154,9 @@ treatment.
 
 \input{tables/index_availability}
 
-The IPI is the main comparator because it is recorded for most patients with
-DLBCL and sets treatment in the Danish guideline \citep{DLG2025DLBCL}; the
-NCCN-IPI, developed for rituximab-treated DLBCL \citep{zhou2014nccnipi}, is
-reported alongside in its complete cases. How the indices were compared, and
+NCCN-IPI is the main clinical comparator in DLBCL
+\citep{zhou2014nccnipi}. IPI comparisons are reported separately, including
+eligible lymphoma subtypes with a recorded score. How the indices were compared, and
 how model risk groups were anchored to them, is described under ``Comparison
 with clinical prognostic indices''. All methods in an index comparison used the
 same patients, those with the index recorded at diagnosis, and how often it was
@@ -184,7 +169,12 @@ secure analysis.}
 
 \operasubsection{Risk groups, age and operating points}
 Continuous model risks were converted to groups fixed at baseline with cutoffs
-selected on tuning data, while index groups kept their original definitions.
+estimated on training predictions from the fitted model, while index groups
+kept their native definitions. These are apparent training predictions, not
+out-of-fold predictions. The low-risk cutoff targets the index's training
+low-risk event rate and the high-risk cutoff its highest-category specificity.
+Intermediate boundaries preserve the index's intermediate-group proportions.
+Unsupported or crossed boundaries are reported rather than repaired silently.
 Kaplan--Meier estimates describe endpoints that include death, and
 Aalen--Johansen estimates non-fatal endpoints with death as a competing event.
 Group sizes, events and 95\% bootstrap intervals accompany every estimate.
@@ -195,11 +185,16 @@ shown as separate rows on the same age bands and groups. The predicted row is
 the sequence model's mean probability, also within index categories. The index itself supplies no probability. Estimates are suppressed for cells with fewer
 than ten patients, while counts remain visible.
 
-Operating points used thresholds fixed on tuning data, so the specificity
-matched on tuning data is not exactly matched in the test period. We report
+Clinical operating points use these frozen training-derived thresholds.
+Specificity is not forced to match again in tuning or test patients. We report
 the achieved sensitivity, specificity, positive and negative predictive values
 and patient counts. Confusion counts use patients with known status at the
-horizon, and the number excluded by censoring is reported. Censoring-weighted quantities are labelled as such.
+horizon, and the number excluded by censoring is reported. Censoring-weighted quantities are labelled as such. At every non-low-risk
+boundary, positive means risk greater than or equal to the cutoff. Exports
+include recall, precision, specificity, negative predictive value, MCC,
+accuracy, F1 and confusion counts, separately for known-status and IPCW
+analyses. These clinical threshold exports currently contain point estimates,
+not bootstrap confidence intervals.
 
 For the panel as a whole, every model was also evaluated at six decision
 points, each fixed per model, cell and horizon on that model's tuning
@@ -212,9 +207,8 @@ target. For each decision point we report the threshold, the confusion matrix,
 sensitivity, specificity, positive and negative predictive values, MCC and the
 share of patients flagged, with 95\% intervals from the shared patient
 bootstrap and paired differences between \opera{} and XGBoost, the joint
-model and the specialist, and the routed and joint models. Confusion
-counts below five are suppressed in exported tables, as required by the secure
-environment. Cells with fewer than five tuning events or non-events have no
+model and the specialist, and the routed and joint models. Disclosure checks are required before exporting confusion counts. The new
+clinical threshold CSVs do not yet enforce small-count suppression automatically. Cells with fewer than five tuning events or non-events have no
 decision point.
 
 \operasubsection{Censoring, calibration and robustness}
@@ -224,8 +218,7 @@ patients with known status, without weights, is a prespecified sensitivity
 analysis. We report the censoring survival at each horizon and the distribution
 of weights, and flag long horizons where little follow-up makes estimates
 unstable. The weights are held fixed across bootstrap resamples, so intervals
-do not include their uncertainty, and they assume censoring independent of
-prognosis, which may not hold where monitoring follows the patient's
+do not include their uncertainty, and require independent censoring within the estimation strata, which may not hold where monitoring follows the patient's
 condition.
 
 Calibration is reported as calibration-in-the-large, the calibration slope
@@ -242,16 +235,14 @@ variation within the development health system rather than validation in
 regions excluded from training.
 
 \operasubsection{Patient representations}
-The representation figures show the same test patients at five stages:
-pretraining on the cohort, the joint model from that encoder, national
-pretraining, national pretraining adapted to the cohort, and the nationally
-initialised joint model.
-For each stage, the projection was fitted on tuning patients and applied
-unchanged to test patients, so coordinates are comparable within a stage but
-not between stages. Clusters and changes in separation are descriptive. They do not show differences in prediction,
-biological mechanisms or the effect of transfer. Only kernel-smoothed
-summaries over at least \placeholder{N} patients are shown, following the
-disclosure rules of the secure environment.
+Representation figures identify their split and available model stages.
+Each stage has its own projection, fitted on tuning patients and applied to
+the evaluation split. Coordinates are not comparable across independently
+fitted stages. Updated galleries colour patient points by predicted risk.
+Observed-risk and calibration surfaces, when shown, use local IPCW smoothing
+and are labelled separately. Router arrows require a shared projection of the
+base and corrected representations. Projection geometry and arrows are
+descriptive and do not establish predictive gains or biological mechanisms.
 
 \operasubsection{Numerical tables}
 The printed supplementary tables summarise the comparisons that the figures
@@ -259,10 +250,11 @@ show: the panel-level comparisons behind \cref{tab:panel-effects}, paired differ
 comparison and clinical domain, calibration by model and domain, the evaluated
 cells, events and non-events by domain and horizon, threshold metrics at the
 six decision points, and, where available, the comparisons with each index on
-its original endpoint and the computational resources of each model. Each model
-was trained once, so intervals describe sampling of test patients only. The
+its original endpoint and the computational resources of each model. Intervals condition on the fitted checkpoints and describe patient-sampling
+uncertainty. Limited router seed controls do not provide systematic estimates
+of training-run uncertainty. The
 complete cell-level results, including every confusion matrix, accompany the
-paper as machine-readable files, with counts below five suppressed.
+paper as machine-readable files, after disclosure review, including suppression of small counts where required.
 
 \IfFileExists{\resultnumbersdir supplement_tables.tex}{%
   \operasubsection{Reviewed numerical summaries}
@@ -314,8 +306,9 @@ The path integral is evaluated by Gauss--Legendre quadrature with 8 nodes and
 repeated with 32 when the absolute gap between the summed credits and
 $f_k(E;C)-f_k(E^0;C)$, divided by $\max(|f_k(E;C)-f_k(E^0;C)|,0.001)$, exceeds
 0.05. Patient--outcome pairs that still fail are reported by outcome and
-excluded from the summaries. Every held-out test patient was explained, and
-patient-level outputs stay in the secure environment.
+excluded from the summaries. The attribution manifest records the split, patients, outcomes and numerical
+settings actually processed. Current tuning exports must not be described as
+completed held-out explanations. Patient-level outputs stay in the secure environment.
 
 \paragraph{Episodes and concepts.} The unit of interpretation is the episode of
 care: events within one day of each other, such as one admission or one
@@ -324,7 +317,7 @@ are recorded at different times. Concepts group codes by structure only: ICD-10
 to three characters, ATC to the pharmacological subgroup, procedures to four
 characters, pathology SNOMED codes to three, and laboratory results to the test
 and the third of its value range (low, middle or high) of the latest result.
-Codes were named from the official classifications (ICD-10 in its Danish SKS
+Where reviewed mappings are available, codes are named from the official classifications (ICD-10 in its Danish SKS
 form, the WHO ATC index, the NPU terminology for laboratory tests, SKS for
 procedures and ICD-O morphology for pathology), at the finest level of the
 code's hierarchy that had a name, and grouped into the chapters of each
@@ -348,8 +341,8 @@ weighted patient-bootstrap resamples.
 outcomes, the episode contributions were ranked within each outcome and
 correlated (Spearman). Patient correlations were averaged on the Fisher-$z$
 scale with the sampling weights, for patients with at least five episodes and
-pairs with at least 20 such patients. A model that had learned only a general
-measure of frailty would give high agreement between all outcomes.
+pairs with at least 20 such patients. Agreement describes similarity in credited episodes. It does not identify
+whether the model has learned frailty or an outcome-specific mechanism.
 
 \paragraph{Explanations for one patient.} For death, serious infection and
 severe neutropenia, explained in absolute risk, each patient's episodes of care
@@ -359,8 +352,7 @@ the three that most lower the predicted risk, each with its contribution in
 percentage points, is the format a clinical tool could show beside each
 prediction. For one patient, the five episodes that move any of the three risks
 most are shown with what each adds for every outcome, so that the reference,
-the episodes and the rest of the history add up to the prediction. Concepts are
-named from a reviewed list of codes, with laboratory results named by the value
+the episodes and the rest of the history add up to the prediction. Concepts require a reviewed code-to-name mapping before publication, with laboratory results named by the value
 third of the result. Both records stay in the secure environment and pairs that
 failed the completeness check are left out. The manuscript shows a synthetic
 patient.
@@ -392,8 +384,9 @@ whole test set with restricted input and without retraining: the timing of care
 only (every event replaced by the average event, as in the reference), without
 laboratory results, without medication, without diagnoses, without the region
 and specialty of care (two regions contribute richer hospital-record data, so
-region partly marks which data a patient has), and with the last year of
-history only.
+region partly marks which data a patient has), with the last year of history only, and with the final 7, 14, 21 or 28 days
+of recorded events removed. These recent-record gaps retain the same fitted
+model and evaluate sensitivity to information immediately before treatment.
 For each outcome the held-out AUC at one year was compared with the full input,
 using paired patient-bootstrap resamples shared across outcomes and
 restrictions, and averaged over outcomes and clinical domains. This measures
