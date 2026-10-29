@@ -139,3 +139,51 @@ Validation: 48 targeted tests passed, including real native-export rendering,
 crossed-anchor binary evaluation, the two-category case, preservation of
 small distinct thresholds, population-flow accounting, completion, assembly
 and packaging. The server diagnostics remain to be checked on actual data.
+
+## Additional diagnostic snapshots received before the full rerun
+
+The population-flow screenshot confirms the DLBCL restriction directly:
+the DLBCL tuning row has `in_comparison_population=True`, 476 predicted,
+343 scored and 133 unavailable. Other disease rows are marked False while
+their computed scores remain present. This is exclusion from this comparison,
+not deletion of those scores. The DLBCL training row has 7,008 scored patients.
+
+The independent-anchor screenshot shows crossed anchors in at least:
+
+| Index | Low-risk anchor, approximately | High-specificity anchor, approximately |
+|---|---:|---:|
+| CLL-IPI | 0.5737 | 0.3175 |
+| IPS | 0.0791 | 0.0187 |
+| IPSSWM | 0.3423 | 0.0786 |
+
+These are independently selected binary thresholds. A patient can fall below
+the first and above the second. They cannot be interpreted as disjoint low
+and high categories of a single ordered partition. This observation alone
+does not establish whether a constrained joint solution exists, why these
+training optima arose, or whether the model's ranking is poor. The exact
+cutoff diagnostics remain useful for those questions.
+
+NCCN-IPI high-boundary confusion counts in the screenshot are internally
+consistent with the uploaded headline table:
+
+| System | TP | FP | FN | TN | Recall | Specificity |
+|---|---:|---:|---:|---:|---:|---:|
+| Model | 31 | 37 | 28 | 247 | 52.5% | 87.0% |
+| NCCN-IPI | 33 | 50 | 26 | 234 | 55.9% | 82.4% |
+
+The model flags fewer false positives and also misses two more deaths. This
+is not a comparison at equal achieved tuning specificity. Identical
+known-status and IPCW rows are consistent with all patients in these displayed
+score populations having known one-year status. These are two estimands of
+the same patients, not duplicate patients to sum together.
+
+The displayed clinical threshold values 1, 2 and 3 are explicitly labelled
+zero-based group ranks. For native NCCN-IPI groups they mean scores at least
+2, 4 and 6, respectively. They are not a substitution of a 0–3 numeric NCCN-IPI
+score. The high-specificity anchor and low-risk anchor remain separate
+operating points in the newly added export.
+
+A fresh downstream rerun can complete the figures and diagnostics. Repeating
+the fixed inputs and matching rule is expected to reproduce these cohort and
+transport effects. The eventual threshold protocol and claims still need
+review before held-out evaluation.

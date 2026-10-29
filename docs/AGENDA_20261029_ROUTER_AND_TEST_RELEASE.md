@@ -5,6 +5,66 @@ and what it contributes, then freeze the analysis before opening held-out
 results. Existing endpoint definitions stay fixed. No outcome reconstruction
 or architecture sweep is planned.
 
+## Full fresh rerun requested on 29 October
+
+After syncing the complete updated source and `code_manifest.sha256`, run
+from the repository root inside a GPU allocation:
+
+```bash
+opera_stamp=$(TZ=Europe/Copenhagen date +%Y%m%d_%H%M%S)
+opera_full_root="data/paper_256_v3/analysis/full_tuning_rehearsal_$opera_stamp"
+mkdir -p logs
+
+nohup .venv-v100/bin/python -u -m opera.run.rerun_full_tuning_rehearsal \
+  --analysis-root data/paper_256_v3/analysis/local_figures_20261028_143127 \
+  --output-dir "$opera_full_root" \
+  > "logs/full_tuning_rehearsal_$opera_stamp.log" 2>&1 &
+
+echo "Run directory: $opera_full_root"
+echo "Main log: logs/full_tuning_rehearsal_$opera_stamp.log"
+```
+
+Monitor with:
+
+```bash
+tail -f "logs/full_tuning_rehearsal_$opera_stamp.log"
+```
+
+The launcher verifies runtime source checksums before expensive work. It
+copies the locked inventory declarations into a fresh workspace and recomputes
+the paired analysis from the original base prediction exports. The model
+checkpoints, original base prediction/encoder-embedding exports, metadata,
+vocabulary and frozen outcome definitions are inputs, not refitted here.
+There is no test evaluation and no model training.
+
+Fresh stages include router replay, paired metrics/bootstrap analysis,
+training-prediction export and clinical matching, all configured arrows,
+mean/zero source-removal inference and analysis, recent-record gaps, IG and
+its checks/summaries, the full configured input-restriction analysis, embedding
+and plot tables, figures, manuscript numbers, supplementary tables, tabular
+metric reconciliation and final review assembly/packaging. IG and restriction
+summaries transferred into the unified workspace come only from this rerun.
+The national model is not added by rediscovering or selecting new fits.
+
+Outputs below `$opera_full_root`:
+
+- `full_rehearsal.json`: stage status, inputs and paths.
+- `logs/`: one log per stage.
+- `analysis/clinical_scores/`: updated score figures and diagnostics.
+- `review/`: the final assembled figure suite, including fresh IG/restrictions.
+- `paper_numbers/` and `supplement_tables/`: final aggregate manuscript outputs.
+- `paper_review.zip`: the existing allowlisted figure/aggregate review bundle.
+
+The ZIP is not a full analysis backup and does not include the separate final
+manuscript-output directories. Existing clinical partitions that fail the
+declared matching rule remain explicit gaps. A successful process exit does
+not by itself certify all release checks or scientific interpretations.
+Inspect `full_rehearsal.json`, the score inventory and review missing list.
+Do not sync changed runtime code into the checkout while this job is running.
+Use sufficient scheduler walltime. `nohup` does not extend that limit. If the
+allocation ends, retain the workspace and logs for stage-specific recovery
+rather than deleting them or starting a second fresh run automatically.
+
 **National encoder status, updated 29 October:** pretraining stopped at epoch
 3 overnight. Relaunch is planned for tonight, with completion expected on
 30 October. Completion and downstream tuning results are not yet verified.
