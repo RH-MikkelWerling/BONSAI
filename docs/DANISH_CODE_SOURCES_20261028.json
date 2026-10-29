@@ -1,0 +1,38 @@
+{
+  "retrieved_on": "2026-10-28",
+  "sources": [
+    {
+      "file": "SKScomplete.txt",
+      "url": "https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt",
+      "bytes": 23218920,
+      "sha256": "c44c16e09a547ab695c154850c98a1a8de99d34d4cbb1b84118aa453180da7f5"
+    },
+    {
+      "file": "npu-codes-latest.csv",
+      "url": "https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv",
+      "bytes": 11026108,
+      "sha256": "3aef05383e918cc1304c53c5ca6f8a9467b6d700fc3ba18563744c1fbe904353"
+    },
+    {
+      "file": "patobank_molecular.html",
+      "url": "https://www.patobank.dk/kodebog/?tag=V",
+      "bytes": 1082372,
+      "sha256": "ac7d721b2b697aa50614d2ee1410ac92caa6426649668308920ea51a863ae383"
+    },
+    {
+      "file": "patobank_blood.html",
+      "url": "https://www.patobank.dk/kodebog/?tag=D",
+      "bytes": 478035,
+      "sha256": "70a3d4aecbc26178dd1947be92b3ab87b55f91cbacc5d997eb1216aab8175e6f"
+    },
+    {
+      "file": "patobank_lymphoid.html",
+      "url": "https://www.patobank.dk/kodebog/?tag=E",
+      "bytes": 492036,
+      "sha256": "0bd90501fd2b9cd9bedd11a57ee30cb547211a2c777f0acbcdd3cd65bef388b5"
+    }
+  ],
+  "sks_records": 107495,
+  "npu_records": 25699,
+  "pathology_codes": 4376
+}

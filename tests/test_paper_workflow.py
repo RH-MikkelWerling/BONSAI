@@ -455,6 +455,8 @@ def test_real_tabular_queue_saves_both_models_and_single_class_tuning(tmp_path):
         execute=True,
     )
     assert run_job(job, options)["status"] == "fitted"
+    assert run_job(job, options)["status"] == "reused_fit"
+    options.verify_outputs = True
     assert run_job(job, options)["status"] == "reused_verified_fit"
     directory = options.output_dir / job["relative_dir"]
     for name in ("logistic", "xgboost"):

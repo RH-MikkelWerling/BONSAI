@@ -277,6 +277,27 @@ def align_panel_titles(fig: plt.Figure) -> None:
         left = ax.transAxes.inverted().transform((box.x0, box.y0))[0]
         text.set_x(min(0.0, float(left)))
         text.set_horizontalalignment("left")
+        # Use measured font metrics rather than a character count. The same
+        # title must fit both the local and server font fallback, and stay
+        # inside its own panel when national variants add longer labels.
+        original = getattr(text, '_opera_unwrapped_title', text.get_text())
+        text._opera_unwrapped_title = original
+        x0 = text.get_transform().transform(text.get_position())[0]
+        available = max(60, ax.get_window_extent(renderer).x1 - x0)
+        lines = []
+        for paragraph in original.split('\n'):
+            current = ''
+            for word in paragraph.split():
+                trial = (current + ' ' + word).strip()
+                width = renderer.get_text_width_height_descent(
+                    trial, text.get_fontproperties(), ismath=False)[0]
+                if current and width > available:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = trial
+            lines.append(current)
+        text.set_text('\n'.join(lines))
 
 
 def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:

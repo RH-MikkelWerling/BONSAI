@@ -50,19 +50,27 @@ model. Attributes known when a contact opens were placed at its start,
 procedures when performed, prescriptions at dispensing, hospital medication at
 the start of the order and laboratory results at sampling.
 
-Rare codes give the model too few examples to learn from, so codes with fewer
-than 100 events were merged into the nearest ancestor in their classification
-that reached 100 events (a shorter diagnosis, procedure, ATC or SNOMED code);
-laboratory and contact codes were not merged. Laboratory values were binned
+Rare codes give the model too few examples to learn from. The lymphoma
+conversion configuration uses adaptive truncation with a default minimum of
+100 events. Less frequent diagnosis, procedure, medication and pathology codes
+are mapped to the deepest permitted prefix that meets that count. The
+permitted prefix lengths depend on the source. Codes without a qualifying
+prefix retain their full form. Laboratory and contact codes are not truncated.
+A shared pathology prefix need not retain the molecular-result specificity of
+the original code. Attribution concepts therefore require the appropriate
+result-specific token, checked against the saved mapping, rather than inferring
+a positive result from a mixed prefix. Laboratory values were binned
 separately for each test: values were clipped at the 1st and 99th percentiles
 and assigned to quantile bins, with more bins for tests with more distinct
 values, following the power law that Montgomery et al.\ fitted for transformers
 on health records ($B = \mathrm{round}(1.14\,N_{\mathrm{distinct}}^{0.237})$,
 between 2 and 100) \citep{montgomery2026numeric}. Each result became one token
 combining the test with its bin, or with its text value for non-numeric results
-such as ``$<$0.1''. Bins and code counts were fitted on a random 90\% of
-patients; this split serves only these statistics and is unrelated to the
-study's training, tuning and test periods.
+such as ``$<$0.1''. In the lymphoma configuration, bins and code counts are
+fitted on events before 1 January 2022 from a random 90\% of patients. This
+split serves only these statistics and is unrelated to the study's training,
+tuning and test periods. \placeholder{Confirm the frozen build configuration
+and retain its adaptive-code mapping and numeric metadata with the model.}
 
 BONSAI \citep{montgomery2025bonsai} then turned each patient's events into the
 sequence the models read. The vocabulary was fitted on events before 1 January

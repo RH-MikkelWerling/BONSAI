@@ -1,0 +1,15 @@
+% Local rehearsal audit: immutable downloaded tuning data plus reviewed previews.
+% Build from paper/. These paths contain no server patient-level artifacts.
+\newcommand{\resultfiguredir}{../scratch/paper_reading_20261028/deep_rehearsal_review_20261028/manuscript_figures/}
+\newcommand{\resultnumbersdir}{../scratch/paper_reading_20261028/deep_rehearsal_review_20261028/manuscript_numbers/}
+\newcommand{\resultstyle}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewonly}[1]{\textcolor{teal}{#1}}
+\newcommand{\previewnotice}{\par\textbf{\textcolor{teal}{TUNING REHEARSAL REVIEW:
+  numerical contrasts are exploratory; clinical refresh, attribution and national results remain pending.}}}
+\newcommand{\previewsetup}{%
+  \usepackage{lineno}
+  \AtBeginDocument{\linenumbers}
+  \AddToHook{shipout/background}{%
+    \put(0.5\paperwidth,-0.9cm){\makebox[0pt]{\sffamily\scriptsize\bfseries\color{teal}%
+      TUNING REHEARSAL --- not held-out findings --- captions describe planned final analyses}}}}
+\input{opera_manuscript}

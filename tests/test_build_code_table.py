@@ -6,7 +6,7 @@ from opera.run.build_code_table import build_table, count_pairs
 
 def test_daly_care_table_names_codes_and_drops_one_off_text(tmp_path):
     lab = pd.DataFrame({
-        "analysiscode": ["NPU02319"] * 6 + ["NPU19123"] * 5 + ["NPU99999"],
+        "analysiscode": ["NPU02319"] * 6 + ["NPU19658"] * 5 + ["NPU99999"],
         "analysisname": ["B-Hæmoglobin"] * 5 + ["Hgb (B)"]
                         + ["P-Laktatdehydrogenase"] * 5 + ["free text once"],
     })
@@ -14,13 +14,13 @@ def test_daly_care_table_names_codes_and_drops_one_off_text(tmp_path):
     lab.to_parquet(path)
     table = build_table(count_pairs([path], "analysiscode", "analysisname"), "npu", min_count=5)
     assert table.set_index("code").label.to_dict() == {
-        "NPU02319": "B-Hæmoglobin", "NPU19123": "P-Laktatdehydrogenase"}
+        "NPU02319": "B-Hæmoglobin", "NPU19658": "P-Laktatdehydrogenase"}
     assert table.set_index("code").names_seen["NPU02319"] == 2
     out = tmp_path / "npu.csv"
     table.to_csv(out, index=False)
     dictionary = CodeDictionary.from_config(
         {"code_tables": [{"system": "npu", "path": str(out), "code": "code", "label": "label"}]})
-    assert "Laktatdehydrogenase" in dictionary.describe("LABTEST//NPU19123//BIN_2")["name"]
+    assert "Laktatdehydrogenase" in dictionary.describe("LABTEST//NPU19658//BIN_2")["name"]
 
 
 def test_sks_prefixed_atc_codes_are_normalised(tmp_path):

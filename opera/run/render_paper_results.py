@@ -37,6 +37,7 @@ def main():
     args = parser.parse_args()
     from opera.visualization import paper_figures as figures
     from opera.visualization.style import save_fig
+    from opera.visualization.layout_audit import audit_layout
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -79,13 +80,25 @@ def main():
             hashes[str(path)] = file_hash(path)
             inputs[key] = (json.loads(path.read_text()) if key in plate.get("json_inputs", {})
                            else read_table(path))
+        if kind in {'figure_borrowing_map','figure_borrowing_detail'}:
+            provenance_paths = {Path(source).parent / 'analysis_provenance.json' for source in hashes
+                                if Path(source).name.startswith('borrowing_')}
+            provenances = [p for p in provenance_paths if p.is_file()]
+            if len(provenances) == 1:
+                provenance_path = provenances[0]
+                provenance = json.loads(provenance_path.read_text())
+                inputs['ablation_mode'] = provenance.get('ablation')
+                inputs['model_identity'] = (str(provenance.get('model','')) + ' / ' +
+                                            str(provenance.get('scientific_hash',''))[:12])
+                hashes[str(provenance_path)] = file_hash(provenance_path)
         # e.g. OPERA_PAPER_FIGURE_MARK="TUNING PREVIEW" for figures of the tuning split.
-        inputs["mark"] = os.environ.get("OPERA_PAPER_FIGURE_MARK") or None
+        inputs["mark"] = os.environ.get("OPERA_PAPER_FIGURE_MARK") or inputs.get("mark")
         inspect.signature(function).bind(**inputs)
         prepared.append((name, function, inputs, hashes))
     code_hashes = {label: file_hash(Path(path)) for label, path in {
         'renderer': __file__, 'figures': inspect.getsourcefile(figures),
-        'style': inspect.getsourcefile(save_fig)}.items()}
+        'style': inspect.getsourcefile(save_fig),
+        'layout_audit': inspect.getsourcefile(audit_layout)}.items()}
     validation = []
     if args.validate_render:
         errors = {} if args.available_only else dict(skipped)
@@ -95,6 +108,9 @@ def main():
             try:
                 fig = function(**inputs)
                 fig.canvas.draw()
+                from opera.visualization.style import align_panel_titles
+                align_panel_titles(fig)
+                layout = audit_layout(fig)
                 warnings = []
                 for key, value in inputs.items():
                     if hasattr(value, 'columns') and 'interval_status' in value.columns:
@@ -102,6 +118,7 @@ def main():
                         if bad.any():
                             warnings.append(f'{key}: {int(bad.sum())} rows have insufficient bootstrap draws')
                 validation.append({'id': name, 'status': 'rendered', 'warnings': warnings,
+                                   'layout': layout,
                                    'input_hashes': hashes})
                 plt.close(fig)
             except Exception as exc:
@@ -130,6 +147,7 @@ def main():
             fig = function(**inputs)
             fig.canvas.draw()
             save_fig(fig, str(args.output_dir / (name + ".png")))
+            layout = audit_layout(fig)
             warnings = []
             for source in hashes:
                 path = Path(source)
@@ -144,6 +162,7 @@ def main():
                 if key == 'cells' and hasattr(value, 'columns') and not {'panel_mean', 'group_mean'} <= set(value):
                     warnings.append('cells: saved paired-summary columns absent; descriptive fallbacks may be used')
             records.append({"id": name, "function": function.__name__, "warnings": warnings,
+                "layout": layout,
                 "input_hashes": hashes,
                 "output_pdf_sha": file_hash(args.output_dir / (name + ".pdf"))})
         except Exception as exc:

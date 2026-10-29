@@ -5,10 +5,14 @@
 # effects. Intervals describe the explained patients given the fitted model.
 #
 # Codes: ICD-10 as recorded in DALY-CARE (D-prefixed), ATC, NPU. Every NPU code
-# is TO CONFIRM against the vocabulary (the summary warns when a finding matches
-# no code). Set concept_mapping_reviewed: true once codes and names are checked.
+# still needs matching against the study vocabulary and bin boundaries. Public
+# identities and sources are in docs/ATTRIBUTION_CONCEPT_MAPPING_REVIEW_20261028.csv
+# and docs/DANISH_CODE_AUDIT_20261028.md. Molecular meanings are from Patobank.
+# Set concept_mapping_reviewed: true only after that vocabulary audit.
 
 concept_mapping_reviewed: false
+# Opt-in only for an auditable tuning rehearsal. Never authorises held-out use.
+allow_provisional_concepts: false
 
 # Names for codes (opera/resources/code_systems/README.md). Official tables are
 # public classifications copied into the secure environment; codes are
@@ -71,46 +75,53 @@ restrictions:
 
 # Laboratory curves: the latest result before treatment, by value bin.
 lab_tests:
-  - {npu: NPU19123, label: "LDH", outcome: overall_survival}                 # TO CONFIRM
-  - {npu: NPU19673, label: "Albumin", outcome: overall_survival}             # TO CONFIRM
-  - {npu: NPU02902, label: "Neutrophils", outcome: neutropenia_g3plus}       # TO CONFIRM
-  - {npu: NPU19748, label: "CRP", outcome: serious_infection_composite}      # TO CONFIRM
+  - {npu: NPU19658, label: "LDH", outcome: overall_survival}
+  - {npu: NPU19673, label: "Albumin", outcome: overall_survival}
+  - {npu: NPU02902, label: "Neutrophils", outcome: neutropenia_g3plus}
+  - {npu: NPU19748, label: "CRP", outcome: serious_infection_composite}
 
 # Findings x outcomes (atlas panel C). Every finding is summarised for every
 # outcome; "expected" gives the prespecified direction where an effect is
 # expected (+ raises, - lowers predicted risk), and only those cells are tests. Laboratory findings
 # use the latest result within 90 days (bin_position: 0 lowest, 1 highest).
 concepts:
-  - {name: ldh_high, label: "High LDH", group: Laboratory, codes: ["LABTEST//NPU19123//BIN_"],
+  - {name: ldh_high, label: "Upper LDH bins", group: Laboratory, codes: ["LABTEST//NPU19658//BIN_"],
      bin_position: [0.67, 1.0], latest_only: true, within_days: 90,
      expected: {overall_survival: "+", treatment_failure: "+"}}
-  - {name: albumin_low, label: "Low albumin", group: Laboratory, codes: ["LABTEST//NPU19673//BIN_"],
+  - {name: albumin_low, label: "Lower albumin bins", group: Laboratory, codes: ["LABTEST//NPU19673//BIN_"],
      bin_position: [0.0, 0.33], latest_only: true, within_days: 90,
      expected: {overall_survival: "+", serious_infection_composite: "+"}}
-  - {name: haemoglobin_low, label: "Low haemoglobin", group: Laboratory,
+  - {name: haemoglobin_low, label: "Lower haemoglobin bins", group: Laboratory,
      codes: ["LABTEST//NPU02319//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
      within_days: 90, expected: {any_transfusion: "+", overall_survival: "+"}}
-  - {name: neutrophils_low, label: "Low neutrophils", group: Laboratory,
+  - {name: neutrophils_low, label: "Lower neutrophil bins", group: Laboratory,
      codes: ["LABTEST//NPU02902//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
      within_days: 90, expected: {neutropenia_g3plus: "+", serious_infection_composite: "+"}}
-  - {name: platelets_low, label: "Low platelets", group: Laboratory,
+  - {name: platelets_low, label: "Lower platelet bins", group: Laboratory,
      codes: ["LABTEST//NPU03568//BIN_"], bin_position: [0.0, 0.33], latest_only: true,
      within_days: 90, expected: {any_transfusion: "+", neutropenia_g3plus: "+"}}
-  - {name: creatinine_high, label: "High creatinine", group: Laboratory,
+  - {name: creatinine_high, label: "Upper creatinine bins", group: Laboratory,
      codes: ["LABTEST//NPU18016//BIN_"], bin_position: [0.67, 1.0], latest_only: true,
      within_days: 90, expected: {aki_first_documented: "+", overall_survival: "+"}}
-  - {name: crp_high, label: "High CRP", group: Laboratory, codes: ["LABTEST//NPU19748//BIN_"],
+  - {name: crp_high, label: "Upper CRP bins", group: Laboratory, codes: ["LABTEST//NPU19748//BIN_"],
      bin_position: [0.67, 1.0], latest_only: true, within_days: 90,
      expected: {serious_infection_composite: "+"}}
-  # Molecular findings recorded as pathology (PATOBANK SNOMED) codes. Codes TO
-  # FIND on the server: python -m opera.run.audit_vocabulary ... --search
-  # "TP53|MYC|IGHV|17p" with the PATOBANK code table under code_tables. Until
-  # filled, these match nothing and are reported as NO MATCH (concept_coverage).
-  - {name: tp53_aberration, label: "TP53 aberration", group: Pathology, codes: [],
+  # Exact positive-result codes verified against the public Danish Patobank
+  # molecular codebook. Negative/normal, VUS and amplification codes are not
+  # interchangeable with mutation/deletion or translocation. Historical validity
+  # and the model vocabulary remain to be audited. These tuning additions must
+  # be locked before held-out use, rather than described as earlier prespecification.
+  - {name: tp53_aberration, label: "TP53 mutation/deletion recorded", group: Pathology,
+     codes: ["PATHOLOGY//FE16E3", "PATHOLOGY//FE16E4", "PATHOLOGY//FK17D0",
+             "PATHOLOGY//M632C0"], exact_codes: true,
      expected: {treatment_failure: "+", overall_survival: "+"}}
-  - {name: myc_rearrangement, label: "MYC rearrangement", group: Pathology, codes: [],
+  - {name: myc_rearrangement, label: "MYC translocation recorded", group: Pathology,
+     # M636D0 is the historical MYC code used by DALY-CARE's own molecular dictionary.
+     codes: ["PATHOLOGY//FE18UA", "PATHOLOGY//M636D0", "PATHOLOGY//J3N8U1",
+             "PATHOLOGY//J3N8U3", "PATHOLOGY//JFR8U1"], exact_codes: true,
      expected: {treatment_failure: "+", overall_survival: "+"}}
-  - {name: ighv_unmutated, label: "Unmutated IGHV", group: Pathology, codes: [],
+  - {name: ighv_unmutated, label: "Unmutated IGHV recorded", group: Pathology,
+     codes: ["PATHOLOGY//FE13N8"], exact_codes: true,
      expected: {treatment_failure: "+"}}
   - {name: heart_failure, label: "Heart failure", group: Diagnoses, codes: ["DIAGNOSIS//DI50"],
      expected: {heart_failure: "+", overall_survival: "+"}}
@@ -119,15 +130,35 @@ concepts:
   - {name: pneumonia, label: "Pneumonia", group: Diagnoses, codes: ["DIAGNOSIS//DJ12", "DIAGNOSIS//DJ13", "DIAGNOSIS//DJ14",
      "DIAGNOSIS//DJ15", "DIAGNOSIS//DJ16", "DIAGNOSIS//DJ17", "DIAGNOSIS//DJ18"],
      expected: {serious_infection_composite: "+"}}
-  - {name: antibacterials, label: "Antibacterials, last year", group: Medication,
+  - {name: antibacterials, label: "Systemic antibacterials, last year", group: Medication,
      codes: ["MEDICATION//J01"], within_days: 365,
      expected: {serious_infection_composite: "+"}}
-  - {name: corticosteroids, label: "Corticosteroids, last 90 days", group: Medication,
+  - {name: corticosteroids, label: "Systemic glucocorticoids, last 90 days", group: Medication,
      codes: ["MEDICATION//H02AB"], within_days: 90,
      expected: {serious_infection_composite: "+"}}
   - {name: antineoplastics, label: "Antineoplastics, last year", group: Medication,
      codes: ["MEDICATION//L01"], within_days: 365,
      expected: {neutropenia_g3plus: "+", any_transfusion: "+"}}
+
+# Additional exploratory candidates, proposed during the tuning rehearsal.
+# Public NPU identities are documented in the mapping ledger. No expected signs
+# are attached retrospectively. Bin extremes are relative to this vocabulary.
+  - {name: alt_high, label: "Upper ALT bins", group: Laboratory, codes: ["LABTEST//NPU19651//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: alp_high, label: "Upper ALP bins", group: Laboratory, codes: ["LABTEST//NPU27783//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: bilirubin_high, label: "Upper bilirubin bins", group: Laboratory, codes: ["LABTEST//NPU01370//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: ferritin_high, label: "Upper ferritin bins", group: Laboratory, codes: ["LABTEST//NPU19763//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: lymphocytes_high, label: "Upper lymphocyte bins", group: Laboratory, codes: ["LABTEST//NPU02636//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: eosinophils_high, label: "Upper eosinophil bins", group: Laboratory, codes: ["LABTEST//NPU01933//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
+  - {name: sodium_low, label: "Lower sodium bins", group: Laboratory, codes: ["LABTEST//NPU03429//BIN_"],
+     bin_position: [0, 0.33], latest_only: true, within_days: 90, expected: {}}
+  - {name: potassium_high, label: "Upper potassium bins", group: Laboratory, codes: ["LABTEST//NPU03230//BIN_"],
+     bin_position: [0.67, 1], latest_only: true, within_days: 90, expected: {}}
 
 summary:
   horizon_days: 365
@@ -141,12 +172,13 @@ summary:
   top_n: 10                   # data-driven findings per outcome and direction (table)
   explanation_episodes: 3     # per patient, outcome and direction in the explanation table
   # Clinical names for rolled-up concepts (ICD-10 3 characters, ATC level 3,
-  # laboratory tests as LABTEST//<NPU>//BIN, shown as "Low/High <name>" or
-  # "<name>, mid-range"). Used only when concept_mapping_reviewed is true.
-  # ICD-10 and ATC names are standard; every NPU name is TO CONFIRM.
+  # laboratory tests as LABTEST//<NPU>//BIN, shown as lower/middle/upper bins).
+  # These are relative value bins, not clinical reference intervals.
+  # Used only when concept_mapping_reviewed is true.
+  # Public code identities are proposed separately from study-vocabulary validation.
   concept_labels:
     DIAGNOSIS//DI50: Heart failure
-    DIAGNOSIS//DI48: Atrial fibrillation
+    DIAGNOSIS//DI48: Atrial fibrillation or flutter
     DIAGNOSIS//DI21: Acute myocardial infarction
     DIAGNOSIS//DI26: Pulmonary embolism
     DIAGNOSIS//DN17: Acute kidney failure
@@ -160,24 +192,52 @@ summary:
     DIAGNOSIS//DB02: Herpes zoster
     DIAGNOSIS//DD70: Neutropenia
     MEDICATION//J01C: Penicillins
-    MEDICATION//J01D: Cephalosporins and carbapenems
+    MEDICATION//J01D: Other beta-lactam antibacterials
     MEDICATION//J01M: Quinolones
     MEDICATION//J02A: Systemic antimycotics
-    MEDICATION//J05A: Antivirals
+    MEDICATION//J05A: Direct-acting antivirals
     MEDICATION//L01A: Alkylating agents
     MEDICATION//L01B: Antimetabolites
     MEDICATION//L01X: Other antineoplastics
     MEDICATION//L04A: Immunosuppressants
-    MEDICATION//H02A: Systemic corticosteroids
-    MEDICATION//C03C: Loop diuretics
+    MEDICATION//H02A: Plain systemic corticosteroids
+    MEDICATION//C03C: High-ceiling diuretics
     MEDICATION//B01A: Antithrombotics
-    MEDICATION//A10A: Insulins
+    MEDICATION//A10A: Insulins and analogues
     MEDICATION//N02A: Opioids
     LABTEST//NPU02319//BIN: Haemoglobin
-    LABTEST//NPU19123//BIN: LDH            # TO CONFIRM
-    LABTEST//NPU19673//BIN: Albumin        # TO CONFIRM
-    LABTEST//NPU02902//BIN: Neutrophils    # TO CONFIRM
-    LABTEST//NPU03568//BIN: Platelets      # TO CONFIRM
-    LABTEST//NPU18016//BIN: Creatinine     # TO CONFIRM
-    LABTEST//NPU19748//BIN: CRP            # TO CONFIRM
-  top_n: 10                   # data-driven concepts per outcome and direction
+    LABTEST//NPU19658//BIN: LDH
+    LABTEST//NPU19673//BIN: Albumin
+    LABTEST//NPU02902//BIN: Neutrophils
+    LABTEST//NPU03568//BIN: Platelets
+    LABTEST//NPU18016//BIN: Creatinine
+    LABTEST//NPU19748//BIN: CRP
+    LABTEST//NPU19651//BIN: ALT
+    LABTEST//NPU27783//BIN: ALP
+    LABTEST//NPU01370//BIN: bilirubin
+    LABTEST//NPU19763//BIN: ferritin
+    LABTEST//NPU02636//BIN: lymphocyte
+    LABTEST//NPU01933//BIN: eosinophil
+    LABTEST//NPU03429//BIN: sodium
+    LABTEST//NPU03230//BIN: potassium
+    PATHOLOGY//M96803: DLBCL morphology
+    PATHOLOGY//FE16E3: TP53 mutation detected
+    PATHOLOGY//FE16E4: TP53 deletion detected
+    PATHOLOGY//FK17D0: TP53 del(17p13) detected
+    PATHOLOGY//M632C0: del(17p13) recorded
+    PATHOLOGY//M636D0: MYC translocation recorded
+    PATHOLOGY//FE16E0: TP53 mutation not detected
+    PATHOLOGY//FE16E1: TP53 gene status normal
+    PATHOLOGY//FE16E9: TP53 variant of unknown significance
+    PATHOLOGY//FK17D1: TP53 del(17p13) not detected
+    PATHOLOGY//FE13N7: IGHV hypermutated
+    PATHOLOGY//FE13N8: IGHV not hypermutated
+    PATHOLOGY//FE13N0: IGH mutation not detected
+    PATHOLOGY//FE18UA: MYC translocation detected
+    PATHOLOGY//FE18UB: MYC translocation not detected
+    PATHOLOGY//FE18U3: MYC mutation detected
+    PATHOLOGY//FE18U5: MYC amplification detected
+    PATHOLOGY//J08141: t(8;14) translocation detected
+    PATHOLOGY//J3N8U1: IGH::MYC t(8;14) detected
+    PATHOLOGY//J3N8U3: IGL::MYC t(8;22) detected
+    PATHOLOGY//JFR8U1: IGK::MYC t(2;8) detected

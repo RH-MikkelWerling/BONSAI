@@ -38,6 +38,7 @@ import yaml
 from opera.interpretability.attribution_summaries import (
     TOKEN_COLUMNS,
     completeness_summary,
+    concept_code_mask,
     concept_effects,
     faithfulness_summary,
     headline_numbers,
@@ -69,8 +70,7 @@ def read_tokens(directory: Path, columns):
 def _unmatched(concepts, codes):
     missing = []
     for concept in concepts:
-        prefixes = tuple(concept["codes"])
-        if not any(str(code).startswith(prefixes) for code in codes):
+        if not concept_code_mask(pd.Series(codes, dtype=str), concept).any():
             missing.append(concept["name"])
     return missing
 
@@ -91,15 +91,19 @@ def _concat(frames, columns):
 
 
 def run(input_dir: Path, config: dict, output_dir: Path, *, horizon_days=None):
-    if config.get("concept_mapping_reviewed") is False:
-        warnings.warn(
-            "Clinical code mappings are unreviewed: omitting named clinical concepts and lab curves"
-        )
-        config = {**config, "concepts": [], "lab_tests": []}
-    settings = dict(config.get("summary", {}))
-    # Names: reviewed labels (only once reviewed), official code tables, then
-    # the built-in structure (opera/resources/code_systems).
-    labels = CodeDictionary.from_config(config)
+    run_info = json.loads((input_dir / "attribution_run.json").read_text())
+    provisional = bool(config.get('allow_provisional_concepts')) and not config.get('concept_mapping_reviewed')
+    if provisional and run_info.get('split') != 'tuning':
+        raise ValueError('Provisional concept mappings are restricted to the tuning rehearsal')
+    mapping_status = 'provisional' if provisional else ('reviewed' if config.get('concept_mapping_reviewed') else 'unreviewed')
+    configured_findings = list(config.get('concepts', []))
+    if config.get("concept_mapping_reviewed") is False and not provisional:
+        warnings.warn("Clinical code mappings are unreviewed: omitting named clinical concepts and lab curves")
+        config = {**config, 'concepts': [], 'lab_tests': []}
+    if provisional:
+        warnings.warn('Provisional clinical concepts: review code identities, vocabulary matches and bin semantics before freezing')
+    settings = dict(config.get('summary', {}))
+    labels = CodeDictionary.from_config(config, reviewed=bool(config.get('concept_mapping_reviewed') or provisional))
     draws = int(settings.get("bootstrap_draws", 1000))
     seed = int(settings.get("seed", 2026))
     min_count = int(settings.get("min_count", 20))
@@ -156,7 +160,18 @@ def run(input_dir: Path, config: dict, output_dir: Path, *, horizon_days=None):
 
     # Findings x outcomes. A cell with a prespecified direction is a test.
     findings = list(config.get("concepts", []))
-    missing = _unmatched(findings, tokens.code.unique())
+    codes = tokens.code.dropna().astype(str).unique()
+    coverage = []
+    for concept in configured_findings:
+        prefixes = tuple(concept.get('codes') or [])
+        matches = int(concept_code_mask(pd.Series(codes, dtype=str), concept).sum())
+        coverage.append(dict(concept=concept['name'],label=concept['label'],
+            prefixes=json.dumps(list(prefixes)),n_token_types_matched=matches,
+            mapping_status=mapping_status,
+            coverage_status=('no_code_mapping' if not prefixes else 'matched' if matches else 'no_token_match')))
+    pd.DataFrame(coverage, columns=['concept','label','prefixes','n_token_types_matched','mapping_status','coverage_status']).to_csv(
+        output_dir / 'attribution_concept_coverage.csv',index=False)
+    missing = _unmatched(findings, codes)
     if missing:
         warnings.warn(f"Concepts matching no attributed code: {missing}")
     rows = []
@@ -170,6 +185,7 @@ def run(input_dir: Path, config: dict, output_dir: Path, *, horizon_days=None):
                                         min_count=min_count).pipe(on_scale, column))
     concepts = _concat(rows, ["concept", "label", "outcome", "group", "expected",
                               "n_carriers", "verdict", "mean_pp", "lower_pp", "upper_pp"])
+    concepts["mapping_status"] = mapping_status
     concepts.to_csv(output_dir / "attribution_concepts.csv", index=False)
 
     # What makes patients differ, by source and by time (every outcome).
@@ -283,6 +299,8 @@ def run(input_dir: Path, config: dict, output_dir: Path, *, horizon_days=None):
     (output_dir / "summary_manifest.json").write_text(json.dumps({
         "attribution_run_sha256": sha256(input_dir / "attribution_run.json"),
         "horizon_days": horizon,
+        "mapping_status": mapping_status,
+        "split": run_info.get("split"),
         "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
         "output_sha256": {p.name: sha256(p) for p in output_dir.glob("*.csv")},
     }, indent=2))
@@ -296,8 +314,12 @@ def main():
     parser.add_argument("--horizon-days", type=float,
                         help="Required when explaining multiple horizons")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--allow-provisional-concepts", action="store_true",
+                        help="Auditable proposed mappings for tuning only; never permits held-out summaries")
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())
+    if args.allow_provisional_concepts:
+        config["allow_provisional_concepts"] = True
     print(json.dumps(run(args.input_dir, config, args.output_dir,
                          horizon_days=args.horizon_days), indent=2))
 

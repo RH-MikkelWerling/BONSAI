@@ -5,7 +5,7 @@
 \renewcommand{\thefigure}{S\arabic{figure}}
 \setcounter{table}{0}
 \renewcommand{\thetable}{S\arabic{table}}
-\renewcommand{\resultfigureheight}{0.82\textheight}
+\renewcommand{\resultfigureheight}{0.78\textheight}
 
 \operasection{Supplementary Methods: model and analysis details}
 \input{supplement_model_details}
@@ -44,7 +44,7 @@ the probability of every outcome by each of six horizons.}
 
 \begin{figure}[p]
   \centering
-  \resizebox{!}{0.84\textheight}{\input{figures/cohort_flow}}
+  \resizebox{!}{0.80\textheight}{\input{figures/cohort_flow}}
   \caption{\textbf{Cohort flow diagram.} Of the local pretraining population of 78,668
   adults in DALY-CARE with a lymphoid cancer or precursor (MGUS, MBL) diagnosis, whose pre-2022 histories
   were used for pretraining, 38,635 started first-line treatment. A diagnosis
@@ -65,8 +65,9 @@ the probability of every outcome by each of six horizons.}
     disease--outcome cell.}
   \caption{\textbf{Estimability of disease--outcome cells.} Status of every
   disease--outcome cell at one year: all models evaluated, too few training
-  events to train a specialist, no events in the test period, fit failed, or
-  not applicable (sex- or disease-specific outcomes). Counts in the legend.}
+  events to train a specialist, insufficient evaluation cases or controls,
+  unavailable training support or specialist predictions, or not applicable.
+  Missing specialist predictions are not labelled failed fits without a confirming run log. Counts in the legend.}
   \label{fig:supp-coverage}
 \end{figure}
 
@@ -74,8 +75,13 @@ the probability of every outcome by each of six horizons.}
   \resultfigure[0.9\textwidth]{supp_support}{Training support}{Training
     events per cell and their cumulative distribution.}
   \caption{\textbf{Training events per disease--outcome cell.}
-  \textbf{A}, Training events by one year in each disease--outcome cell (log scale, grey for none). \textbf{B}, Cumulative distribution across cells, with
-  the support-bin edges used in the analysis marked.}
+  \textbf{A}, Training events by one year in every disease--outcome cell, including cells excluded from performance
+  estimation (log scale, grey for zero, hatching for unavailable counts and
+  white for not applicable).
+  Crosses mark fewer than five evaluation cases or controls when those counts
+  are exported. This criterion is separate from training support. \textbf{B},
+  Cumulative distribution of known counts, including zeros. Unavailable counts
+  are reported separately. The descriptive training-support band edges are marked.}
   \label{fig:supp-support}
 \end{figure}
 
@@ -92,8 +98,9 @@ the probability of every outcome by each of six horizons.}
 \begin{figure}[p]
   \resultfigure[0.9\textwidth]{supp_pooling_cells}{Cell-level pooling
     gains}{Disease by outcome maps of each pooling gain.}
-  \caption{\textbf{Pooling gains for each disease--outcome cell.} As
-  \cref{fig:pooling}A--D at the resolution of single cells. Diseases (rows) run from fewest to most training patients and outcomes (columns) from fewest to most training events, with log-scale bars showing both. Dots mark cells whose 95\% interval excludes zero: white for a gain, an open ring for a loss. Most cells are small, so colours alone do not establish benefit or harm. Dots mark unadjusted
+  \caption{\textbf{Pooling gains for each disease--outcome cell.} Disease-pooled, outcome-pooled and joint gains over the specialist, the
+  factorial interaction, and OPERA versus joint are shown separately. The last
+  comparison adds routed corrections and is not a pooling-axis control. Diseases (rows) run from fewest to most training patients and outcomes (columns) from fewest to most training events, with log-scale bars showing both. Dots mark cells whose 95\% interval excludes zero: white for a gain, an open ring for a loss. Most cells are small, so colours alone do not establish benefit or harm. Dots mark unadjusted
   pointwise intervals, not multiplicity-corrected discoveries. Grey cells could not be estimated.}
   \label{fig:supp-pooling-cells}
 \end{figure}
@@ -101,11 +108,12 @@ the probability of every outcome by each of six horizons.}
 \begin{figure}[p]
   \resultfigure[0.9\textwidth]{supp_horizons}{Pooling gains across
     horizons}{Gains at 30 to 730 days.}
-  \caption{\textbf{Pooling gains across horizons.} Median paired AUC gain
+  \caption{\textbf{Pooling gains across horizons.} Mean paired AUC gain
   over the specialist by clinical domain at each horizon for the
   disease-pooled, outcome-pooled and joint models (A--C). Panel D shows the
-  routed model against the joint model. Bars show the interquartile range
-  across cells, not confidence intervals.}
+  routed model against the joint model. Bars show paired 95\% confidence
+  intervals from the saved domain summaries. Descriptive median/IQR fallbacks
+  in design previews are labelled explicitly.}
   \label{fig:supp-horizons}
 \end{figure}
 
@@ -221,9 +229,11 @@ the probability of every outcome by each of six horizons.}
     reduced performance}{Cells harmed on tuning and their test-period gains.}
   \caption{\textbf{Routing in cells where joint learning reduced performance
   on the tuning set.} Cells were classified on the tuning set by whether the joint model
-  was worse than the specialist. \textbf{A}, Routed-versus-joint test gain
-  against the tuning-set harm. \textbf{B}, Test-period gains of the joint and
-  routed models over the specialist in each stratum.}
+  was worse than the specialist. \textbf{A}, Evaluation-period gains of the
+  joint and routed models over the specialist in each stratum. \textbf{B},
+  Routed-versus-joint differences within those same strata. Diamonds and bars
+  show descriptive medians and interquartile ranges. Tuning-on-tuning previews
+  do not provide independent evidence of recovering harmed tasks.}
   \label{fig:supp-rescue}
 \end{figure}
 
@@ -233,9 +243,11 @@ the probability of every outcome by each of six horizons.}
   \caption{\textbf{Router weights by disease and clinical domain.}
   \textbf{A}, Disease-bank shares, normalized within each disease--outcome task
   before averaging (own disease hatched). \textbf{B}, Outcome-bank shares
-  aggregated by clinical domain (own domain hatched). \textbf{C}, The fraction
-  of source-slot gate mass assigned to the disease bank versus the outcome
-  bank. This is allocation mass, not the magnitude of the resulting correction.
+  aggregated by clinical domain (own domain hatched). Sources without an
+  estimable target row remain in the source bank. \textbf{C}, Mean gate weight
+  assigned to other diseases, other outcomes and the remaining own/shared
+  sources, by patient disease group. These shares sum to one and describe
+  allocation, not correction magnitude.
   \textbf{D}, Effective borrowed-source count (exponential entropy) computed
   from mean gates, excluding the shared slot and own-disease/own-outcome slots;
   points and bars show the median and interquartile range across disease
@@ -259,7 +271,7 @@ the probability of every outcome by each of six horizons.}
   the number of patients with the disease. \textbf{C}, The pairs of
   the draft candidate-pair plan, shown descriptively, with the source alone (filled) and the loss when only
   that source is left out of the full model (open).
-  \textbf{D}, Mean partially pooled gain from a source disease alone between
+  \textbf{D}, Mean unshrunk gain from a source disease alone between
   disease groups (rows: target, columns: source) in each of the 12 clinical
   domains, on one scale; diseases with few estimable outcomes are omitted, and
   the groups summarise for reading only (they do not enter the pooling). AUC
@@ -271,10 +283,13 @@ the probability of every outcome by each of six horizons.}
 \begin{figure}[p]
   \resultfigure[\textwidth]{supp_strategy}{Joint model versus per-cell
     selection}{Joint model against the specialist and the tuning-selected best model.}
-  \caption{\textbf{Joint model versus the best model selected for each cell.}
+  \caption{\textbf{Joint model versus tuning-based selection for each cell.}
   \textbf{A}, Test AUC of the joint model against the specialist in each cell, with point size reflecting training events. \textbf{B}, Against the best of
   the specialist, disease-pooled and outcome-pooled models chosen per cell on
-  the tuning set. \textbf{C}, Which model was chosen, by clinical domain.}
+  the tuning set using mean horizon log loss. \textbf{C}, Which model was
+  chosen by clinical domain in an expanded candidate set that also includes
+  the joint model and OPERA. This expanded selection does not change the
+  original specialist/disease-pooled/outcome-pooled policy compared in B.}
   \label{fig:strategy}
 \end{figure}
 
@@ -310,24 +325,42 @@ the probability of every outcome by each of six horizons.}
   \resultfigure[0.9\textwidth]{supp_calibration_maps}{Calibration maps}{Local
     calibration over the patient representation.}
   \caption{\textbf{Local calibration across the patient representation.} Two-dimensional projection of test patients' representations
-  for example outcomes: event status, routing displacement, kernel-smoothed
-  predicted risk and the IPCW-weighted local residual (observed minus
-  predicted).}
+  for example outcomes. Rows show event status, projected routed corrections,
+  IPCW kernel estimates of observed risk, patient-level final-model predicted
+  risk and local calibration residuals (observed minus predicted). Kernel
+  residual estimates are sampled at patient positions for the residual colours,
+  rather than displaying each patient's binary event minus predicted risk.
+  Arrow magnification is shared across outcomes and stated in the key.}
   \label{fig:supp-calibration-maps}
 \end{figure}
 
 \begin{figure}[p]
+  \resultfigure{supp_router_arrows}{Projected router corrections}
+    {A larger companion view of the corrections in the local calibration maps.}
+  \caption{\textbf{Projected router corrections by outcome.} The same patient
+  coordinates and routed corrections as in \cref{fig:supp-calibration-maps},
+  with one shared arrow magnification. Arrows show mean local displacement in
+  supported bins that meet the stated coherence rule. They describe changes
+  in the model representation, not causal changes in patients. An absent
+  vector export is labelled explicitly.}
+  \label{fig:supp-router-arrows}
+\end{figure}
+
+\begin{figure}[p]
   \resultfigure{fig_patient_map}{Patient representation}
-    {A: disease groups on OPERA's patient map. B--F: observed risk of
+    {A: disease groups on OPERA's patient map. B--F: predicted risk of
     five outcomes on the same map. G: local calibration.}
-  \caption{\textbf{Observed outcome risk across \opera{}'s patient
+  \caption{\textbf{Predicted outcome risk across \opera{}'s patient
   representation.} \textbf{A}, Test
   patients on a two-dimensional projection of \opera{}'s patient
-  representation (fitted on tuning patients), with the densest half of each
-  disease group outlined. \textbf{B--F}, The same map coloured by the observed
-  one-year risk of five outcomes from different clinical domains, estimated
-  with censoring-weighted kernels and shown relative to each outcome's average. Regions with too few evaluable patients are blank. \textbf{G}, Observed minus
-  predicted risk of \opera{} for the outcome in \textbf{B}. All 69
+  representation (fitted on tuning patients), coloured by disease group, with
+  numbered group medians linked to the legend.
+  \textbf{B--F}, Patient-level predicted one-year risk of five outcomes from
+  different clinical domains, on a common probability scale.
+  \textbf{G}, IPCW kernel estimates of observed minus
+  predicted risk of \opera{} for overall survival when available, sampled at
+  patient positions. This is a smoothed local calibration estimate, not an
+  individual residual. All 69
   outcomes are shown in \cref{fig:supp-embedding-gallery-1}--\cref{fig:supp-embedding-gallery-6}.
   The map is descriptive and carries no performance claim.}
   \label{fig:patient-map}
@@ -341,10 +374,10 @@ the probability of every outcome by each of six horizons.}
   The same test patients under five model stages: pretraining on the cohort,
   the joint model from that encoder, national pretraining, national pretraining
   adapted to the cohort, and the nationally initialised joint model. The first
-  row outlines where each disease group lies, and the others show the local mean
-  (Gaussian kernel) of age at treatment, the number of recorded events before
-  treatment (log scale) and the IPI category among patients with a recorded IPI,
-  left blank where too few patients are nearby. Each column's projection
+  row colours patients by disease group, with density contours. Other rows
+  colour individual patients by age, recorded events before treatment
+  (log colour scale) and native IPI category. Missing categories remain grey.
+  Each column's projection
   was fitted on tuning patients and applied unchanged to test patients, so
   coordinates are comparable within a column but not between columns. The maps
   are descriptive and carry no performance claim.}
@@ -416,8 +449,10 @@ the probability of every outcome by each of six horizons.}
   division by time before treatment. \textbf{C}, Mean change in predicted
   log-odds among the patients who have each finding, shown as the corresponding
   odds ratio. Boxed cells are the
-  prespecified expected effects, dots mark 95\% patient-bootstrap intervals that
-  exclude zero, and grey cells had fewer than 20 patients with the finding.}
+  expected directions documented in the analysis plan, dots mark 95\% patient-bootstrap intervals that
+  exclude zero, and grey cells had fewer than 20 patients with the finding.
+  Proposed mappings and concepts added during tuning are exploratory and
+  separately flagged. No unmatched concept is counted as a contradicted expectation.}
   \label{fig:attribution-atlas}
 \end{figure}
 
@@ -479,23 +514,22 @@ the probability of every outcome by each of six horizons.}
 
 \begin{figure}[p]
   \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
-    {A: shrunken source-alone gains. B: cross-disease source dependence.
-    C: concentration within disease lineages. D: dependence by clinical domain.}
+    {A: unshrunk source-alone gains. B: cross-disease source dependence.
+    C: the effect of shrinkage. D: dependence by clinical domain.}
   \caption{\textbf{What the fitted model borrows from other diseases.}
   Other-disease adapter terms are replaced by their tuning means without
   retraining or renormalizing the remaining gates; own-disease terms, the
   outcome bank, global corrections and the base encoder path are retained.
   Comparisons use the same evaluated patients (AUC points).
-  \textbf{A}, Adaptively shrunken gains when one source disease is retained
-  alongside the target's own disease. The diagonal is grey; dots indicate
-  positive shrunken approximate intervals. Lineage groups organize the display
-  but do not enter the shrinkage prior. \textbf{B}, Unshrunk cross-disease
+  \textbf{A}, Unshrunk gains when one source disease is retained
+  alongside the target's own disease. Own-source cells are grey. Colour alone does
+  not establish an effect for an individual pair. Lineage groups organise the
+  display. \textbf{B}, Unshrunk cross-disease
   dependence: full-model AUC minus AUC with other-disease terms replaced;
   paired patient-bootstrap intervals and a dashed all-disease mean.
-  \textbf{C}, The share of positive shrunken source-alone estimates from the
-  target's lineage against that lineage's share of available sources. These
-  normalized shares are descriptive, particularly when absolute effects are
-  small. Color denotes effective source count.
+  \textbf{C}, Unshrunk versus shrunken source-alone estimates on an absolute
+  AUC-point scale. The diagonal indicates no change under shrinkage.
+  Near-zero shrunken effects are not normalised into lineage shares.
   \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
   weighing equally; dashed line, all outcomes. Source-alone gains are not
   additive in AUC and need not sum to the total dependence. Further contrasts

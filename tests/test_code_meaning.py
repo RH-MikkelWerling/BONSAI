@@ -37,7 +37,7 @@ def test_names_come_from_the_finest_named_level_reviewed_first():
     assert labels.resolve("DIAGNOSIS//DJ189") == ("Pneumonia", "reviewed")
     assert labels.resolve("DIAGNOSIS//DC833") == ("Non-Hodgkin lymphoma", "group")
     assert labels.resolve("DIAGNOSIS//DZ001") == ("ICD-10 Z00.1", "code")
-    assert labels.name("PATHOLOGY//M96803") == "Lymphoma morphology"
+    assert labels.name("PATHOLOGY//M96803") == "Morphology codes M96"
     assert labels.name("SEX//F") == "Female"
     assert labels.name("RC_SPEC//HAEM") == "Specialty haem"
     # ehr2meds formats: untimed codes, procedure types, text lab results.
@@ -53,7 +53,7 @@ def test_groups_follow_the_outcome_definitions_and_chapters_the_classification()
     assert labels.group("DIAGNOSIS//DJ151") == "Pneumonia"  # range J12-J18
     assert labels.group("DIAGNOSIS//DI509") == "Heart failure"
     assert labels.group("MEDICATION//L03AA02") == "Colony stimulating factors"  # longest wins
-    assert labels.group("PROCEDURE//BOQA05") == "Red cell transfusion"
+    assert labels.group("PROCEDURE//BOQA05") == "Blood transfusion"
     assert labels.chapter("DIAGNOSIS//DD700") == "Blood and immune system"
     assert labels.chapter("DIAGNOSIS//DC833") == "Neoplasms"
     assert labels.chapter("MEDICATION//J01CA04") == "Antiinfectives for systemic use"
@@ -63,9 +63,9 @@ def test_groups_follow_the_outcome_definitions_and_chapters_the_classification()
 def test_dictionary_drops_into_the_attribution_labels():
     labels = CodeDictionary(REVIEWED)
     counts = {"NPU19673": {"min": 0, "max": 8}}
-    assert concept_label("LABTEST//NPU19673//low", labels) == "Low albumin"
-    assert concept_label("LABTEST//NPU19673//mid", labels) == "Albumin, mid-range"
-    assert _code_label("LABTEST//NPU19673//BIN_8", labels, counts) == "High albumin"
+    assert concept_label("LABTEST//NPU19673//low", labels) == "Albumin, lower bins"
+    assert concept_label("LABTEST//NPU19673//mid", labels) == "Albumin, middle bins"
+    assert _code_label("LABTEST//NPU19673//BIN_8", labels, counts) == "Albumin, upper bins"
     assert _code_label("MEDICATION//J01CA04", labels) == "Penicillins"
     assert concept_label("DIAGNOSIS//DI50", labels) == "Heart failure"
     assert concept_label("FOO//BAR", labels) == "Foo BAR"  # unknown formats stay readable

@@ -55,9 +55,9 @@ def concept_label(concept, labels):
         head, _, third = str(concept).rpartition("//")
         base = labels.get(f"{head}//BIN")
         if base and third in {"low", "high"}:
-            return f"{third.capitalize()} {_lower_first(base)}"
+            return f"{base}, {'lower' if third == 'low' else 'upper'} bins"
         if base and third == "mid":
-            return f"{base}, mid-range"
+            return f"{base}, middle bins"
     return _plain(concept)
 
 
@@ -88,7 +88,8 @@ def _code_label(code, labels, counts=None):
     """Reviewed label for a code's concept; laboratory results keep their value.
 
     A laboratory result reads as its value third when the bin ranges are known
-    (``Low albumin``, ``Albumin, mid-range``), otherwise as its bin.
+    (``Albumin, lower bins``, ``Albumin, middle bins``), otherwise as its bin.
+    Relative bins do not establish whether a result is clinically abnormal.
     """
     if code in labels:
         return labels[code]
@@ -100,11 +101,11 @@ def _code_label(code, labels, counts=None):
     if base.startswith("LABTEST//") and "//BIN_" in str(code):
         third = concept.rsplit("//", 1)[1] if concept != base else ""
         if third == "low":
-            return f"Low {_lower_first(text)}" if text != base else f"{text} low"
+            return f"{text}, lower bins"
         if third == "high":
-            return f"High {_lower_first(text)}" if text != base else f"{text} high"
+            return f"{text}, upper bins"
         if third == "mid":
-            return f"{text}, mid-range"
+            return f"{text}, middle bins"
         return f"{text} (bin {str(code).rsplit('BIN_', 1)[1]})"
     return text
 

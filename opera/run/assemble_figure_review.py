@@ -118,6 +118,16 @@ def main():
             target = output / 'reports' / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source,target)
+    # Preserve exportable summaries needed to rerender and audit locally.
+    from opera.run.package_figure_review import REPORT_TABLES
+    for folder, origin in [('attributions/summary_365d', attribution / 'summary_365d'),
+                           ('clinical_scores', clinical)]:
+        for name in sorted(REPORT_TABLES):
+            source = origin / name
+            if source.is_file():
+                target = output / 'reports' / folder / name
+                target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(source,target)
     for name, relative in dict(borrowing='source_removal/tuning/borrowing_map.csv',
         integrated_gradients='attributions/summary_365d/attribution_variance_sources.csv',
         recent_record_removal='input_restrictions/input_restriction_summary.csv',

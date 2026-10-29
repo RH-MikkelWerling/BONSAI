@@ -20,7 +20,9 @@ Keys (``<code>`` is a contrast code such as P5, T2 or E3):
                            the same within subtypes with <500 training patients and
                            within the subtypes without a prognostic index
   cells_evaluable          disease-outcome cells with a one-year joint-model AUC
-  narrow_fits              specialist and pooled neural fits that one joint model replaces
+  evaluable_specialist_tasks  specialist tasks with finite evaluation AUC
+  narrow_fits              requires a separate fit inventory; never inferred
+                           from placeholder metric rows
   cells_low_support        cells with fewer than 20 training events at one year
   dp90_sens_joint / _xgb, dp90_mcc_joint / _xgb
                            median sensitivity and MCC at 90% tuning specificity
@@ -62,11 +64,12 @@ TABLE_ROWS = (
     (None, "Population pretraining (joint model)"),
     ("E1", "National vs cohort encoder"), ("E3", "Adapted national vs cohort encoder"),
     (None, "Population pretraining (OPERA)"),
-    ("E2", "OPERA-N vs OPERA-L"), ("E4", "OPERA-NA vs OPERA-L"),
+    ("E2", "OPERA (national) vs OPERA (local)"),
+    ("E4", "OPERA (national + adaptation) vs OPERA (local)"),
     (None, "Sequence models against tabular models"),
     ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
-    ("O1", "OPERA-L vs per-task XGBoost"),
-    ("T5_router", "OPERA-NA vs per-task XGBoost"),
+    ("O1", "OPERA (local) vs per-task XGBoost"),
+    ("T5_router", "OPERA (national + adaptation) vs per-task XGBoost"),
     ("T2", "Joint vs per-task XGBoost"), ("T6", "Joint vs pooled XGBoost"),
     ("T9", "Joint vs XGBoost with registry variables"),
 )
@@ -160,15 +163,14 @@ def coverage_numbers(estimates, cells):
         joint = estimates.loc[(estimates.split == SPLIT) & (estimates.horizon_days == HORIZON)
                               & (estimates.model == "J_L") & (estimates.metric == "auc")]
         numbers["cells_evaluable"] = f"{int(joint.estimate.notna().sum()):,}"
-        # Fits replaced by one joint model: every specialist cell, one
-        # disease-pooled model per outcome and one outcome-pooled model per disease.
-        evaluated = estimates.loc[(estimates.split == SPLIT) & (estimates.metric == "auc")]
+        # Evaluation exports include placeholder rows for untrained tasks.
+        # Even finite metrics count evaluable tasks, not the number of fits.
+        evaluated = estimates.loc[(estimates.split == SPLIT) & (estimates.metric == "auc")
+                                  & estimates.estimate.notna()]
         specialists = evaluated.loc[evaluated.model == "S_L",
                                     ["cohort", "outcome"]].drop_duplicates()
-        pooled_outcomes = evaluated.loc[evaluated.model == "D_L", "outcome"].nunique()
-        pooled_diseases = evaluated.loc[evaluated.model == "O_L", "cohort"].nunique()
         if len(specialists):
-            numbers["narrow_fits"] = f"{len(specialists) + pooled_outcomes + pooled_diseases:,}"
+            numbers["evaluable_specialist_tasks"] = f"{len(specialists):,}"
 
     if cells is not None and "n_events_train" in cells:
         year = cells.loc[cells.horizon_days == HORIZON].drop_duplicates(["cohort", "outcome"])
@@ -192,18 +194,22 @@ def decision_numbers(points):
 
 def clinical_numbers(headline, strata, inventory):
     numbers = {}
-    if headline is None or "manuscript" not in headline:
+    required = {'manuscript', 'score_id', 'threshold_split', 'model'}
+    if headline is None or not required <= set(headline):
         return numbers
-    main = headline.loc[headline.manuscript.astype(str).str.lower() == "true"]
+    main = headline.loc[(headline.manuscript.astype(str).str.lower() == "true")
+                        & headline.threshold_split.eq('train')]
     if not len(main):
         return numbers
+    if len(main) != 1:
+        raise ValueError('Choose exactly one primary clinical score for manuscript numbers')
     row = main.iloc[0]
     numbers["ipi_extra_per1000"] = f"{row.extra_events_flagged_per_1000:.0f}"
     numbers["ipi_low_extra_per1000"] = f"{row.model_low_per_1000 - row.index_low_per_1000:.0f}"
     if strata is not None and inventory is not None:
         ids = inventory.loc[inventory.get("status", pd.Series(dtype=str)) == "rendered", "score_id"]
-        candidates = strata.loc[strata.score_id.isin(ids)]
-        # The manuscript score is the rendered score whose low-risk shares match the headline row.
+        candidates = strata.loc[strata.score_id.isin(ids) & strata.score_id.eq(row.score_id)]
+        # Match explicit identities, never guess from coincidentally equal shares.
         for score_id, rows in candidates.groupby("score_id"):
             groups = [g for g in rows.group.unique() if not str(g).startswith("top")]
             low, high = groups[0], groups[-1]
@@ -304,6 +310,7 @@ def table_rows(panel):
         for variant in ("NA", "N", "L"):
             label = label.replace("OPERA-" + variant, r"\opera{} ("
                                   + {"L": "local", "N": "national", "NA": "national + adaptation"}[variant] + ")")
+        label = label.replace('OPERA (', r'\opera{} (')
         label = "\\quad " + label
         found = panel.loc[panel.contrast == code]
         if not len(found):

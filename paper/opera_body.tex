@@ -374,8 +374,7 @@ diseases} (\cref{fig:supp-atlas-matrix}).
 \previewonly{In the tuning analysis, per-task XGBoost had higher AUC than
 the cohort-pretrained OPERA model in most evaluated cells.}
 Across the test cells and horizons, the mean AUC difference between \opera{}
-and per-task XGBoost was \result{O1_auc}{X} (95\% CI
-\placeholder{lower to upper}). The IPA difference was \result{O1_ipa}{Y}.
+and per-task XGBoost was \result{O1_auc}{X}. The IPA difference was \result{O1_ipa}{Y}.
 \opera{} had higher AUC in \result{O1_better}{N of M} cells
 (\cref{fig:headline}A--B, \cref{tab:panel-effects}).
 \placeholder{State the direction and size of the test-set difference, followed
@@ -435,16 +434,17 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
     {Gains over each reference per cell, against XGBoost per cell, against the
     clinical indices, across horizons and by recorded history.}
   \caption{\textbf{Performance of \opera{} relative to reference
-  methods.} \textbf{A}, AUC gain over each reference, pooled over the six
-  horizons, one point per disease--outcome cell with enough test events. Diamonds show paired mean gains with 95\% bootstrap intervals when the
-  aggregate estimates are available. Descriptive median/IQR fallbacks in
-  tuning previews are labelled explicitly. The figures on the right give the
-  share of cells with a positive point estimate. \textbf{B}, One-year AUC of \opera{}
+  methods.} \textbf{A}, One-year AUC for every available sequence-model and
+  tabular variant on the same complete-case task roster. Small points show
+  individual task AUCs and diamonds show descriptive means. These are not
+  population-pooled AUCs or inferential comparisons. Paired differences with
+  confidence intervals are reported in Table 2. \textbf{B}, One-year AUC of \opera{}
   against per-task XGBoost in each cell, with point size reflecting training events.
   \textbf{C}, Share of patients with the event placed in the high-risk group by
   each clinical index and by \opera{} at frozen training-derived cutoffs.
-  Specificity was targeted in training and may differ in evaluation. \textbf{D}, Median AUC gain over per-task XGBoost of
-  each neural model at each horizon. \textbf{E}, Improvement in Brier
+  Specificity was targeted in training and may differ in evaluation. \textbf{D}, Mean AUC gain over per-task XGBoost of
+  the joint model, primary OPERA, original-router sensitivity and available
+  national OPERA variants at each horizon. \textbf{E}, Improvement in Brier
   score, pooled over horizons, over the specialist and over XGBoost by the number
   of events recorded before treatment ($\times$100, 95\% CI). Within each contrast, models are evaluated on the same test patients.}
   \label{fig:headline}
@@ -494,7 +494,8 @@ One \opera{} model covered the tasks served by \result{narrow_fits}{N}
 separate specialists. Training time and storage were \placeholder{X and Y},
 compared with \placeholder{A and B} for the separate models
 (Supplementary Table~\placeholder{S}). We also selected the best specialist,
-disease-pooled or outcome-pooled model for each cell using tuning AUC.
+disease-pooled or outcome-pooled model for each cell using mean horizon
+tuning log loss.
 Compared with that selection strategy, the joint model differed by
 \result{J_vs_best_tuning_auc}{X} AUC across
 \result{J_vs_best_tuning_cells}{N} cells (\cref{fig:strategy}).
@@ -680,9 +681,9 @@ were for X from Y} (\cref{fig:borrowing-map}A). \placeholder{With all borrowed
 corrections switched off, the model lost X AUC points over all diseases, from Y
 in the largest disease to Z in the smallest} (\cref{fig:borrowing-map}B),
 \placeholder{and the loss was larger in diseases with fewer training patients}
-(\cref{fig:supp-borrowing-detail}B). \placeholder{The diseases borrowed from
-similar mixtures of sources (median correlation of their borrowing profiles X),
-rather than each from a few related diseases} (\cref{fig:borrowing-map}C).
+(\cref{fig:supp-borrowing-detail}B). \placeholder{Report how the unshrunk
+pairwise estimates changed under adaptive shrinkage, and whether any individual
+source effects remained distinguishable from zero} (\cref{fig:borrowing-map}C).
 \placeholder{Borrowing mattered most for X outcomes and least for Y}
 (\cref{fig:borrowing-map}D), \placeholder{and IPA agreed / differed}
 (\placeholder{Supplementary Table}).

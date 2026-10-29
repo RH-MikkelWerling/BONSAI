@@ -12,6 +12,8 @@ required_figures:
 - fig_tabular
 - fig_benchmarks
 - fig_patient_map
+- supp_patient_disease_groups
+- supp_model_overview
 - fig_external
 - supp_routing
 - supp_router_usage
@@ -25,6 +27,7 @@ required_figures:
 - fig_hierarchy
 - supp_strategy
 - supp_calibration_maps
+- supp_router_arrows
 - supp_embedding_gallery_1
 - supp_embedding_gallery_2
 - supp_embedding_gallery_3
@@ -58,6 +61,12 @@ figures:
 - id: fig_headline
   # Run `clinical-scores` before `figures`: panel D reads its headline_scores.csv.
   function: figure_headline
+  options:
+    focus_model: OPERA
+    focus_label: OPERA (local)
+    clinical_model: R_L
+    require_training_scores: true
+    model_overview: false
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
     models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
@@ -81,6 +90,9 @@ figures:
     gate: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gate_effects.csv
 - id: fig_borrowing_map
   function: figure_borrowing_map
+  options:
+    pair_estimate: raw
+    pair_vmax: 2.0
   tables:
     table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_map.csv
     hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypotheses.csv
@@ -88,6 +100,9 @@ figures:
     test: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypothesis_test.csv
 - id: supp_borrowing_detail
   function: figure_borrowing_detail
+  options:
+    pair_estimate: raw
+    pair_vmax: 2.0
   tables:
     table: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_map.csv
     hypotheses: ${OPERA_PAPER_ANALYSIS_ROOT}/source_removal/${OPERA_PAPER_PLOT_SPLIT}/borrowing_hypotheses.csv
@@ -108,6 +123,14 @@ figures:
   tables:
     coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
     outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/embedding_gallery.parquet
+- id: supp_patient_disease_groups
+  function: figure_patient_disease_groups
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gallery_coordinates.csv
+- id: supp_model_overview
+  function: figure_model_overview
+  tables:
+    models: ${OPERA_PAPER_PLOT_TABLE_ROOT}/model_cells.csv
 - id: fig_benchmarks
   function: figure_benchmarks
   tables:
@@ -132,6 +155,8 @@ figures:
   function: figure_support
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+    training: ${OPERA_PAPER_PLOT_TABLE_ROOT}/training_support.csv
+    coverage: ${OPERA_PAPER_PLOT_TABLE_ROOT}/coverage.csv
 - id: supp_rescue
   function: figure_rescue
   tables:
@@ -147,6 +172,12 @@ figures:
     selection: ${OPERA_PAPER_PLOT_TABLE_ROOT}/selected_strategy.csv
 - id: supp_calibration_maps
   function: figure_calibration_maps
+  tables:
+    coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_coordinates.csv
+  json_inputs:
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/calibration_map_outcomes.json
+- id: supp_router_arrows
+  function: figure_router_arrows
   tables:
     coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/patient_coordinates.csv
   json_inputs:

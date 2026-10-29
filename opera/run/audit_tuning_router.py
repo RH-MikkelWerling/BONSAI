@@ -24,9 +24,13 @@ def digest(path):
     return result.hexdigest()
 
 
-def reconcile_metrics(config, analysis):
+def reconcile_metrics(config, analysis, *, models=None):
     """Recompute cell metrics from the same CIFs; compare both implementations
-    and saved estimates without fitting or bootstrapping anything."""
+    and saved estimates without fitting or bootstrapping anything.
+
+    Explicit models also accept canonical long tabular tables. The default
+    remains the neural-only reconciliation used by the router replay.
+    """
     import numpy as np
 
     from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
@@ -40,12 +44,13 @@ def reconcile_metrics(config, analysis):
     manifest_path = analysis / 'prediction_analysis' / 'analysis_manifest.json'
     support = (json.loads(manifest_path.read_text()).get('performance_support')
                if manifest_path.is_file() else None)
-    wanted = {'J_L', 'R_L', 'R_AB_L', 'R_ORIG_L', config.get('opera_model')}
+    wanted = (set(models) if models is not None else
+              {'J_L', 'R_L', 'R_AB_L', 'R_ORIG_L', config.get('opera_model')})
     reports = []
     for spec in config['artifacts']:
         if spec['model'] not in wanted or spec.get('split') != 'tuning':
             continue
-        if spec.get('format') != 'direct_cif':
+        if models is None and spec.get('format') != 'direct_cif':
             continue
         frame, _ = read_artifact(spec, metadata, config['estimand'])
         if config.get('analysis_horizons_days'):
@@ -89,7 +94,7 @@ def reconcile_metrics(config, analysis):
             report['recomputed_vs_saved_max_abs_error'] = (
                 float((finite.recomputed - finite.estimate).abs().max()) if len(finite) else None)
         pooled_recomputed = None
-        if config['estimand'] == 'cif_ipcw':
+        if config['estimand'] == 'cif_ipcw' and spec.get('format') == 'direct_cif':
             pooled_frame, _ = normalize_predictions(frame.assign(cohort='ALL'), 'cif_ipcw')
             pooled_rows = []
             for (outcome, horizon), cell in pooled_frame.groupby(['outcome', 'horizon_days']):
@@ -115,6 +120,10 @@ def reconcile_metrics(config, analysis):
                 'patients pooled across diseases per outcome, then finite outcome/horizon AUCs averaged; '
                 'not the fine-disease cell estimator')
         reports.append(report)
+    if models is not None:
+        missing = wanted - {row['model'] for row in reports}
+        if missing:
+            raise ValueError(f'Requested metric models have no tuning artifacts: {sorted(missing)}')
     return reports
 
 
@@ -301,7 +310,11 @@ def main():
     parser.add_argument('--route-diagnostics', action='store_true')
     parser.add_argument('--recompute-metrics', action='store_true',
                         help='CPU: recompute native and paper cell AUC/Brier from saved tuning CIFs')
+    parser.add_argument('--metric-models', nargs='+',
+                        help='Explicit models for --recompute-metrics, including canonical tabular tables (e.g. X XP J_L OPERA)')
     args = parser.parse_args()
+    if args.metric_models and not args.recompute_metrics:
+        parser.error('--metric-models requires --recompute-metrics')
     env = dotenv_values(args.env_file)
     root = Path(env['OPERA_PAPER_ROOT']).resolve()
     analysis = args.analysis_root or Path(env['OPERA_PAPER_ANALYSIS_ROOT'])
@@ -309,7 +322,7 @@ def main():
                    route_diagnostics=args.route_diagnostics)
     if args.recompute_metrics:
         config = yaml.safe_load((analysis / 'analysis_inventory' / 'analysis.yaml').read_text())
-        report['metric_reconciliation'] = reconcile_metrics(config, analysis)
+        report['metric_reconciliation'] = reconcile_metrics(config, analysis, models=args.metric_models)
     report["active_env_file"] = str(args.env_file.resolve())
     report["configured_routed_model"] = env.get("OPERA_PAPER_ROUTED_MODEL")
     report["configured_opera_model"] = env.get("OPERA_PAPER_OPERA_MODEL")

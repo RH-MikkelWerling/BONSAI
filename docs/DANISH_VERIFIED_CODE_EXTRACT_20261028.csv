@@ -1,0 +1,346 @@
+system,code,official_label,unit,valid_from,valid_to,public_identity,source
+npu,NPU19658,Plasma—L-Lactate dehydrogenase; catalytic-activity concentration(IFCC reference measurement procedure (37 °C) for LDH) = ? Unit per litre,Unit per litre,2003-11-28 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU19673,Plasma—Albumin; mass concentration = ? gram per litre,gram per litre,2004-03-05 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU02319,Blood—Haemoglobin(Fe); substance concentration = ? millimole per litre,millimole per litre,2001-01-15 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU02902,Blood—Neutrophilocytes; number concentration = ? 109 per litre,109 per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU03568,Blood—Thrombocytes; number concentration = ? 109 per litre,109 per litre,1997-09-10 02:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU18016,Plasma—Creatininium; substance concentration = ? micromole per litre,micromole per litre,2000-05-29 02:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU19748,Plasma—C-reactive protein; mass concentration = ? milligram per litre,milligram per litre,2004-03-05 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+snomed,FE16E3,TP53 gen muteret,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE16E4,TP53 gendeletion påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FK17D0,del(17p13) TP53 påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D | https://www.patobank.dk/kodebog/?tag=E
+snomed,FE18UA,MYC translokation påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D
+snomed,J3N8U1,IGH::MYC (t(8;14)) påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,J3N8U3,IGL::MYC (t(8;22)) påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,JFR8U1,IGK::MYC (t(2;8)) påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE13N8,IgHV gen ikke hypermuteret,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+icd10,I50,Hjertesvigt,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,N18,Kronisk nyreinsufficiens,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J12,Virus-lungebetændelse IKA,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J13,Pneumokok-lungebetændelse,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J14,Hæmofilus-lungebetændelse,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J15,Anden bakteriel lungebetændelse IKA,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J16,Lungebetændelse forårsaget af andre infektiøse agentia IKA,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J17,Lungebetændelse ved sygdomme klassificeret andetsteds,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J18,Lungebetændelse f.a. ikke nærmere spec. mikroorganisme,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J01,antibakterielle midler til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H02AB,glucocorticoider,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L01,antineoplastiske stoffer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+npu,NPU19651,Plasma—Alanine transaminase; catalytic-activity concentration(IFCC reference measurement procedure (37 °C) for ALT) = ? Unit per litre,Unit per litre,2003-11-28 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU27783,Plasma—Alkaline phosphatase; catalytic-activity concentration(37 °C;procedure) = ? Unit per litre,Unit per litre,2010-01-07 12:18:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU01370,Plasma—Bilirubins; substance concentration = ? micromole per litre,micromole per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU19763,Plasma—Ferritin; mass concentration = ? microgram per litre,microgram per litre,2004-03-05 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU02636,Blood—Lymphocytes; number concentration = ? 109 per litre,109 per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU01933,Blood—Eosinophilocytes; number concentration = ? 109 per litre,109 per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU03429,Plasma—Sodium ion; substance concentration = ? millimole per litre,millimole per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU03230,Plasma—Potassium ion; substance concentration = ? millimole per litre,millimole per litre,1996-06-06 02:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+icd10,I48,Atrieflagren og atrieflimren,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I21,Akut myokardieinfarkt,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I26,Blodprop i lunge,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,N17,Akut nyreinsufficiens,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,E10,Type 1-diabetes,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,E11,Type 2-diabetes,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J44,Kronisk obstruktiv lungesygdom,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,A41,Anden sepsis,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B02,Zoster,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D70,Neutropeni,,20190401,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J01C,"beta-lactam antibakterika, penicilliner",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J01D,andre beta-lactam antibakterika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J01M,quinolon antibakterika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J02A,antimykotika til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J05A,direkte virkende antivirale midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L01A,alkyleringsmidler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L01B,antimetabolitter,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L01X,andre antineoplastiske stoffer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L04A,immunsuppressiva,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H02A,"kortikosteroider til systemisk brug, usammensatte",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C03C,high-ceiling diuretika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B01A,antithrombosemidler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A10A,insuliner og analoger,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N02A,opioider,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+snomed,M96803,diffust storcellet B-cellelymfom,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=E
+snomed,FE16E0,TP53 mutation ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE16E1,TP53 genstatus normal,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE16E9,TP53 genvariant af ukendt klinisk betydning,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FK17D1,del(17p13) TP53 ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D | https://www.patobank.dk/kodebog/?tag=E
+snomed,FE13N7,IgHV gen hypermuteret,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE13N0,IGH mutation ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE18UB,MYC translokation ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D
+snomed,FE18U3,MYC gen muteret,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE18U5,MYC genamplifikation påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,J08141,t(8;14) translokation påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D | https://www.patobank.dk/kodebog/?tag=E
+icd10,A40,Sepsis forårsaget af streptokokker,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B44,Aspergillose,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B45,Kryptokokkose,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B46,Zygomykose,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B59,Pneumocystose,,20120101,20181231,verified historical SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,B485,Pneumocystose,,20190101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C81,Hodgkin lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C82,Follikulære lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C83,Ikke-follikulære lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C84,Modne NK/T-celle lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C85,Andre og ikke specificerede non-Hodgkin lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C86,Andre NK/T-celle lymfomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C88,Maligne immunoproliferative sygdomme,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C90,Maligne plasmacelle neoplasier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C91,Lymfatiske leukæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D50,Jernmangelanæmi,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D51,Anæmi forårsaget af vitamin B12-mangel,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D52,Anæmi forårsaget af folinsyremangel,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D53,Andre ernæringsbetingede anæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D54,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D55,Anæmi forårsaget af enzymatiske forstyrrelser,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D56,Talassæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D57,Seglcellesygdomme,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D58,Andre arvelige hæmolytiske anæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D59,Erhvervede hæmolytiske anæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D60,Erhvervet pure red cell aplasi,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D61,Andre aplastiske anæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D62,Akut anæmi efter blødning,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D63,Anæmi ved kroniske sygdomme klassificeret andetsteds,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D64,Andre anæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,E12,Diabetes forårsaget af underernæring,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,E13,Andre former for diabetes,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,E14,Ikke spec. diabetes,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I22,Tilbagevendende akut hjerteinfarkt,,19940101,20060630,verified historical SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I63,Hjerneinfarkt,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I64,Slagtilfælde uden oplysning om blødning eller infarkt,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,G45,Transitorisk cerebral iskæmi og beslægtede syndromer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I80,Årebetændelse,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I81,Trombose i portåren,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I82,Anden venøs emboli og trombose,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I10,Blodtryksforhøjelse af ukendt årsag,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I11,Hypertensiv hjertesygdom,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I12,Hypertensiv nyresygdom,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I13,Blodtryksforhøjelse med både hjertesygdom og nyresygdom,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I14,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,I15,Blodtryksforhøjelse med kendt årsag,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S02,Kraniebrud og brud af ansigtsknogler,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S12,Fraktur i halsregionen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S22,"Fraktur af ribben, brystbenet og torakale rygsøjle",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S32,Fraktur af lumbale rygsøjle og bækken,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S42,Fraktur af skulder og overarm,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S52,Fraktur af albue og underarm,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S62,Fraktur af håndled og hånd,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S72,Fraktur af femur,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S82,"Fraktur af knæ, underben og ankel",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,S92,Fraktur af fod,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,T02,Frakturer i flere legemsregioner,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,M80,Osteoporose med patologisk fraktur,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J02,antimykotika til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J05,antivirale midler til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L04,immunsuppressiva,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L03AA,kolonistimulerende faktorer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H02B,"kortikosteroider til systemisk brug, kombinationer",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H02C,antiadrenale præparater,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B01,antithrombosemidler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C03,diuretika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA,Behandling med blodtransfusion,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQC,Behandling med trombocytter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BGDA0,Respiratorbehandling,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BGDA1,Non-invasiv ventilation (NIV),,20040101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BGDA2,High-flow ilt-behandling,,20200101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BGDA7,Tilslutning af patient til respirator,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A,Fordøjelsesorganer og stofskifte,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B,Blod og bloddannende organer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C,Kardiovaskulære system,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D,Dermatologiske midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,G,Urogenitalsystem og kønshormoner,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H,"Systemiske hormonpræparater, excl. kønshormoner",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J,Midler mod infektionssygdomme til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L,Antineoplastiske og immunomodulerende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,M,Muskulo-skeletal system,,20060401,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N,Nervesystemet,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,P,"Antiparasitære midler, insekticider og repellanter",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,R,Respirationssystemet,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,S,Sanseorganer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,V,Diverse,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A01,midler mod sygdomme i mundhulen,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A02,midler mod syrerelaterede forstyrrelser,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A03,midler mod funktionelle gastrointestinale forstyrrelser,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A04,antiemetika og midler mod kvalme,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A05,galde- og leverterapi,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A06,midler mod obstipatio,,20130401,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A07,midler mod diarré og tarminflammation/-infektion,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A09,"digestiva, incl. enzymer",,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A10,antidiabetika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A11,vitaminer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A12,mineralpræparater,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,A16,andre midler til fordøjelsesorganer og stofskifte,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B02,hæmostatika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B03,midler mod anæmi,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B05,blodsubstitutter og perfusionsvæsker,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,B06,andre hæmatologiske midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C01,hjerteterapi,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C02,antihypertensiva,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C04,perifere vasodilatorer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C05,vasoprotectiva,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C07,beta-blokerende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C08,calciumantagonister,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C09,midler med virkning på renin-angiotensin systemet,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C10,lipid-modificerende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D01,fungicider til dermatologisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D02,blødgørende og hudbeskyttende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D06,antibiotika og kemoterapeutika til dermatologisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D07,kortikosteroider til dermatologisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,D08,antiseptika og desinficerende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,G01,gynækologiske antiinfektiva og antiseptika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,G03,kønshormoner og modulatorer af genitalsystemet,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,G04,urologika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H01,hypofyse- og hypothalamus-hormoner og analoger,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H02,kortikosteroider til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H03,thyroidea-terapi,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,H05,calciumhomeostase,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J04,antimycobacterica,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J06,immunsera og immunoglobuliner,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J07,vacciner,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L02,endocrin terapi,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L03,immunstimulerende midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,M01,antiinflammatoriske og antirheumatiske midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,M03,muskelrelaxantia,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,M04,midler mod arthritis urica,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,M05,midler til behandling af knoglesygdomme,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N01,anæstetika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N02,analgetika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N03,antiepileptika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N04,anti-parkinson midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N05,psykoleptika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N06,psykoanaleptika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N07,andre midler med virkn. på centralnervesystemet,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,P01,antiprotozo-midler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,R03,midler mod obstruktiv lungesygdom,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,R05,midler mod hoste og forkølelse,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,R06,antihistaminer til systemisk brug,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,S01,oftalmologika,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,V03,alle andre terapeutiske produkter,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,V06,generelle næringsstoffer,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,V08,kontrastmidler,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,C03CA01,furosemid,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,J189,Pneumoni UNS,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J01CA04,amoxicillin,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,J02AC01,fluconazol,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,L01XC02,rituximab,,20000101,20220331,verified historical SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,N185,"Kronisk nyreinsufficiens, terminal stadie 5",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,KTNE25A,Knoglemarvsbiopsi fra crista iliaca,,20050601,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+atc,N02BE01,paracetamol,,19970516,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,Z00,Undersøgelse af personer uden klager eller diagnoser,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+snomed,M96,M96003: malignt lymfom | M96121: monoklonal B-cellelymfocytose | M96103: B-cellelymfom | M96203: T-cellelymfom,,,,mixed morphology prefix verified through descendants,https://www.patobank.dk/kodebog/?tag=E | https://www.patobank.dk/kodebog/?tag=D
+sks_procedure,KTNE,Mindre kirurgiske procedurer på bækken,,20050601,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+snomed,M95,"M950A1: diffus leptomeningeal glioneuronal tumor | M95911: monoklonal B-cellelymfocytose, non-CLL-type | M959B3: splenisk B-cellelymfom/leukæmi m. prominente nucleoli | M95913: splenisk diffus rød pulpa småcellet B-lymfom",,,,mixed morphology prefix verified through descendants,https://www.patobank.dk/kodebog/?tag=E | https://www.patobank.dk/kodebog/?tag=D
+snomed,M97,M97013: Sezarys syndrom | M97243: systemisk EBV-positivt T-cellelymfom hos børn | M97271: moden plasmacytoid dendritcelle proliferation | M97313: solitært knogleplasmacytom,,,,mixed morphology prefix verified through descendants,https://www.patobank.dk/kodebog/?tag=E | https://www.patobank.dk/kodebog/?tag=D
+snomed,M98,M98003: leukæmi | M98013: akut udifferentieret leukæmi | M98043: aleukæmisk leukæmi | M98053: akut leukæmi af ubestemmelig cellelinje,,,,mixed morphology prefix verified through descendants,https://www.patobank.dk/kodebog/?tag=E | https://www.patobank.dk/kodebog/?tag=D
+snomed,M99,M99103: akut megakaryoblastleukæmi | M99113: AML med RBM15::MRTFA fusion | M99123: AML med BCR::ABL1 fusion | M99203: myeloid neoplasi post cytotoksisk terapi,,,,mixed morphology prefix verified through descendants,https://www.patobank.dk/kodebog/?tag=E | https://www.patobank.dk/kodebog/?tag=D
+npu,NPU02647,Plasma—Magnesium(II); substance concentration = ? millimole per litre,millimole per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+npu,NPU03096,Plasma—Phosphate(P; inorganic); substance concentration = ? millimole per litre,millimole per litre,1996-01-01 01:00:00,0000-00-00 00:00:00,verified NPU definition,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+icd10,D45,Polycythaemia vera,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D46,Myelodysplastiske syndromer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,D47,Andre neoplasier fra lymfoidt og hæmatopoietisk væv,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA0,Blodtransfusion,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA00,Blodtransfusion op til 1 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA01,Blodtransfusion op til 3 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA02,Blodtransfusion op til 5 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA03,Blodtransfusion op til 7 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA04,Blodtransfusion op til 9 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQA05,Blodtransfusion over 9 liter,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BOQC3,Behandling med andet trombocytprodukt,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BPH,Systemisk antibiotikabehandling af infektionssygdomme,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+sks_procedure,BJFD,Dialysebehandling,,19990101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C00,Læbekræft,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C01,Kræft i basis af tunge,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C02,Kræft i andre og ikke specificerede dele af tungen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C03,Kræft i tandkødet,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C04,Kræft i mundgulvet,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C05,Kræft i ganen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C06,Kræft i andre og ikke specificerede dele af mundhulen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C07,Kræft i ørespytkirtel,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C08,Kræft i andre og ikke specificerede store spytkirtler,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C09,Kræft i tonsiller,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C10,Kræft i mundsvælget,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C11,Kræft i næsesvælget,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C12,Kræft i recessus piriformis,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C13,Kræft i hypopharynx,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C14,"Kræft m. andre og dårligt spec. lokal. i læbe, mund og svælg",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C15,Kræft i spiserøret,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C16,Kræft i mavesækken,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C17,Kræft i tyndtarmen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C18,Kræft i tyktarmen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C19,Kræft på overgangen mellem tyktarm og endetarm,,19940101,20080930,verified historical SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C20,Kræft i endetarmen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C21,Kræft i endetarmsåbningen og analkanalen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C22,Kræft i leveren og intrahepatiske galdegange,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C23,Kræft i galdeblæren,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C24,Kræft i andre og ikke specificerede dele af galdeveje,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C25,Kræft i bugspytkirtlen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C26,Kræft i andre og dårligt specificerede fordøjelsesorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C27,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C28,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C29,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C30,Kræft i næsehulen og mellemøret,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C31,Kræft i bihuler,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C32,Kræft i strubehovedet,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C33,Kræft i luftrøret,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C34,Kræft i bronkier og lunge,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C35,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C36,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C37,Kræft i thymus,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C38,"Kræft i hjerte, mediastinum og lungehinde",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C39,Kræft med anden/uspec. lokal. i åndedræts-/brysthuleorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C40,Kræft i knogler og ledbrusk i ekstremiteter,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C41,Kræft i knogler og ledbrusk med andre og ikke spec. lokal.,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C42,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C43,Modermærkekræft i huden,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C45,Maligne mesoteliomer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C46,Kaposis sarkom,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C47,Kræft i perifere nerver og autonome nervesystem,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C48,Kræft i bughinden og i bughulens bagvæg,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C49,Kræft i andet bindevæv og bløddelsvæv,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C50,Brystkræft,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C51,Kræft i ydre kvindelige kønsorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C52,Kræft i vagina,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C53,Kræft i livmoderhalsen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C54,Kræft i livmoderen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C55,Kræft i livmoderen uden nærmere spec. lokalisation,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C56,Kræft i æggestok,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C57,Kræft i andre og ikke specificerede kvindelige kønsorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C58,Kræft i moderkagen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C59,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C60,Kræft i penis,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C61,Kræft i blærehalskirtlen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C62,Testikelkræft,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C63,Kræft i andre og ikke specificerede mandlige kønsorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C64,Nyrekræft,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C65,Kræft i nyrebækken,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C66,Kræft i urinleder,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C67,Kræft i urinblæren,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C68,Kræft i andre og ikke specificerede urinorganer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C69,Kræft i øje og omgivende strukturer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C70,Kræft i hjernehinde og rygmarvshinde,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C71,Kræft i hjernen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C72,"Kræft i rygmarv, kranienerver og andre dele af CNS",,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C73,Kræft i skjoldbruskkirtlen,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C74,Kræft i binyre,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C75,Kræft i andre endokrine kirtler og lignende strukturer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C76,Kræft med andre og dårligt specificerede lokalisationer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C77,Metastaser og kræft UNS i lymfeknuder,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C78,Metastaser i åndedrætsorganer og fordøjelsessystemet,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C79,Metastaser i andre specificerede lokalisationer,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C87,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C89,,,,,unassigned category in numerical range,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C92,Myeloide leukæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C93,Monocytære leukæmier,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C94,Andre leukæmier af specificerede celletyper,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C95,Leukæmier af ikke spec. celletype,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C96,An/ikke-spec maligne neoplasier fra lymfoidt/hæmatopoidt væv,,20120101,25000101,verified SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+icd10,C97,Kræft opstået uafhængigt i flere lokalisationer,,19940101,20101231,verified historical SKS code,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt
+snomed,FE16E2,TP53 geninsertion påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE16E5,TP53 genamplifikation påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE16EE,TP53 gendeletion ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE13N3,IGH gen muteret,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE18U0,MYC mutation ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,FE18U9,MYC genvariant af ukendt klinisk betydning,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,J08140,t(8;14) translokation ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V | https://www.patobank.dk/kodebog/?tag=D | https://www.patobank.dk/kodebog/?tag=E
+snomed,J3N8U0,IGH::MYC (t(8;14)) ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,J3N8U2,IGL::MYC (t(8;22)) ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+snomed,JFR8U0,IGK::MYC (t(2;8)) ikke påvist,,,,verified current public codebook; historical dates pending,https://www.patobank.dk/kodebog/?tag=V
+npu,NPU19123,,,,,NOT FOUND,https://cms.ifcc.org/wp-content/uploads/npu-codes-latest.csv
+sks_procedure,KTSF,,,,,NOT FOUND,https://filer.sundhedsdata.dk/sks/data/skscomplete/SKScomplete.txt

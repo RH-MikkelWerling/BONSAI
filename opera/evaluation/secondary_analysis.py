@@ -1076,6 +1076,9 @@ def tuning_selected_strategies(frame, candidates=("S_L", "D_L", "O_L")):
     decisions, selected = [], []
     for key, cell in frame.groupby(["seed", "cohort", "outcome"]):
         identity = dict(zip(["seed", "cohort", "outcome"], key))
+        identity.update(candidate_models='|'.join(candidates),
+                        selection_metric='mean_horizon_ipcw_log_loss' if 'ipcw_weight' in frame
+                        else 'mean_horizon_log_loss')
         eligible = tuning_by_cell.get(key, empty)
         by_model = {name: eligible.loc[eligible.model == name] for name in candidates}
         if any(group.empty for group in by_model.values()):

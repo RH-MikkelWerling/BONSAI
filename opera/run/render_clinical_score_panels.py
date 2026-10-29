@@ -535,6 +535,7 @@ def main():
     from opera.visualization.style import save_fig as _save_fig
 
     mark = os.environ.get("OPERA_PAPER_FIGURE_MARK")
+    layout_records = []
 
     def save_fig(fig, path):
         """Save, with the preview mark (OPERA_PAPER_FIGURE_MARK) drawn once."""
@@ -542,6 +543,9 @@ def main():
             figures.watermark(fig, mark)
             fig._opera_marked = True
         _save_fig(fig, path)
+        from opera.visualization.layout_audit import audit_layout
+        layout_records.append({'file': str(Path(path).relative_to(args.output_dir)),
+                               **audit_layout(fig)})
     import matplotlib.pyplot as plt
 
     args.output_dir.mkdir(parents=True)
@@ -741,13 +745,14 @@ def main():
         "\n".join(plates) + "\n")
     if overview:
         # Every rendered index on one page, for the supplement.
-        # Six indices per page; the first page keeps the manuscript name.
-        for page, start in enumerate(range(0, len(overview), 6), start=1):
-            fig = figures.figure_score_overview(overview[start:start + 6])
+        # Four indices per page leave room for native four-category labels.
+        for page, start in enumerate(range(0, len(overview), 4), start=1):
+            fig = figures.figure_score_overview(overview[start:start + 4])
             suffix = "" if page == 1 else f"_{page}"
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)
     pd.DataFrame(classification).to_csv(args.output_dir / "classification_at_thresholds.csv", index=False)
+    (args.output_dir / 'layout_report.json').write_text(json.dumps(layout_records, indent=2))
     pd.DataFrame(records).to_csv(args.output_dir / "score_inventory.csv", index=False)
     availability = config.get("availability")
     if availability:
@@ -775,13 +780,23 @@ def main():
         gained = (high.loc["model", "sensitivity_at_or_above"]
                   - high.loc["index", "sensitivity_at_or_above"])
         headline.append({
+            "score_id": spec["id"],
+            "model": spec["model"], "split": args.split,
+            "threshold_split": spec.get("threshold_split", "train"),
+            "group_order": json.dumps(spec['group_order']),
+            "classification_estimand": "known_status",
+            "n_known": int(strata.loc[(strata.score_id == spec['id']) &
+                                       strata.system.eq('index'), 'n'].sum()),
+            "n_events": int(round(rate * strata.loc[(strata.score_id == spec['id']) &
+                                                     strata.system.eq('index'), 'n'].sum())),
             "label": f"{spec['score_label']} · "
                      f"{spec.get('population_label', ', '.join(spec['cohorts']))}",
             "index_sensitivity": high.loc["index", "sensitivity_at_or_above"],
             "model_sensitivity": high.loc["model", "sensitivity_at_or_above"],
             "specificity": high.loc["index", "specificity_at_or_above"],
+            "model_specificity": high.loc["model", "specificity_at_or_above"],
             "event_rate": rate,
-            # Per 1,000 treated patients, at the index's own specificity:
+            # Per 1,000 patients at the frozen training-derived thresholds:
             # patients with the event that the model's high-risk group adds.
             "extra_events_flagged_per_1000": 1000 * rate * gained,
             # Low-risk groups: size per 1,000 and observed risk in each.

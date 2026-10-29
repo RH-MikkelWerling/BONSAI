@@ -15,7 +15,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from opera.interpretability.code_meaning import FAMILIES, OTHER_SOURCE, SOURCES
+from opera.interpretability.code_meaning import FAMILIES, OTHER_SOURCE, SOURCES, family, normalise
 from opera.interpretability.code_meaning import source_of as _source_of
 
 # Sources follow the registers in Figure S3 and share its colours; the token
@@ -195,10 +195,37 @@ def _bin_position(code, counts):
     return (int(match["bin"]) - low) / (high - low)
 
 
+def canonical_attribution_code(token):
+    """Same diagnosis/ATC token in WHO and Danish SKS forms, for grouping/matching."""
+    token = str(token)
+    _, system, rest = family(token)
+    if system in {"icd10", "atc"}:
+        code, separator, value = rest.partition("//")
+        code = normalise(system, code)
+        prefix = "DIAGNOSIS//D" if system == "icd10" else "MEDICATION//"
+        return prefix + code + (separator + value if separator else "")
+    return token
+
+
+def concept_code_mask(codes, concept):
+    """Code membership, with exact matching for result-specific pathology codes.
+
+    Prefix matching remains the default for diagnosis/ATC families and lab bins.
+    Exact matching prevents a new suffix or a negative-result variant from
+    inheriting a molecular status merely because its code shares a prefix.
+    """
+    codes = codes.astype(str)
+    members = tuple(canonical_attribution_code(c) for c in concept.get("codes", []))
+    if any(c.startswith(("DIAGNOSIS//", "MEDICATION//")) for c in members):
+        # Attribution tables repeat the same vocabulary many times. Normalise
+        # unique tokens once, rather than parse every patient-event repeatedly.
+        codes = codes.map({c: canonical_attribution_code(c) for c in codes.unique()})
+    return codes.isin(members) if concept.get("exact_codes") else codes.str.startswith(members)
+
+
 def concept_tokens(tokens, concept, counts):
     """Rows of ``tokens`` belonging to one prespecified concept."""
-    prefixes = tuple(concept["codes"])
-    part = tokens.loc[tokens.code.astype(str).str.startswith(prefixes)]
+    part = tokens.loc[concept_code_mask(tokens.code, concept)]
     if concept.get("outcome"):
         part = part.loc[part.outcome == concept["outcome"]]
     if concept.get("within_days") is not None:
@@ -475,7 +502,7 @@ def rollup(code: str) -> str:
     characters, pathology SNOMED to three, laboratory results to the test and
     its value third (``LABTEST//NPU02319//low``); contacts are kept as they are.
     """
-    code = str(code)
+    code = canonical_attribution_code(code)
     match = BIN_PATTERN.match(code)
     if match:
         return f"LABTEST//{match['test']}//BIN"
@@ -491,6 +518,10 @@ def rollup(code: str) -> str:
             # lymphomas); other axes, such as molecular findings (TP53), are
             # specific and kept whole.
             if prefix == "PATHOLOGY//" and not value[:1] in {"M", "T"}:
+                return code
+            # Historical Danish cytogenetic M codes are molecular results,
+            # not a common tissue-morphology family. Preserve result polarity.
+            if prefix == 'PATHOLOGY//' and value.startswith(('M632C', 'M636D')):
                 return code
             return prefix + value[:width]
     return code

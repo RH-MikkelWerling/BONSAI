@@ -447,6 +447,10 @@ three-character ICD-10 block never recorded on or before index $+$31 days;
 codes registered around treatment start, which typically reflect the presenting
 disease, were thereby not counted. Relapse coded in the same block therefore
 never counted, whereas a new block (for example, FL, C82, to DLBCL, C83) did.
+The frozen haematological definition includes D47 conditions of uncertain or
+unknown behaviour. Its label therefore denotes this registry code-set outcome,
+not exclusively a newly confirmed invasive malignancy. The transformation
+composite inherits this breadth. These definitions were retained unchanged.
 
 {\footnotesize\setlength{\tabcolsep}{3pt}
 \begin{longtable}{L{3.0cm}L{5.5cm}L{2.5cm}L{3.3cm}L{1.6cm}}
@@ -539,12 +543,26 @@ therefore restricted to patients with index date on or after 15 May 2018.
 \caption{Infection and antimicrobial-use outcomes (6 outcomes).}\label{tab:inf}\\
 \otablehead
 Sepsis & ICD-10 A40, A41; first post-index code. & DNPR-Dx & OP & Admin & Reg\\
-Serious infection & ICD-10 A40, A41, B44, B45, B46, B59 (sepsis, invasive fungal infection, pneumocystosis) as one code set. & DNPR-Dx & OP & Admin & Reg\\
+Serious infection & ICD-10 A40, A41, B44, B45, B46, B59 (sepsis, selected fungal diagnoses and pneumocystosis) as one code set. See the ascertainment note below. & DNPR-Dx & OP & Admin & Reg\\
 Antibiotic treatment (procedure) & SKS procedure codes beginning BPH; dated by procedure start. & DNPR-Proc & OP & Admin & Reg\\
 Intravenous antimicrobial use & Qualifying episode of intravenous antimicrobial administration. & SMR & OP; index date $\ge$ 15 May 2018 & Admin & Prx\\
 Prescription antimicrobial use & Qualifying episode of antimicrobial dispensing, excluding prophylaxis codes. & Rx & OP & Admin & Prx\\
 Infection diagnosis or antimicrobial use & Earliest of serious infection, prescription and intravenous antimicrobial use. & Composite & Intersection; index date $\ge$ 15 May 2018 & Earliest component & Cmp\\
 \end{longtable}}
+
+\paragraph{Infection-code ascertainment audit.}
+The repository outcome script specifies B59 for pneumocystosis. In the Danish
+SKS catalogue B59 closed on 31 December 2018 and B48.5 became valid on
+1 January 2019. If the frozen outcome build used this definition without an
+additional historical mapping, later B48.5-only diagnoses would not contribute
+through this component. Serious infection and its diagnosis-or-antimicrobial
+union remain among the current outcomes. The full B44 prefix also includes
+Aspergillus colonisation, so this component is described as selected fungal
+diagnoses rather than a validated invasive-fungal phenotype.
+The frozen build's handling of this historical code transition and the number
+of otherwise missed eligible cases have not been quantified in this audit.
+Overlap with other composite components may reduce its effect on the union.
+The code list alone does not establish the magnitude of under-ascertainment.
 
 \subsection{Blood counts, cytopenia and transfusion}
 {\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
@@ -562,6 +580,15 @@ Red-cell transfusion & SKS BOQA0, BOQA00--BOQA05; dated by procedure start. & DN
 Platelet transfusion & SKS BOQC, BOQC3. & DNPR-Proc & OP & Admin & Reg\\
 Any transfusion & Union of the red-cell and platelet code sets (single code-set outcome). & DNPR-Proc & OP & Admin & Reg\\
 \end{longtable}}
+
+\paragraph{Transfusion-product specificity.}
+The outcome named red-cell transfusion was constructed from the BOQA codes
+listed above. Their national descriptions establish blood transfusion but do
+not establish red-cell product specificity. No independent blood-bank product
+validation is available for this definition. Its results should be interpreted
+as those of the frozen BOQA-based transfusion proxy. The any-transfusion union
+uses that same code set together with the platelet codes and is not an
+independently validated inventory of every transfused product.
 
 \subsection{Renal}
 {\footnotesize\setlength{\tabcolsep}{3pt}\otablebegin
@@ -617,6 +644,12 @@ Heart failure & ICD-10 I50; new diagnosis. & DNPR-Dx & OP & Admin & Reg\\
 Stroke or TIA & ICD-10 I63, I64, G45; new diagnosis per block. & DNPR-Dx & OP & Admin & Reg\\
 Venous thromboembolism & ICD-10 I26, I80, I81, I82; new diagnosis per block. & DNPR-Dx & OP & Admin & Reg\\
 \end{longtable}}
+
+The frozen venous-thromboembolism code set includes the full I80 prefix,
+including superficial phlebitis and thrombophlebitis. It is broader than a
+deep-vein-thrombosis and pulmonary-embolism endpoint. The full G45 prefix also
+includes related transient neurological syndromes. Results refer to these
+operational code sets, which were retained unchanged.
 
 \subsection{Acute care and other events}
 \paragraph{Acute hospitalisation.} The definition followed the Danish database
@@ -682,7 +715,7 @@ Hyperkalaemia $\ge$2; $\ge$3 & Hyperkalemia, v5 & Derived & None. \\
 Hypomagnesaemia $\ge$2 & Hypomagnesemia, v5 & Derived & None. \\
 Hypertriglyceridaemia $\ge$2; $\ge$3 & Hypertriglyceridemia, v5 & Derived & None (fasting not specified by CTCAE). \\
 Hyperuricaemia & Hyperuricemia grade $\ge$1, v5 & Derived & Unit conversion of urate to be confirmed. \\
-LDH increased & Blood lactate dehydrogenase increased, v5 & Derived & None. \\
+LDH increased & Blood lactate dehydrogenase increased, v5 & Analogous & The DALY-CARE NPU.LDH vector also includes pleural-fluid NPU19978 and ascitic-fluid NPU19975 alongside plasma NPU19658. The frozen definition is not restricted to blood measurements. \\
 ALT increased $\ge$2; $\ge$3 & Alanine aminotransferase increased, v6 & Derived & Equals v6 in both baseline arms (v5 uses $\times$3--5 of an abnormal baseline). \\
 Anaemia $\ge$2; $\ge$3 & Anemia, v5 & Analogous & Values exactly at 6.2 or 4.9~mmol/L fall in the more severe grade. \\
 Neutropenia $\ge$2; $\ge$3 & Neutrophil count decreased, v5 & Analogous & Values exactly at a cut-off fall in the more severe grade; v6 moved every grade down one step, so these are v6 grades $\ge$1 and $\ge$2. \\

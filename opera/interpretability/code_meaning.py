@@ -10,8 +10,8 @@ concept, see :func:`opera.interpretability.attribution_summaries.rollup`) as
 - its **code system** and normalised code (ICD-10 ``C83.3``, ATC ``J01CA04``,
   NPU ``NPU19673``, SNOMED ``M96803``, SKS procedure ``BOQA``),
 - a **name**, from reviewed labels, then official code tables, then the
-  built-in structure (ICD-10 chapters, ATC levels 1-2, ICD-O morphology
-  ranges, clinical groups), then a readable form of the code,
+  built-in structure (ICD-10 chapters, ATC levels 1-2, morphology code
+  families, clinical groups), then a readable form of the code,
 - its **clinical group** (``Pneumonia``, ``Antibacterials``; the diagnosis
   groups use the codes of the outcome definitions) and **chapter** (ICD-10
   chapter, ATC anatomical group, SKS or SNOMED axis).
@@ -83,17 +83,10 @@ SEX = {"F": "Female", "M": "Male", "K": "Female"}
 SKS_GROUPS = {"K": "Operations", "B": "Treatment and care", "U": "Examinations",
               "N": "Anaesthesia", "Z": "Miscellaneous procedures"}
 SNOMED_AXES = {"M": "Morphology", "T": "Topography", "P": "Pathology procedure"}
-# ICD-O-3 morphology (the SNOMED M codes of Danish pathology: M96803 = 9680/3).
-MORPHOLOGY = ((9650, 9669, "Hodgkin lymphoma morphology"),
-              (9590, 9729, "Lymphoma morphology"),
-              (9731, 9734, "Plasma cell neoplasm morphology"),
-              (9760, 9769, "Immunoproliferative disease morphology"),
-              (9800, 9949, "Leukaemia morphology"),
-              (9950, 9989, "Myeloid neoplasm morphology"))
-MORPHOLOGY_ROLLUP = {"M95": "Lymphoma or other morphology", "M96": "Lymphoma morphology",
-                     "M97": "Lymphoma or plasma cell morphology",
-                     "M98": "Leukaemia morphology",
-                     "M99": "Leukaemia or myeloid neoplasm morphology"}
+# A two-digit morphology prefix is not a diagnosis. Danish M95 also contains
+# precursor findings and M97 contains mast-cell disorders, among other entities.
+# Preserve the code family instead of assigning all its members to lymphoma.
+MORPHOLOGY_ROLLUP = {f"M{n}": f"Morphology codes M{n}" for n in range(95, 100)}
 NAMED = ("reviewed", "table", "built-in", "group")
 
 
@@ -230,11 +223,9 @@ class CodeDictionary:
         best, length = None, 0
         for name, entries in self._groups.get(system, []):
             if system == "icd10":
-                hit = len(code) >= 3 and _in_ranges(code[:3], entries)
-                size = 3 if hit else 0
-                for first, last in entries:  # an exact category beats a range
-                    if hit and first == last and code.startswith(first):
-                        size = len(first) + 1
+                matches = [len(first) + int(first == last) for first, last in entries
+                           if len(code) >= len(first) and first <= code[:len(first)] <= last]
+                hit, size = bool(matches), max(matches, default=0)
             else:
                 matches = [len(e) for e in map(str, entries) if code.startswith(e.upper())]
                 hit, size = bool(matches), max(matches, default=0)
@@ -266,10 +257,9 @@ class CodeDictionary:
         if system == "snomed" and code.startswith("M"):
             if len(code) <= 3:
                 return MORPHOLOGY_ROLLUP.get(code)
-            digits = code[1:5]
-            if digits.isdigit():
-                return next((name for first, last, name in MORPHOLOGY
-                             if first <= int(digits) <= last), None)
+            # Danish alphanumeric extensions, behaviour digits and changing
+            # classifications make a numeric ICD-O range an unsafe name lookup.
+            # Exact diagnoses require an official table or a reviewed label.
         return None
 
     def _readable(self, source, system, code, value, token):

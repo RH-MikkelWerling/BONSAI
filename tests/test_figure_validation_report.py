@@ -29,7 +29,7 @@ def test_validation_report_draws_and_reports_uncertainty_without_writing_figures
     assert drawn
     assert result['figures'][0]['status'] == 'rendered'
     assert result['figures'][0]['warnings']
-    assert set(result['code_sha256']) == {'renderer','figures','style'}
+    assert set(result['code_sha256']) == {'renderer','figures','style','layout_audit'}
     assert not output.exists()
 
 

@@ -14,15 +14,23 @@ from zipfile import ZipFile, ZIP_DEFLATED
 PLOT_TABLES = {
     'atlas.csv', 'model_cells.csv', 'paired_cells.csv', 'support_curve.csv',
     'panel_effects.csv', 'external_panel.csv', 'origin_estimates.csv',
+    'hierarchy_cells.csv', 'strategy_cells.csv', 'patient_subgroups.csv',
     'gate_effects.csv', 'route_summaries.csv', 'calibration_summary.csv',
     'reliability.csv', 'coverage.csv', 'training_support.csv',
-    'region_models.csv', 'region_coverage.csv',
+    'region_models.csv', 'region_coverage.csv', 'region_effects.csv', 'route_health.csv',
+    'rescue_cells.csv', 'paired_domain_summary.csv', 'outcome_support_summary.csv',
+    'patient_subgroups_auc.csv', 'national_subgroups.csv', 'selected_strategy.csv',
 }
 REPORT_TABLES = {
     'score_inventory.csv', 'headline_scores.csv', 'classification_at_thresholds.csv',
     'stratification_diagnostics.csv', 'borrowing_map.csv', 'borrowing_levels.csv',
     'borrowing_hypotheses.csv', 'borrowing_hypothesis_test.csv',
-    'input_restriction_summary.csv',
+    'input_restriction_summary.csv', 'attribution_quality.csv',
+    'attribution_variance_sources.csv', 'attribution_variance_windows.csv',
+    'attribution_outcome_similarity.csv', 'attribution_concepts.csv',
+    'attribution_concept_coverage.csv', 'attribution_lab_response.csv',
+    'attribution_top_concepts.csv', 'attribution_faithfulness.csv', 'attribution_sanity.csv',
+    'attribution_numbers.json', 'summary_manifest.json', 'layout_report.json',
 }
 ANALYSIS_TABLES = {
     'effect_summaries.csv', 'effect_summaries_disease_balanced.csv',
@@ -69,6 +77,10 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
                 if path.is_file():
                     add(path, Path('aggregates') / folder / name)
     if analysis_root:
+        for name in ('disease_groups.json','outcome_groups.json','calibration_examples.json','patient_covariate_order.json','patient_contrast_styles.json'):
+            source = analysis_root / 'figure_inputs/plot_tables' / name
+            if source.is_file():
+                add(source, Path('aggregates/figure_inputs/plot_tables') / name)
         for name in ('figure_results_audit.json', 'router_domain_diagnostic.json',
                      'router_cell_distribution.json'):
             source = analysis_root / name

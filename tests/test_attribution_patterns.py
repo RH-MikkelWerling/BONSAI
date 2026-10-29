@@ -124,7 +124,8 @@ def test_every_attribution_number_in_the_manuscript_is_produced_and_formatted(tm
             key.startswith("ig_rho_") and key[len("ig_rho_"):] in sanity_checks)
         assert produced, f"{key} is cited in the manuscript but never produced"
     numbers = {k: 0.42 for k in keys if k.startswith("ig_")}
-    numbers.update(ig_patients=1500, ig_outcomes=69, ig_expect_total=15)
+    numbers.update(ig_patients=1500, ig_outcomes=69, ig_expect_total=15,
+                       ig_similarity_within=.42)
     path = tmp_path / "attribution_numbers.json"
     path.write_text(json.dumps({"numbers": numbers}))
     restrictions = tmp_path / "input_restriction_summary.csv"
@@ -146,11 +147,11 @@ def test_every_attribution_number_in_the_manuscript_is_produced_and_formatted(tm
 def test_concept_labels_keep_acronyms_direction_and_readable_codes():
     from opera.interpretability.attribution_patterns import concept_label
 
-    labels = {"LABTEST//NPU19123//BIN": "LDH", "LABTEST//NPU19673//BIN": "Albumin",
+    labels = {"LABTEST//NPU19658//BIN": "LDH", "LABTEST//NPU19673//BIN": "Albumin",
               "DIAGNOSIS//DI50": "Heart failure"}
-    assert concept_label("LABTEST//NPU19123//high", labels) == "High LDH"
-    assert concept_label("LABTEST//NPU19673//low", labels) == "Low albumin"
-    assert concept_label("LABTEST//NPU19673//mid", labels) == "Albumin, mid-range"
+    assert concept_label("LABTEST//NPU19658//high", labels) == "LDH, upper bins"
+    assert concept_label("LABTEST//NPU19673//low", labels) == "Albumin, lower bins"
+    assert concept_label("LABTEST//NPU19673//mid", labels) == "Albumin, middle bins"
     assert concept_label("DIAGNOSIS//DI50", labels) == "Heart failure"
     assert concept_label("PROCEDURE//KTSF", labels) == "Procedure KTSF"
     assert concept_label("CONTACT_TYPE//ACUTE", labels) == "Contact type acute"

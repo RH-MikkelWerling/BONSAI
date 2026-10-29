@@ -13,7 +13,7 @@ Names come from, in order:
 2. official code tables listed under `code_tables` in the analysis config
    (below);
 3. the built-in structure in this folder: ICD-10 chapters (WHO), ATC groups
-   at levels 1 and 2 (WHO), lymphoid and myeloid morphology ranges (ICD-O-3),
+   at levels 1 and 2 (WHO), neutral morphology code families,
    and `clinical_groups.yaml`;
 4. a readable form of the code (`ICD-10 C83`).
 
@@ -50,7 +50,7 @@ diagnoses), so SKS and WHO forms both match.
 
 | System | Source | Columns to point at |
 |---|---|---|
-| ICD-10 (English) | WHO ICD-10 or the public ICD-10-CM order file (3-character categories match WHO) | code, short description |
+| ICD-10 (English) | WHO ICD-10, checked against the Danish SKS codes actually used | code, short description |
 | ICD-10 / SKS (Danish) | Sundhedsdatastyrelsen, SKS-browseren, download "SKS komplet" | code, text |
 | SKS procedures | the same SKS file (procedure codes K, B, U, N, Z ...) | code, text |
 | ATC | WHO ATC/DDD index, or the Danish Medicines Agency ATC list | code, name |
@@ -69,3 +69,29 @@ and, outside blood, plasma and serum, its system (`Albumin (urine)`).
 
 The built-in names are short English versions of the WHO titles. Clinical
 groups are a draft for review.
+
+## Danish public-code audit, 28 October 2026
+
+See [the audit and unresolved clinical questions](../../../docs/DANISH_CODE_AUDIT_20261028.md)
+and [the assignment-by-assignment ledger](../../../docs/DANISH_CODE_ASSIGNMENT_AUDIT_20261028.csv).
+The audit uses the full historical Danish SKS catalogue, the public IFCC/IUPAC
+NPU release and the Danish Patobank molecular, lymphoid and blood codebooks.
+It retains historical codes rather than discarding codes that are closed today.
+The source manifest records download URLs and checksums. The full downloads
+are under `scratch/danish_code_audit_20261028/` and are not patient data.
+
+The SKS download is fixed-width cp1252 data, not a delimited CSV. Use
+`opera.run.audit_danish_code_assignments.read_sks` to parse it before creating
+per-system code tables. The public NPU CSV uses `npu_code` and
+`short_definition`; NPU code identity is international, while study coverage
+and local laboratory aliases need the Danish source data. Danish Patobank's
+classification is not interchangeable with SNOMED CT or a generic ICD-O lookup.
+
+Exact molecular result codes distinguish detected, not detected, normal and
+unknown-significance findings. Configured molecular concepts use
+`exact_codes: true`. Neither absent testing nor a negative result is evidence
+for an unrecorded positive finding. Broad morphology prefixes retain their
+code-family names until an official table or reviewed exact label is available.
+Laboratory lower/upper bins describe the model vocabulary, not clinical
+reference intervals. Public identity verification does not set
+`concept_mapping_reviewed: true` without the server vocabulary/bin audit.

@@ -462,7 +462,10 @@ def synthetic_strategy(cells, rng):
     base["best_tuning"] = np.clip(base.specialist + base.gain * rng.uniform(0.4, 1.1, len(base))
                                   + rng.normal(0, 0.01, len(base)), 0.5, 0.99)
     selection = base[["cohort", "outcome", "endpoint_group"]].copy()
-    selection["selected_model"] = rng.choice(["S", "D", "O"], len(base), p=[0.3, 0.45, 0.25])
+    selection["selected_model"] = rng.choice(["S", "D", "O", "J", "OPERA"], len(base),
+                                             p=[.2, .3, .15, .15, .2])
+    selection['candidate_models'] = 'S_L|D_L|O_L|J_L|OPERA'
+    selection['selection_metric'] = 'mean_horizon_log_loss'
     return base, selection
 
 
@@ -611,32 +614,30 @@ FACTOR_CODES = {
     "marrow": ["LABTEST//NPU02902//BIN_1", "LABTEST//NPU03568//BIN_1",
                "MEDICATION//L01XC02", "LABTEST//NPU02319//BIN_1"],
     "renal": ["LABTEST//NPU18016//BIN_6", "DIAGNOSIS//DN185"],
-    "disease": ["PATHOLOGY//M96803", "LABTEST//NPU19123//BIN_6", "PROCEDURE//KTSF",
-                "PATHOLOGY//SYNTH_TP53", "PATHOLOGY//SYNTH_MYC", "PATHOLOGY//SYNTH_IGHV"],
+    "disease": ["PATHOLOGY//M96803", "LABTEST//NPU19658//BIN_6", "PROCEDURE//KTNE25A",
+                "PATHOLOGY//FE16E3", "PATHOLOGY//FE18UA", "PATHOLOGY//FE13N8"],
     "none": ["CONTACT_SPECIALTY//HAEM", "MEDICATION//N02BE01", "DIAGNOSIS//DZ00",
              "REGION//HOVEDSTADEN"],
 }
-# Stand-ins for configured findings whose real codes are not yet known
-# (molecular pathology codes, found on the server by the vocabulary audit).
-SYNTHETIC_CONCEPT_CODES = {"tp53_aberration": ["PATHOLOGY//SYNTH_TP53"],
-                           "myc_rearrangement": ["PATHOLOGY//SYNTH_MYC"],
-                           "ighv_unmutated": ["PATHOLOGY//SYNTH_IGHV"]}
+# Real public code identities, applied to wholly synthetic patient histories.
 CONCEPT_LABELS = {
-    "PATHOLOGY//SYNTH_TP53": "TP53 aberration", "PATHOLOGY//SYNTH_MYC": "MYC rearrangement",
-    "PATHOLOGY//SYNTH_IGHV": "Unmutated IGHV",
+    "PATHOLOGY//FE16E3": "TP53 mutation detected", "PATHOLOGY//FE18UA": "MYC translocation detected",
+    "PATHOLOGY//FE13N8": "IGHV not hypermutated",
     "DIAGNOSIS//DI50": "Heart failure", "DIAGNOSIS//DN18": "Chronic kidney disease",
-    "CONTACT_TYPE//ACUTE": "Acute admission", "MEDICATION//C03C": "Loop diuretics",
-    "LABTEST//NPU19673//low": "Low albumin", "DIAGNOSIS//DJ18": "Pneumonia",
-    "MEDICATION//J01C": "Penicillins", "MEDICATION//J02A": "Antimycotics",
-    "LABTEST//NPU19748//high": "High CRP", "LABTEST//NPU02902//low": "Low neutrophils",
-    "LABTEST//NPU03568//low": "Low platelets", "MEDICATION//L01X": "Antineoplastics",
-    "LABTEST//NPU02319//low": "Low haemoglobin", "LABTEST//NPU18016//high": "High creatinine",
-    "PATHOLOGY//M96": "Lymphoma morphology", "LABTEST//NPU19123//high": "High LDH",
-    "PROCEDURE//KTSF": "Biopsy",
+    "CONTACT_TYPE//ACUTE": "Acute contact", "MEDICATION//C03C": "High-ceiling diuretics",
+    "LABTEST//NPU19673//low": "Albumin, lower bins", "DIAGNOSIS//DJ18": "Pneumonia",
+    "MEDICATION//J01C": "Penicillins", "MEDICATION//J02A": "Systemic antimycotics",
+    "LABTEST//NPU19748//high": "CRP, upper bins", "LABTEST//NPU02902//low": "Neutrophils, lower bins",
+    "LABTEST//NPU03568//low": "Platelets, lower bins", "MEDICATION//L01X": "Other antineoplastics",
+    "LABTEST//NPU02319//low": "Haemoglobin, lower bins", "LABTEST//NPU18016//high": "Creatinine, upper bins",
+    "PATHOLOGY//M96": "Morphology codes M96", "LABTEST//NPU19658//high": "LDH, upper bins",
+    "PATHOLOGY//M96803": "DLBCL morphology",
+    "PROCEDURE//KTNE25A": "Iliac-crest bone-marrow biopsy",
+    "PROCEDURE//KTNE": "Minor pelvic procedures",
     "LABTEST//NPU19673//BIN": "Albumin", "LABTEST//NPU19748//BIN": "CRP",
     "LABTEST//NPU02902//BIN": "Neutrophils", "LABTEST//NPU03568//BIN": "Platelets",
     "LABTEST//NPU02319//BIN": "Haemoglobin", "LABTEST//NPU18016//BIN": "Creatinine",
-    "LABTEST//NPU19123//BIN": "LDH",
+    "LABTEST//NPU19658//BIN": "LDH",
 }
 DOMAIN_FACTORS = {
     "Disease course": {"disease": 1.0, "frailty": 0.6},
@@ -652,7 +653,7 @@ DOMAIN_FACTORS = {
 
 
 SYNTHETIC_BINS = {npu: {"min": 1, "max": 6} for npu in (
-    "NPU19673", "NPU19748", "NPU02902", "NPU03568", "NPU02319", "NPU18016", "NPU19123")}
+    "NPU19673", "NPU19748", "NPU02902", "NPU03568", "NPU02319", "NPU18016", "NPU19658")}
 
 
 def synthetic_patient(weights, factors):
@@ -674,8 +675,8 @@ def synthetic_patient(weights, factors):
                ("DIAGNOSIS//DJ189", 68, "infection", 1.2),
                ("LABTEST//NPU19748//BIN_5", 71, "infection", 0.6)]
     events += [("MEDICATION//J01CA04", d, "infection", 0.4) for d in (71, 70, 69)]
-    events += [("PATHOLOGY//M96803", 21, "disease", 0.8), ("PROCEDURE//KTSF", 22, "disease", 0.3),
-               ("LABTEST//NPU19123//BIN_6", 20, "disease", 0.7)]
+    events += [("PATHOLOGY//M96803", 21, "disease", 0.8), ("PROCEDURE//KTNE25A", 22, "disease", 0.3),
+               ("LABTEST//NPU19658//BIN_6", 20, "disease", 0.7)]
     events += [("LABTEST//NPU02902//BIN_1", 5, "marrow", 1.6),
                ("LABTEST//NPU19673//BIN_1", 5, "frailty", 0.7),
                ("LABTEST//NPU02319//BIN_4", 5, "marrow", -0.4),
@@ -773,7 +774,7 @@ def synthetic_attribution_patterns(seed=41, n=500):
         for by in variance:
             variance[by].append(variance_decomposition(long, rows_o, by=by, draws=60)
                                 .assign(outcome=outcome))
-        specs = [{**c, "codes": c["codes"] or SYNTHETIC_CONCEPT_CODES.get(c["name"], []),
+        specs = [{**c,
                   "outcome": outcome, "expected": (c.get("expected") or {}).get(outcome)}
                  for c in config["concepts"]]
         table = concept_effects(long, specs, SYNTHETIC_BINS, draws=60, min_count=20)

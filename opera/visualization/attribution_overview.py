@@ -118,22 +118,24 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     (grey) and the parts carried by what was recorded, by source. B: the same
     division by time before treatment. C: how much each finding changes the
     predicted log-odds among the patients who have it; boxed cells, with an
-    arrow for the expected direction, are the prespecified expectations, and
+    documented expected direction, are the planned checks, and
     dots mark 95% intervals that exclude zero.
     """
     from opera.interpretability.attribution_patterns import REFERENCE
     from opera.visualization.paper_figures import RISK_CMAP, SOURCE_COLORS, watermark
     from opera.visualization.paper_taxonomy import outcome_endpoint_groups
 
+    if 'scale' in concepts and len(concepts) and not concepts.scale.eq('logit').all():
+        raise ValueError('Odds-ratio attribution displays require logit-scale concept summaries')
     domains = domains or outcome_endpoint_groups()
     outcomes = list(dict.fromkeys(variance_sources.outcome))
     rows, labels, headers = _domain_rows(outcomes, domains)
     findings = list(dict.fromkeys(concepts.label)) if len(concepts) else []
-    height = 0.105 * len(rows) + 2.6
-    fig = plt.figure(figsize=(7.2, height))
+    height = 0.14 * len(rows) + 3.0
+    fig = plt.figure(figsize=(9.2, height))
     grid = fig.add_gridspec(1, 3, width_ratios=[2.2, 1.3, max(2.0, 0.2 * len(findings))],
                             wspace=0.06, left=0.25, right=0.985,
-                            top=1 - 1.35 / height, bottom=0.85 / height)
+                            top=1 - 1.75 / height, bottom=0.85 / height)
     title_y = 1 - 0.1 / height
     fig.text(0.25, title_y, "What makes patients differ in predicted risk", fontsize=8.6,
              va="top", fontweight="bold")
@@ -200,7 +202,7 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         fig.text(cx.get_position().x0, title_y, "Which findings raise which risks",
                  fontsize=8.6, va="top", fontweight="bold")
         fig.text(cx.get_position().x0, panel_y,
-                 f"C  {supported} of {len(tested)} boxed expectations seen", fontsize=8.2,
+                 "C  Findings and predicted risk", fontsize=8.2,
                  va="top")
         position = cx.get_position()
         cax = fig.add_axes([position.x0 + 0.1 * position.width, 0.42 / height,
@@ -210,6 +212,9 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         bar.ax.tick_params(labelsize=5.4)
         bar.ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"×{np.exp(v):.2f}"))
         bar.outline.set_visible(False)
+    if 'mapping_status' in concepts and concepts.mapping_status.eq('provisional').any():
+        fig.text(.25,.03/height,'Proposed concept mappings · tuning audit only · bin extremes are not clinical reference ranges',
+                 fontsize=6,color=PALETTE['ink_secondary'])
     watermark(fig, mark)
     return fig
 
@@ -242,9 +247,9 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     between = pairs.loc[~same].spearman.median() if (~same).any() else np.nan
 
     has_b = restrictions is not None and len(restrictions)
-    fig = plt.figure(figsize=(7.2, 4.4))
+    fig = plt.figure(figsize=(9.2, 6.8))
     grid = fig.add_gridspec(1, 2 if has_b else 1, width_ratios=[1.35, 1] if has_b else [1],
-                            left=0.13, right=0.99, top=0.84, bottom=0.17, wspace=0.42)
+                            left=0.14, right=0.98, top=0.78, bottom=0.15, wspace=0.58)
     ax = fig.add_subplot(grid[0])
     image = ax.imshow(matrix.to_numpy(float), cmap=RISK_CMAP.reversed(),
                       norm=TwoSlopeNorm(0, -1, 1), interpolation="nearest", aspect="auto")
@@ -262,11 +267,10 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     bar = fig.colorbar(image, ax=ax, orientation="horizontal", fraction=0.05, pad=0.04)
     bar.set_label("Agreement on which episodes raise or lower risk", fontsize=6.2)
     bar.ax.tick_params(labelsize=5.8)
-    bar.ax.yaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
-    bar.ax.yaxis.set_major_formatter(plt.FuncFormatter(
-        lambda v, _: f"×{np.exp(v):.2f}"))
+    bar.ax.xaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
+    bar.ax.yaxis.set_ticks([])
     bar.outline.set_visible(False)
-    _title(ax, "A", "Outcomes of one domain rest on the same history", pad=16)
+    _title(ax, "A", "Agreement between outcome attributions", pad=16)
     ax.text(0, 1.02, f"Median agreement within domains {within:.2f}, between domains "
             f"{between:.2f}", transform=ax.transAxes, fontsize=6.2,
             color=PALETTE["ink_secondary"])
@@ -295,7 +299,7 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
         bx.tick_params(length=0)
         for spine in bx.spines.values():
             spine.set_visible(False)
-        _title(bx, "B", "AUC change (x100) on part of the record", pad=26)
+        _title(bx, "B", "AUC change with restricted input (×100)", pad=26)
     watermark(fig, mark)
     return fig
 
@@ -456,12 +460,14 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
         GAIN_CMAP, RISK_CMAP, SHORT_GROUP, SOURCE_COLORS, watermark)
     from opera.visualization.paper_taxonomy import DISPLAY_GROUPS, outcome_endpoint_groups
 
+    if 'scale' in concepts and len(concepts) and not concepts.scale.eq('logit').all():
+        raise ValueError('Odds-ratio attribution displays require logit-scale concept summaries')
     domains = domains or outcome_endpoint_groups()
     order = [d for d in yaml.safe_load(Path(DISPLAY_GROUPS).read_text())
              if d in set(variance_sources.outcome.map(domains))]
     names = [SHORT_GROUP.get(d, d) for d in order]
     rows = np.arange(len(order))
-    fig = plt.figure(figsize=(7.2, 9.8))
+    fig = plt.figure(figsize=(8.8, 10.4))
     outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.62], hspace=0.3, left=0.135,
                              right=0.885, top=0.815, bottom=0.085)
     top = outer[0].subgridspec(1, 3, width_ratios=[0.85, 1.2, 2.3], wspace=0.06)
@@ -545,7 +551,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
             cx.add_patch(Rectangle((findings.index(label) - 0.42, order.index(domain) - 0.42),
                                    0.84, 0.84, fill=False, lw=1.0 if seen else 0.8,
                                    ec=PALETTE["ink"], ls="-" if seen else (0, (2, 1.5))))
-    cx.set_xticks(range(len(findings)), [f.replace(", last", ",\nlast") for f in findings],
+    cx.set_xticks(range(len(findings)), findings,
                   fontsize=6, rotation=90)
     cx.xaxis.tick_top()
     cx.set_yticks([])
@@ -561,8 +567,8 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
         fx1 = inv.transform(cx.transData.transform((stop - 0.55, 0)))[0]
         fig.add_artist(plt.Line2D([fx0, fx1], [label_top + 0.008] * 2, color=color, lw=2,
                                   solid_capstyle="butt", transform=fig.transFigure))
-        fig.text((fx0 + fx1) / 2, label_top + 0.014, group, ha="center", va="bottom",
-                 fontsize=6.8, color=color, fontweight="bold")
+        # Source names already appear in the shared legend. In narrow groups,
+        # repeated words collide; the matching colour rule identifies the span.
     tested = concepts.loc[concepts.verdict.isin(["supported", "contradicted", "inconclusive"])]
     supported = int((tested.verdict == "supported").sum())
     position = cx.get_position()
@@ -577,8 +583,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     bar.ax.yaxis.set_major_formatter(plt.FuncFormatter(
         lambda v, _: f"×{np.exp(v):.2f}"))
     bar.outline.set_visible(False)
-    cx.set_xlabel(f"Boxes: prespecified expected effects, solid where seen "
-                  f"({supported} of {len(tested)})", fontsize=6.6)
+    cx.set_xlabel("Boxes: expected directions from the analysis plan", fontsize=6.6)
 
     for x0, text in ((0.012, "A  Sources of the differences"),
                      (bx.get_position().x0, "B  Inputs removed"),

@@ -205,7 +205,7 @@ def calibration_tables(summary, reliability, metadata, *, seed=None):
 # Model codes in estimates.csv -> short figure names.
 MODEL_NAMES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R", "OPERA": "OPERA",
                "X": "X", "XR": "XR", "XP": "XP", "LR": "LR", "J_EA": "J_EA",
-               "J_E": "J_E",
+               "J_E": "J_E", "R_ORIG_L": "Rorig", "R_E": "R_E", "R_EA": "R_EA",
                **{f"J_{o}_F{f}": f"J_{o}_F{f}" for o in ("L", "EA") for f in (10, 25, 50)}}
 
 
@@ -245,7 +245,8 @@ def strategy_tables(estimates, selection, metadata, *, seed=None, metric="auc"):
     groups = outcome_endpoint_groups()
     chosen["endpoint_group"] = chosen.outcome.map(groups)
     return (to_display(wide),
-            to_display(chosen[["cohort", "outcome", "endpoint_group", "selected_model"]]))
+            to_display(chosen[[c for c in ["cohort", "outcome", "endpoint_group", "selected_model",
+                                          "candidate_models", "selection_metric"] if c in chosen]]))
 
 
 def rescue_cells(contrasts, metadata, *, seed=None):
@@ -315,7 +316,7 @@ def coverage_table(metadata, contrast_coverage, model_coverage=None, *, horizon=
     def status(row):
         if row._merge == "left_only":
             return "not_applicable"
-        if not row.n_events_train:
+        if pd.notna(row.n_events_train) and row.n_events_train == 0:
             return "no_training_events"
         if predictions is not None:
             mine = predictions.loc[(predictions.cohort == row.cohort)
@@ -324,12 +325,12 @@ def coverage_table(metadata, contrast_coverage, model_coverage=None, *, horizon=
                 return "single_class_test"
             specialist = mine.loc[mine.model == "S_L"]
             if specialist.empty or (specialist.prediction_status == "absent").any():
-                return "fit_failed"
+                return "training_support_unknown" if pd.isna(row.n_events_train) else "specialist_unavailable"
         if paired.get((row.cohort, row.outcome)) == 'insufficient_cases_controls':
             return 'insufficient_test_support'
         if paired.get((row.cohort, row.outcome)) == "paired":
             return "evaluated"
-        return "fit_failed"
+        return "training_support_unknown" if pd.isna(row.n_events_train) else "specialist_unavailable"
 
     grid["status"] = grid.apply(status, axis=1)
     grid["endpoint_group"] = grid.outcome.map(outcome_endpoint_groups())
@@ -352,7 +353,9 @@ def route_table(routes, *, seed=None, model="R_L"):
     data["source"] = [disease_name(s) if bank == "disease"
                       else outcome_display_name(s) if bank == "outcome" else s
                       for s, bank in zip(data.source, data.bank)]
-    return to_display(data[["cohort", "outcome", "bank", "source", "mean"]])
+    columns = ['cohort', 'outcome', 'bank', 'source', 'mean', 'model', 'seed', 'split',
+               'n', 'std', 'q25', 'q75']
+    return to_display(data[[c for c in columns if c in data]])
 
 
 SUBGROUP_FIGURES = {
@@ -706,10 +709,14 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         effects["contrast"] = effects.contrast.map(CONTRAST_CODES)
         for stratum, prefix, keys in [
                 ("all_cells", "panel", ["contrast", "metric", "horizon_days"]),
-                ("endpoint_group", "group", ["contrast", "metric", "horizon_days", "endpoint_group"])]:
+                ("endpoint_group", "group", ["contrast", "metric", "horizon_days", "endpoint_group"]),
+                ("cohort", "disease", ["contrast", "metric", "horizon_days", "cohort"])]:
             selected = effects.loc[effects.stratum == stratum].copy()
             if stratum == "endpoint_group":
                 selected["endpoint_group"] = selected.stratum_value
+                selected = to_display(selected)
+            if stratum == 'cohort':
+                selected['cohort'] = selected.stratum_value
                 selected = to_display(selected)
             selected = selected.rename(columns={"gain": f"{prefix}_mean",
                 "lower": f"{prefix}_lower", "upper": f"{prefix}_upper"})
@@ -718,6 +725,8 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
         return cells
 
     table("paired_cells.csv", plotted_cells)
+    table("training_support.csv", lambda: to_display(
+        _cell_groups(metadata).assign(endpoint_group=lambda f: f.outcome.map(outcome_endpoint_groups()))))
     def curve():
         try:
             return support_curve([
@@ -752,9 +761,11 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("calibration_examples.json", lambda: calibration_examples(choice_spec, metadata))
 
     def strategy():
+        inclusive = analysis / 'strategy_selection_inclusive.csv'
+        selection_path = inclusive if inclusive.exists() and len(pd.read_csv(inclusive)) else analysis / 'strategy_selection.csv'
         cells, selection = strategy_tables(
             _read(analysis / "estimates.csv", sources),
-            _read(analysis / "strategy_selection.csv", sources), metadata, seed=seed)
+            _read(selection_path, sources), metadata, seed=seed)
         selection.to_csv(output_dir / "selected_strategy.csv", index=False)
         report["selected_strategy.csv"] = {"status": "written", "rows": len(selection)}
         return cells

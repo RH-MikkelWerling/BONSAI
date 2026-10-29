@@ -1,0 +1,158 @@
+% Build from paper/. Only real downloaded tuning aggregates enter this file.
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,booktabs,graphicx,xcolor,hyperref,tikz}
+\input{opera_style}
+\newcommand{\opera}{\textsc{opera}}
+\newcommand{\result}[1]{\csname opera@res@#1\endcsname}
+\input{../scratch/paper_reading_20261028/deep_rehearsal_review_20261028/manuscript_numbers/results_macros.tex}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\newcommand{\auditfigure}[2]{\clearpage\section*{#2}
+  \IfFileExists{../scratch/paper_reading_20261028/graphical_audit_20261028/ready_for_audit/#1.pdf}{%
+  \includegraphics[width=\textwidth,height=.82\textheight,keepaspectratio]{../scratch/paper_reading_20261028/graphical_audit_20261028/ready_for_audit/#1.pdf}}{}
+}
+\AddToHook{shipout/background}{\put(0.5\paperwidth,-0.9cm){\makebox[0pt]{\sffamily\scriptsize\color{teal}
+  TUNING SNAPSHOT --- development evidence, not held-out test findings}}}
+\title{OPERA tuning results: audit snapshot}
+\author{For manuscript review}
+\date{28 October 2026}
+\begin{document}
+\maketitle
+\textbf{Scope.} This is a factual results companion to the full manuscript.
+It uses the inspected server bundle dated 28 October 2026. No national-model
+results or test findings are included. Missing analyses are listed explicitly.
+Synthetic layout checks are excluded. Figure designs remain subject to the
+separate graphical change log.
+
+\section*{Available local results}
+The principal equal-cell summaries contain 3,004 supported
+disease--outcome--horizon comparisons. One-year comparisons use a common
+roster of 600 cells. Pooling horizons within each disease--outcome cell gives
+675 cells. These denominators answer different questions and are not
+interchangeable. Supported comparisons require at least five cases and five
+controls. The current implementation applies that roster to Brier and IPA
+as well as AUC.
+
+\begin{center}\small
+\begin{tabular}{lr}\toprule
+Comparison & AUC difference, 95\% CI\\\midrule
+Disease-pooled vs specialist & \result{P1_auc}\\
+Outcome-pooled vs specialist & \result{P2_auc}\\
+Joint vs specialist & \result{P5_auc}\\
+Joint vs outcome-pooled & \result{P3_auc}\\
+Joint vs disease-pooled & \result{P4_auc}\\
+Pooling interaction & \result{P6_auc}\\
+OPERA (local) vs joint & \result{R1_auc}\\
+Original router vs revised & \result{R_orig_auc}\\
+OPERA (local) vs per-task XGBoost & \result{O1_auc}\\
+Joint vs pooled XGBoost & \result{T6_auc}\\
+Pooled vs per-task XGBoost & \result{T7_auc}\\
+XGBoost vs logistic regression & \result{T4_auc}\\\bottomrule
+\end{tabular}\end{center}
+
+Sharing across diseases produced a larger AUC gain than sharing across
+outcomes. Joint learning did not improve discrimination over disease pooling
+alone. Routed corrections improved the joint model modestly. The current
+local OPERA model remained below XGBoost in both discrimination and
+probability accuracy. Its IPA difference from XGBoost was
+\result{O1_ipa}, compared with \result{R1_ipa} against the joint model.
+Outcome pooling's IPA difference from specialists was \result{P2_ipa}.
+
+At one year, OPERA had higher AUC than XGBoost in 189 of 600 cells, and
+higher AUC than joint in 351 of 600. Joint exceeded specialists in 453 of
+600. These are counts of higher point estimates, not counts of established
+benefit. With horizons pooled within cells, the corresponding counts were
+212 of 675, 390 of 675 and 523 of 675.
+
+\begin{center}\small
+\begin{tabular}{lr}\toprule
+Model & Mean cell AUC, one year\\\midrule
+Specialist sequence model & 0.5942\\
+Disease-pooled sequence model & 0.7106\\
+Outcome-pooled sequence model & 0.6291\\
+Joint sequence model & 0.7075\\
+OPERA (local, revised router) & 0.7183\\
+Original router & 0.7180\\
+Per-task XGBoost & 0.7498\\
+Pooled XGBoost & 0.7543\\
+Logistic regression & 0.6675\\\bottomrule
+\end{tabular}\end{center}
+These descriptive means use the same 600 cells. They are not a pooled-patient
+AUC, and no additional confidence intervals have been calculated for them.
+
+\section*{Routing and support}
+Historical diagnostics for the same seed-42 fits show effective-source
+summaries of 1.6 for the original router and 70.8 for the revised router.
+Overall survival was the original router's top source in 99.8\% of rows.
+The revised router's most frequent top source was DLBCL, in 14.7\%.
+These diagnose allocation, not biological selectivity or replication across
+seeds. A second-seed health report is still required for a stability claim.
+
+The original router's small all-horizon AUC advantage was
+\result{R_orig_auc}. Its IPA difference from the revised router was
+\result{R_orig_ipa}. At one year, the revised model had a slightly higher
+descriptive mean AUC. The comparison depends on horizon and weighting.
+
+Equal-cell own-only versus global-only AUC was
+\result{router_own_AB_auc}. Full versus own-only was
+\result{router_borrow_AB_auc}, and full versus global-only was
+\result{router_both_AB_auc}. Disease-balanced estimates were respectively
+\result{router_own_AB_auc_disease_balanced},
+\result{router_borrow_AB_auc_disease_balanced} and
+\result{router_both_AB_auc_disease_balanced}. These are separately trained
+controls. Fixed-fit source removal measures another quantity.
+
+The mean-ablation estimate of dependence on other-disease sources was
+0.00459 AUC (95\% interval $-$0.00179 to 0.01039), retaining outcome,
+global and shared components. Single-source effects were strongly shrunken
+towards zero. The saved shrinkage and unit conversions were reproduced.
+There is no matched retrained uniform-mixture control in the supplied bundle.
+
+\begin{center}\small
+\begin{tabular}{rrrrr}\toprule
+Minimum cases/controls & Entries & Disease pooling & OPERA vs joint & OPERA vs XGBoost\\\midrule
+5 & 3,004 & 0.1197 & 0.0087 & $-$0.0280\\
+10 & 1,802 & 0.0866 & 0.0157 & $-$0.0356\\
+20 & 1,131 & 0.0708 & 0.0149 & $-$0.0348\\
+50 & 451 & 0.0233 & 0.0089 & $-$0.0386\\\bottomrule
+\end{tabular}\end{center}
+These sensitivity means use changing task populations and have no newly
+computed intervals. They do not estimate the effect of adding events to the
+same task, and do not replace the primary support rule.
+
+Disease-course routing gain was $-$0.01797 across 261 cell--horizon entries.
+Excluding 12 Richter-transformation entries diagnostically gave $-$0.00026.
+The excluded entries had 5--7 cases and 6--8 controls and repeated three
+nested outcomes over four early horizons. They remain in the primary result.
+The original router's disease-course mean was also negative. Cardiovascular
+routing gain was $-$0.01990 across 46 entries, with only one supported cell at
+30 days and two at 60 days. Support and task composition need to accompany
+these domain plots.
+
+\section*{Results still required}
+\begin{itemize}
+\item Refreshed clinical indices with native categories, explicit score/model
+identity, training-derived cutoffs, achieved evaluation event rates and
+specificity, counts, confusion metrics and paired uncertainty. The old
+clinical figures cannot establish the revised clinical headline.
+\item National joint and OPERA variants, adaptation and label-efficiency arms.
+\item The frozen tuning-selected strategy evaluated on an independent sample.
+\item Fresh attribution summary and concept coverage, and the
+7/14/21/28-day record-gap analysis.
+\item Registry-variable comparator results, any outstanding weighting
+sensitivity, and a fit inventory for computational-cost and portfolio claims.
+\end{itemize}
+The full manuscript retains placeholders for these findings. A missing result
+is not a null result. In particular, superiority over every clinical index
+and benefit from national pretraining remain unestablished here.
+
+\auditfigure{fig_headline}{Headline comparison: current tuning inputs}
+\auditfigure{fig_pooling}{Controlled pooling comparisons}
+\auditfigure{supp_horizons}{Clinical domains and horizons}
+\auditfigure{fig_hierarchy}{Corrections and training support}
+\auditfigure{fig_borrowing_map_mean}{Source removal: mean replacement}
+\auditfigure{fig_borrowing_map_zero}{Source removal: zero replacement}
+\end{document}

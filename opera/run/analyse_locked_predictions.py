@@ -417,6 +417,15 @@ def run(config, output_dir):
     candidates = config.get("strategy_candidates", ["S_L", "D_L", "O_L"])
     stage("strategy selection")
     selected, selection = tuning_selected_strategies(predictions, candidates)
+    # A separate descriptive policy adds joint and the declared OPERA model.
+    # Preserve BEST_TUNING and its original S/D/O comparator unchanged.
+    inclusive_candidates = list(dict.fromkeys([*candidates, 'J_L', 'OPERA']))
+    if set(inclusive_candidates) <= set(predictions.model):
+        _, inclusive_selection = tuning_selected_strategies(predictions, inclusive_candidates)
+    else:
+        inclusive_selection = pd.DataFrame(columns=[
+            'seed', 'cohort', 'outcome', 'status', 'selected_model',
+            'candidate_models', 'selection_metric'])
     if not selected.empty:
         predictions = pd.concat([predictions, selected], ignore_index=True)
         contrasts.update(
@@ -493,6 +502,7 @@ def run(config, output_dir):
         calibration=reliability_tables(predictions),
         calibration_summary=calibration_summary(predictions),
         strategy_selection=selection,
+        strategy_selection_inclusive=inclusive_selection,
         negative_transfer=negative_transfer_strata(
             tables["contrasts"], **config.get("rescue", {})
         ),
