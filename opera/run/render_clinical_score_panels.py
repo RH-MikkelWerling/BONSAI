@@ -100,6 +100,44 @@ def score_patients(predictions, metadata, spec, split):
 CUTOFF_RULES = ("size_matched", "risk_matched_low")
 
 
+class CutoffNotEstimable(ValueError):
+    """Independently selected thresholds do not form the requested risk groups."""
+
+
+def score_population_flow(predictions, metadata, spec, split):
+    """Aggregate the score roster before and after the disease restriction."""
+    roster = predictions.loc[
+        predictions.model.eq(spec['model']) & predictions.seed.eq(spec['seed'])
+        & predictions.split.eq(split) & predictions.outcome.eq(spec['outcome'])
+        & predictions.horizon_days.eq(spec['horizon_days']), ['subject_id', 'cohort']].copy()
+    if roster.subject_id.duplicated().any():
+        raise ValueError('Duplicate score population audit patient IDs')
+    columns = ['subject_id', spec['group_column']]
+    columns += [spec[k] for k in ('score_column', 'index_column', 'score_date_column',
+                                  'index_date_column') if spec.get(k)]
+    roster = roster.merge(metadata[list(dict.fromkeys(columns))], on='subject_id',
+                          how='left', validate='one_to_one')
+    available = roster[spec['group_column']].notna()
+    if spec.get('score_column'):
+        available &= roster[spec['score_column']].notna()
+    if spec.get('index_column'):
+        available &= roster[spec['index_column']].isin(spec['index_values'])
+    if spec.get('score_date_column'):
+        date = pd.to_datetime(roster[spec['score_date_column']], errors='coerce')
+        index = pd.to_datetime(roster[spec['index_date_column']], errors='coerce')
+        available &= date.notna() & index.notna() & date.le(index)
+    mapping = {str(k).strip().lower(): v for k, v in spec['group_map'].items()}
+    roster['native_group'] = roster[spec['group_column']].astype(str).str.strip().str.lower().map(mapping)
+    roster['score_available'] = available
+    return [dict(score_id=spec['id'], model=spec['model'], split=split,
+                 cohort=cohort, in_comparison_population=cohort in spec['cohorts'],
+                 predicted_n=len(part), score_available_n=int(part.score_available.sum()),
+                 unavailable_or_late_n=int((~part.score_available).sum()),
+                 group_counts=json.dumps(part.loc[part.score_available, 'native_group']
+                                         .value_counts().reindex(spec['group_order'], fill_value=0).to_dict()))
+            for cohort, part in roster.groupby('cohort', sort=True)]
+
+
 def clinical_weights(patients, horizon):
     """CIF labels and disease-specific censoring weights on the score population."""
     from opera.evaluation.secondary_analysis import attach_ipcw_weights
@@ -112,14 +150,17 @@ def clinical_weights(patients, horizon):
     return attach_ipcw_weights(data)
 
 
-def classification_at_boundaries(patients, spec, cuts, evaluation_split):
+def classification_at_boundaries(patients, spec, cuts, evaluation_split, *, boundaries=None):
     """Both ordinary known-status and IPCW confusion metrics at frozen cutoffs."""
     from opera.evaluation.operating_points import threshold_metrics
     data = clinical_weights(patients, spec["horizon_days"])
     labels = data.label.to_numpy(bool)
     rank = data.ipi_group.map({g: i for i, g in enumerate(spec["group_order"])}).to_numpy()
     rows = []
-    for i, (group, cut) in enumerate(zip(spec["group_order"][1:], cuts), 1):
+    if boundaries is None:
+        boundaries = [(i, group, cut) for i, (group, cut)
+                      in enumerate(zip(spec['group_order'][1:], cuts), 1)]
+    for i, group, cut in boundaries:
         for system, flag in (("model", data.model_risk.to_numpy() >= cut),
                              ("index", rank >= i)):
             for estimand, weights in (("known_status", data.known.to_numpy(float)),
@@ -140,7 +181,22 @@ def classification_at_boundaries(patients, spec, cuts, evaluation_split):
     return rows
 
 
-def select_model_cutoffs(tuning, spec, *, minimum_group=20):
+def classification_at_anchors(patients, spec, diagnostics, evaluation_split):
+    """Evaluate independently fitted binary anchors even if joint strata fail."""
+    result = []
+    order = spec['group_order']
+    for anchor, rank in [('low', 1), ('high', len(order) - 1)]:
+        cutoff = diagnostics.get(anchor + '_cutoff')
+        if cutoff is None or not np.isfinite(cutoff):
+            continue
+        rows = classification_at_boundaries(patients, spec, [], evaluation_split,
+                                             boundaries=[(rank, order[rank], cutoff)])
+        result.extend(dict(row, operating_point=anchor,
+                           ordered_groups_status=diagnostics.get('status')) for row in rows)
+    return result
+
+
+def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
     """Model risk-group cutoffs developed on the designated development split.
 
     ``risk_matched_low`` (default; as in the earlier DLBCL study) anchors both
@@ -155,15 +211,20 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20):
 
     ``size_matched`` gives the model groups exactly the index's group sizes.
     """
-    from opera.visualization.paper_figures import _known_status
-
+    diagnostics = {} if diagnostics is None else diagnostics
+    diagnostics.update(status='pending', threshold_n=len(tuning), minimum_group=minimum_group)
+    def fail(code, message):
+        diagnostics.update(status='not_estimable', failure_code=code, reason=message)
+        raise CutoffNotEstimable(message)
     rule = spec.get("cutoff_rule", "risk_matched_low")
     if rule not in CUTOFF_RULES:
         raise ValueError(f"cutoff_rule must be one of {CUTOFF_RULES}")
     order = list(spec["group_order"])
     shares = tuning.ipi_group.value_counts(normalize=True).reindex(order).fillna(0)
+    diagnostics['index_group_counts'] = json.dumps(tuning.ipi_group.value_counts()
+                                                  .reindex(order, fill_value=0).to_dict())
     if tuning.empty:
-        raise ValueError("No threshold-development predictions available")
+        fail('empty_development_population', 'No threshold-development predictions available')
     risk = tuning.model_risk.to_numpy(float)
     if rule == "size_matched":
         cuts = [float(np.quantile(risk, q)) for q in shares.cumsum().to_numpy()[:-1]]
@@ -174,41 +235,61 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20):
         events = known.label.to_numpy()
         weights = known.ipcw_weight.to_numpy(float)
         if len(np.unique(events)) != 2:
-            raise ValueError("Threshold development requires cases and controls")
+            fail('missing_cases_or_controls', 'Threshold development requires cases and controls')
         low_group = (known.ipi_group == order[0]).to_numpy()
         if not low_group.any():
-            raise ValueError("No index low-risk patients for threshold development")
+            fail('missing_low_group', 'No index low-risk patients for threshold development')
         low_rate = float(np.average(events[low_group], weights=weights[low_group]))
+        diagnostics.update(index_low_risk=low_rate, index_low_n=int(low_group.sum()))
         candidates = np.unique(np.quantile(model_risk, np.linspace(0.01, 0.99, 197)))
         feasible = [c for c in candidates
                     if (model_risk < c).sum() >= minimum_group
                     and np.average(events[model_risk < c], weights=weights[model_risk < c]) <= low_rate]
         if not feasible:
-            raise ValueError("No model low-risk cutoff matches the training index event risk")
+            fail('no_low_risk_match', 'No model low-risk cutoff matches the training index event risk')
         low = float(max(feasible))
+        diagnostics.update(low_cutoff=low, feasible_low_candidates=len(feasible),
+                           model_low_n=int((model_risk < low).sum()))
         high_group = (known.ipi_group == order[-1]).to_numpy()
         if not high_group.any():
-            raise ValueError("No index highest-risk patients for threshold development")
+            fail('missing_high_group', 'No index highest-risk patients for threshold development')
         specificity = float(np.average(~high_group[events == 0], weights=weights[events == 0]))
         control_risk, control_weights = model_risk[events == 0], weights[events == 0]
         sort = np.argsort(control_risk)
         cumulative = np.cumsum(control_weights[sort]) / control_weights.sum()
         high = float(control_risk[sort[min(np.searchsorted(cumulative, specificity), len(sort)-1)]])
+        diagnostics.update(high_cutoff=high, index_high_n=int(high_group.sum()),
+                           target_high_specificity=specificity,
+                           achieved_high_specificity=float(np.average(control_risk < high, weights=control_weights)),
+                           feasible_low_candidates_below_high=int(np.sum(np.array(feasible) < high)))
+        if len(order) == 2 and low != high:
+            fail('two_group_anchor_conflict', f'Two native groups require one cutoff, but '
+                 f'low-risk matching selected {low:.9g} and high-specificity matching '
+                 f'selected {high:.9g}. Independent binary anchors are retained separately')
+        if len(order) > 2 and low >= high:
+            fail('crossed_anchors', f'Model risk-group cutoffs are not estimable: '
+                 f'low cutoff {low:.9g} >= high cutoff {high:.9g}. '
+                 'Independent binary anchors are retained separately; no artificial separation applied')
         middle = shares.iloc[1:-1].to_numpy()
         between = np.sort(risk[(risk >= low) & (risk < high)])
         inner = ([float(np.quantile(between, q)) for q in np.cumsum(middle)[:-1] / middle.sum()]
                  if len(middle) > 1 and len(between) and middle.sum() > 0 else [])
-        cuts = [low, *inner, high]
-    rounded = [round(float(c), 6) for c in cuts]
-    if (len(rounded) != len(order) - 1 or not np.isfinite(rounded).all()
-            or any(right <= left for left, right in zip(rounded, rounded[1:]))):
-        raise ValueError("Model risk-group cutoffs are not estimable: matched anchors "
-                         "cross or intermediate thresholds coincide; no artificial separation applied")
-    assigned = np.digitize(risk, rounded)
+        cuts = [low] if len(order) == 2 else [low, *inner, high]
+    # Keep full precision. Rounding small risks to six decimals can itself
+    # manufacture coincident cutoffs and move patients across a boundary.
+    cuts = [float(c) for c in cuts]
+    diagnostics['model_cutoffs'] = json.dumps(cuts)
+    if (len(cuts) != len(order) - 1 or not np.isfinite(cuts).all()
+            or any(right <= left for left, right in zip(cuts, cuts[1:]))):
+        fail('coincident_or_missing_middle_cutoffs', 'Model risk-group cutoffs are not estimable: '
+             'intermediate thresholds coincide or a required middle group is absent; '
+             'no artificial separation applied')
+    assigned = np.digitize(risk, cuts)
     if any(not np.any(assigned == i) for i in range(len(order))):
-        raise ValueError("Model risk-group cutoffs produce an empty development group; "
-                         "stratification is not estimable under the specified matching rule")
-    return rounded
+        fail('empty_model_group', 'Model risk-group cutoffs produce an empty development group; '
+             'stratification is not estimable under the specified matching rule')
+    diagnostics['status'] = 'estimable'
+    return cuts
 
 
 def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
@@ -559,10 +640,15 @@ def main():
     group_rows = []
     stratification = []
     classification = []
+    anchor_classification = []
+    cutoff_records = []
+    population_rows = []
     overview = []
     decision_tables = []
     for spec in specs:
-        record = {"score_id": spec["id"]}
+        record = {"score_id": spec["id"], 'model': spec['model'],
+                  'cohorts': json.dumps(spec['cohorts']), 'group_order': json.dumps(spec['group_order'])}
+        diagnostic = dict(score_id=spec['id'], threshold_split=spec.get('threshold_split', 'train'))
         try:
             if spec.get("endpoint_role") == "native":
                 # Native endpoint: the longest prespecified horizon the test
@@ -586,14 +672,22 @@ def main():
             record.update(threshold_split=development_split, threshold_n=len(tuning),
                           threshold_estimand="cif_ipcw", threshold_prediction_kind="apparent_training" if development_split == "train" else "development_split")
             record.update(audit)
+            for split in (development_split, args.split):
+                population_rows.extend(score_population_flow(predictions, metadata, spec, split))
             if "median_followup_days" not in record:
                 record.update(population_followup(predictions, held, spec))
             if len(held) < spec.get("minimum_patients", 20):
                 record["status"] = "insufficient_support"
                 records.append(record)
                 continue
-            cuts = (select_model_cutoffs(tuning, spec) if spec.get("cutoff_rule")
-                    else list(spec["model_cutoffs"]))
+            if spec.get('cutoff_rule'):
+                try:
+                    cuts = select_model_cutoffs(tuning, spec, diagnostics=diagnostic)
+                finally:
+                    cutoff_records.append(diagnostic)
+                    anchor_classification.extend(classification_at_anchors(held, spec, diagnostic, args.split))
+            else:
+                cuts = list(spec['model_cutoffs'])
             record["model_cutoffs"] = json.dumps(cuts)
             record["cutoff_rule"] = spec.get("cutoff_rule", "fixed_in_config")
             classification.extend(classification_at_boundaries(held, spec, cuts, args.split))
@@ -726,6 +820,9 @@ def main():
                 development_operating_threshold=threshold,
                 development_target_specificity=specificity,
             )
+        except CutoffNotEstimable as exc:
+            record.update(status='not_estimable', reason=str(exc),
+                          cutoff_failure_code=diagnostic.get('failure_code'))
         except (ValueError, KeyError) as exc:
             record.update(status="blocked", reason=str(exc))
         records.append(record)
@@ -758,6 +855,9 @@ def main():
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)
     pd.DataFrame(classification).to_csv(args.output_dir / "classification_at_thresholds.csv", index=False)
+    pd.DataFrame(anchor_classification).to_csv(args.output_dir / 'classification_at_anchors.csv', index=False)
+    pd.DataFrame(cutoff_records).to_csv(args.output_dir / 'cutoff_diagnostics.csv', index=False)
+    pd.DataFrame(population_rows).to_csv(args.output_dir / 'score_population_flow.csv', index=False)
     (args.output_dir / 'layout_report.json').write_text(json.dumps(layout_records, indent=2))
     pd.DataFrame(records).to_csv(args.output_dir / "score_inventory.csv", index=False)
     availability = config.get("availability")

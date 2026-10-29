@@ -12,14 +12,31 @@ patients) with IPCW event risk no higher than the index's low-risk training
 risk. The high-risk cutoff approximately matches the index's censoring-weighted
 training specificity. Intermediate groups follow the index's relative middle
 group sizes. Cutoffs are fixed before evaluation, using >= for positive model
-classification. Crossed, coincident or empty-group thresholds and missing anchor
-groups are reported as not estimable. No size-matched fallback is substituted.
+classification. Independently selected anchors that cross, coincident middle
+cutoffs, empty model groups and missing anchor groups are reported as not
+estimable under this rule. A crossed pair is not proof that no constrained
+joint solution exists. No size-matched or constrained-optimisation fallback
+is silently substituted. Thresholds retain full numerical precision.
+
+For two-category indices, a partition has only one cutoff. If the independently
+chosen low/high anchors differ, they are evaluated separately, rather than
+constructing an invalid extra model category. `classification_at_anchors.csv`
+contains both binary comparisons when fitted, even if the joint risk-group
+figure is unavailable. `cutoff_diagnostics.csv` identifies the actual failure
+and `score_population_flow.csv` accounts for scores by disease and split.
+Expected matching failures have status `not_estimable`. They leave a documented
+gap without terminating other valid score jobs as a runtime error.
 
 The predictions used for development are apparent training predictions. They
 can yield optimistic matching targets, so matching is not presumed to hold in
 new patients. Tuning results remain exploratory because tuning informed model
 selection. Out-of-fold training predictions are an optional future sensitivity,
 not the implemented primary procedure.
+
+The 29 October report demonstrates imperfect transport of the matching
+targets. More model low-risk patients do not imply matching observed mortality
+on tuning. Report achieved risk and specificity for both systems alongside
+the training targets. See `CLINICAL_POPULATION_AND_THRESHOLDS_REVIEW_20261029.md`.
 
 classification_at_thresholds.csv reports both systems at every non-low boundary.
 It contains threshold provenance, TP/FP/FN/TN, recall/sensitivity, precision/PPV,

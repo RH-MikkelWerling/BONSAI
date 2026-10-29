@@ -109,6 +109,69 @@ def test_training_native_predictions_require_explicit_opt_in_and_keep_cif_weight
     assert frame.set_index('subject_id').loc['b', 'ipcw_weight'] == pytest.approx(4/3)
 
 
+def test_crossed_anchors_report_the_failure_and_keep_binary_evaluation():
+    import numpy as np
+    from opera.run.render_clinical_score_panels import (
+        select_model_cutoffs, CutoffNotEstimable, classification_at_anchors)
+    data = pd.DataFrame(dict(subject_id=[str(i) for i in range(100)],
+        model_risk=np.linspace(.01, .99, 100),
+        ipi_group=['Low']*50+['Intermediate']*25+['High']*25,
+        time_days=[100.]*50+[1000.]*50, event=[1]*50+[0]*50))
+    spec = dict(id='crossed', model='R_L', horizon_days=365, threshold_split='train',
+                group_order=['Low', 'Intermediate', 'High'], cutoff_rule='risk_matched_low')
+    diagnostic = {}
+    with pytest.raises(CutoffNotEstimable, match='low cutoff'):
+        select_model_cutoffs(data, spec, diagnostics=diagnostic)
+    assert diagnostic['failure_code'] == 'crossed_anchors'
+    assert diagnostic['low_cutoff'] >= diagnostic['high_cutoff']
+    rows = pd.DataFrame(classification_at_anchors(data, spec, diagnostic, 'tuning'))
+    assert len(rows) == 8
+    assert set(rows.operating_point) == {'low', 'high'}
+    assert set(rows.ordered_groups_status) == {'not_estimable'}
+    assert rows[['tp', 'fp', 'fn', 'tn']].sum(axis=1).eq(100).all()
+
+
+def test_two_native_groups_are_not_given_three_model_groups():
+    import numpy as np
+    from opera.run.render_clinical_score_panels import select_model_cutoffs, CutoffNotEstimable
+    data = pd.DataFrame(dict(subject_id=[str(i) for i in range(100)],
+        model_risk=np.linspace(.01, .99, 100), ipi_group=['Low']*50+['High']*50,
+        time_days=[100.]*50+[1000.]*50, event=[1]*50+[0]*50))
+    diagnostic = {}
+    spec = dict(group_order=['Low', 'High'], cutoff_rule='risk_matched_low', horizon_days=365)
+    with pytest.raises(CutoffNotEstimable, match='Two native groups require one cutoff'):
+        select_model_cutoffs(data, spec, diagnostics=diagnostic)
+    assert diagnostic['failure_code'] == 'two_group_anchor_conflict'
+
+
+def test_small_distinct_thresholds_are_not_rounded_into_identical_values():
+    import numpy as np
+    from opera.run.render_clinical_score_panels import select_model_cutoffs
+    from opera.run.clinical_figure_provenance import NATIVE_FOUR
+    risk = np.linspace(1e-8, 9e-8, 100)
+    data = pd.DataFrame(dict(model_risk=risk, ipi_group=np.repeat(NATIVE_FOUR, 25)))
+    cuts = select_model_cutoffs(data, dict(group_order=NATIVE_FOUR, cutoff_rule='size_matched'))
+    assert 0 < cuts[0] < cuts[1] < cuts[2] < 1e-6
+    assert set(np.digitize(risk, cuts)) == {0, 1, 2, 3}
+
+
+def test_population_flow_exposes_scores_outside_dlbcl_without_enlarging_comparison():
+    from opera.run.render_clinical_score_panels import score_population_flow
+    predictions = pd.DataFrame(dict(subject_id=['a', 'b', 'c', 'd'], model='R_L', seed=42,
+        split='tuning', outcome='overall_survival', horizon_days=365,
+        cohort=['DLBCL', 'DLBCL', 'FL', 'FL']))
+    metadata = pd.DataFrame(dict(subject_id=['a', 'b', 'c', 'd'], group=['Low', None, 'Low', 'High']))
+    spec = dict(id='nccn', model='R_L', seed=42, outcome='overall_survival',
+        horizon_days=365, cohorts=['DLBCL'], group_column='group',
+        group_order=['Low', 'High'], group_map=dict(Low='Low', High='High'))
+    flow = pd.DataFrame(score_population_flow(predictions, metadata, spec, 'tuning')).set_index('cohort')
+    assert flow.loc['DLBCL', 'in_comparison_population']
+    assert not flow.loc['FL', 'in_comparison_population']
+    assert flow.loc['DLBCL', 'score_available_n'] == 1
+    assert flow.loc['FL', 'score_available_n'] == 2
+    assert flow.predicted_n.sum() == 4
+
+
 def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_path, monkeypatch):
     """Exercise actual adaptation, thresholds, metrics and plots, without mocked readers."""
     import json
@@ -169,3 +232,24 @@ def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_p
     receipt = json.loads((output / 'report_manifest.json').read_text())
     assert set(receipt['prediction_data_contracts'].values()) == {'registered-release'}
     assert verify_clinical_render(output, expected_model='R_L')['valid']
+    diagnostics = pd.read_csv(output / 'cutoff_diagnostics.csv')
+    assert diagnostics.status.tolist() == ['estimable']
+    anchors = pd.read_csv(output / 'classification_at_anchors.csv')
+    assert len(anchors) == 8 and set(anchors.operating_point) == {'low', 'high'}
+    flow = pd.read_csv(output / 'score_population_flow.csv')
+    assert flow.score_available_n.sum() == 840
+    # Expected non-estimability completes with explicit gaps and retains the
+    # binary anchors; it must not masquerade as an unexpected runtime error.
+    original = renderer.select_model_cutoffs
+    def fail_groups(data, spec, **kwargs):
+        original(data, spec, **kwargs)
+        kwargs['diagnostics'].update(status='not_estimable', failure_code='test_crossed')
+        raise renderer.CutoffNotEstimable('Synthetic anchor incompatibility')
+    monkeypatch.setattr(renderer, 'select_model_cutoffs', fail_groups)
+    partial = tmp_path / 'partial'
+    monkeypatch.setattr('sys.argv', ['render', '--analysis-config', str(analysis),
+        '--score-config', str(config), '--output-dir', str(partial), '--split', 'tuning', '--execute'])
+    renderer.main()
+    assert pd.read_csv(partial / 'score_inventory.csv').status.tolist() == ['not_estimable']
+    assert len(pd.read_csv(partial / 'classification_at_anchors.csv')) == 8
+    assert not (partial / 'fig_clinical_score.pdf').exists()

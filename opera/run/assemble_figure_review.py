@@ -6,6 +6,7 @@ from another workspace. Patient-level tables and INTERNAL files are not copied.
 from __future__ import annotations
 import copy
 import argparse
+import csv
 import hashlib
 import json
 import os
@@ -151,6 +152,13 @@ def main():
                   else restrictions / relative.split('/',1)[1] if relative.startswith('input_restrictions/') else root / relative)
         if not source.is_file():
             report['missing'].append(dict(family=name, input=relative))
+    inventory_csv = clinical_inputs / 'score_inventory.csv'
+    if inventory_csv.is_file():
+        with inventory_csv.open(newline='') as handle:
+            for row in csv.DictReader(handle):
+                if row.get('status') != 'rendered':
+                    report['missing'].append(dict(family='clinical_score',
+                        score_id=row.get('score_id'), status=row.get('status'), reason=row.get('reason')))
     report['figure_manifests'] = {}
     for path in output.rglob('figure_manifest.json'):
         report['figure_manifests'][str(path.relative_to(output))] = json.loads(path.read_text())

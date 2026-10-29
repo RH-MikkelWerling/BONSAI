@@ -17,6 +17,8 @@ def test_collects_only_verified_clinical_plots_and_reports_missing_analysis(tmp_
         receipt = render_receipt(root / 'clinical_scores',
                                  [dict(id='cll', model='R_L', threshold_split='train')], 'tuning')
         (root / 'clinical_scores/report_manifest.json').write_text(json.dumps(receipt))
+        (root / 'clinical_scores/score_inventory.csv').write_text(
+            'score_id,status,reason\ncll,rendered,\nips,not_estimable,Two anchors require different cutoffs\n')
     (root / 'overnight.env').write_text('')
     output = tmp_path / 'review'
     recipes = []
@@ -35,6 +37,9 @@ def test_collects_only_verified_clinical_plots_and_reports_missing_analysis(tmp_
     assert 'integrated_gradients' in {m['family'] for m in report['missing']}
     assert (output / 'clinical_scores/cll/risk_groups.pdf').exists() == fresh_clinical
     assert report['clinical_validation']['valid'] == fresh_clinical
+    if fresh_clinical:
+        assert any(row['family'] == 'clinical_score' and row['score_id'] == 'ips'
+                   and row['status'] == 'not_estimable' for row in report['missing'])
     assert not list(output.rglob('*INTERNAL*'))
     borrowing = next(p for p in recipes[0]['figures'] if p['id']=='fig_borrowing_map')
     assert str(root / 'source_removal/tuning') in borrowing['tables']['table']

@@ -174,6 +174,17 @@ source effects. Do not keep modifying the router until the map looks selective.
 
 ## 3. Refresh the figures from completed analyses
 
+**Clinical review update, 29 October:** the refreshed report has 343 scored
+DLBCL patients for NCCN-IPI, compared with 909 across subtypes in the old
+recipe. The broad IPI comparison still has 909. NCCN-IPI low-risk counts are
+26 for the model versus 24 for the index. The old large expansion is not the
+same comparison. IPI and R-ISS low-risk expansion does not preserve matching
+tuning mortality. Do not claim matching evaluation risks/specificity merely
+because thresholds matched training targets. Review
+`docs/CLINICAL_POPULATION_AND_THRESHOLDS_REVIEW_20261029.md` before release.
+Five group partitions need the new cutoff diagnostics. Their independent
+binary anchors are retained even when a valid ordered partition is unavailable.
+
 After router identity is verified, regenerate with the corrected code. Reuse
 the completed mean/zero source-removal outputs. Do not rerun those GPU passes
 because source columns or heatmap labels changed.
@@ -253,6 +264,37 @@ the training export was registered without the release contract, and the
 shared reader also lacked explicit permission for training rows. Both are
 fixed. Sync the updated source and checksum manifest, then reuse the export
 from the failed clinical workspace on CPU. For the reported run:
+
+If the same traceback recurs with `read_artifact` returning
+`normalize_predictions(frame, estimand)` without `allow_training`, or the
+refresh subprocess still at line 51, the server is running the pre-fix source.
+Sync all six changed modules, not just the refresh entry point:
+`opera/evaluation/secondary_analysis.py`,
+`opera/run/analyse_locked_predictions.py`,
+`opera/run/clinical_figure_provenance.py`,
+`opera/run/complete_local_figures.py`,
+`opera/run/refresh_clinical_figures.py` and
+`opera/run/render_clinical_score_panels.py`, together with
+`code_manifest.sha256`. Before rerunning, check the modules that the server
+interpreter actually imports:
+
+```bash
+.venv-v100/bin/python - <<'PY'
+import inspect
+from opera.run import analyse_locked_predictions as reader
+from opera.run import render_clinical_score_panels as renderer
+from opera.run import refresh_clinical_figures as refresh
+from opera.evaluation.secondary_analysis import normalize_predictions
+assert 'allow_training' in inspect.signature(reader.read_artifact).parameters, 'Old prediction reader'
+assert 'allow_training' in inspect.signature(normalize_predictions).parameters, 'Old prediction normalizer'
+assert 'training_artifact_with_contract' in inspect.getsource(renderer.main), 'Old clinical renderer'
+assert 'training_artifact_with_contract' in inspect.getsource(refresh.main), 'Old refresh command'
+print('Clinical contract fix present:', refresh.__file__)
+PY
+```
+
+Proceed after that prints `Clinical contract fix present`. Use a new timestamp
+for each retry because failed refresh directories are retained.
 
 ```bash
 opera_python=.venv-v100/bin/python

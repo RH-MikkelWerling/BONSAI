@@ -23,6 +23,7 @@ PLOT_TABLES = {
 }
 REPORT_TABLES = {
     'score_inventory.csv', 'headline_scores.csv', 'classification_at_thresholds.csv',
+    'classification_at_anchors.csv', 'cutoff_diagnostics.csv', 'score_population_flow.csv',
     'stratification_diagnostics.csv', 'borrowing_map.csv', 'borrowing_levels.csv',
     'borrowing_hypotheses.csv', 'borrowing_hypothesis_test.csv',
     'input_restriction_summary.csv', 'attribution_quality.csv',
