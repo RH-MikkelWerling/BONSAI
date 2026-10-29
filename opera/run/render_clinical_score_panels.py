@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from opera.run.analyse_locked_predictions import file_hash, read_artifact, read_table
+from opera.run.clinical_figure_provenance import render_receipt
 
 
 def _score_rank(spec):
@@ -811,6 +812,7 @@ def main():
     (args.output_dir / "report_manifest.json").write_text(
         json.dumps(
             dict(
+                **render_receipt(args.output_dir, specs, args.split),
                 analysis_config_sha=file_hash(args.analysis_config),
                 score_config_sha=file_hash(args.score_config),
                 metadata_sha=file_hash(analysis["patient_metadata"]),

@@ -7,6 +7,7 @@ case "${2:-}" in ""|--render-only) ;; *) echo "Unknown option: $2" >&2; exit 2 ;
 plot_python="${OPERA_PYTHON:-.venv-v100/bin/python}"
 plot_root="$("$plot_python" -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$plot_root")"
 plot_env="$plot_root/overnight.env"
+echo "This refreshes general figures only. Clinical-score figures require a separate clinical-only run or CPU refresh from exported training predictions."
 "$plot_python" - "$plot_root" "$plot_env" <<'PY'
 from pathlib import Path
 import sys

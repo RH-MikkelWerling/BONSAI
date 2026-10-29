@@ -128,6 +128,7 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
             if action == 'clinical-scores':
                 write('clinical_scores/score_inventory.csv', 'status\nrendered\n')
                 write('clinical_scores/classification_at_thresholds.csv')
+                write('clinical_scores/report_manifest.json')
         elif module == 'evaluate_direct_competing_risk':
             destination = Path(command[command.index('--output-dir') + 1])
             destination.mkdir(parents=True, exist_ok=True)

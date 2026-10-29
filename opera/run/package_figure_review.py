@@ -43,6 +43,13 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
     review = review.resolve()
     if not (review / 'review_manifest.json').is_file():
         raise ValueError('Expected an assembled review folder containing review_manifest.json')
+    clinical = review / 'clinical_scores'
+    if clinical.is_dir() and any(p.suffix.lower() in {'.pdf', '.png'} for p in clinical.rglob('*')):
+        from opera.run.clinical_figure_provenance import verify_clinical_render
+        check = verify_clinical_render(clinical)
+        if not check['valid']:
+            raise ValueError('Cannot package stale clinical figures: ' + '; '.join(check['errors'])
+                             + '. Refresh clinical reports and assemble a fresh review directory.')
     if output.exists():
         raise FileExistsError(output)
     selected = {}

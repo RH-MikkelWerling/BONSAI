@@ -189,7 +189,8 @@ def main():
                 complete_borrowing_export(root / 'borrowing_inference', fit, command)
             expected = {'init_figures': [root / 'figure_inputs/figures.yaml'],
                 'clinical_training_predictions': [root / 'clinical_training/direct_cr_predictions.parquet'],
-                'clinical_scores': [root / 'clinical_scores/headline_scores.csv', root / 'clinical_scores/classification_at_thresholds.csv'],
+                'clinical_scores': [root / 'clinical_scores/headline_scores.csv', root / 'clinical_scores/classification_at_thresholds.csv',
+                                    root / 'clinical_scores/report_manifest.json'],
                 'borrowing_inference': [root / 'borrowing_inference/source_removal/design.json', root / 'borrowing_inference/evaluation_complete.json'],
                 'borrowing_analysis_zero': [root / 'source_removal/tuning/zero_ablation/borrowing_map.csv', root / 'source_removal/tuning/zero_ablation/analysis_provenance.json'],
                 'borrowing_analysis': [root / 'source_removal/tuning/borrowing_map.csv', root / 'source_removal/tuning/analysis_provenance.json'],

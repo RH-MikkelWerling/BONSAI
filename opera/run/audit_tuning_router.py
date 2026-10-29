@@ -46,9 +46,17 @@ def reconcile_metrics(config, analysis, *, models=None):
                if manifest_path.is_file() else None)
     wanted = (set(models) if models is not None else
               {'J_L', 'R_L', 'R_AB_L', 'R_ORIG_L', config.get('opera_model')})
+    specifications = [(spec, spec['model']) for spec in config['artifacts']]
+    # OPERA is normally materialised after inventory loading, rather than
+    # stored as a separate artifact. Read its selected physical model first
+    # so keyed long tables still undergo their original declaration checks.
+    if models is not None and 'OPERA' in wanted and not any(
+            model == 'OPERA' for _, model in specifications):
+        specifications.extend((spec, 'OPERA') for spec in config['artifacts']
+                              if spec['model'] == config.get('opera_model'))
     reports = []
-    for spec in config['artifacts']:
-        if spec['model'] not in wanted or spec.get('split') != 'tuning':
+    for spec, model in specifications:
+        if model not in wanted or spec.get('split') != 'tuning':
             continue
         if models is None and spec.get('format') != 'direct_cif':
             continue
@@ -76,10 +84,10 @@ def reconcile_metrics(config, analysis, *, models=None):
                 eligible = ((cell.loc[known, 'label'] == 1).sum() >= support['min_cases']
                             and (cell.loc[known, 'label'] == 0).sum() >= support['min_controls'])
             for metric in ('auc', 'brier'):
-                metrics.append({**dict(zip(keys, identity)), 'model': spec['model'],
+                metrics.append({**dict(zip(keys, identity)), 'model': model,
                                 'metric': metric, 'recomputed': values[metric] if eligible else np.nan})
         recomputed = pd.DataFrame(metrics)
-        report = {'model': spec['model'], 'path': spec['path'],
+        report = {'model': model, 'source_model': spec['model'], 'path': spec['path'],
                   'estimand': config['estimand'], 'recomputed_metrics': len(metrics),
                   'native_vs_analysis_max_abs_error': max(errors) if errors else None,
                   'native_vs_analysis_finite_status_mismatches': status_mismatches}

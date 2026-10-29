@@ -17,6 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import yaml
 from opera.run.paper_experiments import load_environment
+from opera.run.clinical_figure_provenance import verify_clinical_render
 
 
 def sha(path):
@@ -32,6 +33,13 @@ def main():
     parser.add_argument('--attribution-dir', type=Path, help='Explicit completed IG directory with summary_365d')
     args = parser.parse_args()
     root = args.analysis_root.resolve()
+    clinical = args.clinical_dir.resolve() if args.clinical_dir else root / 'clinical_scores'
+    inventory_path = root / 'analysis_inventory/analysis.yaml'
+    inventory = yaml.safe_load(inventory_path.read_text()) if inventory_path.is_file() else {}
+    clinical_check = verify_clinical_render(clinical, expected_model=inventory.get('opera_model'))
+    if args.clinical_dir and not clinical_check['valid']:
+        raise ValueError('Clinical figures are stale or unverified: ' + '; '.join(clinical_check['errors'])
+                         + '. Rebuild with opera.run.refresh_clinical_figures from the completed clinical workspace.')
     output = (args.output_dir or root / ('figure_review_' + datetime.now(
         ZoneInfo('Europe/Copenhagen')).strftime('%Y%m%d_%H%M%S'))).resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -46,9 +54,14 @@ def main():
     env['OPERA_PAPER_INPUT_RESTRICTION_DIR'] = str(restrictions)
     repo = Path(__file__).resolve().parents[2]
     report = dict(analysis_root=str(root), attribution_dir=str(attribution), steps={}, copied={}, missing=[],
-        notes=['Rendered from this workspace only. Existing clinical plots retain their source provenance.',
+        clinical_dir=str(clinical), clinical_validation=clinical_check,
+        notes=['Clinical figures are copied only after renderer/threshold/output provenance checks.',
                'Attribution summaries may be reused analyses; inspect their provenance before publication.',
                'No inference, training, or integrated-gradient computation was launched.'])
+    if not clinical_check['valid']:
+        report['missing'].append(dict(family='clinical_render', input=str(clinical),
+                                     reasons=clinical_check['errors']))
+        print('Clinical figures excluded: ' + '; '.join(clinical_check['errors']), flush=True)
     def save():
         (output / 'review_manifest.json').write_text(json.dumps(report, indent=2))
     def render(name, recipe):
@@ -72,11 +85,11 @@ def main():
             for key, source in plate.get(section, {}).items():
                 if not source.startswith('${OPERA_PAPER_ANALYSIS_ROOT}/'):
                     plate[section][key] = str(root / 'figure_inputs/plot_tables' / Path(source).name)
-    if args.clinical_dir:
-        for plate in recipe['figures']:
-            for key, source in plate.get('tables', {}).items():
-                if '/clinical_scores/' in source:
-                    plate['tables'][key] = str(args.clinical_dir.resolve() / source.split('/clinical_scores/',1)[1])
+    clinical_inputs = clinical if clinical_check['valid'] else output / 'unavailable_clinical'
+    for plate in recipe['figures']:
+        for key, source in plate.get('tables', {}).items():
+            if '/clinical_scores/' in source:
+                plate['tables'][key] = str(clinical_inputs / source.split('/clinical_scores/',1)[1])
     render('main', recipe)
     zero = copy.deepcopy(recipe)
     zero['required_figures'] = []
@@ -97,14 +110,14 @@ def main():
     render('recent_records', dict(figures=[dict(id='supp_recent_record_gaps',
         function='figure_recent_record_gaps', tables=dict(restrictions=str(restrictions / 'input_restriction_summary.csv')),
         options=dict(mark='TUNING SET — not test results'))]))
-    clinical = args.clinical_dir.resolve() if args.clinical_dir else root / 'clinical_scores'
-    report['clinical_dir'] = str(clinical)
     for suffix in ('*.pdf','*.png'):
-        for source in sorted(clinical.rglob(suffix)):
+        for source in sorted(clinical.rglob(suffix)) if clinical_check['valid'] else []:
             target = output / 'clinical_scores' / source.relative_to(clinical)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source,target)
             report['copied'][str(target.relative_to(output))] = dict(source=str(source), sha256=sha(source))
+    if clinical_check['valid']:
+        shutil.copy2(clinical / 'report_manifest.json', output / 'clinical_scores/report_manifest.json')
     for relative in ('completion.json','figure_results_audit.json','clinical_scores/score_inventory.csv',
                      'clinical_scores/headline_scores.csv','clinical_scores/classification_at_thresholds.csv',
                      'clinical_scores/report_manifest.json','configs/config_audit.json',
@@ -112,7 +125,7 @@ def main():
                      'source_removal/tuning/borrowing_map.csv',
                      'source_removal/tuning/borrowing_levels.csv',
                      'input_restrictions/input_restriction_summary.csv'):
-        source = (clinical / relative.split('/',1)[1] if relative.startswith('clinical_scores/') else
+        source = (clinical_inputs / relative.split('/',1)[1] if relative.startswith('clinical_scores/') else
                   restrictions / relative.split('/',1)[1] if relative.startswith('input_restrictions/') else root / relative)
         if source.is_file():
             target = output / 'reports' / relative
@@ -121,7 +134,7 @@ def main():
     # Preserve exportable summaries needed to rerender and audit locally.
     from opera.run.package_figure_review import REPORT_TABLES
     for folder, origin in [('attributions/summary_365d', attribution / 'summary_365d'),
-                           ('clinical_scores', clinical)]:
+                           ('clinical_scores', clinical_inputs)]:
         for name in sorted(REPORT_TABLES):
             source = origin / name
             if source.is_file():
@@ -134,7 +147,7 @@ def main():
         clinical_scores='clinical_scores/score_inventory.csv',
         classification_metrics='clinical_scores/classification_at_thresholds.csv').items():
         source = (attribution / 'summary_365d/attribution_variance_sources.csv' if name == 'integrated_gradients'
-                  else clinical / relative.split('/',1)[1] if relative.startswith('clinical_scores/')
+                  else clinical_inputs / relative.split('/',1)[1] if relative.startswith('clinical_scores/')
                   else restrictions / relative.split('/',1)[1] if relative.startswith('input_restrictions/') else root / relative)
         if not source.is_file():
             report['missing'].append(dict(family=name, input=relative))

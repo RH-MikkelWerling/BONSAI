@@ -2,6 +2,7 @@ import json
 from zipfile import ZipFile
 import pytest
 from opera.run.package_figure_review import package
+from opera.run.clinical_figure_provenance import render_receipt
 
 
 def test_partial_bundle_keeps_figures_and_aggregates_without_patient_data(tmp_path):
@@ -9,6 +10,8 @@ def test_partial_bundle_keeps_figures_and_aggregates_without_patient_data(tmp_pa
     (review / 'clinical_scores/cll').mkdir(parents=True)
     (review / 'review_manifest.json').write_text(json.dumps({'status':'partial_review','missing':[{'family':'IG'}]}))
     (review / 'clinical_scores/cll/risk.pdf').write_bytes(b'pdf')
+    (review / 'clinical_scores/report_manifest.json').write_text(json.dumps(render_receipt(
+        review / 'clinical_scores', [dict(id='cll', model='R_L', threshold_split='train')], 'tuning')))
     (review / 'patients_INTERNAL.csv').write_text('patient_id,risk\n123,0.4\n')
     (review / 'embeddings.npz').write_bytes(b'private')
     root = tmp_path / 'analysis'
@@ -34,3 +37,12 @@ def test_partial_bundle_keeps_figures_and_aggregates_without_patient_data(tmp_pa
 def test_rejects_unassembled_workspace(tmp_path):
     with pytest.raises(ValueError, match='assembled review'):
         package(tmp_path, tmp_path / 'bad.zip')
+
+
+def test_rejects_old_clinical_figures_even_in_an_existing_review(tmp_path):
+    (tmp_path / 'review_manifest.json').write_text('{}')
+    (tmp_path / 'clinical_scores').mkdir()
+    (tmp_path / 'clinical_scores/old.pdf').write_bytes(b'old')
+    with pytest.raises(ValueError, match='stale clinical figures'):
+        package(tmp_path, tmp_path / 'bad.zip')
+    assert not (tmp_path / 'bad.zip').exists()

@@ -44,3 +44,16 @@ def test_explicit_tabular_reconciliation_includes_censored_risk_set_and_detects_
     assert np.isclose(report['recomputed_vs_saved_max_abs_error'], .1)
     with pytest.raises(ValueError, match='no tuning artifacts'):
         reconcile_metrics(config, tmp_path, models=['X', 'XP'])
+
+    # OPERA normally exists only as an analysis alias. Resolve the selected
+    # physical model without overriding the long table's declared model.
+    frame.assign(model='R_L').to_parquet(predictions)
+    saved.assign(model='OPERA').to_csv(analysis / 'estimates.csv', index=False)
+    config['opera_model'] = 'R_L'
+    config['artifacts'][0]['model'] = 'R_L'
+    alias, = reconcile_metrics(config, tmp_path, models=['OPERA'])
+    assert alias['model'] == 'OPERA'
+    assert alias['source_model'] == 'R_L'
+    assert alias['missing_saved_estimates'] == 0
+    assert alias['finite_status_mismatches'] == 0
+    assert np.isclose(alias['recomputed_vs_saved_max_abs_error'], .1)

@@ -18,6 +18,17 @@ fixed. A visually striking source map or a positive routing result is not a
 release requirement. A reproducible weak or diffuse borrowing result is a
 valid finding and should narrow the claim.
 
+**First server report reviewed, 29 October:** the existing router replay
+**passed**. R_L is the intended revised `fix_R_AB` fit; saved checkpoint and
+prediction hashes match, all 46 sampled patients replay within tolerance at
+all six horizons, seed-42 health passes, and neural AUC/Brier reconciliation
+agrees to numerical precision. Borrowed corrections affect predictions.
+This completes the first replay check for the reported inputs. It does not
+complete ordered bank-label verification, second-seed stability, tabular
+reconciliation or the clinical/national release checks. See
+`docs/ROUTER_RELEASE_REPORT_REVIEW_20261029.md`. Do not repeat the GPU replay
+for unchanged inputs merely because another report is still pending.
+
 ## 1. First job: verify the existing router and its predictions
 
 Sync the reviewed source and checksum manifest to the server. Run inside a
@@ -96,7 +107,9 @@ It neither refits models nor opens the test set:
   > "$opera_audit/cross_family_metrics.json"
 ```
 
-Every requested model must have tuning artifacts. Check every reconciliation
+Every requested model must resolve to tuning artifacts. The updated audit resolves `OPERA`
+through `opera_model`; with the earlier audit version, request `R_L` instead
+of `OPERA` for the current primary fit. Check every reconciliation
 entry for zero missing saved estimates, zero finite-status mismatches and
 numerical agreement of native, recomputed and saved AUC/Brier (approximately
 `1e-10` or better). An existing saved `analysis_manifest.json` must declare
@@ -128,10 +141,11 @@ The existing stage-3 rule is support-weighted, per patient/target:
   target diseases.
 - Median effective contributing-source count is greater than 1.5.
 
-The downloaded seed-42 AB report passes: top-source share 15.07%, six distinct
-top borrowed sources and median effective count 76.018. This is historical
-evidence to reproduce, not a claim that the latest server outputs have already
-passed. The original router shows the earlier single-source collapse.
+The newly received server replay report confirms the seed-42 AB health pass:
+top-source share 15.07%, six distinct top borrowed sources and median effective
+count 76.018. This reproduces the earlier diagnostics for the selected fit.
+It does not establish stability across seeds. The original router shows the
+earlier single-source collapse.
 
 Before interpreting source labels, verify the **ordered** disease/outcome
 source lists against the saved checkpoint/model configuration and
@@ -171,8 +185,10 @@ OPERA_PYTHON="$opera_python" bash scripts/rerun_tuning_figure_outputs.sh \
   "$opera_analysis" --render-only
 ```
 
-This updates plot tables and renders, with backups of the preceding figures.
-It does not redo the full paired analysis. In particular, the expanded
+This updates general plot tables and renders, with backups of the preceding
+figures. **It does not rerun clinical-score evaluation or replace the existing
+`clinical_scores` images.** It does not redo the full paired analysis. In
+particular, the expanded
 S/D/O/J/OPERA strategy bars require the newly generated
 `strategy_selection_inclusive.csv`. If that file is absent, a CPU analysis
 refresh is needed for those bars; the render-only launcher cannot create it.
@@ -180,8 +196,64 @@ That refresh reuses saved predictions and does not train models.
 
 Do not blindly rerun `finish_local_figure_review.sh`: it creates new clinical
 and IG workspaces and launches those computations. First check which previous
-stages actually finished. The clinical metadata conflict reported earlier must
-be resolved before considering that family complete.
+stages actually finished.
+
+### Refresh the clinical family separately
+
+The reported NCCN-IPI image with “1 years”, three groups and tuning-derived
+cutoffs is an old render. Running the general `--render-only` command leaves
+that image untouched. After syncing the current source and checksum manifest,
+run this from the repository root inside a GPU allocation:
+
+```bash
+opera_python=.venv-v100/bin/python
+opera_analysis=data/paper_256_v3/analysis/local_figures_20261028_143127
+opera_clinical_stamp=$(TZ=Europe/Copenhagen date +%Y%m%d_%H%M%S)
+opera_clinical_root="data/paper_256_v3/analysis/clinical_training_groups_$opera_clinical_stamp"
+
+"$opera_python" -m opera.run.complete_local_figures \
+  --analysis-root "$opera_analysis" \
+  --output-dir "$opera_clinical_root" \
+  --clinical-only
+
+opera_clinical_dir="$opera_clinical_root/clinical_scores"
+```
+
+This exports training predictions from the selected fitted model, develops
+thresholds on training patients, evaluates on tuning patients and renders the
+current clinical figures. It does not retrain models, run IG or repeat source
+removal. Check `completion.json` and `clinical_scores/score_inventory.csv` for
+gaps. Open **the new** `$opera_clinical_dir/fig_clinical_score.pdf`, not the
+unchanged image under the original `local_figures_20261028_143127` directory.
+The computed NCCN-IPI comparison retains Low, Low-intermediate,
+High-intermediate and High categories. Already-coarsened registry categories
+cannot be reconstructed without numeric totals and remain a separate audit
+limitation.
+
+If a **completed clinical workspace already contains training predictions**,
+avoid repeating inference. Rebuild its reports on CPU instead, using that
+workspace's parent directory (the directory containing `analysis_inventory`,
+not its `clinical_scores` subdirectory):
+
+```bash
+# Set opera_completed_clinical_workspace to that existing clinical workspace.
+"$opera_python" -m opera.run.refresh_clinical_figures \
+  --workspace "${opera_completed_clinical_workspace:?Set the completed clinical workspace}" \
+  --output-dir "$opera_clinical_root"
+
+opera_clinical_dir="$opera_clinical_root/clinical_scores"
+```
+
+These are alternatives. Each uses a fresh output directory. The CPU command
+refuses to proceed if the training prediction export is absent. Do not resume
+an older completion workspace after syncing changed scientific code.
+
+Clinical renders now record renderer hashes, evaluation/threshold splits,
+score definitions and figure hashes. Review assembly rejects an explicitly
+selected stale clinical folder. Without an explicit folder, it omits stale
+clinical outputs and reports the missing family. Packaging also rejects
+legacy clinical images without a current receipt. This checks freshness and
+the declared comparison settings, not clinical validity or upstream leakage.
 
 Assemble completed clinical, attribution and omission outputs explicitly:
 
