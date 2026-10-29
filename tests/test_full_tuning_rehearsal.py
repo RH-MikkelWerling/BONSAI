@@ -15,8 +15,13 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
         tmp_path, monkeypatch, clinical_gaps, diagnostic_failure, verify_sources):
     source = tmp_path / 'old'
     (source / 'analysis_inventory').mkdir(parents=True)
+    legacy_tabular = source / 'analysis_inventory/tabular.csv'
+    legacy_tabular.write_text('split\ntuning\ntuning\n')
     (source / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(dict(
-        estimand='cif_ipcw', artifacts=[dict(model='R_L', split='tuning', path='/frozen/predictions')])) )
+        estimand='cif_ipcw', artifacts=[
+            dict(model='R_L', split='tuning', path='/frozen/predictions'),
+            dict(model='X', format='long', path=str(legacy_tabular))],
+        clinical_threshold_artifacts=[dict(model='R_L', split='train', path='/frozen/training')])) )
     (source / 'completion.json').write_text(json.dumps(dict(inputs=dict(fit=dict(checkpoint='/frozen/model')))))
     (source / 'overnight.env').write_text(f'OPERA_PAPER_ANALYSIS_ROOT={source}\n')
     (source / 'attributions').mkdir()
@@ -70,6 +75,11 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
         assert result['code_manifest_sha256'] is None
         assert result['source_changed_during_run'] is None
     assert not result['reused_prior_analysis_outputs']
+    prepared = yaml.safe_load((output / 'paired/analysis_inventory/analysis.yaml').read_text())
+    assert all(a['split'] == 'tuning' for a in prepared['artifacts'])
+    assert prepared['clinical_threshold_artifacts'][0]['split'] == 'train'
+    assert 'split' not in yaml.safe_load((source / 'analysis_inventory/analysis.yaml').read_text())['artifacts'][1]
+    assert result['legacy_split_declarations_resolved'] == 1
     assert not (output / 'paired/prediction_analysis/old_estimates.csv').exists()
     assert not (output / 'analysis/attributions/old_summary.csv').exists()
     assert json.loads((output / 'analysis/attributions/summary_365d/attribution_numbers.json').read_text()) == {'new': True}
@@ -99,3 +109,33 @@ def test_source_sync_preflight_checks_actual_bytes(tmp_path):
     path.write_text('old server copy')
     with pytest.raises(ValueError, match='Source checksum mismatch'):
         runner.verify_sources(tmp_path)
+
+
+@pytest.mark.parametrize('file_format', ['csv', 'parquet'])
+@pytest.mark.parametrize('splits', [
+    ['tuning'], ['held_out'], ['train'], ['tuning', 'held_out'], ['tuning', None], []])
+def test_legacy_long_inventory_checks_actual_split_rows(tmp_path, file_format, splits):
+    import pandas as pd
+
+    path = tmp_path / ('predictions.' + file_format)
+    frame = pd.DataFrame({'split': splits})
+    if file_format == 'parquet':
+        frame.to_parquet(path, index=False)
+    else:
+        frame.to_csv(path, index=False)
+    analysis = {'artifacts': [{'model': 'XP', 'format': 'long', 'path': str(path)}]}
+    if splits == ['tuning']:
+        prepared = runner.tuning_inventory(analysis)
+        assert prepared['artifacts'][0]['split'] == 'tuning'
+        assert 'split' not in analysis['artifacts'][0]
+    else:
+        with pytest.raises(ValueError, match='tuning predictions only'):
+            runner.tuning_inventory(analysis)
+
+
+@pytest.mark.parametrize('split', ['held_out', 'train', None])
+def test_rejects_non_tuning_declaration_before_opening_artifact(split):
+    with pytest.raises(ValueError, match='tuning predictions only'):
+        runner.tuning_inventory({'artifacts': [
+            {'model': 'J_L', 'format': 'direct_cif', 'split': split,
+             'path': '/never/open/this/prediction.parquet'}]})

@@ -48,6 +48,13 @@ no bypass flag and does not require `code_manifest.sha256`. Optional
 `--verify-sources` re-enables the checks. The report records whether verification
 was enabled. Analysis/input validation remains enabled.
 
+Legacy XGBoost inventory entries can omit their YAML `split` while storing it
+in the canonical prediction table. The launcher verifies only that column and
+adds `split: tuning` to the copied inventory in the new workspace. It leaves
+the original inventory unchanged and rejects train, held-out, mixed or empty
+evaluation splits. Separate training artifacts used for clinical thresholds
+are retained. New inventories declare tabular splits explicitly.
+
 The launcher copies the locked inventory declarations into a fresh workspace and recomputes
 the paired analysis from the original base prediction exports. The model
 checkpoints, original base prediction/encoder-embedding exports, metadata,

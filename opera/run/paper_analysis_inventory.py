@@ -364,6 +364,7 @@ def build_inventory(args):
                             "format": "long",
                             "model": alias,
                             "seed": job["seed"],
+                            "split": split,
                             "data_contract": args.data_contract,
                         }
                     )
@@ -395,6 +396,7 @@ def build_inventory(args):
                 tabular_tables.append((str(directory / filename), cell_job, split, destination, "XP"))
                 artifacts.append({"path": str(destination.resolve()), "format": "long",
                                   "model": "XP", "seed": job["seed"],
+                                  "split": split,
                                   "data_contract": args.data_contract})
     if not artifacts:
         raise ValueError(

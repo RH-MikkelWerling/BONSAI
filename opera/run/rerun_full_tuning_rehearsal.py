@@ -43,6 +43,48 @@ def verify_sources(repo):
         )
 
 
+def tuning_inventory(analysis):
+    """Resolve legacy tabular split declarations without accepting test rows.
+
+    Older inventories declare splits on native CIF artifacts, but canonical
+    long tabular tables carry their split only in the table itself.
+    """
+    import pandas as pd
+
+    artifacts = []
+    checked = {}
+    for artifact in analysis.get("artifacts", []):
+        split = artifact.get("split")
+        identity = f"{artifact.get('model', '?')}: {artifact['path']}"
+        if split is None and artifact.get("format") == "long":
+            path = Path(artifact["path"])
+            if path not in checked:
+                with path.open("rb") as handle:
+                    parquet = handle.read(4) == b"PAR1"
+                frame = (
+                    pd.read_parquet(path, columns=["split"])
+                    if parquet
+                    else pd.read_csv(path, usecols=["split"], dtype={"split": str})
+                )
+                checked[path] = set(frame["split"].astype("string").fillna("<missing>"))
+            splits = checked[path]
+            if splits != {"tuning"}:
+                raise ValueError(
+                    f"This full rehearsal accepts tuning predictions only; "
+                    f"{identity} contains splits {sorted(splits)}"
+                )
+            split = "tuning"
+        if split != "tuning":
+            raise ValueError(
+                f"This full rehearsal accepts tuning predictions only; "
+                f"{identity} declares split={split!r}"
+            )
+        artifacts.append({**artifact, "split": "tuning"})
+    if not artifacts:
+        raise ValueError("The source inventory has no tuning prediction artifacts")
+    return {**analysis, "artifacts": artifacts}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -68,8 +110,13 @@ def main():
     analysis = yaml.safe_load(inventory.read_text())
     if analysis.get("estimand") != "cif_ipcw":
         raise ValueError("The locked source analysis must declare estimand=cif_ipcw")
-    if any(a.get("split") != "tuning" for a in analysis["artifacts"]):
-        raise ValueError("This full rehearsal accepts a tuning-only inventory")
+    resolved_splits = sum(a.get("split") is None for a in analysis.get("artifacts", []))
+    analysis = tuning_inventory(analysis)
+    print(
+        f"Tuning inventory: {len(analysis['artifacts'])} artifacts; "
+        f"{resolved_splits} legacy split declarations verified from table rows.",
+        flush=True,
+    )
     if any(
         analysis.get(key, 5) != 5
         for key in ("performance_min_cases", "performance_min_controls")
@@ -96,8 +143,11 @@ def main():
     shutil.copytree(
         source / "analysis_inventory", paired / "analysis_inventory", dirs_exist_ok=True
     )
+    prepared_inventory = paired / "analysis_inventory/analysis.yaml"
+    prepared_inventory.write_text(yaml.safe_dump(analysis, sort_keys=False))
     env.update(
         OPERA_PAPER_ANALYSIS_ROOT=str(paired),
+        OPERA_PAPER_INVENTORY_SPLITS="tuning",
         OPERA_PAPER_PLOT_SPLIT="tuning",
         OPERA_PAPER_FIGURE_MARK="TUNING SET — not test results",
     )
@@ -115,6 +165,8 @@ def main():
         status="running",
         source_analysis=str(source),
         inventory_sha256=digest(inventory),
+        prepared_inventory_sha256=digest(prepared_inventory),
+        legacy_split_declarations_resolved=resolved_splits,
         source_verification_enabled=args.verify_sources,
         code_manifest_sha256=(
             digest(repo / "code_manifest.sha256") if args.verify_sources else None
