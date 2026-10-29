@@ -3,7 +3,7 @@ import json
 import pytest
 
 from opera.run.clinical_figure_provenance import (
-    NATIVE_FOUR, render_receipt, verify_clinical_render,
+    NATIVE_FOUR, render_receipt, verify_clinical_render, training_artifact_with_contract,
 )
 
 
@@ -82,7 +82,7 @@ def test_cpu_refresh_rebuilds_native_groups_and_reuses_configured_training_expor
     pd.DataFrame(dict(subject_id=range(60, 120), outcome='overall_survival')).to_parquet(training)
     np.savez(workspace / 'patient_embeddings.npz', embeddings=np.ones((60, 2)))
     analysis = dict(patient_metadata=str(meta), opera_model='R_L', artifacts=[
-        dict(model='R_L', split='tuning', seed=42, path=str(prediction))],
+        dict(model='R_L', split='tuning', seed=42, path=str(prediction), data_contract='release-test')],
         clinical_threshold_artifacts=[dict(model='R_L', split='train', seed=42, path=str(training))])
     (workspace / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(analysis))
     output = tmp_path / 'new'
@@ -96,7 +96,25 @@ def test_cpu_refresh_rebuilds_native_groups_and_reuses_configured_training_expor
     assert len(commands) == 1 and commands[0][2] == 'opera.run.render_clinical_score_panels'
     updated = yaml.safe_load((output / 'analysis_inventory/analysis.yaml').read_text())
     assert updated['clinical_threshold_artifacts'][0]['path'] == str(training)
+    assert updated['clinical_threshold_artifacts'][0]['data_contract'] == 'release-test'
     recipe = yaml.safe_load((output / 'configs/clinical_score_panels.tuning.yaml').read_text())
     main, = [s for s in recipe['scores'] if s.get('manuscript_figures')]
     assert main['group_order'] == NATIVE_FOUR and main['threshold_split'] == 'train'
     assert set(pd.read_parquet(output / 'patient_metadata.parquet').nccn_ipi_group) == set(NATIVE_FOUR)
+
+
+def test_training_contract_uses_matching_model_and_seed_and_rejects_conflicts():
+    training = dict(model='R_L', seed=42, split='train', path='unchanged.parquet')
+    analysis = dict(artifacts=[
+        dict(model='R_L', seed=42, split='tuning', data_contract='registered-release'),
+        dict(model='J_L', seed=42, split='tuning', data_contract='other-model')])
+    spec = training_artifact_with_contract(training, analysis)
+    assert spec['data_contract'] == 'registered-release'
+    assert 'data_contract' not in training
+    with pytest.raises(ValueError, match='declarations differ'):
+        training_artifact_with_contract(dict(training, data_contract='wrong-release'), analysis)
+    with pytest.raises(ValueError, match='one registered tuning data_contract'):
+        training_artifact_with_contract(dict(training, seed=43), analysis)
+    analysis['artifacts'].append(dict(model='R_L', seed=42, split='tuning', data_contract='conflict'))
+    with pytest.raises(ValueError, match='one registered tuning data_contract'):
+        training_artifact_with_contract(training, analysis)

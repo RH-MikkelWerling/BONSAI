@@ -100,7 +100,7 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
     pd.DataFrame([dict(subject_id=i, outcome=name) for i in range(60) for name in OUTCOMES]).to_parquet(prediction)
     np.savez(prediction.parent / 'patient_embeddings.npz', embeddings=np.ones((60, 2)))
     analysis = dict(patient_metadata=str(metadata), opera_model='R_L', artifacts=[
-        dict(model='R_L', split='tuning', seed=42, path=str(prediction))])
+        dict(model='R_L', split='tuning', seed=42, path=str(prediction), data_contract='release-test')])
     (old / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(analysis))
     (old / 'overnight.env').write_text(f'OPERA_PAPER_ROOT={paper}\nBONSAI_COHORT_MEMBERSHIP={metadata}\n')
     config = tmp_path / 'fit.yaml'; config.write_text('matched')
@@ -164,6 +164,8 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
     monkeypatch.setattr('sys.argv', ['completion', '--analysis-root', str(old), '--output-dir', str(output)])
     runner.main()
     report = json.loads((output / 'completion.json').read_text())
+    generated = yaml.safe_load((output / 'analysis_inventory/analysis.yaml').read_text())
+    assert generated['clinical_threshold_artifacts'][0]['data_contract'] == 'release-test'
     assert report['status'] == 'complete'
     assert sum('--split' in c and c[c.index('--split')+1] == 'train' for c in commands) == 1
     assert sum('--export-routed-outcome' in c for c in commands) == 5

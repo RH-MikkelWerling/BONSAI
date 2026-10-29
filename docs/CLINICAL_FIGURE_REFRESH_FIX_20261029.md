@@ -57,3 +57,37 @@ The CPU refresh was checked for refusal without training predictions and for
 reconstruction of native categories from numeric totals while reusing an
 existing training export. The server's actual new figures still need visual
 inspection after the run.
+
+## Follow-up: training-artifact contract failure
+
+The first clinical-only run in
+`clinical_training_groups_20261029_123537` reached rendering, then failed with
+`Missing canonical prediction fields: ['data_contract']`. The native training
+export does not carry the paper inventory's release identity. Its newly added
+inventory declaration omitted that identity. A second integration issue was
+that the shared prediction normalizer only accepted tuning/held-out splits.
+The earlier orchestration tests mocked the reader and missed these issues.
+
+The training declaration now inherits the uniquely registered release
+contract from the same model and seed's tuning artifact. Missing, ambiguous
+or conflicting contracts fail explicitly. The clinical reader opts into
+training rows for threshold development, preserving their actual split.
+Ordinary evaluation still rejects training rows. Prediction contents and the
+CIF/IPCW estimand are unchanged.
+
+The CPU refresh repairs the legacy inventory declaration while writing a
+fresh report workspace. No manual parquet changes or repeat inference are
+needed. The receipt records each input's resolved contract as well as its
+file hash. Recovery commands are in the agenda.
+
+Regression checks now exercise actual native training/tuning exports through
+the renderer, threshold development, classification metrics and figure
+generation, rather than mocking the prediction reader. Additional checks
+cover training-split opt-in, censoring weights, contract conflicts and the
+new inventory declaration.
+
+Follow-up validation: 67 tests passed across the clinical rendering,
+provenance, completion, secondary analysis, metric reconciliation, recipe,
+assembly and packaging suites. The synthetic four-category clinical figure
+was also inspected visually. This validates the recovery code locally. The
+new server reports and figures still require inspection on the real inputs.

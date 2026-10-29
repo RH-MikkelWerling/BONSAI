@@ -14,6 +14,30 @@ RENDER_SOURCES = (
 NATIVE_FOUR = ['Low', 'Low-intermediate', 'High-intermediate', 'High']
 
 
+def training_artifact_with_contract(specification, analysis):
+    """Carry the registered release contract into a clinical training export.
+
+    Native inference writes predictions, not the paper inventory's release
+    identity. Use the matching model/seed's declared tuning contract, never a
+    fabricated default. This also repairs older clinical workspace recipes.
+    """
+    spec = dict(specification)
+    if spec.get('split') != 'train':
+        raise ValueError('Clinical threshold artifact must declare split=train')
+    contracts = {a['data_contract'] for a in analysis['artifacts']
+                 if a.get('model') == spec.get('model')
+                 and int(a.get('seed', 42)) == int(spec.get('seed', 42))
+                 and a.get('split') == 'tuning' and a.get('data_contract')}
+    if len(contracts) != 1:
+        raise ValueError('Need one registered tuning data_contract for the clinical '
+                         f"training export: {spec.get('model')}, seed {spec.get('seed', 42)}")
+    contract, = contracts
+    if spec.get('data_contract') and spec['data_contract'] != contract:
+        raise ValueError('Clinical training and tuning data_contract declarations differ')
+    spec['data_contract'] = contract
+    return spec
+
+
 def file_sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

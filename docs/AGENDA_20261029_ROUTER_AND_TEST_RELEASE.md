@@ -248,6 +248,30 @@ These are alternatives. Each uses a fresh output directory. The CPU command
 refuses to proceed if the training prediction export is absent. Do not resume
 an older completion workspace after syncing changed scientific code.
 
+**Recovery for `Missing canonical prediction fields: ['data_contract']`:**
+the training export was registered without the release contract, and the
+shared reader also lacked explicit permission for training rows. Both are
+fixed. Sync the updated source and checksum manifest, then reuse the export
+from the failed clinical workspace on CPU. For the reported run:
+
+```bash
+opera_python=.venv-v100/bin/python
+opera_clinical_stamp=$(TZ=Europe/Copenhagen date +%Y%m%d_%H%M%S)
+opera_clinical_root="data/paper_256_v3/analysis/clinical_report_refresh_$opera_clinical_stamp"
+
+"$opera_python" -m opera.run.refresh_clinical_figures \
+  --workspace data/paper_256_v3/analysis/clinical_training_groups_20261029_123537 \
+  --output-dir "$opera_clinical_root"
+
+opera_clinical_dir="$opera_clinical_root/clinical_scores"
+```
+
+This copies the matching model/seed's registered tuning release contract into
+the new training-artifact declaration and retains the `train` split. It does
+not relabel training patients as tuning, modify prediction parquets, bypass
+identity checks or repeat inference. Training rows remain rejected by the
+general analysis reader unless explicitly enabled by the clinical caller.
+
 Clinical renders now record renderer hashes, evaluation/threshold splits,
 score definitions and figure hashes. Review assembly rejects an explicitly
 selected stale clinical folder. Without an explicit folder, it omits stale

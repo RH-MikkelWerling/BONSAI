@@ -19,6 +19,7 @@ from opera.run.paper_experiments import load_environment, path_value, stage_bund
 from opera.run.paper_prediction_queue import bundle_runs, canonical_models
 from opera.run.prepare_available_plot_configs import build
 from opera.run.prepare_clinical_figure_metadata import prepare
+from opera.run.clinical_figure_provenance import training_artifact_with_contract
 
 
 def sha(path):
@@ -144,9 +145,9 @@ def main():
                 extras.append(computed)
             report['clinical_availability'] = prepare(analysis['patient_metadata'], extras, metadata)
             analysis['patient_metadata'] = str(metadata)
-            analysis['clinical_threshold_artifacts'] = [dict(model=analysis.get('opera_model', 'R_L'),
+            analysis['clinical_threshold_artifacts'] = [training_artifact_with_contract(dict(model=analysis.get('opera_model', 'R_L'),
                 seed=42, split='train', format='direct_cif', cohort_from_metadata=True,
-                path=str(root / 'clinical_training/direct_cr_predictions.parquet'))]
+                path=str(root / 'clinical_training/direct_cr_predictions.parquet')), analysis)]
             (root / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(analysis, sort_keys=False))
             embedding, clinical = build(analysis, root / 'configs')
             report['recorded_category_audit'] = json.loads((root / 'configs/config_audit.json').read_text())['recorded_category_audit']

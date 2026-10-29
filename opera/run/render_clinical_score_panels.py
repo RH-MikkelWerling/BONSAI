@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from opera.run.analyse_locked_predictions import file_hash, read_artifact, read_table
-from opera.run.clinical_figure_provenance import render_receipt
+from opera.run.clinical_figure_provenance import render_receipt, training_artifact_with_contract
 
 
 def _score_rank(spec):
@@ -517,18 +517,23 @@ def main():
         raise ValueError("Patient metadata must be unique")
     tables = []
     hashes = {}
+    contracts = {}
     wanted = {s["model"] for s in specs} | {
         m for s in specs for m in (s.get("decision_curve") or {}).get("comparators", [])}
     for artifact in [*analysis["artifacts"], *analysis.get("clinical_threshold_artifacts", [])]:
         if artifact["model"] not in wanted:
             continue
+        if artifact.get("split") == "train":
+            artifact = training_artifact_with_contract(artifact, analysis)
         frame, _ = read_artifact(
             artifact,
             metadata,
             "cif_ipcw",
+            allow_training=artifact.get("split") == "train",
         )
         tables.append(frame)
         hashes[str(artifact["path"])] = file_hash(artifact["path"])
+        contracts[str(artifact["path"])] = artifact.get("data_contract")
     if not tables:
         raise ValueError("No registered model prediction artifacts")
     predictions = pd.concat(tables, ignore_index=True)
@@ -817,6 +822,7 @@ def main():
                 score_config_sha=file_hash(args.score_config),
                 metadata_sha=file_hash(analysis["patient_metadata"]),
                 prediction_hashes=hashes,
+                prediction_data_contracts=contracts,
             ),
             indent=2,
         )

@@ -89,3 +89,83 @@ def test_binary_metrics_at_frozen_group_boundaries():
     ordinary = rows.loc[rows.estimand=='known_status']
     assert ordinary.n_known.eq(7).all()
     assert (ordinary[['tp','fp','fn','tn']].sum(axis=1)==7).all()
+
+
+def test_training_native_predictions_require_explicit_opt_in_and_keep_cif_weights(tmp_path):
+    from opera.run.analyse_locked_predictions import read_artifact
+    path = tmp_path / 'train.parquet'
+    pd.DataFrame(dict(subject_id=['a', 'b', 'c', 'd'], cohort='DLBCL',
+                      split='train', outcome='overall_survival',
+                      time_days=[10, 20, 500, 500], event=[0, 1, 0, 0],
+                      cif_365d=[.1, .8, .2, .3])).to_parquet(path)
+    spec = dict(path=str(path), format='direct_cif', model='R_L', seed=42,
+                split='train', data_contract='registered-release')
+    with pytest.raises(ValueError, match='tuning/held_out splits'):
+        read_artifact(spec, estimand='cif_ipcw')
+    frame, _ = read_artifact(spec, estimand='cif_ipcw', allow_training=True)
+    assert set(frame.split) == {'train'}
+    assert set(frame.data_contract) == {'registered-release'}
+    assert frame.set_index('subject_id').loc['a', 'ipcw_weight'] == 0
+    assert frame.set_index('subject_id').loc['b', 'ipcw_weight'] == pytest.approx(4/3)
+
+
+def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_path, monkeypatch):
+    """Exercise actual adaptation, thresholds, metrics and plots, without mocked readers."""
+    import json
+    import numpy as np
+    import yaml
+    from opera.run import render_clinical_score_panels as renderer
+    from opera.run.clinical_figure_provenance import NATIVE_FOUR, verify_clinical_render
+
+    rng = np.random.default_rng(431)
+    metadata, artifacts = [], []
+    for split, n in [('train', 600), ('tuning', 240)]:
+        risk = np.linspace(.01, .95, n)
+        groups = np.repeat(NATIVE_FOUR, n // 4)
+        event = rng.binomial(1, .02 + .65 * risk)
+        ids = [f'{split}_{i}' for i in range(n)]
+        path = tmp_path / f'{split}.parquet'
+        # The native exporter does not include data_contract/model/seed.
+        pd.DataFrame(dict(subject_id=ids, split=split, outcome='overall_survival',
+                          time_days=np.where(event == 1, 100, 500), event=event,
+                          cif_365d=risk)).to_parquet(path)
+        metadata.append(pd.DataFrame(dict(subject_id=ids, cohort_fine='DLBCL',
+            age_at_index=np.tile([50, 65, 80], n // 3), nccn_ipi_group=groups,
+            nccn_ipi_score=np.repeat([0, 2, 4, 7], n // 4))))
+        artifacts.append(dict(path=str(path), model='R_L', seed=42, split=split,
+                              format='direct_cif', cohort_from_metadata=True))
+    artifacts[1]['data_contract'] = 'registered-release'
+    meta = tmp_path / 'metadata.parquet'
+    pd.concat(metadata).to_parquet(meta)
+    analysis = tmp_path / 'analysis.yaml'
+    analysis.write_text(yaml.safe_dump(dict(patient_metadata=str(meta),
+        artifacts=[artifacts[1]], clinical_threshold_artifacts=[artifacts[0]])))
+    score = dict(id='nccn_ipi', model='R_L', seed=42, cohorts=['DLBCL'],
+        outcome='overall_survival', outcome_label='Overall survival', horizon_days=365,
+        score_label='NCCN-IPI', score_column='nccn_ipi_score', score_high_threshold=6,
+        group_column='nccn_ipi_group', group_order=NATIVE_FOUR,
+        group_map={g: g for g in NATIVE_FOUR}, age_column='age_at_index',
+        score_timing='Synthetic baseline', threshold_split='train',
+        cutoff_rule='risk_matched_low', death_in_endpoint=True,
+        manuscript_figures=True, lock_provenance='Synthetic regression test',
+        applicability_review='Synthetic regression test')
+    config = tmp_path / 'scores.yaml'
+    config.write_text(yaml.safe_dump(dict(scores=[score])))
+    output = tmp_path / 'clinical_scores'
+    monkeypatch.setenv('OPERA_PAPER_FIGURE_MARK', 'TUNING SET — not test results')
+    monkeypatch.setattr('sys.argv', ['render', '--analysis-config', str(analysis),
+        '--score-config', str(config), '--output-dir', str(output), '--split', 'tuning', '--execute'])
+    renderer.main()
+    inventory = pd.read_csv(output / 'score_inventory.csv')
+    assert inventory.status.tolist() == ['rendered']
+    assert inventory.threshold_n.tolist() == [600]
+    assert inventory.threshold_split.tolist() == ['train']
+    assert inventory.eligible_n.tolist() == [240]
+    metrics = pd.read_csv(output / 'classification_at_thresholds.csv')
+    assert set(metrics.split) == {'tuning'}
+    assert set(metrics.boundary) == set(NATIVE_FOUR[1:])
+    assert {'recall', 'precision', 'specificity', 'mcc'} <= set(metrics)
+    assert (output / 'fig_clinical_score.pdf').is_file()
+    receipt = json.loads((output / 'report_manifest.json').read_text())
+    assert set(receipt['prediction_data_contracts'].values()) == {'registered-release'}
+    assert verify_clinical_render(output, expected_model='R_L')['valid']

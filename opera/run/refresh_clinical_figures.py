@@ -16,6 +16,7 @@ import yaml
 
 from opera.run.prepare_available_plot_configs import build
 from opera.run.prepare_clinical_figure_metadata import prepare
+from opera.run.clinical_figure_provenance import training_artifact_with_contract
 
 
 def main():
@@ -33,6 +34,10 @@ def main():
         raise ValueError('No existing primary-model training predictions. Run '
                          'opera.run.complete_local_figures --clinical-only in a GPU allocation '
                          'with --analysis-root pointing to the completed analysis and a fresh --output-dir.')
+    for key in ('artifacts', 'clinical_threshold_artifacts'):
+        if key in analysis:
+            analysis[key] = [training_artifact_with_contract(a, analysis)
+                             if a.get('split') == 'train' else a for a in analysis[key]]
     output = args.output_dir.resolve()
     if output == workspace or workspace in output.parents:
         raise ValueError('Use a fresh sibling output directory')

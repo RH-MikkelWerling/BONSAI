@@ -121,13 +121,16 @@ def attach_ipcw_weights(frame):
 
 
 def normalize_predictions(
-    frame: pd.DataFrame, estimand: str = "binary_known_status_unweighted"
+    frame: pd.DataFrame, estimand: str = "binary_known_status_unweighted", *,
+    allow_training: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
     """Validate before casting, then apply the requested estimand.
 
     Known-status analysis retains only rows whose horizon status is known.
     ``cif_ipcw`` retains the full risk set with IPCW weights (zero for rows
     censored before the horizon).
+    Training rows are accepted only by an explicit clinical threshold-development
+    caller. Ordinary evaluation keeps its tuning/held_out restriction.
     """
     if estimand not in ESTIMANDS:
         raise ValueError(f"estimand must be one of {ESTIMANDS}")
@@ -165,14 +168,13 @@ def normalize_predictions(
         if key == "seed" and (values != np.floor(values)).any():
             raise ValueError("Seeds must be integers")
         frame[key] = values
-    if (frame.horizon_days <= 0).any() or not frame.split.isin(
-        ["tuning", "held_out"]
-    ).all():
-        raise ValueError("Need positive horizons and tuning/held_out splits")
+    allowed_splits = ["tuning", "held_out", *(["train"] if allow_training else [])]
+    if (frame.horizon_days <= 0).any() or not frame.split.isin(allowed_splits).all():
+        raise ValueError(f"Need positive horizons and {'/'.join(allowed_splits)} splits")
     if frame.duplicated(["model", *PATIENT]).any():
         raise ValueError("Duplicate model/patient/task predictions")
     if (frame.groupby("subject_id").split.nunique() > 1).any():
-        raise ValueError("Patient overlap between tuning and held_out predictions")
+        raise ValueError("Patient overlap between prediction splits")
     if (frame.groupby("subject_id").cohort.nunique() > 1).any():
         raise ValueError("A patient must have one fine disease assignment")
     frame["probability"] = pd.to_numeric(frame.probability, errors="raise").astype(

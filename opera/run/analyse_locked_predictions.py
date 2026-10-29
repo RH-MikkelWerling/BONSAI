@@ -69,7 +69,8 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def read_artifact(specification, metadata=None, estimand="binary_known_status_unweighted"):
+def read_artifact(specification, metadata=None, estimand="binary_known_status_unweighted", *,
+                  allow_training=False):
     """Adapt native wide CIFs or explicitly keyed long prediction tables."""
     frame = read_table(specification["path"])
     frame["subject_id"] = frame.subject_id.astype(str)
@@ -135,7 +136,7 @@ def read_artifact(specification, metadata=None, estimand="binary_known_status_un
             if key in frame and not frame[key].eq(specification[key]).all():
                 raise ValueError(f"Artifact declaration conflicts with rows: {key}")
             frame[key] = specification[key]
-    return normalize_predictions(frame, estimand)
+    return normalize_predictions(frame, estimand, allow_training=allow_training)
 
 
 _READ_CONTEXT = {}
