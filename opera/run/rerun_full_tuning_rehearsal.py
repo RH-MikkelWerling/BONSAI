@@ -52,16 +52,17 @@ def main():
         help="Existing completed tuning workspace with completion.json",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--verify-sources",
+        action="store_true",
+        help="Opt in to source-manifest checksum checks (disabled by default)",
+    )
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
-    if (
-        "  opera/run/rerun_full_tuning_rehearsal.py"
-        not in (repo / "code_manifest.sha256").read_text()
-    ):
-        raise ValueError(
-            "Source manifest predates this launcher. Sync code_manifest.sha256 with the source."
-        )
-    # verify_sources(repo)
+    if args.verify_sources:
+        verify_sources(repo)
+    else:
+        print("Source-manifest verification skipped (default).", flush=True)
     source = args.analysis_root.resolve()
     inventory = source / "analysis_inventory/analysis.yaml"
     analysis = yaml.safe_load(inventory.read_text())
@@ -114,7 +115,10 @@ def main():
         status="running",
         source_analysis=str(source),
         inventory_sha256=digest(inventory),
-        code_manifest_sha256=digest(repo / "code_manifest.sha256"),
+        source_verification_enabled=args.verify_sources,
+        code_manifest_sha256=(
+            digest(repo / "code_manifest.sha256") if args.verify_sources else None
+        ),
         paths=dict(
             paired=str(paired), analysis=str(complete), ig=str(ig), review=str(review)
         ),
@@ -347,13 +351,15 @@ def main():
     review_manifest = review / "review_manifest.json"
     if review_manifest.is_file():
         report["review_status"] = json.loads(review_manifest.read_text()).get("status")
-    report["source_changed_during_run"] = (
-        digest(repo / "code_manifest.sha256") != report["code_manifest_sha256"]
-    )
-    try:
-        verify_sources(repo)
-    except ValueError as exc:
-        report["source_verification_error"] = str(exc)
+    report["source_changed_during_run"] = None
+    if args.verify_sources:
+        try:
+            report["source_changed_during_run"] = (
+                digest(repo / "code_manifest.sha256") != report["code_manifest_sha256"]
+            )
+            verify_sources(repo)
+        except (OSError, ValueError) as exc:
+            report["source_verification_error"] = str(exc)
     report["status"] = (
         "complete"
         if (

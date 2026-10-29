@@ -19,7 +19,7 @@ evaluation are in `docs/ROUTER_IMPLEMENTATION_RECHECK_20261029.md`.
 
 ## Full fresh rerun requested on 29 October
 
-After syncing the complete updated source and `code_manifest.sha256`, run
+After syncing the updated source, run
 from the repository root inside a GPU allocation:
 
 ```bash
@@ -42,8 +42,13 @@ Monitor with:
 tail -f "logs/full_tuning_rehearsal_$opera_stamp.log"
 ```
 
-The launcher verifies runtime source checksums before expensive work. It
-copies the locked inventory declarations into a fresh workspace and recomputes
+Source-manifest freshness checks are disabled by default, as requested after
+the server reported mismatches for the synced files. The command above needs
+no bypass flag and does not require `code_manifest.sha256`. Optional
+`--verify-sources` re-enables the checks. The report records whether verification
+was enabled. Analysis/input validation remains enabled.
+
+The launcher copies the locked inventory declarations into a fresh workspace and recomputes
 the paired analysis from the original base prediction exports. The model
 checkpoints, original base prediction/encoder-embedding exports, metadata,
 vocabulary and frozen outcome definitions are inputs, not refitted here.

@@ -73,6 +73,8 @@ This is my editorial inference from the selected papers, not a journal rule. The
 
 Our opportunity is unusually good experimental separation within one specialty. Our disadvantages are the unfinished empirical account, weak source-specific interpretation, limited rare-cell precision and lack of an independent validation setting. Graphic polish can improve communication, but cannot remove those disadvantages.
 
+The novelty should not be that averaging can help with few events, that related tasks can share representations, or that pretraining transfers information. Those are established ideas. The potentially distinctive contribution is measuring their practical value and limits together across treatment-start prognosis, while separating disease from outcome supervision and comparing with native indices and strong pooled tabular models. A documented literature search is still needed before claiming this combination is the first of its kind. Classical partial-pooling and multi-task references can establish the foundation briefly; they do not need a long theoretical detour.
+
 ## What has already improved
 
 The previous review should not be applied unchanged. The current draft already:
@@ -212,6 +214,8 @@ Important precision points:
 4. The bootstrap description should match the implemented patient multiplier/weighting scheme. Patient-sampling intervals conditional on fitted checkpoints do not include all fitting, model-selection or training-threshold uncertainty.
 5. Thresholds derived from apparent training predictions are permitted by the present design but can be optimistic. Their evaluation must be external to that derivation, with achieved operating characteristics reported. Do not imply the larger training population eliminates this issue.
 6. A primary summary across equally weighted cells is not the AUC of a randomly selected patient across the whole cohort. State the target of the summary. An all-cohort analysis is complementary and can be affected by between-disease case mix.
+
+A joint fit and a masked-router fit can expose a difference between two training realisations, but one such pair does not establish a general training-noise floor. Use it as a limited control rather than a formal equivalence argument.
 
 The source-removal main-text subsection can be folded into a short secondary-analysis paragraph. The exact mean replacement, ownership conventions, shrinkage, classification metric catalogue and selection rules belong in the supplement. Move Role of the funding source to the end of Methods as the guide requests.
 

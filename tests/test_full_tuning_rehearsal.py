@@ -10,8 +10,9 @@ from opera.run import rerun_full_tuning_rehearsal as runner
 
 @pytest.mark.parametrize('clinical_gaps', [False, True])
 @pytest.mark.parametrize('diagnostic_failure', [False, True])
+@pytest.mark.parametrize('verify_sources', [False, True])
 def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
-        tmp_path, monkeypatch, clinical_gaps, diagnostic_failure):
+        tmp_path, monkeypatch, clinical_gaps, diagnostic_failure, verify_sources):
     source = tmp_path / 'old'
     (source / 'analysis_inventory').mkdir(parents=True)
     (source / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(dict(
@@ -49,12 +50,25 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
             (review / 'review_manifest.json').write_text(json.dumps(dict(
                 status='partial_review' if clinical_gaps else 'review_ready')))
         return SimpleNamespace(returncode=0)
-    monkeypatch.setattr(runner, 'verify_sources', lambda repo: None)
+    verification_calls = []
+    monkeypatch.setattr(runner, 'verify_sources', lambda repo: verification_calls.append(repo))
+    original_digest = runner.digest
+    def checked_digest(path):
+        if Path(path).name == 'code_manifest.sha256':
+            assert verify_sources, 'Default run must not require the source manifest'
+        return original_digest(path)
+    monkeypatch.setattr(runner, 'digest', checked_digest)
     monkeypatch.setattr(runner.subprocess, 'run', execute)
-    monkeypatch.setattr('sys.argv', ['full', '--analysis-root', str(source), '--output-dir', str(output)])
+    monkeypatch.setattr('sys.argv', ['full', '--analysis-root', str(source), '--output-dir', str(output)]
+                        + (['--verify-sources'] if verify_sources else []))
     runner.main()
     result = json.loads((output / 'full_rehearsal.json').read_text())
     assert result['status'] == ('finished_with_gaps' if clinical_gaps or diagnostic_failure else 'complete')
+    assert len(verification_calls) == (2 if verify_sources else 0)
+    assert result['source_verification_enabled'] is verify_sources
+    if not verify_sources:
+        assert result['code_manifest_sha256'] is None
+        assert result['source_changed_during_run'] is None
     assert not result['reused_prior_analysis_outputs']
     assert not (output / 'paired/prediction_analysis/old_estimates.csv').exists()
     assert not (output / 'analysis/attributions/old_summary.csv').exists()
