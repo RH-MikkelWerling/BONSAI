@@ -118,6 +118,14 @@ def main():
     run('paired_analysis', module('paper_experiments', 'analyse', '--env-file', env_path, '--execute'))
     run('complete_figures', module('complete_local_figures', '--analysis-root', paired,
                                  '--output-dir', complete), needs=['paired_analysis'])
+    run('router_vectors', module('audit_router_vectors',
+        '--vectors-root', complete / 'routed_vectors', '--output', root / 'router_vectors.json'),
+        needs=['complete_figures'])
+    run('whole_cohort', module('evaluate_whole_cohort_outcomes',
+        '--analysis-config', complete / 'analysis_inventory/analysis.yaml',
+        '--models', 'OPERA', 'J_L', 'X', 'XP', '--split', 'tuning',
+        '--horizons', '30', '60', '90', '180', '365', '730',
+        '--output-dir', root / 'whole_cohort'), needs=['complete_figures'])
     # This is a new IG directory. The attribution command's internal --resume
     # option cannot find or reuse any previous run's exports here.
     run('integrated_gradients', module('prepare_attribution_refresh', '--analysis-root', source,

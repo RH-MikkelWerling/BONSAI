@@ -327,7 +327,10 @@ def table_rows(panel):
     return "\n".join(lines) + "\n\\bottomrule\n"
 
 
-def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinical_scores=None):
+def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinical_scores=None,
+          attribution_summary=None):
+    if attribution_summary is not None and not (Path(attribution_summary) / "attribution_numbers.json").is_file():
+        raise ValueError('Explicit attribution summary lacks attribution_numbers.json')
     analysis_root = Path(analysis_root)
     analysis = analysis_root / "prediction_analysis"
     plot_tables = Path(plot_tables) if plot_tables else analysis_root / "figure_inputs" / "plot_tables"
@@ -355,7 +358,8 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     numbers.update(restriction_numbers(
         analysis_root / "input_restrictions" / "input_restriction_summary.csv", sources))
     numbers.update(attribution_numbers(
-        analysis_root / "attributions" / "summary_365d" / "attribution_numbers.json", sources))
+        (Path(attribution_summary) if attribution_summary else
+         analysis_root / "attributions" / "summary_365d") / "attribution_numbers.json", sources))
     numbers = {key: value for key, value in numbers.items() if value}
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -379,6 +383,8 @@ def main():
     parser.add_argument("--cell-metadata", type=Path)
     parser.add_argument("--plot-tables", type=Path)
     parser.add_argument("--clinical-scores", type=Path)
+    parser.add_argument("--attribution-summary", type=Path,
+                        help="Explicit fresh summary directory, e.g. corrected IG summary_365d")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--split", choices=("held_out", "tuning"), default="held_out",
                         help="tuning: preview numbers before the test set is opened")
@@ -386,7 +392,8 @@ def main():
     global SPLIT
     SPLIT = args.split
     numbers = build(args.analysis_root, args.cell_metadata, args.output_dir,
-                    plot_tables=args.plot_tables, clinical_scores=args.clinical_scores)
+                    plot_tables=args.plot_tables, clinical_scores=args.clinical_scores,
+                    attribution_summary=args.attribution_summary)
     print(json.dumps({"numbers": len(numbers), "output_dir": str(args.output_dir)}, indent=2))
 
 

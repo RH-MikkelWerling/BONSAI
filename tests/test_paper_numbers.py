@@ -1,4 +1,7 @@
+import json
+
 import pandas as pd
+import pytest
 
 from opera.run.analyse_locked_predictions import run
 from opera.run.build_paper_numbers import build as build_numbers, percent_ci
@@ -42,6 +45,23 @@ def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
 def test_percent_ci_is_a_wilson_interval():
     assert percent_ci(20, 100) == "20\\% (95\\% CI 13--29)"
     assert percent_ci(0, 0) is None
+
+
+def test_explicit_refreshed_attributions_replace_stale_default_without_overwriting_it(tmp_path):
+    stale = tmp_path / 'analysis/attributions/summary_365d'
+    stale.mkdir(parents=True)
+    (stale / 'attribution_numbers.json').write_text(json.dumps({'numbers': {'ig_rho_check': .1}}))
+    fresh = tmp_path / 'corrected/summary_365d'
+    fresh.mkdir(parents=True)
+    (fresh / 'attribution_numbers.json').write_text(json.dumps({'numbers': {'ig_rho_check': .9}}))
+    result = build_numbers(tmp_path / 'analysis', None, tmp_path / 'out', attribution_summary=fresh)
+    assert result['ig_rho_check'] == '0.90'
+    receipt = json.loads((tmp_path / 'out/paper_numbers.json').read_text())
+    assert str(fresh / 'attribution_numbers.json') in receipt['sources']
+    assert str(stale / 'attribution_numbers.json') not in receipt['sources']
+    assert json.loads((stale / 'attribution_numbers.json').read_text())['numbers']['ig_rho_check'] == .1
+    with pytest.raises(ValueError, match='Explicit attribution summary'):
+        build_numbers(tmp_path / 'analysis', None, tmp_path / 'bad', attribution_summary=tmp_path / 'missing')
 
 
 def test_gap_restriction_numbers_are_available_for_manuscript(tmp_path):

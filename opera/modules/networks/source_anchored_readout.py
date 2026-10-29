@@ -211,8 +211,11 @@ class SourceAnchoredReadout(nn.Module):
                 scores = scores.masked_fill(own, -1e4)
         shared = self.shared_logit.expand(len(patient), self.n_outcome, 1)
         logits = torch.cat((shared, scores), dim=-1)
-        if self.router_frozen:
-            logits = logits.detach()  # warm-up: no gradient reaches the router
+        if self.training and self.router_frozen:
+            # Warm-up is a training-only gradient control. A checkpoint reload
+            # reconstructs router_frozen from the warm-up config, not its last
+            # epoch. Evaluation/IG must retain input gradients through the gates.
+            logits = logits.detach()
         weights = torch.softmax(logits, dim=-1)
         if self.home_floor:
             home = torch.zeros_like(weights)

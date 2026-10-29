@@ -59,6 +59,57 @@ def test_warm_up_freezes_the_router_but_not_the_adapters():
     assert model.source_keys.grad.abs().sum() > 0
 
 
+def test_loaded_warmup_metadata_does_not_change_evaluation_input_gradients():
+    """The same fitted function must have the same IG gradient after reload."""
+    torch.manual_seed(86)
+    loaded = _readout(global_adapter=True, router_warmup_epochs=2).eval()
+    with torch.no_grad():
+        loaded.up.normal_(std=.5)
+        loaded.source_keys.normal_(std=1.)
+        loaded.patient_query.weight.normal_(std=.3)
+        loaded.target_query.weight.normal_(std=.3)
+        loaded.query_interaction[-1].weight.normal_(std=.2)
+    finished = _readout(global_adapter=True, router_warmup_epochs=0).eval()
+    finished.load_state_dict(loaded.state_dict())
+    patient = torch.randn(2, 12, requires_grad=True)
+    fine = torch.tensor([0, 1])
+    probe = torch.randn(12)
+    before = loaded(patient, fine)
+    after = finished(patient, fine)
+    torch.testing.assert_close(before, after, rtol=0, atol=0)
+    grad_loaded = torch.autograd.grad((before[:, 0] * probe).sum(), patient)[0]
+    grad_finished = torch.autograd.grad((after[:, 0] * probe).sum(), patient)[0]
+    torch.testing.assert_close(grad_loaded, grad_finished, rtol=1e-6, atol=1e-6)
+
+
+def test_eval_routing_gradient_agrees_with_finite_difference():
+    model = _readout(global_adapter=True, router_warmup_epochs=2).eval()
+    with torch.no_grad():
+        model.up.zero_()
+        model.down.zero_()
+        model.up[1, 0, 0] = 1
+        model.down[1, 0, 0] = 1
+        model.source_keys.zero_()
+        model.source_keys[1, 0] = 4
+        model.patient_query.weight.copy_(torch.eye(12))
+        model.shared_logit.zero_()
+    patient = torch.full((1, 12), .4, requires_grad=True)
+    fine = torch.tensor([0])
+    probe = torch.zeros(12)
+    probe[0] = 1
+    gradient = torch.autograd.grad(model(patient, fine)[0, 0].dot(probe), patient)[0]
+    eps = .002
+    difference = []
+    with torch.no_grad():
+        for i in range(12):
+            delta = torch.zeros_like(patient)
+            delta[0, i] = eps
+            change = (model(patient + delta, fine)[0, 0]
+                      - model(patient - delta, fine)[0, 0]).dot(probe)
+            difference.append(change / (2 * eps))
+    torch.testing.assert_close(gradient[0], torch.stack(difference), rtol=3e-4, atol=2e-4)
+
+
 def test_bounded_logits_keep_every_source_alive():
     torch.manual_seed(0)
     model = _readout(logit_scale=3.0, home_floor=0.0)

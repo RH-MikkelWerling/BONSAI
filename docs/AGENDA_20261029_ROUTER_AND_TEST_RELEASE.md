@@ -5,6 +5,18 @@ and what it contributes, then freeze the analysis before opening held-out
 results. Existing endpoint definitions stay fixed. No outcome reconstruction
 or architecture sweep is planned.
 
+**Run-status clarification, 29 October:** some server jobs are running, but
+their exact commands have not been supplied. A full fresh rehearsal is planned
+for overnight. Leave any checkout used by active jobs unchanged until those
+jobs finish, or sync into a separate checkout for the overnight run.
+A local recheck found and fixed a
+checkpoint warm-up flag that incorrectly detached router gates from evaluation
+input gradients. Prediction values and source-removal inference are unchanged,
+but IG and its derived checks computed with the old source need refreshing.
+A fresh overnight run after syncing the fix includes corrected IG automatically.
+The recovery commands for an earlier run, raw-vector audit and whole-cohort
+evaluation are in `docs/ROUTER_IMPLEMENTATION_RECHECK_20261029.md`.
+
 ## Full fresh rerun requested on 29 October
 
 After syncing the complete updated source and `code_manifest.sha256`, run
@@ -45,18 +57,23 @@ and plot tables, figures, manuscript numbers, supplementary tables, tabular
 metric reconciliation and final review assembly/packaging. IG and restriction
 summaries transferred into the unified workspace come only from this rerun.
 The national model is not added by rediscovering or selecting new fits.
+The launcher now also runs the raw correction-vector audit and whole-cohort
+outcome evaluation from fresh vector exports and fixed predictions.
 
 Outputs below `$opera_full_root`:
 
 - `full_rehearsal.json`: stage status, inputs and paths.
 - `logs/`: one log per stage.
 - `analysis/clinical_scores/`: updated score figures and diagnostics.
+- `router_vectors.json`: aggregate comparison of raw outcome-specific corrections.
+- `whole_cohort/`: pooled outcome metrics, calibration and common-model coverage.
 - `review/`: the final assembled figure suite, including fresh IG/restrictions.
 - `paper_numbers/` and `supplement_tables/`: final aggregate manuscript outputs.
 - `paper_review.zip`: the existing allowlisted figure/aggregate review bundle.
 
 The ZIP is not a full analysis backup and does not include the separate final
-manuscript-output directories. Existing clinical partitions that fail the
+manuscript-output directories or the separate new whole-cohort/vector reports.
+Existing clinical partitions that fail the
 declared matching rule remain explicit gaps. A successful process exit does
 not by itself certify all release checks or scientific interpretations.
 Inspect `full_rehearsal.json`, the score inventory and review missing list.
@@ -65,9 +82,9 @@ Use sufficient scheduler walltime. `nohup` does not extend that limit. If the
 allocation ends, retain the workspace and logs for stage-specific recovery
 rather than deleting them or starting a second fresh run automatically.
 
-**National encoder status, updated 29 October:** pretraining stopped at epoch
-3 overnight. Relaunch is planned for tonight, with completion expected on
-30 October. Completion and downstream tuning results are not yet verified.
+**National encoder status, updated 29 October:** nationwide pretraining is
+running again after the earlier epoch-3 interruption. Completion and downstream
+tuning results are not yet verified.
 Today's local router/provenance and figure checks can proceed independently.
 Before held-out evaluation, fix the national downstream/adaptation choices as
 well as the local ones. A resumed run should retain the saved optimiser and
@@ -77,6 +94,37 @@ The test set is ready to open once implementation and selection decisions are
 fixed. A visually striking source map or a positive routing result is not a
 release requirement. A reproducible weak or diffuse borrowing result is a
 valid finding and should narrow the claim.
+
+## Distance to test-set release
+
+For the existing local fits, the next milestone is one completed fresh
+rehearsal followed by review of its reports and figures. This is a finite
+verification stage, not another model-development sweep. Tomorrow's bundle
+can support that review if the allocation lasts long enough and the stages
+complete. It is not yet a promise of publication-final figures or national
+results. In particular, rerunning the same clinical matching rule will not
+make incompatible group anchors become compatible.
+
+Before release, close these items:
+
+1. Verify the server's ordered bank labels and the available second-seed
+   health report. Review raw-vector similarity and source-removal results.
+   Limit interpretations if sharing is diffuse or effects are weak.
+2. Review cross-family metric reconciliation, fresh corrected IG and the
+   figure missing-family list. Record any analyses excluded from final claims.
+3. Freeze the clinical comparison populations and training-derived binary
+   thresholds. Decide explicitly how non-estimable ordered partitions are
+   reported. Do not change cuts because their tuning results are disappointing.
+4. Verify national checkpoint/config/vocabulary compatibility and complete
+   the planned downstream training/tuning selection, unless it is already
+   complete. Pretraining completion alone does not produce the final predictor.
+5. Write the dated release record and prepare/verify the held-out launcher
+   against that fixed roster. The current completion launchers are tuning-only.
+
+The national downstream stage is the main unresolved timing dependency for a
+joint local/national release. Its duration is not known from the current
+reports. Local figure review and the remaining protocol decisions can finish
+while that stage runs. Cosmetic refinements can continue after the lock.
 
 **First server report reviewed, 29 October:** the existing router replay
 **passed**. R_L is the intended revised `fix_R_AB` fit; saved checkpoint and
@@ -419,6 +467,8 @@ Required tuning rehearsal checks:
   Provisional or ambiguous molecular labels do not silently become verified
   held-out findings. Re-summarise completed IG where possible rather than
   repeating the costly attribution calculation for a label change.
+  The newly identified evaluation-gradient fix is an exception: existing IG
+  values must be recomputed in a fresh workspace after the active run finishes.
 - The recent-record omission analysis is present and identifies its checkpoint
   and hidden windows. It is distinct from attribution-faithfulness checks.
 
@@ -448,6 +498,12 @@ Create the actual dated release record, not just a draft/template:
 - Software/config/data-release fingerprints, known limitations, timestamp and
   amendment history. Essential rehearsal stages either pass or are explicitly
   excluded from confirmatory claims.
+- Evaluation gradients verified after checkpoint reload. Corrected IG and
+  its deletion/randomisation checks use fresh caches. Raw-vector similarities
+  are reviewed separately from projected arrow appearance.
+- Whole-cohort outcome results are complementary to within-disease results.
+  Specify their common-model roster and coverage, with disease-conditional
+  censoring weights and patient-level paired uncertainty.
 
 Then create a **fresh held-out workspace** and run the frozen local and national
 roster through the same analysis. The completion/recovery launchers above are

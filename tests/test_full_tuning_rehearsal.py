@@ -9,7 +9,9 @@ from opera.run import rerun_full_tuning_rehearsal as runner
 
 
 @pytest.mark.parametrize('clinical_gaps', [False, True])
-def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(tmp_path, monkeypatch, clinical_gaps):
+@pytest.mark.parametrize('diagnostic_failure', [False, True])
+def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
+        tmp_path, monkeypatch, clinical_gaps, diagnostic_failure):
     source = tmp_path / 'old'
     (source / 'analysis_inventory').mkdir(parents=True)
     (source / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(dict(
@@ -25,6 +27,8 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(tmp_p
     def execute(command, **kwargs):
         calls.append(command)
         name = command[2]
+        if name.endswith('audit_router_vectors') and diagnostic_failure:
+            return SimpleNamespace(returncode=1)
         if name.endswith('complete_local_figures'):
             complete = output / 'analysis'
             (complete / 'figure_inputs').mkdir(parents=True)
@@ -50,7 +54,7 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(tmp_p
     monkeypatch.setattr('sys.argv', ['full', '--analysis-root', str(source), '--output-dir', str(output)])
     runner.main()
     result = json.loads((output / 'full_rehearsal.json').read_text())
-    assert result['status'] == ('finished_with_gaps' if clinical_gaps else 'complete')
+    assert result['status'] == ('finished_with_gaps' if clinical_gaps or diagnostic_failure else 'complete')
     assert not result['reused_prior_analysis_outputs']
     assert not (output / 'paired/prediction_analysis/old_estimates.csv').exists()
     assert not (output / 'analysis/attributions/old_summary.csv').exists()
@@ -61,6 +65,13 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(tmp_p
     assert any(c[2].endswith('complete_local_figures') and '--clinical-only' not in c for c in calls)
     assert any(c[2].endswith('prepare_attribution_refresh') and '--execute' in c for c in calls)
     assert any(c[2].endswith('package_figure_review') for c in calls)
+    assert any(c[2].endswith('audit_router_vectors') and
+               str(output / 'analysis/routed_vectors') in c for c in calls)
+    whole, = [c for c in calls if c[2].endswith('evaluate_whole_cohort_outcomes')]
+    assert whole[whole.index('--split') + 1] == 'tuning'
+    assert whole[whole.index('--models') + 1:whole.index('--split')] == ['OPERA', 'J_L', 'X', 'XP']
+    assert result['steps']['router_vectors']['status'] == ('failed' if diagnostic_failure else 'complete')
+    assert result['steps']['whole_cohort']['status'] == 'complete'
     with pytest.raises(FileExistsError):
         runner.main()
 
