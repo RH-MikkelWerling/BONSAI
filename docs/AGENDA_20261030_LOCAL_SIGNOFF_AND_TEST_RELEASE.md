@@ -48,6 +48,24 @@ Broad allocation and weak disease-pair effects are acceptable findings. They
 do not establish that selective gates are necessary. Do not choose another
 router because its map is more appealing.
 
+**Mechanism sign-off:** the [control-ladder reconstruction and minimal follow-up](ROUTER_EXPLANATION_AND_MINIMAL_MECHANISM_AUDIT_20261030.md)
+separate what existing trained controls establish from missing fixed-checkpoint
+global/own/borrowed-bank and gate-dependence tests. The user accepts diffuse
+sharing but requires an explanation for the gain over joint learning. The
+active run's raw-vector audit and disease-only removal maps do not by themselves
+complete that explanation. The additional tests are now implemented as a
+[separate CPU audit](ROUTER_MECHANISM_SERVER_AUDIT_20261030.md). They are not
+outputs of the active full rehearsal and need not interrupt it.
+
+The [parallel-work and finalisation plan](PAPER_FINALISATION_AND_PARALLEL_AUDITS_20261030.md)
+contains commands that can start now. At `recent_record_gaps`, the vector
+exports and clinical prediction exports are already ready. Neither the
+raw-vector audit nor the frozen-head mechanism audit needs to wait for this
+CPU bootstrap stage to finish.
+The [second-allocation launcher](PARALLEL_TUNING_ALLOCATION_20261030.md)
+also collects the clinical diagnostics and runs the cross-family metric and
+whole-cohort analyses without touching the active run's receipts.
+
 **Additional bounded check:** inspect the existing TCL and TRANSFORMED_FL
 specialist checkpoint/selection receipts and training histories. In the old
 tuning download, these specialists often rank below chance. Verify cohort and
@@ -59,9 +77,12 @@ export/identity bug requires a documented correction before the analysis lock.
 
 ## 3. Apply the audited reporting corrections after recovery
 
-Once recovery has finished, sync the locally audited fixes from
+Sync the locally audited fixes from
 [the code audit](CODE_RELEASE_AUDIT_20261030.md). Refresh the clinical reports
-on CPU using existing predictions:
+on CPU using existing predictions. This may run in a fresh sibling directory
+while recovery continues once its clinical-training export is complete. Do
+not overwrite the active workspace or change runtime files while they are
+being used:
 
 ```bash
 opera_full_root=data/paper_256_v3/analysis/full_tuning_rehearsal_20261029_234123
@@ -78,6 +99,11 @@ require retraining or fresh training-prediction export. Use the new
 `clinical_scores` directory explicitly when assembling the next review.
 Keep incompatible native risk partitions visible as gaps. Binary comparisons
 can remain estimable even when a complete ordered partition is not.
+The [risk-group design review](CLINICAL_RISK_GROUP_DESIGN_RECONSIDERATION_20261030.md)
+recommends separating these operating questions and explicitly deciding the
+threshold-development source before test release. The existing apparent-
+training rule remains implemented. This protocol question is not resolved
+merely by another successful rendering job.
 
 Inspect existing tabular tuning metadata for unexplained empty `tune_params`
 where model selection was supported. The new fail-loud guard does not establish

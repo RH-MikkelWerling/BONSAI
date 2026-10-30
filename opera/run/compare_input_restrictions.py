@@ -20,13 +20,14 @@ retrained: this measures what the fitted model relies on.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
+from opera.run.compare_approved_neural_tuning_predictions import fast_cif_auc
 
 KEY = ["subject_id", "cohort", "outcome"]
 
@@ -39,12 +40,18 @@ def read_predictions(path):
 
 
 def _auc(frame, column, horizon):
-    return compute_competing_risk_metrics_at_horizon(
+    # Re-estimate censoring for each resample, as in the original evaluator.
+    # Weighted ranks avoid materialising every case/control pair or computing
+    # the unused Brier score. An empty resample has no estimable AUC.
+    if frame.empty:
+        return float("nan")
+    return fast_cif_auc(
         frame.time_days.to_numpy(float), frame.event.to_numpy(int),
-        frame[column].to_numpy(float), horizon)["cif_auc"]
+        frame[column].to_numpy(float), horizon)[0]
 
 
-def compare(full, restricted, *, horizon=365, draws=200, seed=2026, domains=None):
+def compare(full, restricted, *, horizon=365, draws=200, seed=2026, domains=None,
+            progress=None):
     """Per-outcome and macro AUC differences (restricted minus full)."""
     column = f"cif_{int(horizon)}d"
     patients = full.subject_id.unique()
@@ -53,13 +60,18 @@ def compare(full, restricted, *, horizon=365, draws=200, seed=2026, domains=None
                              size=draws)
     position = pd.Series(np.arange(len(patients)), index=patients)
     rows, replicate_rows = [], []
-    for name, frame in restricted.items():
+    for restriction_number, (name, frame) in enumerate(restricted.items(), 1):
         merged = full[KEY + ["time_days", "event", column]].merge(
             frame[KEY + [column]], on=KEY, suffixes=("_full", "_restricted"),
             validate="one_to_one")
         if len(merged) != len(full):
             raise ValueError(f"{name}: restricted predictions do not cover the full rows")
-        for outcome, part in merged.groupby("outcome"):
+        groups_by_outcome = merged.groupby("outcome")
+        for outcome_number, (outcome, part) in enumerate(groups_by_outcome, 1):
+            label = (f"Restriction {restriction_number}/{len(restricted)} ({name}), "
+                     f"outcome {outcome_number}/{len(groups_by_outcome)} ({outcome})")
+            if progress:
+                progress(f"{label}: starting {draws} paired bootstrap draws")
             full_auc = _auc(part, f"{column}_full", horizon)
             restricted_auc = _auc(part, f"{column}_restricted", horizon)
             index = position[part.subject_id].to_numpy()
@@ -69,6 +81,8 @@ def compare(full, restricted, *, horizon=365, draws=200, seed=2026, domains=None
                 sample = part.loc[np.repeat(part.index.to_numpy(), repeat)]
                 deltas.append(_auc(sample, f"{column}_restricted", horizon)
                               - _auc(sample, f"{column}_full", horizon))
+                if progress and ((r + 1) % max(1, draws // 4) == 0 or r + 1 == draws):
+                    progress(f"{label}: {r + 1}/{draws} draws complete")
             deltas = np.asarray(deltas, float)
             replicate_rows.append(pd.Series(deltas, name=(name, outcome)))
             rows.append({"restriction": name, "outcome": outcome, "auc_full": full_auc,
@@ -121,7 +135,10 @@ def main():
         restricted[label] = read_predictions(path)
     table, summary = compare(read_predictions(args.full), restricted, horizon=args.horizon,
                              draws=args.draws, seed=args.seed,
-                             domains=outcome_endpoint_groups())
+                             domains=outcome_endpoint_groups(),
+                             progress=lambda message: print(
+                                 f"{datetime.now().isoformat(timespec='seconds')} {message}",
+                                 flush=True))
     args.output_dir.mkdir(parents=True, exist_ok=True)
     table.to_csv(args.output_dir / "input_restriction_auc.csv", index=False)
     summary.to_csv(args.output_dir / "input_restriction_summary.csv", index=False)

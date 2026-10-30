@@ -1,5 +1,11 @@
 # Clinical risk groups: training-derived cutoffs
 
+**30 October review:** this describes the implemented rule, not a resolved
+final protocol. See [the design reconsideration](CLINICAL_RISK_GROUP_DESIGN_RECONSIDERATION_20261030.md)
+for the distinction between independent clinical operating points and one
+ordered classification, and the limitations of apparent training predictions.
+The running recipe has not been silently changed.
+
 Implemented 28 October 2026 following the agreed training-development approach.
 The clinical renderer defaults to threshold_split: train. The completion workflow
 exports all training predictions from the selected frozen checkpoint, registers

@@ -1,5 +1,12 @@
 # Code and release audit — 30 October 2026
 
+**Mechanism-audit addition:** the separate
+[CPU frozen-router audit](ROUTER_MECHANISM_SERVER_AUDIT_20261030.md) now tests
+global/own/borrowed-bank terms, gate substitutions and direct router-path
+comparisons with J_L. It does not alter the active rehearsal or fitted model.
+After this addition the full suite passed **1,739 tests, with 12 skips and no
+failures**. Empirical mechanism results remain pending on the server.
+
 **Status: local verification passed; server release remains pending. The test
 set remains unopened.**
 Recovery now accepts synced source code by default. The blanket runtime
