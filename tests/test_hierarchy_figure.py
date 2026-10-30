@@ -53,6 +53,8 @@ def test_figure_hierarchy_renders():
         cells[f"{c}_lower"], cells[f"{c}_upper"] = cells[c] - 0.05, cells[c] + 0.05
     fig = figure_hierarchy(cells)
     assert len(fig.axes) == 3  # A, B, C (the band bars are an inset of C)
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 def test_opera_alias_copies_the_chosen_model():

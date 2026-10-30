@@ -144,6 +144,65 @@ def test_two_native_groups_are_not_given_three_model_groups():
     assert diagnostic['failure_code'] == 'two_group_anchor_conflict'
 
 
+@pytest.mark.parametrize('control_risks', [[.1, .2, .3, .4], [.1, .1, .1, .4]])
+def test_high_risk_anchor_respects_ge_boundary_and_control_ties(control_risks):
+    import numpy as np
+    from opera.run.render_clinical_score_panels import select_model_cutoffs, CutoffNotEstimable
+    data = pd.DataFrame(dict(subject_id=list('abcde'),
+        model_risk=[*control_risks, .9], ipi_group=['Low', 'Low', 'Intermediate', 'High', 'High'],
+        time_days=[500, 500, 500, 500, 10], event=[0, 0, 0, 0, 1]))
+    diagnostic = {}
+    spec = dict(group_order=['Low', 'Intermediate', 'High'],
+                cutoff_rule='risk_matched_low', horizon_days=365)
+    # The low-risk anchor can conflict in this deliberately tiny example.
+    # Its independent high-risk anchor must still have the stated specificity.
+    try:
+        select_model_cutoffs(data, spec, minimum_group=1, diagnostics=diagnostic)
+    except CutoffNotEstimable:
+        pass
+    assert diagnostic['target_high_specificity'] == .75
+    assert diagnostic['achieved_high_specificity'] == .75
+    cut = diagnostic['high_cutoff']
+    assert np.mean(np.asarray(control_risks) < cut) == .75
+    assert .9 >= cut
+
+
+def test_low_risk_anchor_can_find_a_supported_group_below_first_percentile():
+    import numpy as np
+    from opera.run.render_clinical_score_panels import select_model_cutoffs, CutoffNotEstimable
+    n = 5000
+    risk = np.r_[np.linspace(.001, .02, 20), np.linspace(.4, .9, n - 20)]
+    events = np.ones(n, dtype=int)
+    events[:20] = 0
+    events[-50:] = 0
+    data = pd.DataFrame(dict(subject_id=np.arange(n).astype(str), model_risk=risk,
+        event=events, time_days=np.where(events, 10, 500),
+        ipi_group=['Low']*20 + ['Intermediate']*(n-70) + ['High']*50))
+    diagnostic = {}
+    spec = dict(group_order=['Low', 'Intermediate', 'High'],
+                cutoff_rule='risk_matched_low', horizon_days=365)
+    try:
+        select_model_cutoffs(data, spec, diagnostics=diagnostic)
+    except CutoffNotEstimable:
+        pass  # Independent anchors need not define an ordered joint partition.
+    assert diagnostic['model_low_n'] == 20
+    assert diagnostic['low_cutoff'] == .4
+    assert not events[risk < diagnostic['low_cutoff']].any()
+
+
+def test_two_native_groups_render_when_both_anchors_identify_the_same_boundary():
+    from opera.run.render_clinical_score_panels import select_model_cutoffs
+    data = pd.DataFrame(dict(subject_id=list('abcd'), model_risk=[.1, .2, .7, .8],
+        event=[0, 0, 1, 1], time_days=[500, 500, 10, 20],
+        ipi_group=['Low', 'Low', 'High', 'High']))
+    diagnostic = {}
+    cuts = select_model_cutoffs(data, dict(group_order=['Low', 'High'],
+        cutoff_rule='risk_matched_low', horizon_days=365), minimum_group=2, diagnostics=diagnostic)
+    assert cuts == [.7]
+    assert diagnostic['model_low_n'] == 2
+    assert diagnostic['achieved_high_specificity'] == 1
+
+
 def test_small_distinct_thresholds_are_not_rounded_into_identical_values():
     import numpy as np
     from opera.run.render_clinical_score_panels import select_model_cutoffs

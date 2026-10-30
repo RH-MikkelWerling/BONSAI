@@ -1,0 +1,23 @@
+% Independent, journal-inspired editorial reading edition. Build from paper/.
+\documentclass[10pt]{article}
+\input{ldh_edition/preamble}
+\begin{document}
+\input{ldh_edition/frontmatter}
+\clearpage
+\noindent{\sffamily\color{JournalRed}\large\bfseries Research in context}\par
+\begingroup\small\setlength{\parindent}{0pt}\setlength{\parskip}{4pt}
+\input{ldh_edition/context}
+\par\endgroup
+\vspace{8pt}\noindent{\color{JournalLine}\rule{\textwidth}{.6pt}}\par
+\begin{multicols}{2}
+\input{ldh_edition/body}
+\end{multicols}
+\input{ldh_edition/tables}
+\clearpage
+\begin{multicols}{2}
+\small\input{ldh_edition/backmatter}
+\bibliographystyle{unsrtnat}
+\bibliography{paper}
+\end{multicols}
+\input{ldh_edition/figures}
+\end{document}

@@ -209,3 +209,21 @@ def test_metadata_merge_ignores_table1_risk_display_fields(tmp_path):
     result = pd.read_parquet(tmp_path / 'out.parquet')
     assert result.nccn_ipi_risk.tolist() == ['Intermediate','Not recorded']
     assert result.nccn_ipi_group.tolist() == ['Low-intermediate','High']
+
+
+@pytest.mark.parametrize('split', ['tuning', 'held_out'])
+def test_routed_vector_cli_accepts_both_evaluation_splits_before_loading_data(monkeypatch, split):
+    from opera.run import evaluate_direct_competing_risk as evaluator
+
+    class BeforeDataLoading(Exception):
+        pass
+
+    def stop():
+        raise BeforeDataLoading
+
+    monkeypatch.setattr(evaluator, 'load_dotenv', stop)
+    monkeypatch.setattr('sys.argv', ['evaluate', '--checkpoint', '/frozen/model.ckpt',
+        '--config-name', 'frozen', '--output-dir', '/never/write', '--split', split,
+        '--export-routed-outcome', 'overall_survival'])
+    with pytest.raises(BeforeDataLoading):
+        evaluator.main()

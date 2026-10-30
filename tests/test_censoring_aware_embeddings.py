@@ -114,6 +114,8 @@ def test_censoring_aware_panel_smoke():
     assert bottom[1].y0 == pytest.approx(bottom[2].y0)
     assert bottom[0].x0 < bottom[1].x0 < bottom[2].x0
     assert maps["calibration-map:legend"].get_position().y0 > bottom[0].y1
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 def test_router_movement_panel_replaces_time_without_changing_other_maps():
@@ -188,6 +190,8 @@ def test_panel_d_still_draws_without_predictions():
     )
     assert len(fig.axes) >= 5
     assert "residual_units" not in diagnostics
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 # --- panel C is reused, not re-estimated ------------------------------------
@@ -223,7 +227,7 @@ def test_kernel_grid_can_extend_beyond_supported_tails():
 def test_panel_d_observed_surface_is_panel_c_surface():
     """With no separate embedding, R_obs must be panel C's array, not a rerun."""
     cohort = synthetic_calibration_cohort(2026, blob_shift=0.3)
-    _, diagnostics = plot_censoring_aware_embedding_panel(
+    fig, diagnostics = plot_censoring_aware_embedding_panel(
         cohort["coords"],
         cohort["times"],
         cohort["events"],
@@ -236,6 +240,8 @@ def test_panel_d_observed_surface_is_panel_c_surface():
         residual_bootstrap=25,
     )
     assert diagnostics["observed_surface_reuse_max_difference"] == 0.0
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
 
 # --- the residual is a calibration check ------------------------------------

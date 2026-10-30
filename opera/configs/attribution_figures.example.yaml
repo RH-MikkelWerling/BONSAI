@@ -1,6 +1,10 @@
 # CPU-only rendering from a completed, single-horizon attribution summary and
 # the input-restriction comparison (opera.run.compare_input_restrictions).
 figures:
+  - id: supp_recent_record_gaps
+    function: figure_recent_record_gaps
+    tables:
+      restrictions: ${OPERA_PAPER_INPUT_RESTRICTION_DIR}/input_restriction_summary.csv
   - id: fig_attribution
     function: figure_attribution_main
     tables:

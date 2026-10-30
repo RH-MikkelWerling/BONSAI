@@ -136,8 +136,8 @@ def test_forest_draws_aligned_absolute_delta_and_annotation_panels(tmp_path):
         save_path=output,
     )
     assert len(fig.axes) == 3
-    assert fig.axes[0].get_title(loc="left") == "Absolute held-out performance"
-    assert fig.axes[1].get_title(loc="left") == "OPERA − Tabular EHR"
+    assert ' '.join(fig.axes[0].get_title(loc="left").split()) == "A Absolute performance"
+    assert ' '.join(fig.axes[1].get_title(loc="left").split()) == "B Difference from Tabular EHR"
     assert any(line.get_linestyle() == "--" for line in fig.axes[1].lines)
     assert output.is_file()
     assert output.with_suffix(".pdf").is_file()

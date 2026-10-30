@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--analysis-root', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--split', choices=('tuning', 'held_out'), default='tuning')
     parser.add_argument('--restriction-dir', type=Path, help='Explicit completed input_restrictions directory')
     parser.add_argument('--clinical-dir', type=Path, help='Explicit refreshed clinical_scores directory')
     parser.add_argument('--attribution-dir', type=Path, help='Explicit completed IG directory with summary_365d')
@@ -37,7 +38,8 @@ def main():
     clinical = args.clinical_dir.resolve() if args.clinical_dir else root / 'clinical_scores'
     inventory_path = root / 'analysis_inventory/analysis.yaml'
     inventory = yaml.safe_load(inventory_path.read_text()) if inventory_path.is_file() else {}
-    clinical_check = verify_clinical_render(clinical, expected_model=inventory.get('opera_model'))
+    clinical_check = verify_clinical_render(clinical, expected_model=inventory.get('opera_model'),
+                                          split=args.split)
     if args.clinical_dir and not clinical_check['valid']:
         raise ValueError('Clinical figures are stale or unverified: ' + '; '.join(clinical_check['errors'])
                          + '. Rebuild with opera.run.refresh_clinical_figures from the completed clinical workspace.')
@@ -45,7 +47,9 @@ def main():
         ZoneInfo('Europe/Copenhagen')).strftime('%Y%m%d_%H%M%S'))).resolve()
     output.mkdir(parents=True, exist_ok=False)
     env = {**os.environ, **load_environment(root / 'overnight.env')}
-    env.update(OPERA_PAPER_ANALYSIS_ROOT=str(root), OPERA_PAPER_PLOT_SPLIT='tuning',
+    mark = 'TUNING SET — not test results' if args.split == 'tuning' else ''
+    env.update(OPERA_PAPER_ANALYSIS_ROOT=str(root), OPERA_PAPER_PLOT_SPLIT=args.split,
+        OPERA_PAPER_FIGURE_MARK=mark,
         OPERA_PAPER_PLOT_TABLE_ROOT=str(root / 'figure_inputs/plot_tables'),
         OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR=str(root / 'attributions/summary_365d'),
         OPERA_PAPER_INPUT_RESTRICTION_DIR=str(root / 'input_restrictions'))
@@ -54,7 +58,8 @@ def main():
     restrictions = args.restriction_dir.resolve() if args.restriction_dir else root / 'input_restrictions'
     env['OPERA_PAPER_INPUT_RESTRICTION_DIR'] = str(restrictions)
     repo = Path(__file__).resolve().parents[2]
-    report = dict(analysis_root=str(root), attribution_dir=str(attribution), steps={}, copied={}, missing=[],
+    report = dict(analysis_root=str(root), evaluation_split=args.split,
+        attribution_dir=str(attribution), steps={}, copied={}, missing=[],
         clinical_dir=str(clinical), clinical_validation=clinical_check,
         notes=['Clinical figures are copied only after renderer/threshold/output provenance checks.',
                'Attribution summaries may be reused analyses; inspect their provenance before publication.',
@@ -81,7 +86,7 @@ def main():
         save()
     recipe = yaml.safe_load((repo / 'opera/configs/paper_results_figures.full.example.yaml').read_text())
     for plate in recipe['figures']:
-        plate.setdefault('options', {})['mark'] = 'TUNING SET — not test results'
+        plate.setdefault('options', {})['mark'] = mark
         for section in ('tables','json_inputs'):
             for key, source in plate.get(section, {}).items():
                 if not source.startswith('${OPERA_PAPER_ANALYSIS_ROOT}/'):
@@ -97,20 +102,21 @@ def main():
     zero['figures'] = [p for p in zero['figures'] if p['id'] in {'fig_borrowing_map','supp_borrowing_detail'}]
     for plate in zero['figures']:
         plate['id'] += '_zero'
-        plate['options']['mark'] = 'ZERO-ABLATION SENSITIVITY — tuning set'
+        plate['options']['mark'] = ('ZERO-ABLATION SENSITIVITY — '
+                                   + ('tuning set' if args.split == 'tuning' else 'held-out test set'))
         for key, source in plate['tables'].items():
             plate['tables'][key] = source.replace('/source_removal/${OPERA_PAPER_PLOT_SPLIT}/', '/source_removal/${OPERA_PAPER_PLOT_SPLIT}/zero_ablation/')
     render('borrowing_zero', zero)
     recipe = yaml.safe_load((repo / 'opera/configs/attribution_figures.example.yaml').read_text())
     for plate in recipe['figures']:
-        plate.setdefault('options', {})['mark'] = 'TUNING SET — not test results'
+        plate.setdefault('options', {})['mark'] = mark
         for key, source in plate.get('tables', {}).items():
             if not source.startswith('${'):
                 plate['tables'][key] = str((repo / 'opera/configs' / source).resolve())
     render('attributions', recipe)
     render('recent_records', dict(figures=[dict(id='supp_recent_record_gaps',
         function='figure_recent_record_gaps', tables=dict(restrictions=str(restrictions / 'input_restriction_summary.csv')),
-        options=dict(mark='TUNING SET — not test results'))]))
+        options=dict(mark=mark))]))
     for suffix in ('*.pdf','*.png'):
         for source in sorted(clinical.rglob(suffix)) if clinical_check['valid'] else []:
             target = output / 'clinical_scores' / source.relative_to(clinical)
@@ -122,9 +128,9 @@ def main():
     for relative in ('completion.json','figure_results_audit.json','clinical_scores/score_inventory.csv',
                      'clinical_scores/headline_scores.csv','clinical_scores/classification_at_thresholds.csv',
                      'clinical_scores/report_manifest.json','configs/config_audit.json',
-                     'source_removal/tuning/analysis_provenance.json',
-                     'source_removal/tuning/borrowing_map.csv',
-                     'source_removal/tuning/borrowing_levels.csv',
+                     f'source_removal/{args.split}/analysis_provenance.json',
+                     f'source_removal/{args.split}/borrowing_map.csv',
+                     f'source_removal/{args.split}/borrowing_levels.csv',
                      'input_restrictions/input_restriction_summary.csv'):
         source = (clinical_inputs / relative.split('/',1)[1] if relative.startswith('clinical_scores/') else
                   restrictions / relative.split('/',1)[1] if relative.startswith('input_restrictions/') else root / relative)
@@ -142,7 +148,7 @@ def main():
                 target = output / 'reports' / folder / name
                 target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copy2(source,target)
-    for name, relative in dict(borrowing='source_removal/tuning/borrowing_map.csv',
+    for name, relative in dict(borrowing=f'source_removal/{args.split}/borrowing_map.csv',
         integrated_gradients='attributions/summary_365d/attribution_variance_sources.csv',
         recent_record_removal='input_restrictions/input_restriction_summary.csv',
         clinical_scores='clinical_scores/score_inventory.csv',

@@ -485,7 +485,10 @@ def tune_estimator_params(
 
     * training has fewer than two classes (or AUROC tuning lacks both classes),
     * the model is not in ``TUNING_GRIDS``, or
-    * validation AUROC cannot be computed (e.g. all-positive labels).
+    * the validation population does not support the chosen selection metric.
+
+    If candidates fail during fitting/scoring, do not silently replace tuning
+    with default parameters. An all-failed search raises with the last error.
 
     The function does NOT modify ``make_estimator``; callers must apply the
     returned params with ``estimator.set_params(**best_params)``.
@@ -533,6 +536,14 @@ def tune_estimator_params(
         return (float(roc_auc_score(y_val, probs)) if selection_metric == "auroc"
                 else -float(log_loss(y_val, probs, labels=[0, 1])))
 
+    failures = []
+
+    def require_result(score):
+        if not np.isfinite(score):
+            detail = failures[-1] if failures else 'No finite validation scores'
+            raise RuntimeError(f'All {base_model} tuning candidates failed. '
+                               f'Default parameters were not substituted. Last error: {detail}')
+
     if base_model == "logistic":
         # Preprocess once; walk the path from strong to weak regularisation,
         # each fit warm-started from the previous solution.
@@ -547,10 +558,12 @@ def tune_estimator_params(
                 estimator.set_params(**params)
                 estimator.fit(x_train, y_train, sample_weight=sample_weight)
                 score = score_of(estimator.predict_proba(x_val)[:, 1])
-            except Exception:
+            except Exception as exc:
+                failures.append(f'{type(exc).__name__}: {exc}')
                 continue
             if score > best_score:
                 best_score, best_params = score, dict(params)
+        require_result(best_score)
         return best_params
 
     best_score = -float("inf")
@@ -598,9 +611,11 @@ def tune_estimator_params(
                     best_params = dict(params)
                     if trees is not None:
                         best_params["n_estimators"] = trees
-        except Exception:
+        except Exception as exc:
+            failures.append(f'{type(exc).__name__}: {exc}')
             continue
 
+    require_result(best_score)
     return best_params
 
 

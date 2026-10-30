@@ -181,8 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.export_routed_outcome and args.split != "tuning":
-        raise ValueError("Routed visualization export is tuning-only; pass --split tuning")
+    if args.export_routed_outcome and args.split not in {"tuning", "held_out"}:
+        raise ValueError("Routed visualization export requires tuning or held_out evaluation")
     horizons = [float(value) for value in args.horizons.split(",") if value.strip()]
     if not horizons or any(value <= 0 for value in horizons):
         raise ValueError("--horizons must contain positive comma-separated days.")

@@ -1,0 +1,17 @@
+% Same editorial text, single-column review layout. Not a claim of readiness.
+\documentclass[11pt]{article}
+\input{ldh_edition/preamble}
+\begin{document}
+\pagestyle{plain}
+\begin{center}\sffamily\bfseries\LARGE\editiontitle\end{center}
+\noindent\input{ldh_edition/authors}\par\vspace{10pt}
+\noindent\textbf{Editorial tuning version, 29 October 2026.}
+Test and national results remain pending.\par
+\section*{Summary}\input{ldh_edition/summary}
+\clearpage\section*{Research in context}\input{ldh_edition/context}
+\clearpage\setstretch{1.5}\input{ldh_edition/body}
+\setstretch{1}\input{ldh_edition/tables}
+\clearpage\input{ldh_edition/backmatter}
+\bibliographystyle{unsrtnat}\bibliography{paper}
+\input{ldh_edition/figures}
+\end{document}

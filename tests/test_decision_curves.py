@@ -65,7 +65,8 @@ def test_a_perfect_model_beats_the_index_and_the_figure_renders():
     assert (gain.lower > 0).all()
     assert set(table.strategy) >= {"model", "index", "X", "treat_all", "treat_none",
                                    "model_minus_X"}
-    figure_decision_curve(table, labels={"X": "XGBoost"})
+    import matplotlib.pyplot as plt
+    plt.close(figure_decision_curve(table, labels={"X": "XGBoost"}))
 
 
 def test_operating_points_are_computed_exactly_and_drawn():
@@ -90,4 +91,5 @@ def test_operating_points_are_computed_exactly_and_drawn():
     assert np.allclose(sorted(rows.threshold.unique()), sorted(points.values()))
     with pytest.raises(ValueError, match="not in the curve"):
         operating_point_rows(table, {"Elsewhere": 0.25})
-    figure_decision_curve(table, points=points)
+    import matplotlib.pyplot as plt
+    plt.close(figure_decision_curve(table, points=points))

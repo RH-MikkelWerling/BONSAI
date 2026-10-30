@@ -44,10 +44,14 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
     review = review.resolve()
     if not (review / 'review_manifest.json').is_file():
         raise ValueError('Expected an assembled review folder containing review_manifest.json')
+    report = json.loads((review / 'review_manifest.json').read_text())
+    split = report.get('evaluation_split', 'tuning')
+    if split not in {'tuning', 'held_out'}:
+        raise ValueError('Review manifest must identify tuning or held_out evaluation')
     clinical = review / 'clinical_scores'
     if clinical.is_dir() and any(p.suffix.lower() in {'.pdf', '.png'} for p in clinical.rglob('*')):
         from opera.run.clinical_figure_provenance import verify_clinical_render
-        check = verify_clinical_render(clinical)
+        check = verify_clinical_render(clinical, split=split)
         if not check['valid']:
             raise ValueError('Cannot package stale clinical figures: ' + '; '.join(check['errors'])
                              + '. Refresh clinical reports and assemble a fresh review directory.')
@@ -94,14 +98,14 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
             source = analysis_root / name
             if source.is_file():
                 add(source, Path('aggregates') / name)
-        for branch in ('source_removal/tuning', 'source_removal/tuning/zero_ablation'):
+        for branch in (f'source_removal/{split}', f'source_removal/{split}/zero_ablation'):
             for name in ('borrowing_map.csv', 'borrowing_levels.csv',
                          'borrowing_hypotheses.csv', 'analysis_provenance.json'):
                 source = analysis_root / branch / name
                 if source.is_file():
                     add(source, Path('aggregates') / branch / name)
-    report = json.loads((review / 'review_manifest.json').read_text())
-    manifest = dict(status=report.get('status', 'unknown'), missing=report.get('missing', []),
+    manifest = dict(status=report.get('status', 'unknown'), evaluation_split=split,
+                    missing=report.get('missing', []),
                     source_review=str(review), excluded=excluded,
                     files={name: dict(bytes=p.stat().st_size,
                         sha256=hashlib.sha256(p.read_bytes()).hexdigest())

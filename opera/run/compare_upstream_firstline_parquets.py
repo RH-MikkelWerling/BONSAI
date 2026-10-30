@@ -59,7 +59,12 @@ def _treatment(path: Path) -> tuple[dict, set[str]]:
             summary[f"n_missing_{column}"] = int(scan.select(
                 pl.col(column).is_null().sum()).collect().item())
     if "date_start" in schema:
-        dates = scan.select(pl.col("date_start").cast(pl.Date, strict=False).alias("date"))
+        column = pl.col("date_start")
+        if scan.collect_schema()["date_start"] == pl.String:
+            column = column.str.to_date(strict=False)
+        else:
+            column = column.cast(pl.Date, strict=False)
+        dates = scan.select(column.alias("date"))
         bounds = dates.select(pl.col("date").min().alias("minimum"),
                               pl.col("date").max().alias("maximum")).collect().to_dicts()[0]
         summary["date_min"] = str(bounds["minimum"]) if bounds["minimum"] else None

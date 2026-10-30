@@ -83,7 +83,9 @@ def test_check_readiness_passes_minimal_non_placeholder_config(tmp_path):
     assert check_sweep_config(str(path)) == []
 
 
-def test_check_readiness_reports_unresolved_environment_variables(tmp_path):
+def test_check_readiness_reports_unresolved_environment_variables(tmp_path, monkeypatch):
+    for name in ('BONSAI_RESULTS_ROOT', 'BONSAI_PROCESSED_DATA', 'BONSAI_CHECKPOINT_ROOT'):
+        monkeypatch.delenv(name, raising=False)
     config = {
         "output_dir": "${BONSAI_RESULTS_ROOT}/sweep",
         "cohorts": {"dlbcl": {"data_dir": "${BONSAI_PROCESSED_DATA}/dlbcl"}},

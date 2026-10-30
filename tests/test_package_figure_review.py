@@ -46,3 +46,26 @@ def test_rejects_old_clinical_figures_even_in_an_existing_review(tmp_path):
     with pytest.raises(ValueError, match='stale clinical figures'):
         package(tmp_path, tmp_path / 'bad.zip')
     assert not (tmp_path / 'bad.zip').exists()
+
+
+def test_held_out_package_keeps_the_declared_split_and_only_its_borrowing_outputs(tmp_path):
+    review = tmp_path / 'review'
+    clinical = review / 'clinical_scores'
+    clinical.mkdir(parents=True)
+    (review / 'review_manifest.json').write_text(json.dumps(dict(
+        status='partial_review', evaluation_split='held_out')))
+    (clinical / 'score.pdf').write_bytes(b'held-out clinical figure')
+    (clinical / 'report_manifest.json').write_text(json.dumps(render_receipt(
+        clinical, [dict(id='score', model='R_L', threshold_split='train')], 'held_out')))
+    root = tmp_path / 'analysis'
+    for split in ('tuning', 'held_out'):
+        directory = root / 'source_removal' / split
+        directory.mkdir(parents=True)
+        (directory / 'borrowing_map.csv').write_text('source,gain\nA,.01\n')
+    destination = tmp_path / 'held_out.zip'
+    package(review, destination, root)
+    with ZipFile(destination) as archive:
+        names = archive.namelist()
+        assert 'aggregates/source_removal/held_out/borrowing_map.csv' in names
+        assert not any('/source_removal/tuning/' in name for name in names)
+        assert json.loads(archive.read('bundle_manifest.json'))['evaluation_split'] == 'held_out'

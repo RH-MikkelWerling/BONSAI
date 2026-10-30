@@ -32,9 +32,7 @@ def test_every_manuscript_figure_renders_and_keeps_unestimable_cells_grey(tmp_pa
     routes, disease_groups, outcome_groups = proto.synthetic_routes(rng)
     keep = list(disease_groups)[:6]
     rendered.append(figures.figure_router_usage(
-        routes.loc[routes.cohort.isin(keep) & (routes.bank != "disease")
-                   | routes.cohort.isin(keep) & routes.source.isin(keep)],
-        {d: disease_groups[d] for d in keep}, outcome_groups))
+        routes.loc[routes.cohort.isin(keep)], disease_groups, outcome_groups))
     assert len(rendered[0].axes) >= 1  # the atlas is a single panel
     assert all(len(fig.axes) >= 2 for fig in rendered[1:])
     matrix_axis = rendered[7].axes[0]  # cell-level pooling supplement
@@ -223,11 +221,11 @@ def test_patient_map_honours_configured_highlight_order():
     outcomes['highlight_order'] = outcomes.outcome.map(dict(zip(selected, range(5))))
     fig = figures.figure_patient_map(coords, outcomes, grid_size=25,
                                      min_effective_support=1)
-    assert [ax.get_title(loc='left') for ax in fig.axes[1:6]] == [
-        f'{letter}  {figures._embedding_title(name, width=17)}'
+    assert [' '.join(ax.get_title(loc='left').split()) for ax in fig.axes[1:6]] == [
+        f'{letter} ' + ' '.join(figures._embedding_title(name, width=17).split())
         for letter, name in zip('BCDEF', selected)]
-    # Default disease map communicates overlapping patients without KDE regions.
-    assert all(type(collection).__name__ != 'QuadContourSet'
+    # The selected design overlays disease contours on the observed patients.
+    assert any(type(collection).__name__ == 'QuadContourSet'
                for collection in fig.axes[0].collections)
     fig.canvas.draw()
     plt.close(fig)

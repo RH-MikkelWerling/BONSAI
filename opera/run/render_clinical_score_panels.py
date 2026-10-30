@@ -204,8 +204,8 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
 
     * low cutoff: the largest model low-risk group whose observed risk is no
       higher than the index's low-risk group (at least ``minimum_group``);
-    * high cutoff: the model calls high risk at the specificity of the index's
-      high-risk group, so both flag the same share of patients without events;
+    * high cutoff: the model attains at least the specificity of the index's
+      high-risk group, using the next achievable specificity when scores tie;
     * middle cutoffs (e.g. NCCN-IPI's two intermediate groups): the patients
       between the two are split in the proportions of the index's middle groups.
 
@@ -241,10 +241,18 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
             fail('missing_low_group', 'No index low-risk patients for threshold development')
         low_rate = float(np.average(events[low_group], weights=weights[low_group]))
         diagnostics.update(index_low_risk=low_rate, index_low_n=int(low_group.sum()))
-        candidates = np.unique(np.quantile(model_risk, np.linspace(0.01, 0.99, 197)))
-        feasible = [c for c in candidates
-                    if (model_risk < c).sum() >= minimum_group
-                    and np.average(events[model_risk < c], weights=weights[model_risk < c]) <= low_rate]
+        # Search every attainable boundary, including groups below the first
+        # percentile. A quantile grid can miss a supported low-risk group or
+        # stop short of the largest group satisfying the event-rate anchor.
+        ranked = np.argsort(model_risk, kind='stable')
+        candidates, sizes = np.unique(model_risk[ranked], return_index=True)
+        candidates = np.append(candidates, np.nextafter(candidates[-1], np.inf))
+        sizes = np.append(sizes, len(model_risk))
+        weight_sum = np.r_[0., np.cumsum(weights[ranked])][sizes]
+        event_sum = np.r_[0., np.cumsum(weights[ranked] * events[ranked])][sizes]
+        rates = np.divide(event_sum, weight_sum, out=np.full(len(sizes), np.inf),
+                          where=weight_sum > 0)
+        feasible = candidates[(sizes >= minimum_group) & (rates <= low_rate)].tolist()
         if not feasible:
             fail('no_low_risk_match', 'No model low-risk cutoff matches the training index event risk')
         low = float(max(feasible))
@@ -257,7 +265,16 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
         control_risk, control_weights = model_risk[events == 0], weights[events == 0]
         sort = np.argsort(control_risk)
         cumulative = np.cumsum(control_weights[sort]) / control_weights.sum()
-        high = float(control_risk[sort[min(np.searchsorted(cumulative, specificity), len(sort)-1)]])
+        boundary = control_risk[sort[min(np.searchsorted(cumulative, specificity), len(sort)-1)]]
+        # High risk is risk >= cutoff, so controls at the chosen score are
+        # counted negative only when the cutoff lies above that score.
+        # Using the score itself undershoots the target, sometimes by the
+        # entire mass of a tie. Choose the next observed risk, retaining the
+        # greatest achievable recall at that specificity. If no risk exceeds
+        # the boundary, a cutoff just above it explicitly flags nobody.
+        above = model_risk[model_risk > boundary]
+        high = ((float(above.min()) if len(above) else float(np.nextafter(boundary, np.inf)))
+                if specificity > 0 else float(model_risk.min()))
         diagnostics.update(high_cutoff=high, index_high_n=int(high_group.sum()),
                            target_high_specificity=specificity,
                            achieved_high_specificity=float(np.average(control_risk < high, weights=control_weights)),

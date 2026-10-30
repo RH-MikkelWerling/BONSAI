@@ -178,7 +178,7 @@ def test_parallel_calibration_summary_equals_serial(monkeypatch):
 
 
 # The former per-subgroup loops, kept as reference implementations.
-from opera.evaluation.secondary_analysis import CELL, _interval, _subgroup_labels  # noqa: E402
+from opera.evaluation.secondary_analysis import CELL, _interval, subgroup_labels as _subgroup_labels  # noqa: E402
 
 def _ref_subgroup_patient_gains(gains, metadata, specifications, *, draws):
     """Pre-index, prespecified subgroup loss means with joint patient bootstrap."""

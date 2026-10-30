@@ -16,9 +16,14 @@ def test_embedding_matrix_preserves_coordinates_and_shared_scales():
         for col in range(5):
             assert panels[col].get_xlim() == panels[5 + col].get_xlim()
             assert panels[col].get_ylim() == panels[15 + col].get_ylim()
-        for row in (1, 2, 3):  # patient colours share one scale across stages
-            norms = [panels[row * 5 + col].images[-1].norm for col in range(5)]
+        for row in (1, 2):  # observed patient colours share one scale across stages
+            norms = [panels[row * 5 + col].collections[-1].norm for col in range(5)]
             assert all(norm is norms[0] for norm in norms)
+        # Native risk groups are categorical points, not an interpolated image.
+        for col in range(1, 5):
+            for first, other in zip(panels[15].collections, panels[15 + col].collections):
+                import numpy as np
+                np.testing.assert_allclose(first.get_facecolors(), other.get_facecolors())
     finally:
         plt.close(fig)
 

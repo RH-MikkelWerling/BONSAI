@@ -54,3 +54,36 @@ def test_explicit_stale_clinical_directory_is_rejected_before_rendering(tmp_path
     with pytest.raises(ValueError, match='stale or unverified'):
         review.main()
     assert not output.exists()
+
+
+def test_held_out_assembly_keeps_test_paths_and_accepts_matching_clinical_receipt(tmp_path, monkeypatch):
+    root = tmp_path / 'analysis'
+    clinical = root / 'clinical_scores'
+    clinical.mkdir(parents=True)
+    (clinical / 'score.pdf').write_bytes(b'held-out figure')
+    (clinical / 'report_manifest.json').write_text(json.dumps(render_receipt(
+        clinical, [dict(id='score', model='R_L', threshold_split='train')], 'held_out')))
+    (root / 'overnight.env').write_text('OPERA_PAPER_FIGURE_MARK=TUNING SET\n')
+    output = tmp_path / 'review'
+    recipes = []
+
+    def execute(command, **kwargs):
+        recipe_path = Path(command[command.index('--config')+1])
+        recipes.append(yaml.safe_load(recipe_path.read_text()))
+        assert kwargs['env']['OPERA_PAPER_PLOT_SPLIT'] == 'held_out'
+        assert kwargs['env']['OPERA_PAPER_FIGURE_MARK'] == ''
+        destination = Path(command[command.index('--output-dir')+1])
+        destination.mkdir()
+        (destination / 'figure_manifest.json').write_text('{"complete": false}')
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(review.subprocess, 'run', execute)
+    monkeypatch.setattr('sys.argv', ['review', '--analysis-root', str(root),
+        '--clinical-dir', str(clinical), '--output-dir', str(output), '--split', 'held_out'])
+    review.main()
+    manifest = json.loads((output / 'review_manifest.json').read_text())
+    assert manifest['evaluation_split'] == 'held_out'
+    assert manifest['clinical_validation']['valid']
+    borrowing = next(p for p in recipes[0]['figures'] if p['id'] == 'fig_borrowing_map')
+    assert '/source_removal/held_out/' in borrowing['tables']['table']
+    assert not any('TUNING' in str(p.get('options')) for recipe in recipes for p in recipe['figures'])

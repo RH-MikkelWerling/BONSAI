@@ -5,6 +5,17 @@ and what it contributes, then freeze the analysis before opening held-out
 results. Existing endpoint definitions stay fixed. No outcome reconstruction
 or architecture sweep is planned.
 
+**Interrupted overnight run, 30 October:** use the
+[recovery instructions](RESUME_FULL_TUNING_REHEARSAL_20261030.md) to continue
+the existing full workspace. The recovery wrapper lives outside `opera/`,
+retains the original runtime fingerprint, and skips completed stages.
+
+**Local code audit, 30 October:** the
+[release audit](CODE_RELEASE_AUDIT_20261030.md) records corrections to clinical
+threshold search and held-out review assembly. Finish the existing recovery
+with its original runtime first. Then sync those fixes and regenerate clinical
+reports on CPU from the existing predictions before freezing test thresholds.
+
 **Run-status clarification, 29 October:** some server jobs are running, but
 their exact commands have not been supplied. A full fresh rehearsal is planned
 for overnight. Leave any checkout used by active jobs unchanged until those

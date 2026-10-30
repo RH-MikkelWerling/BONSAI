@@ -73,6 +73,7 @@ def test_validation_logs_group_score_and_label_only_inventory(monkeypatch):
         _val_cr_predictions={"a_g2plus": store, "a_g3plus": store},
         evaluation_horizons_days=[30.], outcome_family={},
         selection_min_cases=20, selection_min_controls=20,
+        checkpoint_selection_metric='val/cr_cif_auc_endpoint_group_macro',
         log=lambda key, value, **kwargs: logs.update({key: value}),
     )
     OperaContrastiveModule._log_competing_risk_validation(module)

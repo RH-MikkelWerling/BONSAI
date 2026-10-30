@@ -79,6 +79,24 @@ def test_tune_estimator_params_unsupported_model_returns_empty():
     assert tune_estimator_params("cox", train, val, cols) == {}
 
 
+@pytest.mark.parametrize('model_name', ['logistic', 'xgboost'])
+def test_tuning_does_not_silently_accept_defaults_when_all_candidates_fail(monkeypatch, model_name):
+    from sklearn.base import BaseEstimator
+    import opera.run.train_tabular_baselines as tabular
+
+    class BrokenEstimator(BaseEstimator):
+        def set_params(self, **params):
+            return self
+
+        def fit(self, *args, **kwargs):
+            raise ValueError('deliberately invalid candidate')
+
+    train, val, cols = _make_binary_dfs()
+    monkeypatch.setattr(tabular, 'make_estimator', lambda *args: BrokenEstimator())
+    with pytest.raises(RuntimeError, match='All .* tuning candidates failed'):
+        tabular.tune_estimator_params(model_name, train, val, cols)
+
+
 def test_tune_estimator_params_falls_back_on_single_class(tmp_path):
     """Single-class val split → return empty dict without crashing."""
     from opera.run.train_tabular_baselines import tune_estimator_params

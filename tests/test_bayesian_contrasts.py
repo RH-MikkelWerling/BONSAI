@@ -351,7 +351,7 @@ def test_runner_validates_shared_draw_provenance_and_estimand(tmp_path, family):
 
 def test_conditional_simulation_matches_analytic_gaussian_mean_and_covariance():
     from types import SimpleNamespace
-    import xarray as xr
+    xr = pytest.importorskip('xarray')
     from opera.analysis.bayesian_contrasts import add_conditional_cell_draws
 
     data = prepare(*fixture())
