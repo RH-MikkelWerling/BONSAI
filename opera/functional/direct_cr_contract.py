@@ -178,9 +178,23 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         }:
             raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
         for flag in ("adapter_borrowing", "adapter_disease_embedding", "adapter_global",
-                     "adapter_own_outside"):
+                     "adapter_own_outside", "adapter_partial_pooling"):
             if not isinstance(competing.get(flag, False), bool):
                 raise ValueError(f"{flag} must be true or false")
+        if competing.get("adapter_partial_pooling", False):
+            # Lock amendment 2026-10-30 (R_PP): own sources outside, anchored,
+            # borrowing from both banks, no identity embedding or logit scale.
+            required = {"adapter_own_outside": True, "adapter_borrowing": True,
+                        "adapter_disease_embedding": False, "adapter_source_mode": "both"}
+            defaults = {"adapter_own_outside": False, "adapter_borrowing": True,
+                        "adapter_disease_embedding": False, "adapter_source_mode": "both"}
+            for key, value in required.items():
+                if competing.get(key, defaults[key]) != value:
+                    raise ValueError(f"adapter_partial_pooling requires {key}: {value}")
+            if readout_mode != "source_anchored_adapters":
+                raise ValueError("adapter_partial_pooling requires source_anchored_adapters")
+            if float(competing.get("adapter_logit_scale", 0.0)) != 0:
+                raise ValueError("adapter_partial_pooling uses a learned temperature, not a logit scale")
         shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
         if not math.isfinite(shared_init):
             raise ValueError("adapter_shared_logit_init must be finite")

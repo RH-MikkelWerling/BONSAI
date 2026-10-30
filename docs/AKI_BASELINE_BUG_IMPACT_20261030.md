@@ -1,5 +1,11 @@
 # AKI baseline-window bug: OPERA impact assessment
 
+> **Superseded (30 October 2026, 19:30).** The table OPERA used was written by
+> the prototype's correct (non-look-ahead) window: rerunning it reproduced the
+> table exactly. The error exists in the published package writer, not in
+> OPERA's inputs. No correction is needed. See the dated note in
+> `ANALYSIS_LOCK_DRAFT_20261015.md`.
+
 30 October 2026. The author now confirms that the reversed-window implementation
 was used for OPERA’s AKI input. Treat the error as confirmed. The exact server
 writer/path is still useful for reproducing the repair. No frozen phenotype,

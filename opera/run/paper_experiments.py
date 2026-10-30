@@ -175,6 +175,9 @@ def build_commands(args, env):
                 # Sampling sensitivity (addendum 2026-10-27): J and R_AB with IPW
                 # event sampling.
                 command += ["--sampling-ipw"]
+            if stage >= 6:
+                # Partial-pooling router (addendum 2026-10-30): R_PP and R_PP_s43.
+                command += ["--router-pp"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

@@ -1,5 +1,11 @@
 # AKI correction: release locks and existing runners
 
+> **Superseded (30 October 2026, 19:30).** The table OPERA used was written by
+> the prototype's correct (non-look-ahead) window: rerunning it reproduced the
+> table exactly. The error exists in the published package writer, not in
+> OPERA's inputs. No correction is needed. See the dated note in
+> `ANALYSIS_LOCK_DRAFT_20261015.md`.
+
 30 October 2026. AKI stays in the paper. This is a documented correction to one
 endpoint before held-out evaluation. The existing disease roster, 69 outcome
 names/order, endpoint groups, clinical families, horizons, splits, selected

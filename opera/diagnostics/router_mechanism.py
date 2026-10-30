@@ -12,6 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from opera.modules.networks.competing_risk import piecewise_exponential_cif
+from opera.modules.networks.partial_pooling_readout import PartialPoolingReadout
 from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
 
 
@@ -48,8 +49,10 @@ class FrozenRouterHead(nn.Module):
     def __init__(self, readout, weight, bias, boundaries, *, time_scale_days=365.25,
                  no_competing_outcomes=()):
         super().__init__()
-        if readout.own_outside or readout.disease_embedding is not None:
-            raise ValueError('This audit requires own sources inside the mixture and no identity embedding')
+        pooling = isinstance(readout, PartialPoolingReadout)
+        if (readout.own_outside and not pooling) or readout.disease_embedding is not None:
+            raise ValueError('This audit requires own sources inside the mixture (or the '
+                             'partial-pooling router) and no identity embedding')
         self.readout = readout.eval()
         self.outcomes = tuple(readout.outcome_names)
         self.boundaries = list(boundaries)
@@ -76,7 +79,10 @@ class FrozenRouterHead(nn.Module):
             raise ValueError('Need the anchored router and its linear competing-risk head')
         state = checkpoint['state_dict']
         tensors = _substate(state, 'source_adapter_readout')
-        readout = SourceAnchoredReadout(
+        pooling = bool(risk.get('adapter_partial_pooling', False))
+        readout_class = PartialPoolingReadout if pooling else SourceAnchoredReadout
+        extra = {'tau_prior': float(risk.get('adapter_event_tau', 20.0))} if pooling else {}
+        readout = readout_class(
             tensors['down'].shape[-1], risk['fine_names'], outcomes,
             bottleneck=tensors['down'].shape[1],
             residual_scale=float(risk.get('adapter_residual_scale', .1)),
@@ -89,7 +95,7 @@ class FrozenRouterHead(nn.Module):
             global_adapter=bool(risk.get('adapter_global', False)),
             router_warmup_epochs=int(risk.get('adapter_router_warmup_epochs', 0)),
             logit_scale=float(risk.get('adapter_logit_scale', 0)),
-            own_outside=bool(risk.get('adapter_own_outside', False)))
+            own_outside=bool(risk.get('adapter_own_outside', False)), **extra)
         readout.load_state_dict(tensors, strict=True)
         head = _substate(state, 'competing_risk_head')
         if set(head) != {'weight', 'bias'}:
@@ -116,6 +122,14 @@ class FrozenRouterHead(nn.Module):
                 or not bool(torch.isfinite(weights).all()) or bool((weights < 0).any())
                 or not torch.allclose(weights.sum(-1), torch.ones_like(weights[..., 0]), atol=1e-5)):
             raise ValueError('Invalid intervention gates')
+        weight = self.weight[indices]
+        if isinstance(r, PartialPoolingReadout):
+            # Same arithmetic as the readout's forward pass (component_vectors).
+            vectors = r.component_vectors(patient, fine, weights, indices)
+            terms = {'base': torch.einsum('bh,okh->bok', patient, weight) + self.bias[indices][None]}
+            for name in COMPONENTS:
+                terms[name] = r.residual_scale * torch.einsum('boh,okh->bok', vectors[name], weight)
+            return terms, weights
         values = F.gelu(torch.einsum('bh,srh->bsr', patient, r.down))
         values = torch.einsum('bsr,shr->bsh', values, r.up)
         values = values * r.source_shrinkage[None, :, None]
@@ -221,3 +235,49 @@ def variant_terms(head, patient, fine, indices, reference):
     fixed = torch.where(observed[..., None], fixed, gates)
     fixed_terms, _ = head.terms(patient, fine, indices, weights=fixed)
     yield 'TASK_MEAN_BORROWED_COMPOSITION', sum(fixed_terms.values())
+
+
+# Two-sided health of the borrowed mixture (lock amendment 2026-10-30): not
+# collapsed and not uniform, on eligible tuning predictions.
+HEALTH_TOP_SHARE, HEALTH_ROW_FRACTION, HEALTH_DISTINCT, HEALTH_ENTROPY_RATIO = 0.5, 0.5, 3, 0.9
+
+
+@torch.no_grad()
+def borrowed_mixture_health(head, patient, fine, eligible, indices, *, batch_size=256):
+    """Entropy of the relative borrowed mixture against the uniform maximum over
+    the sources available to that prediction, top-source shares, and distinct
+    top borrowed sources across diseases."""
+    r = head.readout
+    ratios, top_shares = [], []
+    by_disease = torch.zeros(r.n_disease, r.n_sources, dtype=torch.float64)
+    for start in range(0, len(patient), batch_size):
+        p, f = patient[start:start + batch_size], fine[start:start + batch_size]
+        e = eligible[start:start + batch_size].bool()
+        weights = r.route_weights(p, f)[:, indices, 1:].double()
+        borrowed = weights * head.borrowed_mask(f, indices)
+        mass = borrowed.sum(-1, keepdim=True)
+        keep = e & (mass[..., 0] > 0)
+        relative = (borrowed / mass.clamp_min(1e-300))[keep]
+        available = (relative > 1e-12).sum(-1).double()
+        entropy = -(relative * relative.clamp_min(1e-300).log()).sum(-1)
+        valid = available > 1
+        ratios.append(entropy[valid] / available[valid].log())
+        top_shares.append(relative.max(-1).values)
+        rows = f[:, None].expand_as(keep)[keep]
+        by_disease.index_add_(0, rows, relative)
+    ratio, top = torch.cat(ratios), torch.cat(top_shares)
+    present = by_disease.sum(-1) > 0
+    distinct = int(by_disease[present].argmax(-1).unique().numel())
+    median_ratio = float(ratio.median()) if len(ratio) else float('nan')
+    collapsed_rows = float((top > HEALTH_TOP_SHARE).double().mean()) if len(top) else float('nan')
+    return {
+        'n_predictions': int(len(top)),
+        'median_entropy_ratio': median_ratio,
+        'mean_top_share': float(top.mean()) if len(top) else float('nan'),
+        'fraction_rows_top_share_above_half': collapsed_rows,
+        'distinct_top_borrowed_sources_across_diseases': distinct,
+        'not_collapsed': bool(collapsed_rows <= HEALTH_ROW_FRACTION and distinct >= HEALTH_DISTINCT),
+        'not_uniform': bool(median_ratio <= HEALTH_ENTROPY_RATIO),
+        'criteria': {'top_share': HEALTH_TOP_SHARE, 'row_fraction': HEALTH_ROW_FRACTION,
+                     'distinct_top_sources': HEALTH_DISTINCT, 'entropy_ratio': HEALTH_ENTROPY_RATIO},
+    }

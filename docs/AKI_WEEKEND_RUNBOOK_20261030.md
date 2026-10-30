@@ -1,5 +1,10 @@
 # AKI correction: weekend runbook
 
+> **Not needed (30 October 2026, 19:30).** The table OPERA used was written with
+> the correct window: rerunning the saved prototype reproduced it exactly
+> (86,829 onsets, 0 differences). No release, refits or tabular rebuild. See the
+> dated note in `ANALYSIS_LOCK_DRAFT_20261015.md`. Kept as a record.
+
 30 October 2026. Goal: corrected AKI labels, affected refits running over the
 weekend, and the national downstream fits trained on the same corrected labels,
 so that the national comparison is ready on Monday. Background and tooling:

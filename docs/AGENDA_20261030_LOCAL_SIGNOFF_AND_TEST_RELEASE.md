@@ -1,10 +1,12 @@
 # Agenda — 30 October 2026
 
-**Confirmed AKI error, 30 October:** the earlier release schedule now depends on
-correcting and auditing the AKI outcome. See the [targeted recovery plan](AKI_CORRECTION_RECOVERY_PLAN_20261030.md).
-The [implemented release/runner handoff](AKI_RELEASE_AND_RUNNER_HANDOFF_20261030.md)
-provides comparison-first commands and selective refit/carry-forward bundles.
-National raw-record pretraining can continue. This note does not stop existing jobs.
+**AKI check resolved, 30 October, 19:30:** the saved prototype reproduced the
+active AKI table exactly (86,829 onsets, zero differences). The look-ahead error
+belongs to a different writer. The correction/refit proposal is withdrawn.
+Existing outcome releases and tabular features remain valid with respect to
+this concern. See the dated resolution in
+[the analysis record](ANALYSIS_LOCK_DRAFT_20261015.md). Continue the existing
+audit and national-model work; no AKI repair run is required.
 
 Aim: finish the local tuning rehearsal, explain the router's behaviour, and
 freeze the analysis before inspecting held-out results. National pretraining

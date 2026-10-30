@@ -18,7 +18,8 @@ import torch
 import yaml
 
 from opera.diagnostics.router_mechanism import (
-    COMPONENTS, VARIANTS, FrozenRouterHead, TaskReferences, variant_terms,
+    COMPONENTS, VARIANTS, FrozenRouterHead, TaskReferences, borrowed_mixture_health,
+    variant_terms,
 )
 from opera.evaluation.secondary_analysis import (
     effect_summaries, paired_analysis, patient_bootstrap,
@@ -535,6 +536,14 @@ def main():
         (output / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
     save()
     try:
+        # Lock amendment 2026-10-30: two-sided borrowed-mixture health for every
+        # router, and the learned pooling quantities for the partial-pooling one.
+        health_indices = torch.tensor([head.outcomes.index(o) for o in outcomes])
+        report['borrowed_mixture_health'] = borrowed_mixture_health(
+            head, patient, fine, eligible, health_indices)
+        if hasattr(head.readout, 'pooling_summary'):
+            report['partial_pooling'] = head.readout.pooling_summary()
+        save()
         print(f'Reconstructing fixed readout for {len(patient):,} tuning patients and {len(outcomes)} outcomes', flush=True)
         indices = torch.tensor([head.outcomes.index(o) for o in outcomes])
         predictions, reference, error = infer_interventions(

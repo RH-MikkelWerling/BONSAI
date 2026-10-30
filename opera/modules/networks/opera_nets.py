@@ -1832,7 +1832,17 @@ class OperaContrastiveModel(nn.Module):
         if self.outcome_readout_mode in {"source_anchored_adapters", "unanchored_adapters"}:
             from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
 
-            self.source_adapter_readout = SourceAnchoredReadout(
+            readout_class, pooling_options = SourceAnchoredReadout, {}
+            if competing_risk_settings.get("adapter_partial_pooling", False):
+                # Partial-pooling router (lock amendment 2026-10-30, R_PP).
+                from opera.modules.networks.partial_pooling_readout import (
+                    PartialPoolingReadout,
+                )
+
+                readout_class = PartialPoolingReadout
+                pooling_options = {"tau_prior": float(
+                    competing_risk_settings.get("adapter_event_tau", 20.0))}
+            self.source_adapter_readout = readout_class(
                 hidden_size,
                 competing_risk_settings.get("fine_names", []),
                 outcome_names,
@@ -1851,6 +1861,7 @@ class OperaContrastiveModel(nn.Module):
                     competing_risk_settings.get("adapter_router_warmup_epochs", 0)),
                 logit_scale=float(competing_risk_settings.get("adapter_logit_scale", 0.0)),
                 own_outside=bool(competing_risk_settings.get("adapter_own_outside", False)),
+                **pooling_options,
             )
             shared_logit_init = float(competing_risk_settings.get("adapter_shared_logit_init", 3.0))
             if not math.isfinite(shared_logit_init):

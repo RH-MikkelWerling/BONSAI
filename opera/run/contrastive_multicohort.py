@@ -92,7 +92,7 @@ def _record_router_code_provenance(model_save_dir: str, model) -> None:
     readout = model.source_adapter_readout
     if readout is None:
         return
-    path = Path(inspect.getfile(SourceAnchoredReadout)).resolve()
+    path = Path(inspect.getfile(type(readout))).resolve()
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     run_dir = Path(model_save_dir)
     sidecar = run_dir / "router_code_provenance_INTERNAL.json"
@@ -103,6 +103,12 @@ def _record_router_code_provenance(model_save_dir: str, model) -> None:
         "fine_names": list(readout.fine_names),
         "outcome_names": list(readout.outcome_names),
     }
+    if type(readout) is not SourceAnchoredReadout:
+        # A subclass (e.g. the partial-pooling router) also pins the parent it
+        # inherits from; base-class runs keep their original payload exactly.
+        parent = Path(inspect.getfile(SourceAnchoredReadout)).resolve()
+        payload["parent_class_file"] = str(parent)
+        payload["parent_class_file_sha256"] = hashlib.sha256(parent.read_bytes()).hexdigest()
     if sidecar.is_file():
         previous = json.loads(sidecar.read_text(encoding="utf-8"))
         if previous != payload:
@@ -145,6 +151,7 @@ def _set_source_training_support(model, train_dataset, output_path: str, event_t
     patients = [set() for _ in range(readout.n_sources)]
     events = [0] * readout.n_sources
     observations = [0] * readout.n_sources
+    cell_events = [[0] * readout.n_outcome for _ in range(readout.n_disease)]
     datasets = getattr(train_dataset, "datasets", [train_dataset])
     for dataset in datasets:
         fine_map = dataset.fine_index_by_subject or {}
@@ -154,6 +161,8 @@ def _set_source_training_support(model, train_dataset, output_path: str, event_t
                 if int(record.get("event", -1)) < 0 or float(record.get("time_days", -1)) < 0:
                     continue
                 disease_source = fine_map.get(subject_id, -1)
+                if 0 <= disease_source < readout.n_disease and int(record["event"]) == 1:
+                    cell_events[disease_source][outcome_source - readout.n_disease] += 1
                 for source in (outcome_source, disease_source):
                     if source < 0:
                         continue
@@ -163,6 +172,16 @@ def _set_source_training_support(model, train_dataset, output_path: str, event_t
     readout.set_training_support(
         [len(group) for group in patients], events, observations, event_tau=event_tau
     )
+    if hasattr(readout, "set_cell_support"):
+        # Partial-pooling router: w_own uses each disease x outcome's training events.
+        readout.set_cell_support(cell_events)
+        cell_path = str(Path(output_path).with_name("cell_support.csv"))
+        with open(cell_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["disease", "outcome", "training_events"])
+            for d, disease in enumerate(readout.fine_names):
+                for o, outcome in enumerate(readout.outcome_names):
+                    writer.writerow([disease, outcome, cell_events[d][o]])
     names = [*("disease:" + n for n in readout.fine_names),
              *("outcome:" + n for n in readout.outcome_names)]
     with open(output_path, "w", newline="", encoding="utf-8") as handle:

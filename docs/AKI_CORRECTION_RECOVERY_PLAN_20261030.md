@@ -1,5 +1,11 @@
 # AKI correction: principled recovery and compute plan
 
+> **Superseded (30 October 2026, 19:30).** The table OPERA used was written by
+> the prototype's correct (non-look-ahead) window: rerunning it reproduced the
+> table exactly. The error exists in the published package writer, not in
+> OPERA's inputs. No correction is needed. See the dated note in
+> `ANALYSIS_LOCK_DRAFT_20261015.md`.
+
 30 October 2026. The author confirms that the reversed-window implementation
 produced the AKI input used for OPERA. Treat this as a confirmed outcome
 construction error. No model training has been launched or cancelled here.
