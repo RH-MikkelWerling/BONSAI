@@ -122,6 +122,12 @@ ROUTER_PP = {
     "R_PP": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42),
     "R_PP_s43": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 43),
 }
+# Control, never a primary candidate: R_PP with the router frozen for the whole
+# fit (warm-up = training length), so tau and the borrowed mix stay at their
+# starting values. R_PP minus this control is the gain from learned routing.
+ROUTER_PP_CONTROLS = {
+    "R_PP_FROZEN": ("selected", True, True, None, 0.0, 42),
+}
 
 
 def partial_pooling(config):
@@ -175,8 +181,10 @@ def router_fix_entries(base, reference, checkpoints, selected_router, *, epochs,
             source_mode=selected_router["source_mode"] if source == "selected" else source,
             rank=int(selected_router["rank"]), query_mode=selected_router["query_mode"],
             query_width=int(selected_router["query_width"]))
-        config["competing_risk"].update(adapter_global=global_adapter,
-                                        adapter_router_warmup_epochs=warmup)
+        config["competing_risk"].update(
+            adapter_global=global_adapter,
+            # None: frozen for the whole fit (a control, e.g. R_PP_FROZEN).
+            adapter_router_warmup_epochs=epochs if warmup is None else warmup)
         if not borrowing:
             config["competing_risk"]["adapter_borrowing"] = False
         if scale:
@@ -500,7 +508,7 @@ def build_bundle(
             raise ValueError("Stage 6 repeats the stage-5 fits")
         entries += router_fix_entries(base, reference, checkpoints, selected_router,
                                       epochs=epochs, patience=patience,
-                                      fits=ROUTER_PP, pooling=True)
+                                      fits={**ROUTER_PP, **ROUTER_PP_CONTROLS}, pooling=True)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")

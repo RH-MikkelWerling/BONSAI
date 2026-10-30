@@ -655,3 +655,13 @@ selective signal, not as a design artefact. Checked by
 
 **Final router design.** R_PP is the last router variant before the test set.
 No further router designs are fitted, whatever its result.
+
+**Frozen-router control (R_PP_FROZEN; added 30 October 2026, before any R_PP
+fit).** R_PP with the router frozen for the whole fit (warm-up equal to the
+training length): tau stays at its prior and the borrowed mix at its even
+starting distribution, while adapters, scales and head train as in R_PP. It is a
+control, never a primary candidate. R_PP minus R_PP_FROZEN estimates the gain
+from learned routing (what and how much to borrow); R_PP_FROZEN minus R_AB the
+gain from the structural changes (bounded corrections, explicit own weight). In
+the synthetic positive control the two parts were of similar size (mean AUC for
+A: R_AB-style 0.777, frozen 0.803, routed 0.830).

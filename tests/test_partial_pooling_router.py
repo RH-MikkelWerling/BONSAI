@@ -290,11 +290,16 @@ def test_stage_six_adds_the_two_partial_pooling_fits_and_reuses_every_earlier_on
     assert [e["config"] for e in stage6[: len(stage5)]] == [e["config"] for e in stage5]
     new = {canonical_models(e, e["config"], {"selected_router": lock})[0]: e["config"]
            for e in stage6[len(stage5):]}
-    assert set(new) == {"R_PP_L", "R_PP_s43_L"}
+    assert set(new) == {"R_PP_L", "R_PP_s43_L", "R_PP_FROZEN_L"}
     r_ab = next(e["config"]["competing_risk"] for e in stage5 if e["name"].endswith("fix_R_AB"))
     pp = new["R_PP_L"]["competing_risk"]
     assert {k for k in pp if pp[k] != r_ab.get(k)} == {
         "adapter_partial_pooling", "adapter_own_outside", "adapter_home_floor"}
+    frozen = new["R_PP_FROZEN_L"]
+    assert {k for k in frozen["competing_risk"] if frozen["competing_risk"][k] != pp[k]} == {
+        "adapter_router_warmup_epochs"}
+    # Frozen for every epoch the fit can run.
+    assert frozen["competing_risk"]["adapter_router_warmup_epochs"] >= frozen["training"]["epochs"]
     for config in new.values():
         validate_direct_cr_config(config)
     broken = json.loads(json.dumps(new["R_PP_L"]))
@@ -313,6 +318,8 @@ def test_a_selected_partial_pooling_router_carries_over_to_the_national_fits():
     assert config["competing_risk"]["adapter_global"] is True
     with pytest.raises(ValueError):
         routed_fix("R_UNKNOWN_L")
+    with pytest.raises(ValueError):  # the frozen control can never become primary
+        routed_fix("R_PP_FROZEN_L")
 
 
 def test_positive_control_router_finds_the_matching_source_and_it_pays_off():
