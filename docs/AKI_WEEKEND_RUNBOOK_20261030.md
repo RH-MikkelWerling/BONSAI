@@ -16,7 +16,7 @@ or selection used the AKI target is refitted, however small the label change.**
 | When | Step | Blocks |
 |---|---|---|
 | Now | 0. Sync files. 1. XGBoost reliance diagnostic | Nothing (record only) |
-| Now | 2. Regenerate the AKI table: original must reproduce, then corrected | Everything below |
+| Now | 2. Rerun the prototype in three variants: which one reproduces the table? | Everything below |
 | As soon as 2 is done | Rebuild the tabular feature matrices with the corrected table (tabular repo), then refit every tabular model on CPU | Tabular comparisons |
 | Fri night / Sat | 3. Audit, 4. corrected release, 5. refit bundle | Training |
 | Sat | 6. Refits on all free GPUs; start with J, OPERA (R_AB) and both controls | E1--E4, headline |
@@ -25,7 +25,7 @@ or selection used the AKI target is refitted, however small the label change.**
 | Sun--Mon | 9. Tuning predictions, inventory, analysis | Monday review |
 
 Approximate GPU load (5--6 h per full-cohort fit, one GPU each): about ten
-full-cohort fits (J, R_AB, RBH_AB, N_A, J_IPW, R_AB_IPW, four national) and
+full-cohort fits (J, R_AB, RBH_AB, N_A, four national) and
 three data-efficiency fractions, plus up to 24 O and 25 AKI S/D fits on single
 diseases. With eight GPUs, wave 1 takes about 6 h, and everything fits in the
 weekend if wave 1 starts by Saturday morning. Disease-level fits are much
@@ -33,7 +33,7 @@ shorter than full-cohort fits.
 
 ## 0. Sync to the server (no git there)
 
-New: `opera/R/regenerate_aki_table.R`, `opera/run/audit_aki_correction.py`, `opera/run/build_aki_corrected_release.py`,
+New: `opera/R/reproduce_aki_prototype.R`, `opera/run/audit_aki_correction.py`, `opera/run/build_aki_corrected_release.py`,
 `opera/run/prepare_aki_repair_bundle.py`, `opera/run/prepare_aki_tabular_overlay.py`.
 Also updated today: `opera/configs/manifests/final_contrasts_20261014.yaml` and
 `opera/run/build_paper_numbers.py` (national vs XGBoost contrasts).
@@ -87,37 +87,43 @@ PY
 Adjust the root if the tabular runs live elsewhere (and add the
 registry-enriched root). The output holds gain shares and ranks only.
 
-## 2. Regenerate the AKI table ourselves
+## 2. Which version wrote the table? Regenerate it ourselves
 
-[`opera/R/regenerate_aki_table.R`](../opera/R/regenerate_aki_table.R) runs the
-DALY-CARE core writer (`core_scripts/AE_AKI.R`, the `AKI_function_toNGC_v2.R`
-lineage) as published or with only the annual-baseline window corrected. It
-refuses to run if the published window line is not found exactly once.
+The table was written on 4 June by the prototype
+`/ngc/people/mikwer_r/creatinine_increase_tereza.R` (reading
+`SDS_laboratorieproevesvar`), not by the DALY-CARE package writer. As saved
+(15 June), the prototype computes the annual baseline with `slider` over
+[t - 365 d, t - 7 d], which does **not** look ahead. Its commented-out `sapply`
+version does. The table predates the last edit, so which window produced it is
+open. [`opera/R/reproduce_aki_prototype.R`](../opera/R/reproduce_aki_prototype.R)
+reruns the prototype verbatim in a fresh directory, swapping only the
+annual-baseline block, and compares its onsets with the table used so far:
 
-First reproduce the existing table with the **original** writer. Only if the
-script reports `identical TRUE` is the corrected table trusted. A mismatch
-means a different laboratory extract, patient set or writer version: stop and
-explain it before going further.
+- `as_saved`: the script unchanged;
+- `lookahead`: from 7 days before onward, unbounded (identical onsets to the
+  commented-out `sapply`, verified on synthetic data);
+- `corrected`: 365 to more than 7 days before (identical to the fixed `sapply`).
+
+All three use `slider`, so each run takes minutes. Run them in parallel:
 
 ```bash
-opera_aki_writer=/path/to/dalycare_package_v2/core_scripts/AE_AKI.R
-opera_aki_reference="$OPERA_AKI_TABLE"     # the table used so far
-opera_aki_regen="$PWD/data/results/aki_regeneration_$(date -u +%Y%m%dT%H%M%SZ)"
-
-Rscript opera/R/regenerate_aki_table.R --writer "$opera_aki_writer" --version original \
-  --output "$opera_aki_regen/original/AKI_table_all_dalycare_simplified.csv" \
-  --reference "$opera_aki_reference"
-
-Rscript opera/R/regenerate_aki_table.R --writer "$opera_aki_writer" --version corrected \
-  --output "$opera_aki_regen/corrected/AKI_table_all_dalycare_simplified.csv" \
-  --reference "$opera_aki_reference"
+opera_aki_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+opera_aki_regen="$PWD/data/results/aki_regeneration_$opera_aki_stamp"
+mkdir -p logs
+for v in as_saved lookahead corrected; do
+  nohup Rscript opera/R/reproduce_aki_prototype.R \
+    --script /ngc/people/mikwer_r/creatinine_increase_tereza.R --variant $v \
+    --output-dir "$opera_aki_regen/$v" \
+    --reference /ngc/people/mikwer_r/AKI_table_all_dalycare_simplified.csv \
+    > "logs/aki_regen_${v}_$opera_aki_stamp.log" 2>&1 &
+done
 ```
 
-Add `--setup FILE.R` if the dalycare package is loaded by a script rather than
-`library(dalycare)`. The two runs are independent and can run at the same time.
-The corrected run's comparison prints how many onsets changed (aggregate only).
-The corrected table then feeds both the outcome audit (`--corrected-episodes`)
-and the tabular feature rebuild in the tabular repository.
+| Result | Meaning | Next |
+|---|---|---|
+| `as_saved` identical | The table never had the look-ahead window | OPERA unaffected: no new release, no refits. Withdraw the lock amendment. |
+| `lookahead` identical | The bug produced the table | Use `$opera_aki_regen/corrected/AKI_table_all_dalycare_simplified.csv`: steps 3--9 |
+| Neither identical | Laboratory data changed since June | Compare the counts, then decide before anything else |
 
 ## 3--4. Audit and corrected release
 
@@ -152,13 +158,14 @@ errors on a missing alias, which doubles as a roster check.
   --bundle-dir "$PWD/data/paper_256_v3/bundles/stage5" \
   --release-dir "$opera_aki_release" \
   --output-dir "$opera_aki_bundle" \
-  --models S_L D_L O_L J_L R_AB_L RBH_AB_L N_A_L J_IPW_L R_AB_IPW_L \
+  --models S_L D_L O_L J_L R_AB_L RBH_AB_L N_A_L \
            J_L_F10 J_L_F25 J_L_F50 \
            J_E R_E J_EA R_EA J_EA_F10 J_EA_F25 J_EA_F50
 ```
 
-Drop `J_IPW_L R_AB_IPW_L` or the data-efficiency fractions only if those
-analyses leave the paper, and record that before training. If the national rows
+The IPW sampling sensitivity is not refitted (decided 30 October, before the
+test set): it showed no difference on tuning data and is reported as a
+development-stage sensitivity run before the AKI correction. If the national rows
 are not in any frozen bundle, stop and prepare them deliberately (see step 7);
 do not drop them from the roster silently.
 
