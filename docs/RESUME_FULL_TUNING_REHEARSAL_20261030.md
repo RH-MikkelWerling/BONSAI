@@ -1,9 +1,10 @@
 # Resume the interrupted full rehearsal
 
-From the repository root on the server, inside a GPU allocation. Copy the new
-`scripts/resume_full_tuning_rehearsal.py` file first. It lives outside `opera/`
-and does not change the scientific runtime fingerprint checked by the existing
-figure-completion receipt. Keep the runtime files used by this workspace intact.
+From the repository root on the server, inside a GPU allocation. Sync the
+updated `opera/run/complete_local_figures.py` and keep the existing
+`scripts/resume_full_tuning_rehearsal.py` wrapper. Source-code freshness checks
+are now disabled by default on resume, matching the full-run launcher. No
+manifest update or bypass flag is needed after syncing code.
 
 The last logged stage alone does not prove that a run stopped. Check processes
 and the stage log first:
@@ -29,8 +30,13 @@ echo "Resume log: $opera_resume_log"
 tail -f "$opera_resume_log"
 ```
 
-The wrapper checks that the frozen inventories match. The existing nested
-completion runner checks its inputs and hashes of completed outputs. Complete
+The wrapper checks that the frozen inventories match. The nested completion
+runner still checks scientific inputs and hashes of completed outputs. Code
+fingerprint changes are recorded in `completion.json` under `resume_attempts`
+without blocking execution or overwriting the original input fingerprint.
+Optional `complete_local_figures --resume --verify-sources` restores the strict
+code check. Resuming accepts completed stages from the earlier runtime. It
+does not automatically recompute them when synced code changes. Complete
 stages are skipped. A stage interrupted during zero-ablation analysis restarts
 that analysis, retaining the completed mean analysis and inference exports.
 Later IG resumes checked patient exports if its workspace already exists.

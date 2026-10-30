@@ -5,7 +5,38 @@ import numpy as np
 import pandas as pd
 import pytest
 from opera.run.prepare_clinical_figure_metadata import prepare
-from opera.run.complete_local_figures import selected_fit
+from opera.run.complete_local_figures import check_resume_inputs, selected_fit
+
+
+def test_resume_accepts_synced_code_by_default():
+    saved = dict(source_code_sha256='old', fit={'checkpoint_sha256': 'fixed'})
+    current = dict(source_code_sha256='synced', fit={'checkpoint_sha256': 'fixed'})
+    check_resume_inputs(saved, current)
+    assert saved['source_code_sha256'] == 'old'
+
+
+def test_resume_source_verification_is_explicitly_opt_in():
+    saved = dict(source_code_sha256='old', fit={'checkpoint_sha256': 'fixed'})
+    check_resume_inputs(saved, saved, verify_sources=True)
+    with pytest.raises(ValueError, match='Source-code fingerprint changed'):
+        check_resume_inputs(saved, dict(saved, source_code_sha256='synced'), verify_sources=True)
+
+
+@pytest.mark.parametrize('key', ['fit', 'source_analysis_sha256', 'source_env_sha256',
+                               'clinical_source_sha256', 'clinical_only'])
+def test_resume_still_rejects_changed_scientific_inputs(key):
+    saved = dict(source_code_sha256='old', fit={'checkpoint_sha256': 'fixed'},
+                 source_analysis_sha256='inventory', source_env_sha256='environment',
+                 clinical_source_sha256={'metadata': 'fixed'}, clinical_only=False)
+    current = dict(saved, source_code_sha256='synced')
+    current[key] = 'changed'
+    with pytest.raises(ValueError, match=f'Scientific inputs changed during resume: {key}'):
+        check_resume_inputs(saved, current)
+
+
+def test_resume_rejects_missing_scientific_field():
+    with pytest.raises(ValueError, match='source_analysis_sha256'):
+        check_resume_inputs({'source_analysis_sha256': 'original'}, {})
 
 
 def test_score_merge_preserves_population_and_derives_display_groups(tmp_path):
@@ -181,9 +212,18 @@ def test_completion_orchestrates_fresh_exports_without_main_analysis(tmp_path, m
     assert [s['id'] for s in main_scores] == ['nccn_ipi']
     assert main_scores[0]['cohorts'] == ['DLBCL']
     commands.clear()
+    # A synced runtime must not require discarding finished GPU stages.
+    report['inputs']['source_code_sha256'] = 'runtime-before-sync'
+    (output / 'completion.json').write_text(json.dumps(report))
     monkeypatch.setattr('sys.argv', ['completion', '--analysis-root', str(old), '--output-dir', str(output), '--resume'])
     runner.main()
     assert commands == []
+    resumed = json.loads((output / 'completion.json').read_text())
+    assert resumed['inputs']['source_code_sha256'] == 'runtime-before-sync'
+    attempt = resumed['resume_attempts'][-1]
+    assert attempt['source_code_changed'] is True
+    assert attempt['source_verification_enabled'] is False
+    assert attempt['source_code_sha256'] != 'runtime-before-sync'
 
 
 def test_native_score_strata_recovered_from_coarsened_export(tmp_path):

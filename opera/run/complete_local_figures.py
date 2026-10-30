@@ -26,6 +26,20 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def check_resume_inputs(saved, current, *, verify_sources=False):
+    """Keep scientific inputs fixed without treating a code sync as new data."""
+    missing = object()
+    scientific_keys = (set(saved) | set(current)) - {'source_code_sha256'}
+    changed = sorted(key for key in scientific_keys
+                     if saved.get(key, missing) != current.get(key, missing))
+    if changed:
+        raise ValueError('Scientific inputs changed during resume: '
+                         + ', '.join(changed) + '; use a new workspace')
+    if verify_sources and saved.get('source_code_sha256') != current.get('source_code_sha256'):
+        raise ValueError('Source-code fingerprint changed (--verify-sources enabled). '
+                         'Omit --verify-sources to resume after syncing code.')
+
+
 def selected_fit(analysis, paper_root, bundles):
     selected = [a for a in analysis['artifacts'] if a['model'] == analysis.get('opera_model', 'R_L')
                 and a.get('split') == 'tuning' and int(a.get('seed', 42)) == 42]
@@ -88,6 +102,8 @@ def main():
     parser.add_argument('--score-registry', type=Path, help='Optional real registry components')
     parser.add_argument('--score-column-map', type=Path, help='Explicit approved JSON mapping for those components')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--verify-sources', action='store_true',
+                        help='Require the original code fingerprint on resume (disabled by default)')
     parser.add_argument('--clinical-only', action='store_true',
                         help='Export training predictions and refresh clinical scores only')
     args = parser.parse_args()
@@ -119,8 +135,15 @@ def main():
                                  fit=fit, source_env_sha256=sha(old / 'overnight.env'))
         if args.resume:
             report = json.loads((root / 'completion.json').read_text())
-            if report['inputs'] != scientific_inputs:
-                raise ValueError('Source analysis/environment/checkpoint changed; use a new workspace')
+            check_resume_inputs(report['inputs'], scientific_inputs,
+                                verify_sources=args.verify_sources)
+            report.setdefault('resume_attempts', []).append(dict(
+                started=datetime.now(ZoneInfo('Europe/Copenhagen')).isoformat(timespec='seconds'),
+                source_verification_enabled=args.verify_sources,
+                source_code_sha256=source_code,
+                source_code_changed=report['inputs'].get('source_code_sha256') != source_code))
+            if not args.verify_sources:
+                print('Source-code freshness check skipped (default); resuming existing stages.', flush=True)
         else:
             root.mkdir(parents=True, exist_ok=False)
             report = dict(inputs=scientific_inputs, source_analysis=str(old), steps={}, status='running')

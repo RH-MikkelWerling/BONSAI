@@ -1,5 +1,10 @@
 # Agenda — 29 October 2026
 
+**Current agenda:** see [30 October local sign-off and test release](AGENDA_20261030_LOCAL_SIGNOFF_AND_TEST_RELEASE.md).
+It incorporates the interrupted run, audited clinical corrections, hierarchy
+contrast definitions, extreme-specialist check and the national arm still
+being in pretraining. The commands below are retained as the earlier record.
+
 Aim: finish a finite tuning rehearsal, establish which router is being used
 and what it contributes, then freeze the analysis before opening held-out
 results. Existing endpoint definitions stay fixed. No outcome reconstruction
@@ -7,13 +12,15 @@ or architecture sweep is planned.
 
 **Interrupted overnight run, 30 October:** use the
 [recovery instructions](RESUME_FULL_TUNING_REHEARSAL_20261030.md) to continue
-the existing full workspace. The recovery wrapper lives outside `opera/`,
-retains the original runtime fingerprint, and skips completed stages.
+the existing full workspace. Source-code freshness verification on resume is
+now opt-in. Sync the updated `complete_local_figures.py` to remove the blanket
+code-fingerprint blocker. Scientific inputs and completed outputs remain
+checked, and completed stages are skipped.
 
 **Local code audit, 30 October:** the
 [release audit](CODE_RELEASE_AUDIT_20261030.md) records corrections to clinical
-threshold search and held-out review assembly. Finish the existing recovery
-with its original runtime first. Then sync those fixes and regenerate clinical
+threshold search and held-out review assembly. Recovery now accepts synced
+code. Completed clinical stages remain reused, so regenerate corrected clinical
 reports on CPU from the existing predictions before freezing test thresholds.
 
 **Run-status clarification, 29 October:** some server jobs are running, but

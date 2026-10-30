@@ -2,9 +2,11 @@
 
 **Status: local verification passed; server release remains pending. The test
 set remains unopened.**
-The recovery wrapper can be installed on its own now. Finish the existing
-server run with its original `opera/` runtime files. The corrections below
-belong in the checkout used for the subsequent release.
+Recovery now accepts synced source code by default. The blanket runtime
+fingerprint comparison is opt-in, while scientific-input and completed-output
+checks remain enabled. Original and resumed code fingerprints are recorded.
+Completed stages are reused, so the clinical corrections below still require
+fresh clinical reporting if that stage completed before those corrections.
 
 ## Confirmed faults and corrections
 

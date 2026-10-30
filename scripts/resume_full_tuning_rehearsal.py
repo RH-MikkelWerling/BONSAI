@@ -1,8 +1,8 @@
 """Recover an interrupted full tuning rehearsal without rerunning complete stages.
 
-This wrapper intentionally lives outside opera/: installing it does not change
-the runtime fingerprint checked by complete_local_figures --resume. It uses the
-existing scientific commands, selected fits and workspace receipts.
+This wrapper uses the existing scientific commands, selected fits and workspace
+receipts. complete_local_figures --resume accepts synced source code by default
+while retaining scientific-input and completed-output validation.
 """
 from __future__ import annotations
 
