@@ -1,5 +1,13 @@
 # Agenda — 29 October 2026
 
+**AKI update, 30 October:** the author confirms the baseline-window bug was used
+for the AKI target. The earlier statement that no outcome reconstruction is
+planned is superseded by the [AKI recovery proposal](AKI_CORRECTION_RECOVERY_PLAN_20261030.md).
+Final test release should follow resolution of this confirmed label error.
+Use the [AKI release/runner handoff](AKI_RELEASE_AND_RUNNER_HANDOFF_20261030.md)
+for the implemented comparison and selective correction workflow.
+Raw-record national pretraining can continue. No running jobs were stopped here.
+
 **Current agenda:** see [30 October local sign-off and test release](AGENDA_20261030_LOCAL_SIGNOFF_AND_TEST_RELEASE.md).
 It incorporates the interrupted run, audited clinical corrections, hierarchy
 contrast definitions, extreme-specialist check and the national arm still

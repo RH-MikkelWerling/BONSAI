@@ -58,7 +58,7 @@ def test_requested_map_set_and_legacy_infection_name(tmp_path):
         'neutropenia_g3plus'])).to_parquet(analysis['artifacts'][0]['path'])
     embedding, _ = build(analysis, tmp_path / 'recipes')
     assert embedding['calibration_maps']['outcomes'] == [
-        'infections_all_definitions', 'overall_survival', 'anemia_g2plus',
+        'infections_all_definitions', 'overall_survival', 'neutropenia_g3plus',
         'hospitalisation', 'creatinine_increased_g2plus']
 
 

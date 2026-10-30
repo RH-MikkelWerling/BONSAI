@@ -53,6 +53,8 @@ essential_contrasts:
     T4: gain(X,LR)
     T5_router: gain(R_EA,X)
     T5_shared: gain(J_EA,X)
+    T5E_router: gain(R_E,X)   # national encoder used directly (added 2026-10-30)
+    T5E_shared: gain(J_E,X)
     T6: gain(J_L,XP)   # joint model vs disease-pooled XGBoost
     T7: gain(XP,X)     # value of pooling across diseases for XGBoost
     T8: gain(D_L,XP)   # neural vs XGBoost at the same (disease-pooled) scope

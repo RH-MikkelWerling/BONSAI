@@ -109,6 +109,16 @@ def job_models(job, per_cell=("xgboost", "logistic")):
     return ("xgboost",) if job.get("pooled") else tuple(per_cell)
 
 
+def select_outcomes(jobs, outcomes=None):
+    """Restrict a correction queue before sharding or inspecting feature files."""
+    if not outcomes:
+        return jobs
+    unknown = set(outcomes) - {job["outcome"] for job in jobs}
+    if unknown:
+        raise ValueError(f"Requested outcomes not in the bundle: {sorted(unknown)}")
+    return [job for job in jobs if job["outcome"] in set(outcomes)]
+
+
 def training_command(job, args):
     output = Path(args.output_dir) / job["relative_dir"]
     command = [
@@ -263,6 +273,8 @@ def main():
     parser.add_argument("--verify-outputs", action="store_true",
                         help="Re-hash every finished cell's outputs (slow on network storage)")
     parser.add_argument("--horizons", default="30,60,90,180,365,730")
+    parser.add_argument("--outcome", action="append",
+                        help="Only fit this outcome; repeat for a selective label correction.")
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--max-runs", type=int)
@@ -284,6 +296,7 @@ def main():
         parser.error("Invalid horizons or shard")
     jobs = [*tabular_jobs(args.bundle_dir, horizons),
             *([] if args.no_pooled else pooled_tabular_jobs(args.bundle_dir, horizons))]
+    jobs = select_outcomes(jobs, args.outcome)
     missing = sorted({str(feature_matrix(j, args)) for j in jobs
                       if not feature_matrix(j, args).is_file()})
     if missing:

@@ -206,7 +206,9 @@ GLOBAL_ONLY = "N_A_L"
 # arm) under one name, so every figure can show "the best model" against
 # XGBoost without knowing which fit won. Set ``opera_model`` in the analysis
 # config; absent or unavailable, no OPERA rows or contrasts are made.
-OPERA_CONTRASTS = {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)", "O3": "gain(OPERA,S_L)"}
+OPERA_CONTRASTS = {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)", "O3": "gain(OPERA,S_L)",
+                   "O4": "gain(OPERA,D_L)", "O5": "gain(OPERA,O_L)",
+                   "O6": "gain(OPERA,XP)", "O7": "gain(OPERA,LR)"}
 
 
 # Sampling sensitivity (lock addendum 2026-10-27): IPW event sampling against

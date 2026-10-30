@@ -4,6 +4,13 @@ The visual direction is restrained and precise: white space, dark slate type,
 an indigo model identity, quiet structural lines, and explicit uncertainty.
 The first thing a reader should see is the scientific comparison.
 
+The user-selected baseline, confirmed on 30 October 2026, is the figure system
+from **before the LDH conversion**. Preserve its heatmaps, interval forests,
+scatter plots, survival plates and illustrated schematics. The simplified LDH
+edition is not the preferred visual direction. Improve precision, spacing and
+readability within the original style, and keep proposed compositions clearly
+distinguishable from original figures and from new empirical results.
+
 ## Shared rules
 
 - Import `opera.visualization.style`; use its sizes, colors and export helper.

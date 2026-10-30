@@ -36,11 +36,11 @@
   \sourcecard{-3.0}{OperaSrcDiagnoses}{hospital}{National patient register}
     {Every hospital contact: diagnoses (ICD-10) at discharge; procedures and the
      contact's type, reason, priority, specialty and region at admission.}
-    {DIAGNOSIS//DC833}{CONTACT\_SPECIALTY//HAEM}
+    {DIAGNOSIS//DC833}{CONTACT\_SPECIALTY//[specialty]}
   \sourcecard{-4.45}{OperaSrcPathology}{microscope}{Pathology register}
     {Diagnoses from tissue and cell samples (SNOMED) and the requesting
      department, at requisition.}
-    {PATHOLOGY//M96803}{REGION//HOVEDSTADEN}
+    {PATHOLOGY//M96803}{REGION//[region]}
   \sourcecard{-5.9}{OperaSrcMedication}{prescription-bottle-alt}{Prescription register}
     {Every prescription redeemed at a community pharmacy (ATC), at
      dispensing.}
@@ -48,7 +48,7 @@
   \sourcecard{-7.35}{OperaSrcHospitalMedication}{syringe}{Hospital medication register}
     {Drugs given in hospital, including chemotherapy (ATC), and the treating
      department, at the start of the order.}
-    {MEDICATION//L01XC02}{CONTACT\_SPECIALTY//ONC}
+    {MEDICATION//L01XC02}{CONTACT\_SPECIALTY//[specialty]}
   \sourcecard{-8.8}{OperaSrcLaboratory}{vial}{Laboratory database}
     {Laboratory results (NPU codes) at sampling: the test with its value bin,
      or the text result.}

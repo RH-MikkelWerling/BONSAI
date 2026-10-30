@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.patches import Patch, Rectangle
 
-from opera.visualization.style import PALETTE
+from opera.visualization.style import PALETTE, TITLE_SIZE
 
 
 def outcome_name(outcome, *, short=False):
@@ -37,7 +37,8 @@ def outcome_name(outcome, *, short=False):
 
 
 def _title(ax, letter, text, **kwargs):
-    ax.set_title(f"{letter}  {text}", loc="left", fontsize=8.6, **kwargs)
+    kwargs.setdefault('fontsize', TITLE_SIZE)
+    ax.set_title(f"{letter}  {text}", loc="left", **kwargs)
 
 
 WINDOW_COLORS = {"Last 30 days": "#1A237E", "31 days to 1 year": "#5C7AEA",
@@ -99,7 +100,7 @@ def _stacked_shares(ax, table, rows, order, colors):
         ax.barh(range(len(rows)), neg, left=left, color=colors[name], height=0.78, lw=0.5, edgecolor="white")
         right, left = right + pos, left + neg
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.6)
-    ax.set_xlim(min(0, left.min()) - 2, 100)
+    ax.set_xlim(min(0, left.min()) - 2, max(100, float(right.max())) + 2)
     ax.xaxis.tick_top()
     ax.tick_params(axis="x", labelsize=5.8, length=2)
     ax.grid(False)
@@ -131,11 +132,11 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     outcomes = list(dict.fromkeys(variance_sources.outcome))
     rows, labels, headers = _domain_rows(outcomes, domains)
     findings = list(dict.fromkeys(concepts.label)) if len(concepts) else []
-    height = 0.14 * len(rows) + 3.0
+    height = 0.14 * len(rows) + 3.65
     fig = plt.figure(figsize=(9.2, height))
     grid = fig.add_gridspec(1, 3, width_ratios=[2.2, 1.3, max(2.0, 0.2 * len(findings))],
                             wspace=0.06, left=0.25, right=0.985,
-                            top=1 - 1.75 / height, bottom=0.85 / height)
+                            top=1 - 2.25 / height, bottom=1.05 / height)
     title_y = 1 - 0.1 / height
     fig.text(0.25, title_y, "What makes patients differ in predicted risk", fontsize=8.6,
              va="top", fontweight="bold")
@@ -146,11 +147,12 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
                      **{k: v for k, v in SOURCE_COLORS.items() if k != "Other"}}
     _stacked_shares(ax, variance_sources, rows, list(source_colors), source_colors)
     _row_axis(ax, rows, labels, headers, show=True)
-    fig.text(ax.get_position().x0, panel_y, "A  By source", fontsize=8.2, va="top")
+    fig.text(ax.get_position().x0, panel_y, "A  By source", fontsize=TITLE_SIZE, va="top")
     ax.legend(handles=[Patch(color=c, label=n if n != REFERENCE else "Timing of care alone")
                        for n, c in source_colors.items()],
               loc="upper left", bbox_to_anchor=(-0.02, -0.12 / height * 3), ncol=2,
-              frameon=False, fontsize=5.6, handlelength=1.0, columnspacing=0.8)
+              frameon=False, fontsize=6, handlelength=1.0, columnspacing=0.8,
+              title='Record source', title_fontsize=7)
     ax.set_xlabel("Share of the differences in predicted risk (%)", fontsize=6)
     ax.xaxis.set_label_position("top")
 
@@ -158,13 +160,14 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     window_colors = {REFERENCE: REFERENCE_COLOR, **WINDOW_COLORS}
     _stacked_shares(bx, variance_windows, rows, list(window_colors), window_colors)
     _row_axis(bx, rows, labels, headers, show=False)
-    fig.text(bx.get_position().x0, panel_y, "B  By time", fontsize=8.2,
+    fig.text(bx.get_position().x0, panel_y, "B  By time", fontsize=TITLE_SIZE,
              va="top")
     bx.legend(handles=[Patch(color=c, label=n.replace("No time", "Background")
                              .replace("31 days to 1 year", "1 month to 1 year"))
                        for n, c in WINDOW_COLORS.items()],
               loc="upper left", bbox_to_anchor=(-0.02, -0.12 / height * 3), ncol=1,
-              frameon=False, fontsize=5.6, handlelength=1.0)
+              frameon=False, fontsize=6, handlelength=1.0,
+              title='History window', title_fontsize=7)
     bx.set_xlabel("Share (%)", fontsize=6)
     bx.xaxis.set_label_position("top")
 
@@ -202,12 +205,13 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         fig.text(cx.get_position().x0, title_y, "Which findings raise which risks",
                  fontsize=8.6, va="top", fontweight="bold")
         fig.text(cx.get_position().x0, panel_y,
-                 "C  Findings and predicted risk", fontsize=8.2,
+                 "C  Findings and predicted risk", fontsize=TITLE_SIZE,
                  va="top")
         position = cx.get_position()
         cax = fig.add_axes([position.x0 + 0.1 * position.width, 0.42 / height,
                             0.8 * position.width, 0.08 / height])
-        bar = fig.colorbar(image, cax=cax, orientation="horizontal")
+        bar = fig.colorbar(image, cax=cax, orientation="horizontal",
+                           extend='both' if np.any(np.abs(matrix[np.isfinite(matrix)]) > limit) else 'neither')
         bar.set_label("Odds ratio among patients with the finding (model)", fontsize=5.6)
         bar.ax.tick_params(labelsize=5.4)
         bar.ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"×{np.exp(v):.2f}"))
@@ -247,9 +251,9 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     between = pairs.loc[~same].spearman.median() if (~same).any() else np.nan
 
     has_b = restrictions is not None and len(restrictions)
-    fig = plt.figure(figsize=(9.2, 6.8))
+    fig = plt.figure(figsize=(10.2, 7.2))
     grid = fig.add_gridspec(1, 2 if has_b else 1, width_ratios=[1.35, 1] if has_b else [1],
-                            left=0.14, right=0.98, top=0.78, bottom=0.15, wspace=0.58)
+                            left=0.14, right=0.98, top=0.76, bottom=0.15, wspace=0.72)
     ax = fig.add_subplot(grid[0])
     image = ax.imshow(matrix.to_numpy(float), cmap=RISK_CMAP.reversed(),
                       norm=TwoSlopeNorm(0, -1, 1), interpolation="nearest", aspect="auto")
@@ -294,7 +298,7 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
         bx.get_yticklabels()[0].set_fontweight("bold")
         bx.axhline(0.5, color="white", lw=2)
         bx.set_xticks(range(len(restriction_names)),
-                      [textwrap.fill(n, 12) for n in restriction_names], fontsize=5.8)
+                      [textwrap.fill(n, 12) for n in restriction_names], fontsize=6.5)
         bx.xaxis.tick_top()
         bx.tick_params(length=0)
         for spine in bx.spines.values():
@@ -414,8 +418,9 @@ def figure_patient_tracks(episodes, *, outcomes=None, scale="logit", mark=None):
 
     outcomes = outcomes or list(dict.fromkeys(episodes.outcome))
     fig = plt.figure(figsize=(7.2, 0.55 * len(outcomes) + 1.9))
-    ax = fig.add_axes([0.2, 0.12, 0.66, 0.84])
+    ax = fig.add_axes([0.2, 0.12, 0.66, 0.78])
     _tracks(ax, episodes, outcomes, scale=scale, label_top=6)
+    ax.set_title('Synthetic patient illustration', loc='left', fontsize=TITLE_SIZE, pad=10)
     ax.set_xlabel("Time before the start of treatment", fontsize=7)
     watermark(fig, mark)
     return fig
@@ -601,8 +606,8 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     _tracks(dx, episodes, outcomes_d, scale="risk", label_top=6, size=1.2, levels=2,
             key=True)
     dx.set_xlabel("Time before the start of treatment", fontsize=7, loc="left")
-    fig.text(0.012, dx.get_position().y1 + 0.012, "D  One patient's history, read for three "
-             "risks", fontsize=10.5, va="bottom")
+    fig.text(0.012, dx.get_position().y1 + 0.012, "D  Synthetic patient illustration",
+             fontsize=10.5, va="bottom")
     watermark(fig, mark)
     return fig
 

@@ -20,6 +20,8 @@ def test_collects_only_verified_clinical_plots_and_reports_missing_analysis(tmp_
         (root / 'clinical_scores/score_inventory.csv').write_text(
             'score_id,status,reason\ncll,rendered,\nips,not_estimable,Two anchors require different cutoffs\n')
     (root / 'overnight.env').write_text('')
+    (root / 'input_restrictions').mkdir()
+    (root / 'input_restrictions/input_restriction_summary_by_horizon.csv').write_text('horizon_days\n60\n365\n')
     output = tmp_path / 'review'
     recipes = []
     def execute(command, **kwargs):
@@ -43,6 +45,9 @@ def test_collects_only_verified_clinical_plots_and_reports_missing_analysis(tmp_
     assert not list(output.rglob('*INTERNAL*'))
     borrowing = next(p for p in recipes[0]['figures'] if p['id']=='fig_borrowing_map')
     assert str(root / 'source_removal/tuning') in borrowing['tables']['table']
+    recent = next(recipe for recipe in recipes if any(p['function'] == 'figure_recent_record_gap_horizons' for p in recipe['figures']))
+    assert recent['figures'][1]['options']['horizons'] == [60, 365]
+    assert (output / 'reports/input_restrictions/input_restriction_summary_by_horizon.csv').is_file()
 
 
 def test_explicit_stale_clinical_directory_is_rejected_before_rendering(tmp_path, monkeypatch):

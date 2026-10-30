@@ -9,6 +9,22 @@ from opera.run.build_paper_plot_tables import build as build_tables
 from test_secondary_analysis import predictions
 
 
+def test_same_size_clinical_groups_do_not_fill_matched_survival_expansion_slots():
+    from opera.run.build_paper_numbers import clinical_numbers
+    headline = pd.DataFrame([dict(manuscript=True, score_id='nccn_ipi', threshold_split='train',
+        model='R_L', grouping_rule='cohort_size_matched', extra_events_flagged_per_1000=5,
+        model_low_per_1000=100, index_low_per_1000=100)])
+    numbers = clinical_numbers(headline, None, None)
+    assert numbers == {'ipi_extra_per1000': '5'}
+    matched = pd.DataFrame([dict(score_id='nccn_ipi', status='estimable', additional_low_per_1000=50,
+        model_survival=.99, model_survival_lower=.97, model_survival_upper=.999,
+        index_survival=.98, index_survival_lower=.95, index_survival_upper=.995)])
+    numbers = clinical_numbers(headline, None, None, km_matched=matched)
+    assert numbers['ipi_low_extra_per1000'] == '50'
+    assert numbers['ipi_low_risk_model'].startswith('1.0')
+    assert '0.1--3.0' in numbers['ipi_low_risk_model']
+
+
 def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
     frame = predictions()
     frame.to_csv(tmp_path / "p.csv", index=False)
@@ -99,3 +115,17 @@ def test_national_opera_rows_do_not_use_joint_model_effects():
     assert '\\opera{} (national + adaptation) vs \\opera{} (local) & 12 & 0.040' in rows
     assert '\\opera{} (national + adaptation) vs per-task XGBoost & 12 & 0.050' in rows
     assert 'National vs cohort encoder & 12 & 0.010' in rows
+
+
+def test_national_models_against_xgboost_get_numbers_and_table_rows():
+    # Lock amendment 2026-10-30: both national encoders, joint model and OPERA,
+    # against per-task XGBoost.
+    from opera.run.build_paper_numbers import CODES, table_rows
+    national = ('T5E_router', 'T5_router', 'T5E_shared', 'T5_shared')
+    assert set(national) <= set(CODES)
+    panel = pd.DataFrame([dict(contrast=code, cells=12, auc_gain=value, auc_interval='interval')
+        for code, value in zip(national, (.01, .02, .03, .04))])
+    rows = table_rows(panel)
+    assert '\\opera{} (national) vs per-task XGBoost & 12 & 0.010' in rows
+    assert 'Joint (national) vs per-task XGBoost & 12 & 0.030' in rows
+    assert 'Joint (national + adaptation) vs per-task XGBoost & 12 & 0.040' in rows

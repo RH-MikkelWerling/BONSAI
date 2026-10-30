@@ -1,0 +1,8 @@
+component,candidate_fits_per_seed,scope,action,gpu_hours_per_fit
+Joint J,1,all diseases/all outcomes,refit,5-6 user estimate
+Selected OPERA,1,all diseases/all outcomes,refit,5-6 user estimate
+Matched own-task control RBH_AB,1,all diseases/all outcomes,refit,5-6 provisional
+Global-only control N_A,1,all diseases/all outcomes,refit,5-6 provisional
+O disease-specific/all-outcome,24,one disease/all outcomes,refit affected supported jobs,unknown; smaller disease populations
+S AKI,24,one disease/AKI,refit supported jobs,unknown; smaller disease populations
+D AKI,1,all diseases/AKI,refit,unknown; full eligible AKI population

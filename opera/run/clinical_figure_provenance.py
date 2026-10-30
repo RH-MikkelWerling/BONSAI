@@ -10,6 +10,7 @@ RENDER_SOURCES = (
     'opera/run/render_clinical_score_panels.py',
     'opera/visualization/paper_figures.py',
     'opera/visualization/style.py',
+    'opera/evaluation/clinical_risk_groups.py',
 )
 NATIVE_FOUR = ['Low', 'Low-intermediate', 'High-intermediate', 'High']
 
@@ -52,7 +53,7 @@ def render_receipt(directory, specs, split):
         schema=2, evaluation_split=split, renderer_source_sha256=renderer_sources(),
         score_definitions=[{**{key: spec.get(key) for key in (
             'id', 'model', 'score_label', 'score_column', 'group_order',
-            'manuscript_figures')}, 'threshold_split': spec.get('threshold_split', 'train')}
+            'manuscript_figures', 'cutoff_rule')}, 'threshold_split': spec.get('threshold_split', 'train')}
             for spec in specs],
         figure_sha256={str(path.relative_to(directory)): file_sha(path)
                        for path in sorted(directory.rglob('*'))

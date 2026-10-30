@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -41,6 +43,15 @@ def reconcile_metrics(config, analysis, *, models=None):
     metadata['subject_id'] = metadata.subject_id.astype(str)
     saved_path = analysis / 'prediction_analysis' / 'estimates.csv'
     saved = pd.read_csv(saved_path) if saved_path.is_file() else None
+    keys = ['split', 'seed', 'cohort', 'outcome', 'horizon_days']
+    estimate_keys = [*keys, 'model', 'metric']
+    # Build the lookup once. Merging the full table for each of thousands of
+    # small tabular artifacts repeatedly hashes every unrelated estimate.
+    saved_index = None
+    if saved is not None:
+        saved_index = saved.set_index(estimate_keys)['estimate']
+        if not saved_index.index.is_unique:
+            raise ValueError('Duplicate saved model/cell/metric estimates')
     manifest_path = analysis / 'prediction_analysis' / 'analysis_manifest.json'
     support = (json.loads(manifest_path.read_text()).get('performance_support')
                if manifest_path.is_file() else None)
@@ -54,16 +65,23 @@ def reconcile_metrics(config, analysis, *, models=None):
             model == 'OPERA' for _, model in specifications):
         specifications.extend((spec, 'OPERA') for spec in config['artifacts']
                               if spec['model'] == config.get('opera_model'))
+    specifications = [(spec, model) for spec, model in specifications
+                      if model in wanted and spec.get('split') == 'tuning'
+                      and (models is not None or spec.get('format') == 'direct_cif')]
+    started = last_progress = time.monotonic()
+    print(f'Metric reconciliation: {len(specifications)} prediction artifacts, '
+          f'models {sorted(name for name in wanted if name is not None)}. '
+          'Existing predictions only, no bootstrap or fitting.', file=sys.stderr, flush=True)
     reports = []
-    for spec, model in specifications:
-        if model not in wanted or spec.get('split') != 'tuning':
-            continue
-        if models is None and spec.get('format') != 'direct_cif':
-            continue
+    for completed, (spec, model) in enumerate(specifications, 1):
+        if completed == 1 or time.monotonic() - last_progress >= 30:
+            print(f'Metric reconciliation: starting artifact {completed}/{len(specifications)} '
+                  f'({model}), {(time.monotonic() - started) / 60:.1f} min elapsed',
+                  file=sys.stderr, flush=True)
+            last_progress = time.monotonic()
         frame, _ = read_artifact(spec, metadata, config['estimand'])
         if config.get('analysis_horizons_days'):
             frame = frame.loc[frame.horizon_days.isin(config['analysis_horizons_days'])]
-        keys = ['split', 'seed', 'cohort', 'outcome', 'horizon_days']
         metrics, errors, status_mismatches = [], [], 0
         for identity, cell in frame.groupby(keys):
             ipcw = cell.ipcw_weight.to_numpy() if 'ipcw_weight' in cell else None
@@ -91,10 +109,18 @@ def reconcile_metrics(config, analysis, *, models=None):
                   'estimand': config['estimand'], 'recomputed_metrics': len(metrics),
                   'native_vs_analysis_max_abs_error': max(errors) if errors else None,
                   'native_vs_analysis_finite_status_mismatches': status_mismatches}
-        if saved is not None and len(recomputed):
-            paired = recomputed.merge(saved, on=[*keys, 'model', 'metric'],
-                                      how='left', validate='one_to_one', indicator=True)
-            present = paired['_merge'].eq('both')
+        if saved_index is not None and len(recomputed):
+            lookup = pd.MultiIndex.from_frame(recomputed[estimate_keys])
+            if not lookup.is_unique:
+                raise ValueError('Duplicate recomputed model/cell/metric estimates')
+            paired = recomputed.copy()
+            positions = saved_index.index.get_indexer(lookup)
+            found = positions >= 0
+            estimates = np.full(len(lookup), np.nan)
+            estimates[found] = saved_index.to_numpy()[positions[found]]
+            paired['estimate'] = estimates
+            # An existing undefined estimate differs from an absent row.
+            present = pd.Series(found, index=paired.index)
             report['missing_saved_estimates'] = int((~present).sum())
             report['finite_status_mismatches'] = int((present & (
                 np.isfinite(paired.recomputed) != np.isfinite(paired.estimate))).sum())
@@ -128,6 +154,11 @@ def reconcile_metrics(config, analysis, *, models=None):
                 'patients pooled across diseases per outcome, then finite outcome/horizon AUCs averaged; '
                 'not the fine-disease cell estimator')
         reports.append(report)
+        if completed % 100 == 0 or completed == len(specifications):
+            print(f'Metric reconciliation: completed {completed}/{len(specifications)} '
+                  f'artifacts, {(time.monotonic() - started) / 60:.1f} min elapsed',
+                  file=sys.stderr, flush=True)
+            last_progress = time.monotonic()
     if models is not None:
         missing = wanted - {row['model'] for row in reports}
         if missing:
@@ -326,6 +357,7 @@ def main():
     env = dotenv_values(args.env_file)
     root = Path(env['OPERA_PAPER_ROOT']).resolve()
     analysis = args.analysis_root or Path(env['OPERA_PAPER_ANALYSIS_ROOT'])
+    print('Reading existing router and figure audit tables.', file=sys.stderr, flush=True)
     report = audit(root, analysis.resolve(), verify=args.verify_artifacts,
                    route_diagnostics=args.route_diagnostics)
     if args.recompute_metrics:

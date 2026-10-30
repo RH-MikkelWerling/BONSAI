@@ -8,7 +8,7 @@
  S/0/0/A/{SPECIALIST}/{Learns from its own cell}/{One disease, one outcome: one fit per supported cell.}/{The target learns only from its own labels.},
  D/10.75/0/B/{DISEASE-POOLED}/{Learns across diseases}/{All applicable diseases, one outcome: one fit per outcome.}/{The target borrows from the same outcome in other diseases.},
  O/0/-9.55/C/{OUTCOME-POOLED}/{Learns across outcomes}/{One disease, all applicable outcomes: one fit per disease.}/{The target borrows from related outcomes in the same disease.},
- J/10.75/-9.55/D/{JOINT}/{Learns from the whole panel}/{All diseases and outcomes: one shared fit; the routed model uses the same panel.}/{Every supervised cell can contribute through the shared encoder and readout.}}{
+ J/10.75/-9.55/D/{JOINT}/{Learns from the whole panel}/{All diseases and outcomes: one shared fit. OPERA uses this same supervision with task-specific corrections.}/{Every supervised cell can contribute through the shared encoder and readout.}}{
 \begin{scope}[xshift=\sx cm,yshift=\sy cm]
  \node[panelletter,anchor=north west] at (0,0) {\letter};
  \node[eyebrow,anchor=north west] at (.48,-.03) {\eyebrowtext};
@@ -82,20 +82,20 @@
     \ifnum\col=1 \def\bold{1}\fi
     \ifnum\r=4 \def\bold{1}\fi
     \ifnum\bold=1
-     \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid m\r\col)--(\scopeid target);
+     \draw[draw=OperaTeal,opacity=1,line width=1.6pt] (\scopeid m\r\col)--(\scopeid target);
     \else
-     \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid m\r\col)--(\scopeid target);
+     \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (\scopeid m\r\col)--(\scopeid target);
     \fi
    \fi
   }}
-  \if\scopeid O \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid n4)--(\scopeid target);\fi
-  \if\scopeid D \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid z1)--(\scopeid target);\fi
+  \if\scopeid O \draw[draw=OperaTeal,opacity=1,line width=1.6pt] (\scopeid n4)--(\scopeid target);\fi
+  \if\scopeid D \draw[draw=OperaTeal,opacity=1,line width=1.6pt] (\scopeid z1)--(\scopeid target);\fi
   \if\scopeid J
-   \foreach \r in {0,...,3}{\draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid n\r)--(\scopeid target);}
-   \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid n4)--(\scopeid target);
-   \foreach \col in {0,2,3,4}{\draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid z\col)--(\scopeid target);}
-   \draw[draw=OperaTeal,opacity=.90,line width=1.05pt] (\scopeid z1)--(\scopeid target);
-   \draw[draw=OperaTeal,opacity=.25,line width=.45pt] (\scopeid zn)--(\scopeid target);
+   \foreach \r in {0,...,3}{\draw[draw=OperaTeal,opacity=.55,line width=.6pt] (\scopeid n\r)--(\scopeid target);}
+   \draw[draw=OperaTeal,opacity=1,line width=1.6pt] (\scopeid n4)--(\scopeid target);
+   \foreach \col in {0,2,3,4}{\draw[draw=OperaTeal,opacity=.55,line width=.6pt] (\scopeid z\col)--(\scopeid target);}
+   \draw[draw=OperaTeal,opacity=1,line width=1.6pt] (\scopeid z1)--(\scopeid target);
+   \draw[draw=OperaTeal,opacity=.55,line width=.6pt] (\scopeid zn)--(\scopeid target);
   \fi
  \end{scope}
  \node[captionnote,text width=8.5cm] at (5.60,-7.98) {\note};

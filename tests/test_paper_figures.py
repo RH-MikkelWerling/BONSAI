@@ -246,9 +246,9 @@ def test_long_calibration_titles_fit_their_columns():
     plt.close(fig)
 
 
-def test_gallery_default_uses_final_risk_points():
+def test_gallery_explicit_point_mode_uses_final_risk_points():
     coords, outcomes = proto.synthetic_gallery(np.random.default_rng(55), n=100)
-    fig = figures.figure_embedding_gallery(coords, outcomes, per_page=1)
+    fig = figures.figure_embedding_gallery(coords, outcomes, per_page=1, mode="predicted_points")
     displayed = fig.axes[0].collections[0]
     name = outcomes[['outcome', 'domain_order']].drop_duplicates().sort_values(
         ['domain_order', 'outcome']).outcome.iloc[0]
@@ -297,9 +297,9 @@ def test_performance_forest_uses_saved_domain_means_and_ci():
     plt.close(fig)
 
 
-def test_patient_map_default_colours_final_predictions():
+def test_patient_map_explicit_point_mode_colours_final_predictions():
     coords, outcomes = proto.synthetic_gallery(np.random.default_rng(58), n=100)
-    fig = figures.figure_patient_map(coords, outcomes, grid_size=20)
+    fig = figures.figure_patient_map(coords, outcomes, grid_size=20, mode="predicted_points")
     assert not fig.axes[1].images
     assert fig.axes[1].collections[0].get_array() is not None
     plt.close(fig)

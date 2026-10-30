@@ -299,12 +299,23 @@ def main():
                 '--batch-size', env.get('OPERA_PAPER_BATCH_SIZE', '1'), '--output-dir', destination))
             gap_args += ['--restricted', f'Last {days} days hidden={destination}']
         run('recent_record_gaps', module('compare_input_restrictions', '--full', fit['predictions'],
-            *gap_args, '--horizon', '365', '--draws', env.get('OPERA_PAPER_RESTRICTION_DRAWS', '1000'),
+            *gap_args, '--horizons', '30', '60', '90', '180', '365', '730',
+            '--draws', env.get('OPERA_PAPER_RESTRICTION_DRAWS', '1000'),
             '--output-dir', root / 'input_restrictions'), needs=gap_steps)
         gap_recipe = root / 'configs/recent_record_gaps.yaml'
-        gap_recipe.write_text(yaml.safe_dump({'figures': [dict(id='supp_recent_record_gaps',
-            function='figure_recent_record_gaps', tables=dict(restrictions=str(root /
-            'input_restrictions/input_restriction_summary.csv')), options=dict(mark='TUNING SET — not test results'))]}))
+        from opera.run.compare_input_restrictions import figure_recipe
+        # A resumed one-year run remains a one-year run. The CPU refresh can
+        # extend it separately, without repeating completed GPU exports.
+        by_horizon = root / 'input_restrictions/input_restriction_summary_by_horizon.csv'
+        if by_horizon.is_file():
+            import pandas as pd
+            available_horizons = sorted(pd.read_csv(by_horizon).horizon_days.unique().tolist())
+            recipe = figure_recipe(by_horizon, available_horizons, 'TUNING SET — not test results')
+        else:
+            recipe = {'figures': [dict(id='supp_recent_record_gaps', function='figure_recent_record_gaps',
+                tables=dict(restrictions=str(root / 'input_restrictions/input_restriction_summary.csv')),
+                options=dict(mark='TUNING SET — not test results'))]}
+        gap_recipe.write_text(yaml.safe_dump(recipe))
         run('recent_record_gap_figure', module('render_paper_results', '--config', gap_recipe,
             '--output-dir', root / 'recent_record_figures', '--execute'), needs=['recent_record_gaps'])
         run('embedding_tables', action('embedding-tables'), needs=['init_figures', *export_steps])

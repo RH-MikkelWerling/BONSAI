@@ -39,7 +39,7 @@ def recorded_group_settings(values):
 
 
 OUTCOMES = ['infection_diagnosis_or_antimicrobial_use_composite',
-            'overall_survival', 'anemia_g2plus', 'hospitalisation',
+            'overall_survival', 'neutropenia_g3plus', 'hospitalisation',
             'creatinine_increased_g2plus']
 # Release-v2 rename of the same infection endpoint; retain older exports.
 OUTCOME_ALIASES = {'infection_diagnosis_or_antimicrobial_use_composite':
@@ -61,8 +61,12 @@ def build(analysis, output):
         raise FileNotFoundError(embeddings)
     data = read_table(predictions)
     available = set(data.outcome)
+    map_candidates = list(OUTCOMES)
+    if 'neutropenia_g3plus' not in available and 'anemia_g2plus' in available:
+        # Compatibility for older exports, not an alias between endpoints.
+        map_candidates[map_candidates.index('neutropenia_g3plus')] = 'anemia_g2plus'
     outcomes = [name if name in available else OUTCOME_ALIASES[name]
-                for name in OUTCOMES
+                for name in map_candidates
                 if name in available or OUTCOME_ALIASES.get(name) in available]
     if not outcomes:
         raise ValueError('No proposed map outcomes present in selected predictions')
@@ -89,8 +93,9 @@ def build(analysis, output):
                     group_order=['Low', 'Intermediate', 'High'], score_high_group='High',
                     age_column='age_at_index', score_date_column=None,
                     score_timing='Recorded at diagnosis in the registry; timing requires verification before final publication',
-                    cutoff_rule='risk_matched_low', threshold_split='train', minimum_patients=50,
-                    lock_provenance='Tuning rehearsal recipe; model cutoffs fitted on training patients',
+                    cutoff_rule='cohort_size_matched', comparison_bootstrap=1000,
+                    threshold_split='train', minimum_patients=50,
+                    lock_provenance='Baseline-only category-size matching in the evaluation cohort. Independent clinical anchors use training predictions when available.',
                     applicability_review='Descriptive comparison restricted to patients with this recorded index; not a claim of validated use in other diseases')
     clinical = dict(availability=dict(cohort_column='cohort_fine', index_column='index', group_column='IPI'),
                     all_indices=dict(index_column='index', cohort_column='cohort_fine',
@@ -138,6 +143,12 @@ def build(analysis, output):
                 group_map=NATIVE_GROUP_MAP, group_order=FOUR_GROUP_ORDER,
                 score_high_threshold=4 if slug == 'ipi_computed' else 6,
                 manuscript_figures=False))
+            if slug == 'nccn_ipi' and 'treatment_failure' in available and 'cif_730d' in data:
+                clinical['scores'].append(dict(clinical['scores'][-1],
+                    id='nccn_ipi_treatment_failure_2y', outcome='treatment_failure',
+                    outcome_label='Second-line treatment or death', horizon_days=730,
+                    include_in_headline=False, manuscript_figures=False,
+                    endpoint_definition_note='Frozen composite differs from the HemaSphere relapse-inclusive endpoint'))
     if not {'index', 'cohort_fine', 'age_at_index'} <= set(metadata):
         raise ValueError('Clinical recipe needs index, cohort_fine and age_at_index metadata columns')
     from opera.run.render_clinical_score_panels import expand_index_scores
@@ -152,6 +163,8 @@ def build(analysis, output):
         evaluated = evaluated.loc[evaluated.subject_id.astype(str).isin(ids)]
     eligible_specs = []
     for spec in specs:
+        if not spec.get('include_in_headline', True):
+            continue
         patients = evaluated.loc[evaluated.cohort_fine.isin(spec['cohorts'])]
         if spec.get('index_values'):
             patients = patients.loc[patients[spec.get('index_column', 'index')].isin(spec['index_values'])]

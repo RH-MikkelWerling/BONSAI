@@ -51,7 +51,7 @@ HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
          "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50",
          "LS10", "LS25", "LS50", "LSE10", "LSE25", "LSE50", "FD10", "FD25", "FD50", "RS1",
-         "J_vs_best_tuning", "O1", "O2", "O3", "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
+         "J_vs_best_tuning", "O1", "O2", "O3", "T5_router", "T5_shared", "T5E_router", "T5E_shared", "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
          *(f"router_{part}_{design}" for part in ("own", "borrow", "both")
            for design in ("O", "AB")))
 # Table 2, grouped by question; fixed T contrasts retain joint identities.
@@ -69,8 +69,12 @@ TABLE_ROWS = (
     (None, "Sequence models against tabular models"),
     ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
     ("O1", "OPERA (local) vs per-task XGBoost"),
+    ("T5E_router", "OPERA (national) vs per-task XGBoost"),
     ("T5_router", "OPERA (national + adaptation) vs per-task XGBoost"),
-    ("T2", "Joint vs per-task XGBoost"), ("T6", "Joint vs pooled XGBoost"),
+    ("T2", "Joint vs per-task XGBoost"),
+    ("T5E_shared", "Joint (national) vs per-task XGBoost"),
+    ("T5_shared", "Joint (national + adaptation) vs per-task XGBoost"),
+    ("T6", "Joint vs pooled XGBoost"),
     ("T9", "Joint vs XGBoost with registry variables"),
 )
 
@@ -192,7 +196,7 @@ def decision_numbers(points):
     return numbers
 
 
-def clinical_numbers(headline, strata, inventory):
+def clinical_numbers(headline, strata, inventory, *, size_matched=None, km_matched=None):
     numbers = {}
     required = {'manuscript', 'score_id', 'threshold_split', 'model'}
     if headline is None or not required <= set(headline):
@@ -205,6 +209,25 @@ def clinical_numbers(headline, strata, inventory):
         raise ValueError('Choose exactly one primary clinical score for manuscript numbers')
     row = main.iloc[0]
     numbers["ipi_extra_per1000"] = f"{row.extra_events_flagged_per_1000:.0f}"
+    if row.get('grouping_rule') == 'cohort_size_matched':
+        # Equal-size strata are not evidence about expansion at matched risk.
+        # Use the independent KM-matched report for those legacy prose slots.
+        if km_matched is not None and len(km_matched):
+            selected = km_matched.loc[km_matched.score_id.eq(row.score_id) & km_matched.status.eq('estimable')]
+            if len(selected):
+                match = selected.iloc[0]
+                numbers['ipi_low_extra_per1000'] = f"{match.additional_low_per_1000:.0f}"
+                for system in ('model', 'index'):
+                    point, lower, upper = [match.get(system + '_survival' + suffix, np.nan) for suffix in ('', '_lower', '_upper')]
+                    if np.isfinite([point, lower, upper]).all():
+                        numbers['ipi_low_risk_' + system] = (
+                            f"{100 * (1-point):.1f}\\% (95\\% CI {100 * (1-upper):.1f}--{100 * (1-lower):.1f})")
+        if size_matched is not None and len(size_matched):
+            selected = size_matched.loc[size_matched.score_id.eq(row.score_id)]
+            for match in selected.itertuples():
+                key = 'clinical_same_size_' + str(match.group).lower().replace('-', '_').replace(' ', '_')
+                numbers[key] = with_ci(match.difference, match.lower, match.upper)
+        return numbers
     numbers["ipi_low_extra_per1000"] = f"{row.model_low_per_1000 - row.index_low_per_1000:.0f}"
     if strata is not None and inventory is not None:
         ids = inventory.loc[inventory.get("status", pd.Series(dtype=str)) == "rendered", "score_id"]
@@ -354,7 +377,9 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     numbers.update(decision_numbers(_read(analysis / "operating_points.csv", sources)))
     numbers.update(clinical_numbers(_read(clinical / "headline_scores.csv", sources),
                                     _read(clinical / "stratification_diagnostics.csv", sources),
-                                    _read(clinical / "score_inventory.csv", sources)))
+                                    _read(clinical / "score_inventory.csv", sources),
+                                    size_matched=_read(clinical / 'size_matched_survival_comparisons.csv', sources),
+                                    km_matched=_read(clinical / 'km_matched_low_groups.csv', sources)))
     numbers.update(restriction_numbers(
         analysis_root / "input_restrictions" / "input_restriction_summary.csv", sources))
     numbers.update(attribution_numbers(

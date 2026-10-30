@@ -1,55 +1,49 @@
 \begin{tikzpicture}[opera,x=1cm,y=1cm]
-  % One target prediction, represented as four clearly separated stages.
   \node[eyebrow,anchor=west] at (0,0) {SOURCE-ANCHORED ROUTER};
   \node[labelsmall,anchor=west] at (0,-.36)
-    {One patient $i$ and one target outcome $k$};
-
-  \node[eyebrow] at (1.35,-1.02) {INPUTS};
-  \node[eyebrow] at (5.02,-1.02) {ROUTE};
-  \node[eyebrow] at (9.28,-1.02) {SOURCE BANK};
-  \node[eyebrow] at (14.10,-1.02) {PREDICTION};
-  \draw[divider] (3.03,-.88)--(3.03,-5.08);
-  \draw[divider] (7.02,-.88)--(7.02,-5.08);
-  \draw[divider] (11.94,-.88)--(11.94,-5.08);
-
-  % Input identities are not source representations: the encoder supplies z.
+    {One patient $i$, disease $d_i$ and target outcome $k$};
+  \foreach \x/\title in {1.35/INPUTS,5.02/ROUTE,9.45/CORRECTIONS,14.10/PREDICTION}
+    \node[eyebrow] at (\x,-1.02) {\title};
+  \foreach \x in {3.03,7.02,11.94}
+    \draw[divider] (\x,-.88)--(\x,-5.85);
   \node[stageblue,minimum width=2.18cm] (patient) at (1.38,-2.08)
     {patient state $z_i$};
-  \node[stageteal,minimum width=2.18cm] (disease) at (1.38,-3.08)
+  \node[stageteal,minimum width=2.18cm] (disease) at (1.38,-3.38)
     {fine disease $d_i$};
-  \node[stagewarm,minimum width=2.18cm] (target) at (1.38,-4.08)
+  \node[stagewarm,minimum width=2.18cm] (target) at (1.38,-4.68)
     {target outcome $k$};
-
   \node[stageblue,minimum width=2.48cm,minimum height=1.04cm]
-    (router) at (5.03,-3.08) {learned weights\\$\pi_{i,k,s}$};
-  \draw[flowblue] (patient.east) to[out=0,in=160] (router.north west);
+    (router) at (5.03,-3.75) {learned source weights\\$\pi_{i,k,s}$};
+  \draw[flowblue] (patient.east) to[out=0,in=150] (router.north west);
   \draw[flowteal] (disease.east)--(router.west);
-  \draw[flowwarm] (target.east) to[out=0,in=200] (router.south west);
-  \node[captionnote,text width=3.40cm] at (5.03,-4.36)
-    {Patient, disease and target context};
-
-  % The three rows are categories, not a claim that only three sources exist.
-  \node[stageblue,minimum width=3.58cm] (shared) at (9.45,-1.97)
-    {$z_i$ \quad shared path};
-  \node[stageteal,minimum width=3.58cm] (dsrc) at (9.45,-3.08)
+  \draw[flowwarm] (target.east) to[out=0,in=210] (router.south west);
+  \node[captionnote,text width=3.15cm] at (5.03,-5.12)
+    {Weights depend on patient, disease and outcome};
+  \node[stageblue,minimum width=3.58cm] (shared) at (9.45,-1.80)
+    {$z_i$ \quad shared state};
+  \node[stageblue,minimum width=3.58cm] (global) at (9.45,-2.95)
+    {$g(z_i)$ \quad global correction};
+  \node[stageteal,minimum width=3.58cm] (dsrc) at (9.45,-4.10)
     {$\sum_d\pi_{i,k,d}\,a_d(z_i)$ \quad disease};
-  \node[stagewarm,minimum width=3.58cm] (osrc) at (9.45,-4.19)
+  \node[stagewarm,minimum width=3.58cm] (osrc) at (9.45,-5.25)
     {$\sum_o\pi_{i,k,o}\,a_o(z_i)$ \quad outcome};
-  \draw[flowblue] (router.east) to[out=25,in=180] (shared.west);
-  \draw[flowteal] (router.east)--(dsrc.west);
+  % The gate does not weight the shared path or the global correction.
+  \draw[flowblue] (patient.north) -- ++(0,.22) -| ([xshift=-2mm]shared.west) -- (shared.west);
+  \draw[flowblue] (shared.south)--(global.north);
+  \draw[flowteal] (router.east) to[out=0,in=180] (dsrc.west);
   \draw[flowwarm] (router.east) to[out=-25,in=180] (osrc.west);
-
-  \node[stage,minimum width=2.33cm] (mix) at (14.07,-2.56)
-    {weighted residual\\$z_{i,k}$};
-  \node[outcome,minimum width=2.33cm] (hazards) at (14.07,-4.02)
-    {interval hazards\\$\lambda_{i,k,t}$};
-  \draw[flowblue] (shared.east) to[out=0,in=155] (mix.north west);
-  \draw[flowteal] (dsrc.east)--(mix.west);
-  \draw[flowwarm] (osrc.east) to[out=0,in=205] (mix.south west);
+  \node[stage,minimum width=2.55cm,minimum height=1.0cm] (mix) at (14.10,-3.10)
+    {shared state\\$+$ scaled corrections};
+  \node[outcome,minimum width=2.55cm] (hazards) at (14.10,-4.85)
+    {outcome-specific\\interval hazards};
+  \draw[flowblue] (shared.east) to[out=0,in=145] (mix.north west);
+  \draw[flowblue] (global.east)--(mix.west);
+  \draw[flowteal] (dsrc.east) to[out=0,in=205] (mix.south west);
+  \draw[flowwarm] (osrc.east) to[out=0,in=225] (mix.south west);
   \draw[flowwarm] (mix.south)--(hazards.north);
-
-  \draw[divider] (0,-5.34)--(15.84,-5.34);
-  \node[captionnote,anchor=west,text width=15.40cm,align=left]
-    at (.20,-5.68)
-    {The shared path remains unscaled; route weights govern adapter residuals. The bank includes eligible borrowed sources, whose adapter parameters are detached.};
+  \draw[divider] (0,-6.10)--(15.84,-6.10);
+  \node[captionnote,anchor=west,text width=15.40cm,align=left] at (.20,-6.50)
+    {$z_{i,k}=z_i+\alpha\bigl[g(z_i)+\sum_s\pi_{i,k,s}a_s(z_i)\bigr]$.
+     The global correction acts outside the routed mixture.
+     Own and borrowed sources are in the disease and outcome banks. $a_s$ includes source shrinkage.};
 \end{tikzpicture}

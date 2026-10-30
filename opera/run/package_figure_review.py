@@ -22,11 +22,17 @@ PLOT_TABLES = {
     'patient_subgroups_auc.csv', 'national_subgroups.csv', 'selected_strategy.csv',
 }
 REPORT_TABLES = {
+    'effect_summaries.csv', 'joint_path_summaries.csv',
+    'common_population_estimates.csv', 'paired_contrasts.csv', 'model_coverage.csv',
+    'population_by_disease.csv', 'auc_pair_composition.csv',
     'score_inventory.csv', 'headline_scores.csv', 'classification_at_thresholds.csv',
     'classification_at_anchors.csv', 'cutoff_diagnostics.csv', 'score_population_flow.csv',
+    'size_matched_survival_comparisons.csv', 'km_matched_low_groups.csv',
+    'clinical_operating_point_counts.csv',
     'stratification_diagnostics.csv', 'borrowing_map.csv', 'borrowing_levels.csv',
     'borrowing_hypotheses.csv', 'borrowing_hypothesis_test.csv',
     'input_restriction_summary.csv', 'attribution_quality.csv',
+    'input_restriction_summary_by_horizon.csv', 'input_restriction_auc_by_horizon.csv',
     'attribution_variance_sources.csv', 'attribution_variance_windows.csv',
     'attribution_outcome_similarity.csv', 'attribution_concepts.csv',
     'attribution_concept_coverage.csv', 'attribution_lab_response.csv',

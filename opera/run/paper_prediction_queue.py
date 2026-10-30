@@ -29,6 +29,7 @@ def bundle_runs(bundle_dir):
         "pretraining_control": 6,
         "router_controls": 7,
         "router_fix": 8,
+        "data_efficiency": 9,
     }
     seen = set()
     rows = []

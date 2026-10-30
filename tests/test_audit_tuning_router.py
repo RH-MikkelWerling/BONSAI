@@ -125,3 +125,37 @@ def test_gain_distribution_separates_sparse_exact_ties_from_supported_gains():
     assert rows['sparse_below5']['exactly_zero'] == 2
     assert rows['supported_min5']['exactly_zero'] == 0
     assert rows['supported_min5']['nonzero_within_1e_minus12'] == 1
+
+
+def test_metric_lookup_distinguishes_missing_from_saved_undefined_and_logs_to_stderr(tmp_path, capsys):
+    from opera.run.audit_tuning_router import reconcile_metrics
+
+    metadata = tmp_path / 'metadata.parquet'
+    pd.DataFrame({'subject_id': ['a', 'b', 'c']}).to_parquet(metadata)
+    source = pd.DataFrame(dict(subject_id=['a', 'b', 'c'], outcome='event',
+        cohort='A', event=[1, 0, 2], time_days=[10., 500., 20.],
+        probability=[.8, .1, .2], horizon_days=365))
+    artifacts = []
+    for model in ['X', 'XP']:
+        path = tmp_path / (model + '.parquet')
+        source.to_parquet(path)
+        artifacts.append(dict(model=model, path=str(path), format='long',
+            split='tuning', seed=42, data_contract='fixture'))
+    directory = tmp_path / 'prediction_analysis'
+    directory.mkdir()
+    # Neither cell meets support. An existing NaN is not a missing estimate.
+    pd.DataFrame([dict(split='tuning', seed=42, cohort='A', outcome='event',
+        horizon_days=365, model=model, metric=metric, estimate=float('nan'))
+        for model, metric in [('X', 'auc'), ('X', 'brier'), ('XP', 'auc')]]
+    ).to_csv(directory / 'estimates.csv', index=False)
+    (directory / 'analysis_manifest.json').write_text(json.dumps(dict(
+        performance_support=dict(min_cases=5, min_controls=5))))
+    report = reconcile_metrics(dict(patient_metadata=str(metadata), estimand='cif_ipcw',
+        artifacts=artifacts), tmp_path, models=['X', 'XP'])
+    assert report[0]['missing_saved_estimates'] == 0
+    assert report[1]['missing_saved_estimates'] == 1
+    assert all(row['finite_status_mismatches'] == 0 for row in report)
+    output = capsys.readouterr()
+    assert output.out == ''
+    assert '2 prediction artifacts' in output.err
+    assert 'completed 2/2' in output.err

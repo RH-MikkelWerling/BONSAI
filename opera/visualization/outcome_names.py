@@ -16,7 +16,9 @@ OUTCOME_DISPLAY_NAMES = {
     "second_line_treatment": "Second-line treatment",
     "next_hematological_malignancy": "Subsequent hematologic malignancy",
     "next_malignancy": "Subsequent malignancy",
-    "RBC_transfusion": "Red-cell transfusion",
+    # Frozen BOQA procedure phenotype. These codes do not establish product specificity.
+    "RBC_transfusion": "Blood transfusion (BOQA)",
+    "Red-cell transfusion": "Blood transfusion (BOQA)",  # historical plot-table label
     "any_transfusion": "Any transfusion",
     "platelet_transfusion": "Platelet transfusion",
     "respiratory_support": "Respiratory support",
@@ -63,4 +65,7 @@ def outcome_display_name(identifier: str) -> str:
     if match:
         term = match.group(1).replace("_", " ")
         return f"{term.capitalize()} (G{match.group(2)}+)"
-    return identifier.replace("_", " ").capitalize()
+    # Tables may already contain presentation labels. Preserve clinical grade
+    # notation and acronyms when a renderer applies this helper again.
+    text = identifier.replace("_", " ")
+    return text[:1].upper() + text[1:]

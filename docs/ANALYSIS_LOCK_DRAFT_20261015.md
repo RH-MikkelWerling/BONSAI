@@ -1,5 +1,19 @@
 # Analysis lock — DRAFT (not locked)
 
+## Known-error outcome amendment, 30 October 2026
+
+Before held-out evaluation, the author confirmed a reversed historical-baseline
+window in the upstream AKI episode writer. Retain `aki_first_documented` and
+compare original/corrected development labels. Publish an AKI-only revision
+with parent manifest identity, preserving the other 68 outcomes, registry,
+groups, splits and selected architectures. Refit retained designs that consume
+AKI supervision/selection inputs, explicitly carry forward independent unchanged
+fits, and re-estimate model-derived thresholds from corrected development
+predictions under the agreed rule. No held-out performance informs the repair.
+Record actual final release/bundle/model identities before test sign-off.
+The [runner handoff](AKI_RELEASE_AND_RUNNER_HANDOFF_20261030.md) implements this
+amendment without overwriting the original releases or checkpoints.
+
 Fixed before any held-out evaluation. When agreed, these values are written into
 `final_contrasts_20261014.yaml`, `bayesian_contrasts.example.yaml` and
 `locked_prediction_analysis.example.yaml`, and this file is renamed
@@ -394,6 +408,75 @@ Contrasts IPW_R = gain(R_AB_IPW, R_AB) and IPW_J = gain(J_IPW, J_L) are
 reported (AUC, IPA, calibration) as sensitivity analyses, outside the headline
 family; they do not change which model is primary.
 
+## Amendments of 30 October 2026 (before any test data were opened)
+Decided by the first author on 30 October 2026, after the tuning rehearsal and
+before any held-out outcome was inspected.
+
+**Summary weighting: two co-reported summaries.** Diseases differ in how
+"typical" they are, so every headline contrast is reported under two declared
+weightings, each with its paired-bootstrap interval on the same fixed roster
+of supported cells: (i) every supported disease--outcome--horizon cell
+weighing equally (flat; the summary used so far), and (ii) diseases weighing
+equally, endpoint families equally within a disease, outcome variants equally
+within a family and horizons equally within an outcome (disease-balanced).
+The roster and weights are fixed before bootstrapping and held fixed in every
+replicate. Both are reported side by side, with the same claim-labelling rule
+applied to each; where they disagree in label, the text says so and explains
+which diseases or tasks drive the difference. Neither is chosen after seeing
+which favours OPERA. A patient-frequency-weighted summary remains a
+sensitivity analysis.
+
+**Clinical risk groups: same number of patients, compared survival.** The
+primary grouped comparison with each clinical index is size-matched: on the
+same eligible, score-available patients, the model's predicted risk for the
+declared outcome and horizon orders patients into as many strata as the index
+has native categories, each holding approximately the same number of patients
+as the corresponding native category (ties kept together, deviations from the
+target counts reported). No outcome information sets the boundaries.
+Survival is then compared between the two sets of strata (Kaplan--Meier for
+all-cause mortality, Aalen--Johansen for outcomes with competing death), with
+paired uncertainty from patient resampling that repeats the size matching in
+each replicate. The question is whether the model places the same number of
+patients in its lowest and highest strata with better and worse prognosis
+respectively. Survival-matched Low identification (the largest group with a
+development risk no higher than the index's Low category) is retained as a
+complementary, separately labelled analysis; binary operating points are
+reported where an ordered partition is unavailable, and every configured index
+keeps a visible disposition.
+
+**Per-index summary of the risk-group comparison (added 30 October 2026,
+before any test data were opened).** For each index, the model's
+stratification is summarised from the size-matched comparison at the index's
+declared outcome and horizon. It is reported as *at least as good* when the
+model's lowest stratum has survival as high as or higher than the index's
+lowest category, and its highest stratum survival as low as or lower than the
+index's highest category (paired point estimates), and as *better* for a group
+only where the paired 95% interval excludes zero. Every index is reported,
+including those that fail either condition and those whose comparison is not
+estimable. "At least as good" is descriptive: it is not an equivalence claim
+unless a margin is fixed before testing. **Open:** whether to fix such a margin.
+
+**National models against XGBoost (added 30 October 2026, before any test data
+were opened).** Alongside E1--E4, A1 and A2, the national fits are compared with
+per-task XGBoost on the same patients and cells: joint model and OPERA, each
+with the national encoder used directly (T5E_shared = gain(J_E,X), T5E_router =
+gain(R_E,X)) and after adaptation (T5_shared = gain(J_EA,X), T5_router =
+gain(R_EA,X)). They are reported with both summary weightings and the same
+claim rule as O1. If the national encoder is chosen for OPERA by the Methods
+rule, O1 already uses it, and these contrasts show the result for each
+encoder.
+
+**National arm: four downstream fits.** The joint model and OPERA (with the
+primary router's readout, R_AB) are each fine-tuned from the national encoder
+directly (E) and from the national encoder after adaptation to the cohort
+(EA): J_E, R_E, J_EA, R_EA, seed 42, with the same data, splits, outcomes,
+training schedule and checkpoint-selection criterion as the local fits. OPERA
+is chosen among the local, national and adapted encoders by the rule in the
+Methods (highest tuning panel AUC; ties within the noise floor go to the
+simpler model, the cohort encoder before the national). The national contrasts
+(E1--E4, A1, A2) are reported for both readouts. No further national
+configurations are tuned.
+
 ## Headline contrasts and multiplicity (added 2026-10-26, before any test data were opened)
 - Both the joint model (J_L, fixed before any tuning result) and OPERA (the
   configuration chosen on tuning data) are compared with per-task XGBoost
@@ -480,3 +563,31 @@ problems; the rules below fix them without reference to any test result.
   reports what each source adds, how much each disease depends on borrowing,
   and how similar the diseases' borrowing profiles are. Source removal runs on
   the primary routed model, with its own-sources-only fit (RBH_AB) as reference.
+
+## Amendment of 30 October 2026: AKI outcome correction (before any test data were opened)
+
+**Error.** The AKI episode writer that produced the imported
+`AKI_table_all_dalycare_simplified.csv` selected its annual creatinine baseline
+from seven days before each sample onward, including the current and all later
+samples, instead of 365 to more than 7 days before it. This affects
+`aki_first_documented` (event and censoring dates). It did not enter the
+sequence models' inputs. It did enter every tabular model as a predictor (data
+source "AKI"), where the faulty window can carry post-treatment creatinine into
+a pre-treatment feature.
+
+**Decision, fixed before any corrected label is inspected.** Only the reversed
+inequality is corrected. The mean baseline, the other detection branches and
+the episode rules are unchanged, so the definition remains a documented local
+implementation, not an exact NHS/KDIGO algorithm. A one-endpoint release
+amendment replaces AKI and keeps the other 68 endpoints byte for byte. **Every
+reported model whose training or selection used the AKI target is refitted,
+whatever the size of the label change**: S and D for AKI, all O fits, J, the
+primary routed model and its two controls, the retained sensitivity and
+data-efficiency fits, the national downstream fits, and every tabular model for every
+outcome, on feature matrices rebuilt with the corrected table. The AKI table is
+regenerated from the published DALY-CARE writer, which must first reproduce the
+existing table exactly. Architectures, optimisation settings and the model-selection rules are
+unchanged. Final choices among refitted candidates are rechecked on corrected
+tuning results. Old-label fits are kept as identifiable development history.
+The national downstream fits are trained on the corrected release only.
+See `docs/AKI_WEEKEND_RUNBOOK_20261030.md`.

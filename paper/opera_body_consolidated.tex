@@ -1,0 +1,761 @@
+% \resultpct{<code>_better}: the "k of n" macro as a rounded percentage.
+\ExplSyntaxOn
+\NewDocumentCommand{\resultpct}{m}{
+  \cs_if_exist:cTF {opera@res@#1}
+    {
+      \tl_set:Nx \l_tmpa_tl { \use:c {opera@res@#1} }
+      \tl_remove_all:Nn \l_tmpa_tl {,}
+      \seq_set_split:NnV \l_tmpa_seq {of} \l_tmpa_tl
+      \resultstyle{ \fp_eval:n { round(100 * (\seq_item:Nn \l_tmpa_seq {1})
+        / (\seq_item:Nn \l_tmpa_seq {2}), 0) } \% }
+    }
+    { \placeholder{X\%} }
+}
+\ExplSyntaxOff
+
+% OPERA manuscript body, consolidated edition (30 October 2026).
+% Voice and structure of opera_body.tex (rehearsal review of 29 October), held
+% to the Lancet Digital Health rules: Summary <= 300 words in five headed
+% paragraphs, Research in context without citations, main text <= 3,500 words,
+% <= 30 references. The thread through every section is borrowing: whether to
+% borrow, what to borrow and how to borrow. Flat and disease-balanced summaries
+% are co-reported (lock amendment, 30 October 2026).
+\begin{abstract}
+\textbf{Background} Prognosis shapes treatment, supportive care and patients'
+decisions about their future, yet most prognostic tools learn from one disease
+and one outcome at a time. We asked whether, what and how to borrow information
+across diseases, outcomes and patient histories to predict risk in lymphoid
+cancers, a specialty of many uncommon diseases.
+
+\textbf{Methods} We studied 37,531 Danish adults starting first-line treatment
+for 24 lymphoid cancers, predicting 69 outcomes at six horizons from 30 days to
+two years from routinely recorded histories. Otherwise identical sequence models
+learned from one disease--outcome pair, one outcome across all diseases, all
+outcomes within one disease, or every disease and outcome together. \opera{}, a
+single model for all tasks, adds corrections specific to each patient's disease
+and outcome and lets each prediction borrow those of other tasks. Encoders were
+pretrained on the cohort or the national population. Comparators were per-task
+and pooled XGBoost and the prognostic indices in clinical use, in patients
+treated from 2023.
+
+\textbf{Findings} Borrowing from other diseases increased the area under the
+ROC curve (AUC) by \result{P1_auc}{X} over single-task models. Adding all other
+outcomes to the disease-pooled model changed AUC by \result{P4_auc}{Y}
+(\placeholder{claim label}), so one model could predict every outcome without
+loss. \opera{} improved on the joint model by \result{R1_auc}{X}, with borrowed
+corrections adding \result{router_borrow_AB_auc}{Z}, and differed from per-task
+XGBoost by \result{O1_auc}{Y}. \placeholder{National pretraining.}
+\placeholder{Against the N prognostic indices in routine use for these diseases,
+for each index's own endpoint and patients: the number in which OPERA was
+better, with the NCCN-IPI result in DLBCL.}
+
+\textbf{Interpretation} \placeholder{From the test results: borrowing across
+diseases improved prognosis most where data were scarce, and one model served
+every disease and outcome at no cost. How this compares with tuned tabular
+models and clinical indices, without claiming clinical benefit.}
+
+\textbf{Funding} \placeholder{Funders, to be confirmed by the authors.}
+\end{abstract}
+
+\noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{%
+\small\textbf{Research in context}\par
+% No citations in this panel.
+\textbf{Evidence before this study}\par
+\placeholder{We searched PubMed, Embase and arXiv/medRxiv from inception to
+[date] for studies combining (multi-task OR transfer OR pretrain* OR foundation
+model OR shared representation) AND (prognos* OR risk prediction) AND (electronic
+health record OR registry), and for prognostic indices in lymphoid cancers.
+Report numbers screened and included.} Clinical prediction models are almost always built for one disease and one
+outcome. Multi-task and transfer learning on health records have helped some
+tasks and harmed others, often against weak baselines. Models pretrained on
+population records predict many outcomes, but whether they improve specialised
+prognosis over models trained within the specialty, or over tuned
+gradient-boosted trees, is unknown. Lymphoid cancers rely on disease-specific
+indices built from a few variables, and many uncommon diseases have none.\par
+\textbf{Added value of this study}\par
+To our knowledge, this is the first study to measure, within one specialty and
+on the same patients, what prognosis gains from borrowing across diseases,
+across outcomes and from the national population. Matched models separate each
+source across 24 diseases, 69 outcomes and six horizons. One model learns how
+much each prediction should borrow, and every task is compared with tuned
+tabular models and every prognostic index in routine use. \placeholder{Principal test findings with effect sizes.}\par
+\textbf{Implications of all the available evidence}\par
+Biological boundaries between diseases need not limit prognostic learning.
+Other diseases can supply the examples a rare disease lacks, and one model can
+serve a specialty.
+\placeholder{Implications for disease-specific indices and task-specific
+models, and what the national population adds.} Better prediction is not
+evidence that acting on it improves care.
+}}
+
+\operasection{Introduction}
+Prognosis is central to patient care. In haematology, it guides the choice of
+treatment, determines eligibility for clinical trials and shapes what patients
+and their families can expect. For the lymphoid cancers, a group of blood
+cancers including lymphomas, lymphocytic leukaemias and myeloma, prognostic
+tools such as the IPI, NCCN-IPI and CLL-IPI each predict a single outcome in a
+single disease from a few variables
+\citep{IPI1993,zhou2014nccnipi,cllipi2016,palumbo2015riss}. This specificity
+comes at a price: it restricts the signals, patients and outcomes such tools can
+learn from. Learning opportunities are scarce, because many patient groups and
+outcomes are rare in isolation and rarer still in combination
+\citep{Riley2020}. Adding more patients with the same disease is seldom possible
+when the disease itself is rare. To predict better, information must be borrowed
+from elsewhere.
+
+Even for a single disease and outcome, other diseases, outcomes and patient
+histories can be informative. Haematological cancers are biologically distinct
+yet share diagnostic work-up, treatments and complications, and frailty and
+prior illness affect outcomes globally. Learning such patterns across patients
+and tasks can improve prediction from few labelled examples
+\citep{Baxter2000,Maurer2016,zhang2019metapred}. Borrowing can also harm.
+In clinical prediction, training tasks jointly frequently degraded individual
+tasks, even where multi-task pretraining helped \citep{mcdermott2020mtl}. The question is therefore not only whether to borrow,
+but what to borrow and how, without losing clinically important differences.
+
+The simplest way for a model to borrow is to learn the same outcome across
+several diseases, or several outcomes within the same disease, so that each task
+gains examples from the others. Such pooling can cost the idiosyncratic
+differences between subgroups. Ideally, a model relies on borrowed information
+where it must, as for rare diseases and outcomes, and on its own where that is
+sufficient. Statistics strikes this balance by partial pooling
+\citep{EfronMorris1975}, and neural models can learn it from the data
+\citep{cui2024autodp,lee2022residualmoe}.
+
+A more recent way to borrow is to pretrain on patient histories, so that a model
+learns general patterns of how illness, investigation and treatment unfold
+before it learns any outcome \citep{li2020behrt,rasmy2021med,steinberg2023motor}.
+A model pretrained on a seemingly unrelated cohort can then pass much of this
+learned structure to a downstream prognostic model. Pretrained on the records of
+a whole population, it borrows from people far outside the specialty
+\citep{savcisens2024life2vec,shmatko2025delphi}. Whether these approaches improve
+on strong conventional alternatives, particularly when labels are scarce,
+remains uncertain \citep{wornow2023shaky,worth2026state}.
+
+Lymphoid cancers are a natural proving ground for borrowing information across
+diseases and outcomes. Their many entities are individually uncommon
+\citep{alaggio2022who,sant2010haemacare} yet share investigation and care. At the
+start of treatment, clinicians weigh disease control alongside infection,
+cytopenia, organ toxicity and admission, which existing indices address only in
+part \citep{DLG2025DLBCL,Tilly2022POLARIX}. Testing borrowing requires all of
+these diseases and outcomes under one roof, recorded from the same sources in the
+same formats. The Danish setting makes this possible: DALY-CARE links nationwide
+registers, health records and laboratory data for all Danish adults with
+lymphoid cancers \citep{brieghel2025dalycare}. Few, if any, other resources do
+so.
+
+We studied 69 outcomes in 37,531 patients with 24 lymphoid cancers and asked
+three questions, answered in the Results sections named
+(\cref{fig:paradigms}).
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt,topsep=3pt]
+  \item \emph{Whether to borrow.} Do sequence models improve when they learn
+  across diseases, outcomes or both, compared with one model per disease and
+  outcome? How do they compare with XGBoost and the clinical indices?
+  (\emph{Whether to borrow}, \emph{Practical alternatives} and
+  \emph{Prognostic indices}.)
+  \item \emph{What to borrow.} What do other diseases, other outcomes and the
+  national population each add? (\emph{What to borrow}.)
+  \item \emph{How to borrow.} Does letting each prediction balance its own
+  corrections against borrowed ones improve on borrowing uniformly, and where
+  does any gain come from? (\emph{How to borrow}.)
+\end{enumerate}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/modeling_paradigms}}\par\vspace{3mm}
+  \resizebox{\textwidth}{!}{\input{figures/information_axes}}
+  \caption{\textbf{Approaches to risk prediction and the information each
+  can use.} Top, three approaches to risk prediction in lymphoid cancers.
+  \textbf{A}, clinical risk scores combine a small diagnostic snapshot with a
+  fixed rule into broad risk strata. \textbf{B}, classical machine learning
+  uses a wider history, aggregated over time into a task-specific feature
+  table. \textbf{C}, a longitudinal sequence model reads the ordered clinical
+  events and can share one patient representation across outcomes. Its
+  encoder may be pretrained on the cohort or on the whole population. Bottom,
+  sources of additional signal. \textbf{D}, conventional scaling adds patients,
+  variables or observations to one isolated prediction problem. \textbf{E},
+  shared learning also draws on related diseases (rows) and outcomes
+  (columns).}
+  \label{fig:paradigms}
+\end{figure}
+
+\clearpage
+\operasection{Methods}
+
+\operasubsection{Population, prediction time and outcomes}
+We included all patients in Denmark diagnosed with a lymphoid cancer
+(lymphoma, lymphocytic leukaemia or plasma-cell neoplasm) from 2002 who were
+aged 18 or older at diagnosis and started first-line treatment, as recorded in
+DALY-CARE \citep{brieghel2025dalycare}. Every prediction was made at the start of
+treatment, based only on records from before it. These comprised diagnoses,
+procedures, pathology, medication, laboratory results and hospital contacts with
+their region and specialty of care, together with age and sex
+(\cref{fig:model-inputs}). The study was conducted under the DALY-CARE approvals
+from the Danish Health Data Authority (P-2020-561) and the National Ethics
+Committee (1804410).
+
+We predicted 69 outcomes at six horizons from 30 days to two years, spanning
+disease course, infection, cytopenia, organ toxicity, cardiovascular events and
+acute care, with death as a competing event for non-fatal outcomes. Laboratory
+outcomes followed the Common Terminology Criteria for Adverse Events (CTCAE)
+\citep{nci2017ctcae} as closely as routine data permitted. These are graded
+abnormal laboratory values and not necessarily toxicities caused by treatment.
+Definitions, adaptations and ascertainment, including which patients were
+eligible for each laboratory outcome, are given in the Supplementary Methods.
+
+We used a pseudo-prospective design, splitting patients by the date treatment
+started. Models were trained on patients treated from 2002 to 2021, tuned on those
+treated in 2022 (the tuning set) and tested on those treated from 2023, a set
+left unopened until every choice was fixed. Pretraining used only records from
+before 2022.
+\previewonly{The current figures and numbers are tuning analyses. Held-out and
+national-pretraining results remain pending.}
+
+\operasubsection{Borrowing across diseases and outcomes}
+To investigate the effect of borrowing across diseases and outcomes, we
+organised all 1,656 prediction tasks (24 diseases by 69 outcomes) in a grid
+(\cref{fig:supervision-grid}). Each cell is a prediction question, such as the
+risk of infection in a patient with DLBCL, at six horizons. Four matched types of model differed only in what they could
+borrow. A specialist learned from one cell. A disease-pooled model learned one
+outcome across all diseases. An outcome-pooled model learned all outcomes within
+one disease. A joint model learned across both diseases and outcomes. All shared a causal transformer encoder
+pretrained to predict the next recorded event, building on CORE-BEHRT
+\citep{odgaard2024core}, and were fine-tuned to estimate cumulative incidence at
+each horizon, with death as a competing event
+\citep{gensheimer2019nnetsurvival,lee2018deephit}. Every outcome was predicted
+and evaluated separately (Supplementary Methods).
+
+\operasubsection{Learning how much to borrow}
+Borrowing uniformly can blur differences that matter, by assuming that diseases
+and outcomes are similar when they are not. Outcome Prediction with Expert Routing Across diseases and outcomes
+(\opera{}) instead lets each prediction balance shared and task-specific
+information (\cref{fig:source-router}). We added small trainable modules, called
+adapters, that correct the shared patient representation: one for each disease,
+one for each outcome, and one shared by all tasks. A router weighs the disease
+and outcome corrections for each patient and target outcome, so that a
+prediction can rely on its own where they are informative and borrow where its
+own data are scarce \citep{ma2018mmoe,houlsby2019adapters}. The idea is that of partial pooling
+\citep{EfronMorris1975}, with the balance learned from the data rather than set
+by a prior. Model selection is described in the Supplementary Methods.
+
+To understand how these corrections helped predictions, we constructed three
+separately trained controls. The first keeps only the shared correction, the
+second adds the patient's own disease and outcome corrections, and the third,
+the full model, also borrows those of other tasks. Replacing other diseases' corrections
+by their averages showed how much the fitted model depended on each
+(Supplementary Methods).
+
+\operasubsection{Borrowing from the population}
+To test the limits of borrowing, we pretrained a causal transformer, PHAIR, not
+only on patients with lymphoid cancers but on the nationwide Danish registers,
+covering around \placeholder{8--9 million} people, using records from before
+1 January 2022. We fine-tuned the joint model and
+\opera{} from it directly and after continued pretraining on the cohort's records
+\citep{gururangan2020dont}. The encoder used by \opera{} in all other
+comparisons was chosen among these on the tuning set (Supplementary Methods).
+The encoders share registers, architecture and training schedule, but the
+national vocabulary keeps rarer codes and finer laboratory bins, so the
+comparison concerns pretraining strategies rather than the number of patients
+alone (Supplementary Methods). Because pretraining should matter most when labels
+are scarce, joint models were also fine-tuned on 10\%, 25\% and 50\% of the
+training patients, mimicking smaller cohorts.
+
+\operasubsection{Comparators}
+We compared the sequence models with XGBoost \citep{chen2016xgboost} and ridge
+logistic regression, which remain hard to outperform on routine records
+\citep{grinsztajn2022tabular}. Features summarised the same histories over
+\placeholder{7-, 30-, 90- and 365-day} windows, using code counts and the latest,
+minimum, maximum, variance and slope of laboratory values
+\citep{bernstorff2023tsflattener}. This aggregation already improved on the
+clinical prognostic indices in DLBCL \citep{werling2026dlbcl}. A separate model
+was tuned for each disease, outcome and horizon. We also made versions of the
+XGBoost models that pooled across diseases.
+
+Each clinical index was compared with the model on the same patients. Ordered
+by predicted risk, the model placed patients into as many groups as the index
+has categories, each the size of the corresponding category, and survival was
+compared between the two sets of groups. No outcome information set these
+boundaries. These comparisons evaluate the model as a whole, including its use
+of the full record, rather than borrowing alone.
+
+\operasubsection{Evaluation}
+We assessed discrimination with the time-dependent area under the ROC curve
+(AUC) at each horizon and probability accuracy with the Brier score and index of
+prediction accuracy (IPA), with censoring weights
+\citep{blanche2013competingauc,gerds2006brier,kattan2018ipa}. Calibration was
+assessed at every horizon, without recalibrating any model. Comparisons were
+paired on the same patients and restricted to disease--outcome--horizon cells
+with at least five cases and five controls, the minimum needed to estimate an
+AUC. Cells meeting it can still be imprecise. Because diseases differ greatly in
+size, and larger diseases contribute more cells, every summary is reported two
+ways:
+with each supported cell weighing equally, and with each disease weighing
+equally (endpoint families, outcomes and horizons balanced within it). Intervals
+came from 1,000 patient bootstrap resamples within disease, shared across
+models (Supplementary Methods). Integrated gradients, and evaluations with
+recent weeks or entire sources of the record hidden, described what the
+predictions depend on. Reporting follows
+TRIPOD+AI \citep{collins2024tripodai}.
+
+\operasubsection{Role of the funding source}
+\placeholder{The funders' roles in study design, data collection, analysis,
+interpretation, writing and the decision to submit.}
+
+\FloatBarrier
+\operasection{Results}
+
+\operasubsection{Patients and the tasks that could be evaluated}
+Of 78,668 adults in DALY-CARE, whose records before 2022 pretrained the cohort
+encoder, 37,531 started first-line treatment with an assigned disease
+(\cref{fig:cohort-flow,tab:characteristics}): 29,105 were treated through 2021,
+1,980 in 2022 and 6,446 from 2023. The median age was 69 years, and diffuse
+large B-cell lymphoma and multiple myeloma made up half of the cohort.
+Laboratory records and the third version of the National Patient Register
+(LPR3, from 2019) came online late in the training period, so later patients had
+longer, more laboratory-rich records. They were also older and more often lacked
+a recorded clinical score, so the test evaluated performance under a shift in
+both patients and records. \result{P5_cells}{N} disease--outcome--horizon
+cells, \result{P5_cells_1y}{N} of them at one year, had enough events for the
+specialist and joint models to be compared
+(\cref{fig:supp-coverage,fig:supp-support}). \input{tables/table1}
+
+\FloatBarrier
+\operasubsection{Whether to borrow: borrowing against task-specific models}
+Borrowing from other tasks improved the sequence models. Compared with
+specialists, AUC changed by \result{P1_auc}{X} when models borrowed from other
+diseases (disease-balanced \result{P1_auc_disease_balanced}{X}), by
+\result{P2_auc}{Y} when they borrowed from other outcomes
+(\result{P2_auc_disease_balanced}{Y}) and by \result{P5_auc}{Z} when they
+borrowed from both (\result{P5_auc_disease_balanced}{Z}). IPA changed by
+\result{P1_ipa}{A}, \result{P2_ipa}{B} and \result{P5_ipa}{C}
+(\cref{fig:pooling}, \cref{tab:panel-effects}). The joint model had the higher
+AUC in \result{P5_better}{N of M} cells (\resultpct{P5_better}). \placeholder{The domains and horizons in which the
+gain was largest and smallest} (\cref{fig:pooling}D, \cref{fig:supp-horizons}).
+
+The gain from borrowing was largest where a task had least data of its own
+\placeholder{(confirm on test)} (\cref{fig:pooling}C). In diseases with fewer
+than 500 training patients, the joint model differed from the specialist by
+\result{P5_auc_rare}{X}. Borrowing also produced predictions where no
+specialist could be trained. At one year, \result{cells_no_training_events}{102}
+disease--outcome cells had no training events and \result{cells_fit_failed}{19}
+specialist fits failed, but the joint model predicted all of them, and
+\result{cells_joint_only_evaluable}{N} had enough events to be evaluated
+(\cref{fig:supp-coverage,fig:supp-pooling-cells}).
+
+\begin{figure}[H]
+  \resultfigure{fig_pooling}{Pooling across diseases and outcomes}
+    {A: joint versus specialist by disease and domain. B: gain by pooling axis.
+    C: gain against training events. D: gain by clinical domain.}
+  \caption{\textbf{Effect of pooling across diseases and outcomes on
+  discrimination.} \textbf{A}, AUC gain of the joint model over the
+  specialist, pooled over the six horizons, by disease (rows) and clinical
+  domain (columns), median over the domain's outcomes. Diseases run from fewest to most training patients, given beside each name with a log-scale bar, and domains from fewest to most training events.
+  \textbf{B}, For each disease, the mean gain from pooling
+  over diseases, pooling over outcomes and both (joint), on the same rows.
+  \textbf{C}, Gain against the number of training events of the target cell
+  (at one year),
+  with the hierarchical support curve and 95\% credible band. Points are cells
+  with at least 10 training events and a 95\% interval narrower than 0.4 (all
+  cells enter the curve). \previewonly{Tuning preview: the support curve is a kernel smoother over cells with a 95\% bootstrap band. The hierarchical model is fitted for the test-set analysis.} \textbf{D}, Gains
+  by clinical domain (paired mean and 95\% bootstrap interval where
+  available, with descriptive preview fallbacks labelled in the plot). Positive
+  values favour the pooled model, and grey cells could not be estimated.
+  Cell-level maps for each pooling axis, their
+  interaction and all horizons are in
+  \cref{fig:supp-pooling-cells,fig:supp-horizons}.}
+  \label{fig:pooling}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\caption{\textbf{What each source of signal adds, across all horizons.}
+Paired differences on the test set (first model minus second), pooled over all
+six horizons with equal weight per disease--outcome--horizon cell, with 95\%
+paired bootstrap intervals. The same table at each horizon is in Supplementary
+Table~\placeholder{S}. Cells:
+cells estimable for both models. Rare diseases: fewer than 500 training
+patients. Cells better: share of cells with a higher AUC point estimate,
+irrespective of uncertainty. Bold: the interval lies above zero. Red: below
+zero. Claim: the prespecified label from the paired bootstrap of the pooled
+difference: \emph{better} (\emph{worse}) if the interval lies above (below)
+zero, marked \emph{above margin} when the estimate also exceeds the practical
+margin of 0.01. \emph{Equivalent} if the interval lies within $\pm0.01$,
+otherwise \emph{inconclusive}. Paired bootstrap $p$-values and the hierarchical
+estimates, with their separately specified weighting, are in Supplementary
+Table~\placeholder{S}.}
+\label{tab:panel-effects}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrl@{}}
+\toprule
+Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC, rare diseases & Cells better & Claim \\
+\midrule
+\IfFileExists{\resultnumbersdir panel_effects_rows.tex}{\input{\resultnumbersdir panel_effects_rows.tex}}{%
+\rlap{\textit{Learning across diseases and outcomes (against the specialist)}} & & & & & & \\
+\quad Other diseases (disease-pooled) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Other outcomes (outcome-pooled) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Both (joint) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\rlap{\textit{Learning how much to borrow}} & & & & & & \\
+\quad Routed vs joint & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\rlap{\textit{Population pretraining (joint model)}} & & & & & & \\
+\quad National vs cohort encoder & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Adapted national vs cohort encoder & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\rlap{\textit{Population pretraining (OPERA)}} & & & & & & \\
+\quad \opera{} (national) vs \opera{} (local) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad \opera{} (national + adaptation) vs \opera{} (local) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\rlap{\textit{Sequence models against tabular models}} & & & & & & \\
+\quad Specialist vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Pooled vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad \opera{} (national + adaptation) vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad \opera{} (local) vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs per-task XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs pooled XGBoost & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Joint vs XGBoost with registry variables & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\bottomrule}
+\end{tabular}}
+\end{table}
+
+\FloatBarrier
+\operasubsection{What to borrow: diseases, outcomes and the population}
+Other diseases supplied most of what was worth borrowing. Once outcomes were
+shared, adding other diseases changed AUC by \result{P3_auc}{X}. Once diseases
+were shared, adding all other outcomes changed it by \result{P4_auc}{Y},
+\placeholder{within the prespecified equivalence margin of 0.01 (claim label)}.
+The joint model thus predicted all 69 outcomes as well as the disease-pooled
+models did one at a time. Borrowing from other outcomes alone, without other
+diseases, changed IPA by \result{P2_ipa}{Z} relative to the specialist.
+
+Borrowing from the national population changed the joint model's AUC by
+\result{E1_auc}{X} with direct transfer and by \result{E3_auc}{Y} after
+adaptation to the cohort. For \opera{}, the corresponding differences were
+\result{E2_auc}{X} and \result{E4_auc}{Y} (\cref{fig:encoder-transfer}A).
+With 10\%, 25\% and 50\% of the training patients, the adapted national encoder
+differed from the cohort encoder by \result{N10_auc}{A}, \result{N25_auc}{B} and
+\result{N50_auc}{C} (\cref{fig:encoder-transfer}B). \placeholder{Where the
+national encoder helped, by training events and disease}
+(\cref{fig:encoder-transfer}C--D).
+
+\begin{figure}[H]
+  \resultfigure{fig_external}{National pretraining and adaptation to the cohort}
+    {A: from cohort to national pretraining. B: performance with fewer training
+    patients. C--D: the gain by training events and by disease.}
+  \caption{\textbf{National pretraining, adaptation to the cohort and
+  training-set size.} \textbf{A}, One-year AUC of the joint model (filled) and the routed model
+  (outline) initialised from the encoder pretrained on the cohort alone, from
+  the national encoder (pretrained on the whole population, the cohort
+  included) used directly, and from the national encoder adapted to the cohort
+  by continued pretraining on its records (95\% CI,
+  averaged over the cells evaluated for all six models). Arrows give the paired
+  effect of each step, and the bracket the two together. \textbf{B}, Median
+  one-year AUC over the same cells of the joint model from the cohort encoder
+  and from the adapted national encoder, trained on 10\%, 25\%, 50\% or all of
+  the training patients (nested random subsets with the same patients for every
+  outcome). Numbers give the median paired difference at each share. The dashed
+  line marks the cohort-encoder model trained on all patients, and the open circle the
+  share at which the national model reaches it (interpolated on the log scale).
+  \textbf{C}, Paired effect of the adapted national versus the cohort encoder
+  for each cell, by the number of training events in the cell (line and band:
+  median and interquartile range within bins). \textbf{D}, The same effects by
+  disease (diamond and bar: median and interquartile range). Tuning and
+  test patients were never subsampled.}
+  \label{fig:encoder-transfer}
+\end{figure}
+
+\FloatBarrier
+\operasubsection{How to borrow: own corrections and borrowed corrections}
+Letting each prediction weigh its own corrections against borrowed ones improved
+modestly on borrowing uniformly. \opera{} changed AUC by \result{R1_auc}{X} and
+IPA by \result{R1_ipa}{Y} relative to the joint model, with the higher AUC in
+\result{R1_better}{N of M} cells (\resultpct{R1_better}).
+
+In the separately trained controls (\cref{fig:hierarchy}), own disease and
+outcome corrections changed AUC by \result{router_own_AB_auc}{X}
+(disease-balanced \result{router_own_AB_auc_disease_balanced}{X}), and borrowed
+corrections by a further \result{router_borrow_AB_auc}{Y}
+(\result{router_borrow_AB_auc_disease_balanced}{Y}). Own corrections thus helped
+mainly in the large diseases, which dominate the summary over cells, and
+borrowed corrections in the smaller ones, which the disease-balanced summary
+weights equally \placeholder{(confirm on test)}. \placeholder{Borrowed
+corrections gained most in tasks with few training events}
+(\cref{fig:hierarchy}B--C).
+
+Borrowing was broad rather than targeted. \placeholder{The share of routing on
+the patient's own disease and outcome, and the effective number of sources.}
+Replacing every other disease's correction by its average changed AUC by
+\placeholder{X (95\% CI)}, and \placeholder{no single source was indispensable}
+(\cref{fig:borrowing-map,fig:supp-borrowing-detail}).
+
+\begin{figure}[H]
+  \resultfigure{fig_hierarchy}{Own corrections and borrowing by training support}
+    {A: cells by tuning harm. B: own correction and borrowing against training
+    events. C: by support band.}
+  \caption{\textbf{Own corrections and borrowed corrections, by training
+  support.} Three separately trained versions of the routed model are compared:
+  shared correction only, with the patient's own disease and outcome
+  corrections added (own), and with the corrections of other tasks also
+  available (borrowed). Own: own-correction model minus shared-only. Borrowed:
+  full model minus own-correction model. Both: full model minus shared-only.
+  These are differences between trained models, not an additive split of one
+  model's AUC. Gains are AUC pooled over the six horizons within each
+  disease--outcome cell. \textbf{A}, Each cell by the joint model's gain over
+  the specialist on the tuning set (left of the dashed line, borrowing had
+  hurt) against the routed model's gain, coloured by the cell's training events.
+  \textbf{B}, Own and borrowed corrections against the target's training events
+  at one year (log scale), with a quadratic in log events and a bootstrap band
+  over cells, both descriptive. Points are cells with at least 10 training
+  events and a 95\% interval narrower than 0.4 (all cells enter the fits).
+  \textbf{C}, Median and interquartile range across cells within each band of
+  training events, with the number of cells. The spread is between cells, not a
+  confidence interval.}
+  \label{fig:hierarchy}
+\end{figure}
+
+\FloatBarrier
+\operasubsection{Borrowing against practical alternatives}
+Borrowing within the cohort did not make the sequence models the strongest
+predictors.
+\opera{} differed from per-task XGBoost by \result{O1_auc}{X} in AUC and
+\result{O1_ipa}{Y} in IPA, with the higher AUC in \result{O1_better}{N of M}
+cells (\resultpct{O1_better}, \cref{fig:headline,fig:tabular}). XGBoost also gained from
+borrowing: pooled across diseases, it differed from per-task XGBoost by
+\result{T7_auc}{X}, and the joint model differed from pooled XGBoost by
+\result{T6_auc}{Y}. \placeholder{Where the sequence models came closest to or
+exceeded XGBoost, by training events and recorded history.}
+\placeholder{Calibration slopes and intercepts by model} (\cref{fig:calibration}).
+One \opera{} model covered the tasks of \result{narrow_fits}{N} separately
+trained specialists.
+
+Borrowing from the national population \placeholder{narrowed / closed / did not
+change} the gap to XGBoost. With the adapted national encoder, \opera{} differed from
+per-task XGBoost by \result{T5_router_auc}{X} in AUC and \result{T5_router_ipa}{Y}
+in IPA, with the higher AUC in \result{T5_router_better}{N of M} cells
+(\resultpct{T5_router_better}). The joint model differed by
+\result{T5_shared_auc}{Z}. With the national encoder used directly, the
+differences were \result{T5E_router_auc}{X} for \opera{} and
+\result{T5E_shared_auc}{Z} for the joint model. \placeholder{Where the national encoder narrowed the gap
+most, by training events and disease} (\cref{fig:encoder-transfer}).
+
+\begin{figure}[H]
+  \resultfigure{fig_headline}{OPERA versus reference methods}
+    {Gains over each reference per cell, against XGBoost per cell, against the
+    clinical indices, across horizons and by recorded history.}
+  \caption{\textbf{Performance of \opera{} relative to reference
+  methods.} \textbf{A}, One-year AUC for every available sequence-model and
+  tabular variant on the same complete-case task roster. Small points show
+  individual task AUCs and diamonds show descriptive means. These are not
+  population-pooled AUCs or inferential comparisons. Paired differences with
+  confidence intervals are reported in Table 2. \textbf{B}, One-year AUC of \opera{}
+  against per-task XGBoost in each cell, with point size reflecting training events.
+  \textbf{C}, Share of patients with the event placed in the high-risk group by
+  each clinical index and by \opera{} at frozen training-derived cutoffs.
+  Specificity was targeted in training and may differ in evaluation. \textbf{D}, Mean AUC gain over per-task XGBoost of
+  the joint model, primary OPERA, original-router sensitivity and available
+  national OPERA variants at each horizon. \textbf{E}, Improvement in Brier
+  score, pooled over horizons, over the specialist and over XGBoost by the number
+  of events recorded before treatment ($\times$100, 95\% CI). Within each contrast, models are evaluated on the same test patients.}
+  \label{fig:headline}
+\end{figure}
+
+\begin{figure}[H]
+  \resultfigure{fig_benchmarks}{Comparison with tabular models}
+    {A: AUC gains over XGBoost by clinical domain. B: calibration slope.
+    C: gain against training events. D--E: reliability.}
+  \caption{\textbf{Comparison with tabular models: discrimination and
+  calibration.} \textbf{A}, AUC gain over per-task XGBoost, pooled over the six
+  horizons, of \opera{}, the joint model and the specialist, and of the joint
+  model over XGBoost pooled across diseases and XGBoost given quality-registry
+  variables, by clinical domain (median and interquartile range across cells).
+  \textbf{B}, Calibration slope of \opera{}, the joint, specialist and XGBoost
+  models by domain, over every cell and horizon (ideal 1). \textbf{C}, Gain of \opera{} over XGBoost
+  against the target's training events, with the support curve. Points are
+  cells with at least 10 training events and a 95\% interval narrower than 0.4
+  (all cells enter the curve). \previewonly{Tuning preview: the support curve is a kernel smoother over cells with a 95\% bootstrap band. The hierarchical model is fitted for the test-set analysis.} \textbf{D--E},
+  Reliability of \opera{}, the joint model and XGBoost at one year for the
+  two example cells, chosen by a rule on training counts (the cell with the most
+  training events in its domain among cells with at least 200 training events
+  and an event share between 10\% and 50\%). Observed risks are censoring-weighted and point size reflects patients per
+  bin. Bins with fewer than 20 patients are not drawn. No model was recalibrated on test data. The full calibration analysis is in \cref{fig:calibration}.}
+  \label{fig:tabular}
+\end{figure}
+
+\FloatBarrier
+\operasubsection{Comparison with the prognostic indices in clinical use}
+A single model was compared with each of the \placeholder{N} prognostic indices
+in clinical use, on the patients for whom that index was recorded. For
+\placeholder{N of N} indices, its size-matched risk groups stratified at least as
+well as the index's own categories. The model's lowest group had survival as high
+as or higher than the index's lowest category, and its highest group survival as
+low as or lower than the index's highest category. \placeholder{For N of these,
+the difference in the lowest or highest group was beyond chance. The exceptions
+and the comparisons that could not be estimated} (\cref{fig:score-overview}).
+
+In diffuse large B-cell lymphoma, the largest comparison, NCCN-IPI was the main
+comparator. Among \placeholder{N} patients with NCCN-IPI recorded, the model's
+lowest group, holding as many patients as the NCCN-IPI low-risk category, had
+one-year survival of \placeholder{X\% (95\% CI)}, against \placeholder{Y\%} for
+that category. In the highest groups, survival was \placeholder{A\% and B\%}
+(\cref{fig:risk-groups}).
+
+The same model also covered patients the indices do not. Ten of the 24 diseases
+had no dedicated, externally validated index (\cref{tab:index-availability}), and
+\placeholder{X\%} of patients had none recorded, whereas the model predicted
+every outcome for every patient.
+
+\begin{figure}[H]
+  \resultfigure{fig_risk_groups}{Risk groups versus NCCN-IPI}
+    {A--B: overall survival by model risk group and by NCCN-IPI group. C:
+    one-year overall survival per group. D: cross-classification.}
+  \caption{\textbf{Risk groups defined by \opera{} and by NCCN-IPI in
+  DLBCL.} Patients with diffuse large B-cell lymphoma and NCCN-IPI recorded at
+  diagnosis, compared on overall survival, the endpoint NCCN-IPI was developed
+  for. The model places patients into as many groups as NCCN-IPI has
+  categories, each with the same number of patients as the corresponding
+  NCCN-IPI category, by predicted risk. No outcome information sets the
+  boundaries. \textbf{A}, Kaplan--Meier overall survival by model group, with
+  numbers at risk below the curves. \textbf{B}, The same by NCCN-IPI category.
+  Shaded bands are 95\% bootstrap intervals and the dashed line marks one year.
+  \textbf{C}, One-year overall survival per group with 95\% CI, labelled with
+  deaths by one year and patients. \textbf{D}, Cross-classification: rows are
+  NCCN-IPI categories and columns model groups, each cell with its patients'
+  one-year survival and interval above and their number below. Outlined cells
+  hold patients placed in the same group by both, cells to the left are patients
+  the model places at lower risk, and cells to the right at higher risk.}
+  \label{fig:risk-groups}
+\end{figure}
+
+\FloatBarrier
+\operasubsection{What the predictions rest on, and where they hold}
+Hiding the last 7, 14, 21 and 28 days before treatment changed AUC by
+\placeholder{A, B, C and D (95\% CIs)}, most in \placeholder{domains}
+(\cref{fig:recent-record-gaps}), and only the last year of history retained
+\placeholder{X} of the AUC. Laboratory results carried
+\placeholder{X} of the attribution to recorded content
+(\cref{fig:attribution-main}). \placeholder{Performance by calendar year, region
+and patient characteristics, and the prespecified sensitivity analyses}
+(\cref{fig:who-benefits,fig:supp-regions}).
+
+\FloatBarrier
+\operasection{Discussion}
+Borrowing decided whether many prognostic tasks in lymphoid cancers could be
+learned at all. Trained on one disease and one outcome, the sequence models
+discriminated little better than chance in \placeholder{about half} of the
+evaluable tasks. Borrowing from other diseases made most of them useful
+predictors (\result{P1_auc}{X}), adding every other outcome cost nothing
+measurable, and \opera{} added a smaller gain (\result{R1_auc}{X}). XGBoost
+gained far less from pooling (\result{T7_auc}{X}), as it already learned
+usefully from few events, and remained the more accurate model
+\placeholder{(final \opera{}--XGBoost difference)}. That both model families
+gained suggests the shared information is real rather than an artefact of one
+architecture.
+
+Classifications separate the lymphoid cancers by biology, and prognostic indices
+follow them \citep{alaggio2022who}. Our results suggest that biological
+distinctness and predictive separateness are different things. An infection or a
+falling neutrophil count may arise through different mechanisms in different
+diseases, yet the records that precede it, and how it is investigated and
+treated, are similar enough that examples from one disease inform prediction in
+another. The gain was largest where a disease had least data of its own, so the
+limit for small diseases appears to be the number of examples rather than their
+biology. This is not an argument for redrawing diagnostic boundaries. It is an
+argument that the boundaries needed for diagnosis and treatment need not also
+bound what a predictive model learns from.
+
+Borrowing could also have harmed. Joint training has frequently degraded
+individual clinical tasks \citep{mcdermott2020mtl}, and with 69 outcomes of very
+different frequency, the rare ones risked being drowned by the common. Instead,
+adding every other outcome to a model shared across diseases left discrimination
+unchanged within the prespecified margin (\result{P4_auc}{X}). The outcomes arise during the same course of treatment, and the loss balanced
+endpoint families, which may both have protected against negative transfer. Other outcomes also added
+little on their own: models pooling outcomes within one disease improved far
+less than models pooling diseases. What the models borrowed was mainly patients
+with the same outcome, not related outcomes in the same patients, and what other
+outcomes could add may already have been learned through other diseases. An
+equivalent average can hide losses for individual tasks
+\placeholder{(number of cells worse, and by how much)}. Still, it means that one
+model can cover a whole specialty without the price joint training has often
+exacted.
+
+\opera{} was designed to borrow where a task's own data are scarce and to
+deviate from the shared pattern where a task differs. It did both, but modestly.
+Own corrections helped mainly in the large diseases and borrowed corrections in
+the small ones, as partial pooling would predict \citep{EfronMorris1975}, but the
+gain over borrowing uniformly was small \placeholder{(revisit with the national
+encoder)}. Borrowing was also broad rather than along clinical lines. No single
+source was indispensable, and pairs that clinical knowledge suggests should
+matter, such as small lymphocytic lymphoma and chronic lymphocytic leukaemia,
+showed no specific dependence \placeholder{(inconclusive on tuning, confirm on
+test)}. \placeholder{Integrated gradients: features behind each outcome
+clinically plausible, diagnosis-specific patterns contributing comparatively
+little (confirm).} What transfers appears to be general, such as treatment
+exposure, frailty, prior illness and contact with care, and the shared encoder
+may already place related diseases together, leaving routing little to add.
+Pooling therefore need not be specified by hand. Corrections for disease groups,
+such as the indolent B-cell or T-cell lymphomas, would test this directly. These
+dependencies describe the fitted model, not biology.
+
+The national arm tests whether foundation models deliver within a specialty.
+Population-scale models of health records have been proposed as general
+foundations \citep{savcisens2024life2vec,shmatko2025delphi}, but whether they
+improve on strong conventional models for a specific clinical question has
+rarely been tested \citep{wornow2023shaky}. Here, a model pretrained on the
+nationwide Danish registers was fine-tuned for one specialty and compared, on
+the same patients, with tuned XGBoost and with models pretrained on the cohort
+alone. \placeholder{Interpret the transfer and label-efficiency results, whether
+positive, null or harmful.} If national pretraining closes the gap to XGBoost or
+reduces the labelled patients needed, it sets a precedent for how national
+foundation models can raise performance within specialties: in Denmark, by
+pairing the national registers with clinical databases such as DALY-CARE, and
+elsewhere wherever national registers exist. If it does not, that is equally
+informative, because a well-tuned tabular model on the cohort's own records
+would then remain the better choice.
+
+Few settings would allow this study. DALY-CARE holds every Danish adult with a
+lymphoid cancer, recorded from the same sources in the same formats, and the
+national registers cover everyone in Denmark, so each kind of borrowing could be
+measured on the same patients with otherwise identical models. The test set was
+opened once, after every choice had been fixed, against a tuned tabular model
+and the indices clinicians use. A single model stratified patients at least as well as \placeholder{each of}
+the clinical indices and covered the ten diseases without one
+\placeholder{(interpret NCCN-IPI and recent-record results)}. These risk groups
+describe prognosis under the treatment received, not whether treatment could
+safely be changed \citep{vanGeloven2020}, and where XGBoost predicts better, that
+accuracy must be weighed against the convenience of one model for every task.
+The main limitations concern validation, outcome measurement and precision. Evaluation
+was temporal within one health system, and external validation remains
+necessary. Test patients' records before 2022 could contribute to
+self-supervised pretraining, without outcome labels. Register-derived outcomes
+are imperfect, and laboratory outcomes depend on monitoring. Clinical
+comparisons are limited to patients with a recorded index. Reported intervals
+condition on the fitted models and exclude uncertainty from model selection, and
+many uncommon tasks had too few events to be evaluated.
+
+Prognosis in lymphoid cancers need not be learned one disease and one outcome at
+a time. For many tasks, borrowing across diseases is what makes learning
+possible, and one model can serve a whole specialty without losing accuracy to
+negative transfer. \placeholder{If the national encoder helps: specialties need
+not build prognosis from their own patients alone. They can start from a model
+of the whole population and borrow across their diseases and outcomes, which
+sets a precedent for prediction within specialties in Denmark and elsewhere.
+If not: the conclusion rests on borrowing within the specialty.} The next steps
+are external validation and testing whether acting on the predictions improves
+care.
+
+\section*{Data availability}
+According to Danish legislation, the health data used in this study may not be
+shared publicly. Within the approved DALY-CARE protocol, the data may be
+accessed on a collaborative basis under a data processing agreement, and all
+analyses must be performed within the DALY-CARE data resource at the Danish
+National Genome Center \citep{brieghel2025dalycare}.
+\section*{Code availability}
+All code, model configurations, outcome definitions and analysis recipes are
+publicly available at \placeholder{repository URL and archival DOI}. The
+conversion of the registers to the event format is available at
+\url{https://github.com/FGA-DIKU/ehr2meds}. Trained model weights were fitted on
+patient-level data and are not released.
+\section*{Patient and public involvement}
+\placeholder{Statement.}
+\section*{Acknowledgements}
+\placeholder{Funding, collaborators and compute resources.}
+\section*{Author contributions}
+\placeholder{CRediT statement.}
+\section*{Declaration of interests}
+\placeholder{Statement.}

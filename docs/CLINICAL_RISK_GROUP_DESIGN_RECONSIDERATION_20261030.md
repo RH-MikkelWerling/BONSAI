@@ -1,5 +1,12 @@
 # Clinical risk groups: separate the questions before freezing the protocol
 
+**HemaSphere follow-up:** [the concrete grouping proposal](CLINICAL_RISK_GROUP_HEMASPHERE_PROPOSAL_20261030.md)
+now provides a constructive option for complete ordered model strata without
+predictive model retraining. It separates the Low risk anchor from an
+independent high-specificity binary comparison. The published paper did not
+require matching High specificity to construct its four risk groups. The
+candidate helper is isolated from the active recipe.
+
 Status: methodological recommendation, not a change to the running recipe.
 The independent allocation snapshots the current clinical diagnostics. It does
 not fit a replacement threshold rule. The current primary rule remains

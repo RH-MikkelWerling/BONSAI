@@ -38,6 +38,12 @@ required_figures:
 - supp_regions
 - supp_national_where
 - supp_embedding_comparison
+- supp_support_sensitivity
+- supp_pooling_cells_01
+- supp_pooling_cells_02
+- supp_pooling_cells_03
+- supp_pooling_cells_04
+- supp_pooling_cells_05
 figures:
 - id: fig_atlas
   function: figure_atlas
@@ -247,3 +253,37 @@ figures:
   function: figure_embedding_comparison
   tables:
     coords: ${OPERA_PAPER_PLOT_TABLE_ROOT}/matched_patient_embeddings.csv
+- id: supp_support_sensitivity
+  function: figure_support_sensitivity
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: supp_pooling_cells_01
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+  options:
+    contrast: D-S
+- id: supp_pooling_cells_02
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+  options:
+    contrast: O-S
+- id: supp_pooling_cells_03
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+  options:
+    contrast: J-S
+- id: supp_pooling_cells_04
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+  options:
+    contrast: interaction
+- id: supp_pooling_cells_05
+  function: figure_pooling_cells
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+  options:
+    contrast: OPERA-J

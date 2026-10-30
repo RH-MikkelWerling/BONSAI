@@ -97,7 +97,7 @@ def score_patients(predictions, metadata, spec, split):
     }
 
 
-CUTOFF_RULES = ("size_matched", "risk_matched_low")
+CUTOFF_RULES = ("size_matched", "risk_matched_low", "cohort_size_matched")
 
 
 class CutoffNotEstimable(ValueError):
@@ -142,6 +142,9 @@ def clinical_weights(patients, horizon):
     """CIF labels and disease-specific censoring weights on the score population."""
     from opera.evaluation.secondary_analysis import attach_ipcw_weights
     data = patients.copy().reset_index(drop=True)
+    if data.empty:
+        return data.assign(label=pd.Series(dtype=int), known=pd.Series(dtype=bool),
+                           ipcw_weight=pd.Series(dtype=float))
     for key, value in dict(model="clinical", seed=0, split="clinical", cohort="all",
                            outcome="clinical", horizon_days=horizon).items():
         if key not in data:
@@ -199,8 +202,10 @@ def classification_at_anchors(patients, spec, diagnostics, evaluation_split):
 def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
     """Model risk-group cutoffs developed on the designated development split.
 
-    ``risk_matched_low`` (default; as in the earlier DLBCL study) anchors both
-    ends of the stratification to the index:
+    ``risk_matched_low`` (current default) anchors both ends of the
+    stratification to the index. This is a later operationalisation, not the
+    published HemaSphere grouping rule, which did not require a matched
+    high-specificity boundary:
 
     * low cutoff: the largest model low-risk group whose observed risk is no
       higher than the index's low-risk group (at least ``minimum_group``);
@@ -209,7 +214,11 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
     * middle cutoffs (e.g. NCCN-IPI's two intermediate groups): the patients
       between the two are split in the proportions of the index's middle groups.
 
-    ``size_matched`` gives the model groups exactly the index's group sizes.
+    ``size_matched`` targets development category proportions with numeric
+    cutoffs, which need not preserve sizes in another cohort.
+    ``cohort_size_matched`` targets category sizes within the passed cohort
+    using baseline groups and predictions only. Call it on the evaluation
+    cohort explicitly. Ties remain together and absent native strata stay empty.
     """
     diagnostics = {} if diagnostics is None else diagnostics
     diagnostics.update(status='pending', threshold_n=len(tuning), minimum_group=minimum_group)
@@ -226,6 +235,18 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
     if tuning.empty:
         fail('empty_development_population', 'No threshold-development predictions available')
     risk = tuning.model_risk.to_numpy(float)
+    if rule == 'cohort_size_matched':
+        from opera.evaluation.clinical_risk_groups import cohort_size_matched_groups, RiskGroupsNotEstimable
+        try:
+            matched = cohort_size_matched_groups(risk, tuning.ipi_group, order)
+        except RiskGroupsNotEstimable as exc:
+            fail(exc.code, str(exc))
+        diagnostics.update(status='estimable', grouping_rule='cohort_size_matched',
+            minimum_group=None, support_rule='native_category_sizes_without_forced_minimum',
+            selection_uses_future_outcomes=False, exact_size_match=matched['exact_size_match'],
+            index_counts=json.dumps(matched['index_counts']), model_counts=json.dumps(matched['model_counts']),
+            model_cutoffs=json.dumps(matched['cutoffs']))
+        return matched['cutoffs']
     if rule == "size_matched":
         cuts = [float(np.quantile(risk, q)) for q in shares.cumsum().to_numpy()[:-1]]
     else:
@@ -309,6 +330,118 @@ def select_model_cutoffs(tuning, spec, *, minimum_group=20, diagnostics=None):
     return cuts
 
 
+def independent_clinical_anchors(development, spec):
+    """Separate high-specificity detection and direct KM Low identification."""
+    from opera.evaluation.clinical_risk_groups import fit_km_low_cutoff, RiskGroupsNotEstimable
+    result = {}
+    weighted = clinical_weights(development, spec['horizon_days'])
+    known = weighted.loc[weighted.known]
+    controls = known.loc[known.label == 0]
+    if len(controls):
+        native_high = controls.ipi_score.to_numpy() >= high_score_threshold(spec)
+        w = controls.ipcw_weight.to_numpy(float)
+        specificity = float(np.average(~native_high, weights=w))
+        risk = controls.model_risk.to_numpy(float)
+        order = np.argsort(risk, kind='stable')
+        boundary = risk[order[min(np.searchsorted(np.cumsum(w[order]) / w.sum(), specificity), len(order)-1)]]
+        above = known.model_risk[known.model_risk > boundary]
+        cut = (float(above.min()) if len(above) else float(np.nextafter(boundary, np.inf))) if specificity else float(known.model_risk.min())
+        result.update(high_cutoff=cut, target_high_specificity=specificity,
+                      achieved_high_specificity=float(np.average(risk < cut, weights=w)))
+    else:
+        result['high_reason'] = 'No development controls'
+    if spec.get('death_in_endpoint'):
+        try:
+            match = fit_km_low_cutoff(development.model_risk, development.time_days, development.event,
+                development.ipi_group, spec['group_order'][0], horizon=spec['horizon_days'])
+            result.update(low_cutoff=match['cutoff'], km_low_status='estimable', km_low=match)
+        except (ValueError, RiskGroupsNotEstimable) as exc:
+            result.update(km_low_status='not_estimable', km_low_reason=str(exc))
+    else:
+        result.update(km_low_status='not_applicable', km_low_reason='KM Low matching is for death-inclusive endpoints')
+    return result
+
+
+def clinical_detection_counts(patients, spec, diagnostic, *, draws=1000, seed=2026):
+    """Paired captured-event differences at the independently frozen cutoff."""
+    cutoff = diagnostic.get('high_cutoff', np.nan)
+    if not np.isfinite(cutoff):
+        return []
+    data = clinical_weights(patients, spec['horizon_days'])
+    model = data.model_risk.to_numpy() >= cutoff
+    index = data.ipi_score.to_numpy() >= high_score_threshold(spec)
+    labels = data.label.to_numpy(float)
+    rows = []
+    for estimand in ('known_status', 'cif_ipcw'):
+        used = data.known.to_numpy() if estimand == 'known_status' else np.ones(len(data), bool)
+        w = np.ones(used.sum()) if estimand == 'known_status' else data.ipcw_weight.to_numpy()[used]
+        contribution = labels[used] * (model[used].astype(int) - index[used].astype(int)) * w
+        if not len(contribution):
+            continue
+        # Resampling the paired contribution preserves exact agreement and
+        # discordance. Thresholds and the fitted censoring weights remain fixed.
+        values, frequencies = np.unique(contribution, return_counts=True)
+        rng = np.random.default_rng(seed)
+        samples = rng.multinomial(len(contribution), frequencies / frequencies.sum(), size=draws)
+        distribution = 1000 * (samples @ values) / len(contribution)
+        low, high = np.quantile(distribution, [.025, .975])
+        rows.append(dict(score_id=spec['id'], label=spec['score_label'],
+            outcome=spec['outcome'], horizon_days=spec['horizon_days'], estimand=estimand,
+            n=len(contribution), n_events=int(labels[used].sum()),
+            index_events_captured_per_1000=float(1000*np.mean(labels[used]*index[used]*w)),
+            model_events_captured_per_1000=float(1000*np.mean(labels[used]*model[used]*w)),
+            additional_events_per_1000=float(1000*np.mean(contribution)), lower=low, upper=high,
+            bootstrap_draws=draws, bootstrap_seed=seed,
+            uncertainty='paired patient bootstrap conditional on frozen thresholds and IPCW'))
+    return rows
+
+
+def cohort_group_comparisons(patients, spec, *, draws=200, seed=2026, progress=None):
+    """Paired horizon differences, repeating baseline-only allocation per draw."""
+    from opera.evaluation.clinical_risk_groups import cohort_size_matched_groups, RiskGroupsNotEstimable
+    from opera.visualization.paper_figures import cumulative_incidence
+    names, h = spec['group_order'], spec['horizon_days']
+    def estimates(data):
+        assigned = cohort_size_matched_groups(data.model_risk, data.ipi_group, names)['assignment']
+        rows = []
+        for group in names:
+            values = []
+            for mask in (assigned == group, data.ipi_group.to_numpy() == group):
+                part = data.loc[mask]
+                value = cumulative_incidence(part.time_days.to_numpy(float), part.event.to_numpy(int), [h])[0] if len(part) else np.nan
+                values.append(1 - value if spec['death_in_endpoint'] else value)
+            rows.append(values)
+        return np.asarray(rows)
+    point = estimates(patients)
+    assigned_point = cohort_size_matched_groups(patients.model_risk, patients.ipi_group, names)['assignment']
+    samples = []
+    rng = np.random.default_rng(seed)
+    for replicate in range(draws):
+        try:
+            values = estimates(patients.iloc[rng.integers(0, len(patients), len(patients))])
+            samples.append(values[:, 0] - values[:, 1])
+        except RiskGroupsNotEstimable:
+            samples.append(np.full(len(names), np.nan))
+        if progress and (replicate + 1) % max(1, draws // 4) == 0:
+            progress(f'{replicate + 1}/{draws} paired rank-matching draws complete')
+    samples = np.asarray(samples)
+    rows = []
+    for i, name in enumerate(names):
+        good = np.isfinite(samples[:, i])
+        ci = np.quantile(samples[good, i], [.025, .975]) if good.mean() >= .8 else [np.nan, np.nan]
+        rows.append(dict(score_id=spec['id'], group=name, horizon_days=h,
+            estimand='km_survival' if spec['death_in_endpoint'] else 'cumulative_incidence',
+            model_estimate=point[i, 0], index_estimate=point[i, 1], difference=point[i, 0] - point[i, 1],
+            model_n=int((assigned_point == name).sum()), index_n=int(patients.ipi_group.eq(name).sum()),
+            model_events=int(((assigned_point == name) & patients.event.eq(1) & patients.time_days.le(h)).sum()),
+            index_events=int((patients.ipi_group.eq(name) & patients.event.eq(1) & patients.time_days.le(h)).sum()),
+            lower=ci[0], upper=ci[1], valid_draws=int(good.sum()),
+            bootstrap_draws=draws, bootstrap_seed=seed,
+            bootstrap_rule='paired_patients_with_baseline_only_rank_rematching',
+            interval_caution='Percentile bootstrap can be degenerate in zero-event groups'))
+    return rows
+
+
 def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
     """How each system stratifies held-out patients with known horizon status.
 
@@ -324,8 +457,7 @@ def stratification_summary(patients, spec, cuts, *, top_fractions=(0.05, 0.10)):
     known, labels = _known_status(patients, spec["horizon_days"])
     events = labels.to_numpy().astype(bool)
     order = list(spec["group_order"])
-    model_group = pd.cut(known.model_risk, [-np.inf, *cuts, np.inf],
-                         labels=order, right=False)
+    model_group = pd.Series(np.asarray(order)[np.digitize(known.model_risk, cuts)], index=known.index)
     rows = []
     for system, groups in (("index", known.ipi_group), ("model", model_group)):
         rank = groups.map({g: i for i, g in enumerate(order)}).astype(float).to_numpy()
@@ -661,11 +793,15 @@ def main():
     cutoff_records = []
     population_rows = []
     overview = []
+    paired_group_rows = []
+    km_matching_rows = []
+    detection_counts = []
     decision_tables = []
     for spec in specs:
         record = {"score_id": spec["id"], 'model': spec['model'],
                   'cohorts': json.dumps(spec['cohorts']), 'group_order': json.dumps(spec['group_order'])}
         diagnostic = dict(score_id=spec['id'], threshold_split=spec.get('threshold_split', 'train'))
+        print(f"Clinical score {spec['id']}: preparing groups and independent operating points", flush=True)
         try:
             if spec.get("endpoint_role") == "native":
                 # Native endpoint: the longest prespecified horizon the test
@@ -688,6 +824,8 @@ def main():
                 raise ValueError("Threshold development and evaluation patients overlap")
             record.update(threshold_split=development_split, threshold_n=len(tuning),
                           threshold_estimand="cif_ipcw", threshold_prediction_kind="apparent_training" if development_split == "train" else "development_split")
+            if tuning.empty:
+                record['threshold_prediction_kind'] = 'no_development_predictions'
             record.update(audit)
             for split in (development_split, args.split):
                 population_rows.extend(score_population_flow(predictions, metadata, spec, split))
@@ -697,9 +835,12 @@ def main():
                 record["status"] = "insufficient_support"
                 records.append(record)
                 continue
+            cohort_matching = spec.get('cutoff_rule') == 'cohort_size_matched'
             if spec.get('cutoff_rule'):
                 try:
-                    cuts = select_model_cutoffs(tuning, spec, diagnostics=diagnostic)
+                    if cohort_matching:
+                        diagnostic.update(independent_clinical_anchors(tuning, spec))
+                    cuts = select_model_cutoffs(held if cohort_matching else tuning, spec, diagnostics=diagnostic)
                 finally:
                     cutoff_records.append(diagnostic)
                     anchor_classification.extend(classification_at_anchors(held, spec, diagnostic, args.split))
@@ -707,27 +848,36 @@ def main():
                 cuts = list(spec['model_cutoffs'])
             record["model_cutoffs"] = json.dumps(cuts)
             record["cutoff_rule"] = spec.get("cutoff_rule", "fixed_in_config")
-            classification.extend(classification_at_boundaries(held, spec, cuts, args.split))
+            group_metrics = classification_at_boundaries(held, spec, cuts, args.split)
+            if cohort_matching:
+                for row in group_metrics:
+                    row.update(grouping_rule='cohort_size_matched', threshold_split='baseline_cohort_rank',
+                               threshold_role='cohort_specific_rank_boundary')
+                record.update(grouping_rule='cohort_size_matched', grouping_population=args.split,
+                              grouping_n=len(held), grouping_uses_future_outcomes=False)
+                diagnostic.update(threshold_split='baseline_cohort_rank', binary_threshold_split=development_split,
+                                  grouping_population=args.split)
+            classification.extend(group_metrics)
             weighted_development = clinical_weights(tuning, spec["horizon_days"])
             known = weighted_development.loc[weighted_development.known]
             labels = known.label
-            if labels.nunique() != 2:
+            if labels.nunique() != 2 and not cohort_matching:
                 raise ValueError(
                     "Training operating-point selection requires cases/controls"
                 )
-            specificity = float(
+            specificity = (diagnostic.get('target_high_specificity', np.nan) if cohort_matching else float(
                 (
                     known.loc[labels == 0, "ipi_score"] < high_score_threshold(spec)
                 ).astype(float).dot(known.loc[labels == 0, "ipcw_weight"])
                 / known.loc[labels == 0, "ipcw_weight"].sum()
-            )
+            ))
             low_development = known.loc[known.ipi_group == spec["group_order"][0]]
             record.update(development_n_known=len(known),
                 development_n_cases=int(labels.sum()),
                 development_n_controls=int((labels == 0).sum()),
                 development_low_risk=float(np.average(low_development.label,
                     weights=low_development.ipcw_weight)) if len(low_development) else None)
-            threshold = cuts[-1]
+            threshold = diagnostic.get('high_cutoff', np.nan) if cohort_matching else cuts[-1]
             directory = args.output_dir / spec["id"]
             directory.mkdir()
             common = dict(
@@ -737,6 +887,8 @@ def main():
                 ipi_label=spec["score_label"],
                 ipi_order=tuple(spec["group_order"]),
                 event_free=spec["death_in_endpoint"],
+                grouping_note=('Groups matched to native category sizes by baseline-only ranking'
+                               if cohort_matching else None),
             )
             for name, fn in [
                 ("risk_groups", figures.figure_risk_groups),
@@ -756,12 +908,54 @@ def main():
                     # The score shown in the main text, under its manuscript key.
                     save_fig(fig, str(args.output_dir / (MANUSCRIPT_NAMES[name] + ".png")))
                 plt.close(fig)
-            held["model_group"] = pd.cut(
-                held.model_risk,
-                [-np.inf, *cuts, np.inf],
-                labels=spec["group_order"],
-                right=False,
-            )
+            held['model_group'] = np.asarray(spec['group_order'])[np.digitize(held.model_risk, cuts)]
+            if cohort_matching:
+                if spec.get('include_in_headline', True):
+                    detection_counts.extend(clinical_detection_counts(held, spec, diagnostic,
+                        draws=spec.get('comparison_bootstrap', 1000)))
+                paired_group_rows.extend(cohort_group_comparisons(held, spec,
+                    draws=spec.get('comparison_bootstrap', 200),
+                    progress=lambda message: print(f"{spec['id']}: {message}", flush=True)))
+                row = dict(score_id=spec['id'], threshold_split=development_split,
+                           status=diagnostic.get('km_low_status'), reason=diagnostic.get('km_low_reason'),
+                           horizon_days=spec['horizon_days'],
+                           threshold_prediction_kind=record['threshold_prediction_kind'])
+                if diagnostic.get('km_low_status') == 'estimable':
+                    match = diagnostic['km_low']
+                    selected = held.loc[held.model_risk < match['cutoff']]
+                    native_low = held.loc[held.ipi_group == spec['group_order'][0]]
+                    from opera.evaluation.clinical_risk_groups import km_survival
+                    model_survival = km_survival(selected.time_days, selected.event, spec['horizon_days'])
+                    index_survival = km_survival(native_low.time_days, native_low.event, spec['horizon_days'])
+                    row.update(cutoff=match['cutoff'], development_target_survival=match['target_survival'],
+                        evaluation_status='groups_present' if len(selected) and len(native_low) else 'empty_evaluation_low_group',
+                        n_patients=len(held), model_low_n=len(selected), index_low_n=len(native_low),
+                        model_at_risk_horizon_n=int(selected.time_days.ge(spec['horizon_days']).sum()),
+                        index_at_risk_horizon_n=int(native_low.time_days.ge(spec['horizon_days']).sum()),
+                        additional_low_per_1000=1000 * (len(selected) - len(native_low)) / len(held),
+                        model_survival=model_survival, index_survival=index_survival,
+                        survival_difference=model_survival - index_survival,
+                        model_deaths=int(((selected.event == 1) & (selected.time_days <= spec['horizon_days'])).sum()),
+                        index_deaths=int(((native_low.event == 1) & (native_low.time_days <= spec['horizon_days'])).sum()),
+                        interpretation='Development match does not establish equal evaluation survival')
+                    rng = np.random.default_rng(2026)
+                    bootstrap = []
+                    for _ in range(spec.get('comparison_bootstrap', 200)):
+                        sample = held.iloc[rng.integers(0, len(held), len(held))]
+                        model_low = sample.loc[sample.model_risk < match['cutoff']]
+                        index_low = sample.loc[sample.ipi_group == spec['group_order'][0]]
+                        bootstrap.append((km_survival(model_low.time_days, model_low.event, spec['horizon_days']),
+                            km_survival(index_low.time_days, index_low.event, spec['horizon_days']),
+                            1000 * (len(model_low) - len(index_low)) / len(sample)))
+                    bootstrap = np.asarray(bootstrap)
+                    for label, values in [('model_survival', bootstrap[:, 0]), ('index_survival', bootstrap[:, 1]),
+                        ('survival_difference', bootstrap[:, 0] - bootstrap[:, 1]),
+                        ('additional_low_per_1000', bootstrap[:, 2])]:
+                        valid = np.isfinite(values)
+                        ci = np.quantile(values[valid], [.025, .975]) if valid.mean() >= .8 else [np.nan, np.nan]
+                        row.update({label + '_lower': ci[0], label + '_upper': ci[1]})
+                    row['interval_caution'] = 'Zero-event bootstrap intervals can be degenerate; no equivalence claim'
+                km_matching_rows.append(row)
             for system in ["model_group", "ipi_group"]:
                 for group in spec["group_order"]:
                     part = held.loc[held[system] == group]
@@ -872,6 +1066,19 @@ def main():
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)
     pd.DataFrame(classification).to_csv(args.output_dir / "classification_at_thresholds.csv", index=False)
+    pd.DataFrame(paired_group_rows).to_csv(args.output_dir / 'size_matched_survival_comparisons.csv', index=False)
+    pd.DataFrame(km_matching_rows).to_csv(args.output_dir / 'km_matched_low_groups.csv', index=False)
+    counts_table = pd.DataFrame(detection_counts)
+    counts_table.to_csv(args.output_dir / 'clinical_operating_point_counts.csv', index=False)
+    if len(counts_table):
+        eligible = {s['id']: s['score_label'] for s in specs if s.get('include_in_headline', True)}
+        low_table = pd.DataFrame(km_matching_rows)
+        if len(low_table):
+            low_table = low_table.loc[low_table.score_id.isin(eligible)].copy()
+            low_table['label'] = low_table.score_id.map(eligible)
+        fig = figures.figure_clinical_operating_points(low_table, counts_table)
+        save_fig(fig, str(args.output_dir / 'fig_clinical_operating_points.png'))
+        plt.close(fig)
     pd.DataFrame(anchor_classification).to_csv(args.output_dir / 'classification_at_anchors.csv', index=False)
     pd.DataFrame(cutoff_records).to_csv(args.output_dir / 'cutoff_diagnostics.csv', index=False)
     pd.DataFrame(population_rows).to_csv(args.output_dir / 'score_population_flow.csv', index=False)
@@ -895,11 +1102,31 @@ def main():
     for spec, record in zip(specs, records):
         if record.get("status") != "rendered":
             continue
+        if not spec.get('include_in_headline', True):
+            continue
         high = strata.loc[(strata.score_id == spec["id"])
                           & (strata.group == spec["group_order"][-1])].set_index("system")
         low = strata.loc[(strata.score_id == spec["id"])
                          & (strata.group == spec["group_order"][0])].set_index("system")
         rate = float(high.loc["index", "event_rate"])
+        low_shares = {system: low.loc[system, 'share'] for system in ('model', 'index')}
+        low_risks = {system: low.loc[system, 'observed_risk'] for system in ('model', 'index')}
+        if spec.get('cutoff_rule') == 'cohort_size_matched':
+            # The headline detection comparison uses the independent binary
+            # anchor, never the cohort-size-matched model High stratum.
+            anchors = pd.DataFrame(anchor_classification)
+            use = anchors.loc[anchors.score_id.eq(spec['id']) & anchors.operating_point.eq('high')
+                              & anchors.estimand.eq('known_status')] if len(anchors) else pd.DataFrame()
+            for system in ('model', 'index'):
+                chosen = use.loc[use.system.eq(system)] if len(use) else pd.DataFrame()
+                high.loc[system, 'sensitivity_at_or_above'] = chosen.iloc[0].recall if len(chosen) else np.nan
+                high.loc[system, 'specificity_at_or_above'] = chosen.iloc[0].specificity if len(chosen) else np.nan
+            low_comparison = next(row for row in paired_group_rows if row['score_id'] == spec['id']
+                                  and row['group'] == spec['group_order'][0])
+            for system in ('model', 'index'):
+                low_shares[system] = low_comparison[system + '_n'] / record['score_available_at_index_n']
+                value = low_comparison[system + '_estimate']
+                low_risks[system] = 1 - value if spec['death_in_endpoint'] else value
         gained = (high.loc["model", "sensitivity_at_or_above"]
                   - high.loc["index", "sensitivity_at_or_above"])
         headline.append({
@@ -908,6 +1135,8 @@ def main():
             "threshold_split": spec.get("threshold_split", "train"),
             "group_order": json.dumps(spec['group_order']),
             "classification_estimand": "known_status",
+            "grouping_rule": spec.get('cutoff_rule', 'fixed_in_config'),
+            "high_comparison": ('independent_specificity_anchor' if spec.get('cutoff_rule') == 'cohort_size_matched' else 'risk_group_boundary'),
             "n_known": int(strata.loc[(strata.score_id == spec['id']) &
                                        strata.system.eq('index'), 'n'].sum()),
             "n_events": int(round(rate * strata.loc[(strata.score_id == spec['id']) &
@@ -923,10 +1152,10 @@ def main():
             # patients with the event that the model's high-risk group adds.
             "extra_events_flagged_per_1000": 1000 * rate * gained,
             # Low-risk groups: size per 1,000 and observed risk in each.
-            "index_low_per_1000": 1000 * low.loc["index", "share"],
-            "model_low_per_1000": 1000 * low.loc["model", "share"],
-            "index_low_observed_risk": low.loc["index", "observed_risk"],
-            "model_low_observed_risk": low.loc["model", "observed_risk"],
+            "index_low_per_1000": 1000 * low_shares['index'],
+            "model_low_per_1000": 1000 * low_shares['model'],
+            "index_low_observed_risk": low_risks['index'],
+            "model_low_observed_risk": low_risks['model'],
             "manuscript": bool(spec.get("manuscript_figures"))})
     pd.DataFrame(headline).to_csv(args.output_dir / "headline_scores.csv", index=False)
     if decision_tables:

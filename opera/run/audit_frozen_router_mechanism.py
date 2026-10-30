@@ -376,14 +376,14 @@ def figure_router_mechanism_sensitivity(summary, *, mark='TUNING SET — not tes
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from opera.visualization.style import PALETTE, TITLE_SIZE
-    fig, axes = plt.subplots(1, 3, figsize=(8.4, 5.9), sharey=True,
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 5.9), sharey=True,
         gridspec_kw={'left': .255, 'right': .98, 'bottom': .19, 'top': .85, 'wspace': .32})
     extra = [('ENCODER_HEAD_ONLY', 'Encoder/head only', '#A0A9B8'),
              ('GLOBAL_ONLY', 'Global path only', '#737D8C'),
              ('TASK_MEAN_GATES', 'Fixed gates', PALETTE['opera']),
              ('TASK_MEAN_BORROWED_COMPOSITION', 'Fixed source proportions', PALETTE['opera'])]
     labels = [r[1] for r in COMPONENT_DISPLAY] + [r[1] for r in extra]
-    for ax, metric, title in zip(axes, ('auc', 'brier', 'ipa'), ('A  Discrimination', 'B  Probability error', 'C  Prediction accuracy')):
+    for ax, metric, title in zip(axes, ('auc', 'ipa'), ('A  Discrimination', 'B  Prediction accuracy')):
         data = _overview_rows(summary, metric, 'variant')
         for y, (key, _, color) in enumerate(COMPONENT_DISPLAY):
             _mechanism_point(ax, data, 'MEAN_'+key, y-.11, color)
@@ -454,7 +454,7 @@ def render_report(summary, output, *, mark='TUNING SET — not test results'):
         '<h2>All interventions and sensitivity checks</h2>'
         '<p>Filled diamonds show mean replacement. Open circles show zero replacement. '
         'The remaining rows use the indicated fixed path or gates.</p>'
-        '<img src="router_mechanism_sensitivity.png" alt="Complete AUC, Brier and IPA sensitivity results">'
+        '<img src="router_mechanism_sensitivity.png" alt="AUC and IPA sensitivity results. Raw Brier differences are retained in the tables.">'
         '<details><summary>Numerical estimates and matched comparisons</summary>'
         + table.to_html(index=False, float_format=lambda v: f'{v:.5f}')
         + joint_html + ladder_html + '</details><details><summary>Definitions and interpretation</summary>'

@@ -1,0 +1,398 @@
+{
+  "review": "OPERA pre-LDH figure review",
+  "date": "2026-10-30T13:49:53.536Z",
+  "notes": {
+    "modeling_paradigms": {
+      "decision": "Move to main",
+      "note": "I think this is close to being perfect. The clinical score right now is modelled after NCCN IPI I think. We don't necessarily need to claim anything specific here, I think this is very close to being finalized."
+    },
+    "information_axes": {
+      "decision": "Move to main",
+      "note": "Yeah, I can see what you mean with the \"higher attainable performace\". Concerning the national pretraining adding something; I agree, but I don't want to clog this with too much additional information. If there's a good way of doing that, I'd like to see it. But I think this is also very close to being ready. "
+    },
+    "supervision_grid": {
+      "decision": "",
+      "note": "match the thickness of the joint connections. We can try to also have OPERA in there, but I don't know if it's going to be that easy to explain? Give it a go, but this is also close to being ready I think. "
+    },
+    "fig_pooling": {
+      "decision": "Move to main",
+      "note": "I think the most recent version of this is pretty good. Increasing spacing a bit is also a good idea. Maybe it would also be a good idea to say something like how many cells were better when jointly modelled or something and how many got worse? "
+    },
+    "supp_pooling_cells": {
+      "decision": "Revise differently",
+      "note": "The panel layout is weird on these. \nOutcomes aren't labelled either? It would be nicer if had the specific outcomes on the x-axis. "
+    },
+    "fig_hierarchy": {
+      "decision": "Move to main",
+      "note": "This is still median, IQR? Is that on purpose? I think additionally, we need to make sure that one understand what these borrowing routers are and what this tells us. I think the communication here is good, except I don't know what models are what. "
+    },
+    "supp_horizons": {
+      "decision": "Move to main",
+      "note": "Yes, I think this also works quite well. We can hope that the test set will have more events so that uncertainty decreases substantially and we'll have more cells, but I think the plot is good. "
+    },
+    "supp_support": {
+      "decision": "Move to supplement",
+      "note": "I think the \"pre-LDH\" template here os great! This will also change when we go to the test set right? Additionally, there are *so many things* we're not evaluating! Does that sort of go against the whole point of what we're doing or is it a necessary evil? And presumably, it's *good* for us when there are more low-resource events to evaluate both for the claims and for our models, right? "
+    },
+    "supp_rescue": {
+      "decision": "Move to supplement",
+      "note": "Yes, I think this is good. I think probably the legend in figure B should be moved directly over figure B, so it's clear where it belongs. \nPanel A could maybe benefit by some arrows saying what the important quadrants are? \nOtherwise, I think this is pretty good. "
+    },
+    "supp_routing": {
+      "decision": "Revise differently",
+      "note": "\"equivalence margin\" overlaps with the rest of the plot. It's also really unintuitive this plot. I really don't know what this means really. I like the visual language, but I'm wondering whether it can be easier to understand what is going on. "
+    },
+    "supp_router_usage": {
+      "decision": "Move to supplement",
+      "note": "Don't spell out the interpretation concerning routing etc. This is also one of the plots that really makes me question whether what we're doing is wrong or something. So needs an extra look at! "
+    },
+    "fig_borrowing_map": {
+      "decision": "Move to supplement",
+      "note": "Yeah again, I don't really get this plot that much. It needs a better explanation and a better communication strategy. I think the overall intent is good, but the excution could be better. "
+    },
+    "supp_borrowing_detail": {
+      "decision": "Revise differently",
+      "note": "I just feel like this shows basically nothing? Am I wrong? There's some discrepancy here at least with what the data shows and what we're trying to show. I think the plots are actually quite nice (we're missing the x-axis in the bottom plots but that's more or less it).  But I just feel like we're not really explaining what is going on here. We need to seriously rethink how we communicate this. "
+    },
+    "fig_borrowing_map_zero": {
+      "decision": "Revise differently",
+      "note": "Same plot as fig_borrowing_map and therefore same critique. "
+    },
+    "supp_borrowing_detail_zero": {
+      "decision": "Revise differently",
+      "note": "Same figure as: supp_borrowing_detail, same critique"
+    },
+    "router_mechanism": {
+      "decision": "Hold for results",
+      "note": "Yes, I love this. I think this is a much better explanation (if the interpretations are right) for how the router works than the rest of what we've seen. The other routers should probably be what adds context and specifics to this, but I think this is excellent. Depending on results, this could be a main plot. "
+    },
+    "router_mechanism_probability": {
+      "decision": "Move to supplement",
+      "note": "Yeah, I guess it would be nicer if this was accompanied with the previous plot as they are sort of the same? But I don't know. Otherwise, supplement"
+    },
+    "router_mechanism_sensitivity": {
+      "decision": "Move to supplement",
+      "note": "Yeah this is fine, I think the only thing is that IPA gain will probably be better here since it's across multiple tasks - and I don't know whether we need to show both IPA and brier? But I like the plot. "
+    },
+    "fig_external": {
+      "decision": "Move to main",
+      "note": "Yeah, this will be great. Couple of things. I think we should consider whether we should have D be by individual diseases sorted by how big each cohort is? That pairs well with the idea that this will be good for smaller cohorts. The training events thing is good, it'll be interesting when we get actual results. \nPanel B; I don't like the white outline on some of the labels, I don't like the blue line going through a lot of stuff - I think the point is well made, but it shouldn't be crossing the x-axis"
+    },
+    "supp_national_where": {
+      "decision": "",
+      "note": "Yeah, hard to judge. Don't know if improvement in brier score is really the thing to note though. I really like the pre-LDH version generally. I'd love for there to also be just a \"Overall\" row. But otherwise, good. "
+    },
+    "fig_headline": {
+      "decision": "Move to main",
+      "note": "So this is also very good. For A, I'd love for it to contain all the relevant contrasts we have. Note that panel B might end of up having the national OPERA version. Clinical indices will be available shortly, I don't know whether Brier improvement is actually the metric to use there, but I can be talked with about this. "
+    },
+    "clinical_nccn_ipi_risk_groups": {
+      "decision": "Move to main",
+      "note": "I think generally, these look pretty nice. It's wild to me that the counts have changed *so much* since we first made the figures. So I think we should still see what these look like with the new definitions for estimating these clinical scores. \nAdditionally, in the Hemasphere paper, we did treatment failure within 2 years for DLBCL compared with the NCCN IPI. It would be nice if we also included that somewhere in here at least. "
+    },
+    "proposed_clinical_operating_points": {
+      "decision": "Move to main",
+      "note": "Yes, I think this could be great. It's very important to keep this in the visual style of the rest of the paper though. Other than that, this is a great idea. "
+    },
+    "supp_model_overview": {
+      "decision": "",
+      "note": "Hmmm I think this is too tall. Don't love this plot when we have the other. Drop the original router though, we don't need it. "
+    },
+    "fig_tabular": {
+      "decision": "Move to supplement",
+      "note": "Yeah I think this is good. Move the legend so it's clear that it pertains to both A and B. Otherwise I think this looks pretty good.  "
+    },
+    "fig_benchmarks": {
+      "decision": "Revise differently",
+      "note": "Agree, I think this looks pretty great? But I'm thinking surely there's a way for this and the previous plots to be merged, right? I think panel C here looks better, I like having the difference over horizons, and then maybe we can take some key outcome for calibration and then that's the figure?"
+    },
+    "fig_calibration": {
+      "decision": "Move to supplement",
+      "note": "I think the original with a bit better spacing and the same fontsize as the newer version and then this is great. "
+    },
+    "supp_strategy": {
+      "decision": "Revise differently",
+      "note": "Couple of things here; I think panel A and B could be bigger, but I really like this way of doing it. Consider having it be the same style as the other places (in the main figure I think). Moreover, in panel C, I think we should also note the overall percentages somewhere, I think that would be clean. "
+    },
+    "fig_who_benefits": {
+      "decision": "Accept proposed changes",
+      "note": ""
+    },
+    "supp_regions": {
+      "decision": "Move to supplement",
+      "note": "Looking at the second version I think that looks very good. It does differ quite a lot from the style we had in the other plots, so keep that consistent please. This goes for panel size for labels, but also legend placement could be better here. But really good otherwise. "
+    },
+    "clinical_nccn_ipi_clinical_score": {
+      "decision": "Revise differently",
+      "note": "I think the pre is generally better. However, the labels and legends under panel A are akward and could be improved I think. "
+    },
+    "clinical_nccn_ipi_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "I think the pre-LDH is great. "
+    },
+    "clinical_ipi_computed_risk_groups": {
+      "decision": "Move to supplement",
+      "note": "preLDH is great"
+    },
+    "clinical_ipi_computed_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ipi_computed_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_cll_ipi_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_cll_ipi_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_cll_ipi_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_flipi2_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_flipi2_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_flipi2_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_mipi_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_mipi_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_mipi_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_iss_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_iss_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_iss_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ips_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ips_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ips_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ipsswm_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ipsswm_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_ipsswm_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_malt_ipi_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_malt_ipi_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_malt_ipi_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_ipi_all_subtypes_risk_groups": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_ipi_all_subtypes_clinical_score": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "clinical_r_ipi_all_subtypes_clinical_score_age": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "supp_score_overview": {
+      "decision": "Revise differently",
+      "note": "Keep the different groups and legends consistent with other IPI-like plots"
+    },
+    "supp_score_overview_2": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "supp_score_overview_3": {
+      "decision": "Revise differently",
+      "note": "Same comments as for the other IPI score like figures"
+    },
+    "proposed_whole_cohort": {
+      "decision": "Move to supplement",
+      "note": "We'll see how this pans out."
+    },
+    "fig_atlas": {
+      "decision": "Move to main",
+      "note": "looks great. We "
+    },
+    "supp_atlas_matrix": {
+      "decision": "Move to supplement",
+      "note": "Consider using the same visual language for \"not estimable\" as we did in the other other exhaustive matrix. Otherwise, really good. "
+    },
+    "supp_coverage": {
+      "decision": "Move to supplement",
+      "note": "Probably okay, but I feel like we now say this a bunch of times, don't we? We should consider whether this is necessary. "
+    },
+    "proposed_support_sensitivity": {
+      "decision": "Move to supplement",
+      "note": "Sounds good. Keep the visual language."
+    },
+    "supp_attribution_atlas": {
+      "decision": "Move to supplement",
+      "note": "Although this is really big, this is also really good I think. has a solid chance of becoming a really good figure. Be careful with spacing in the top. Consider giving the legends in the bottom some titles maybe. Make sure all of the codes you need to make this are documented and ready to roll. "
+    },
+    "supp_attribution_structure": {
+      "decision": "Move to supplement",
+      "note": "Hmm I actually think the original is better? We need better spacing in the B panel, but other than that, I think this is also pretty great! "
+    },
+    "fig_attribution": {
+      "decision": "Move to supplement",
+      "note": "Yeah, this will probably be good! I'm very unsure about panel D, we'll see about that. But other than that, this could be great. Panel D might also be good but I'll have to see it before I believe it. "
+    },
+    "supp_attribution_patient": {
+      "decision": "Hold for results",
+      "note": ""
+    },
+    "supp_recent_record_gaps": {
+      "decision": "Move to supplement",
+      "note": "Tie this in with the rest of the visual langauge and then it's great. Consider whether we can include the different horizons in here as well. "
+    },
+    "fig_patient_map": {
+      "decision": "Revise differently",
+      "note": "Yeah I think maybe we need to do things slightly different here. The original plot is actually pretty great I think. However, the \"disease groups\" is really unclear. Maybe we should show something like the centroids or something like this as well? "
+    },
+    "supp_patient_disease_groups": {
+      "decision": "Move to supplement",
+      "note": "Yes, also a good idea! Keep it in the visual language of the rest of the paper though. "
+    },
+    "supp_calibration_maps": {
+      "decision": "Move to main",
+      "note": "I think the original looked great! I think the only thing is that we should consider having outcomes that have different high risk zones. For instance, neutropenia is somewhere else in the risk landscape than the rest of these, so we should include that as one of these. Do keep the spacing / panel label size a bit better, but the original design was good. "
+    },
+    "supp_router_arrows": {
+      "decision": "Move to supplement",
+      "note": "Yes good idea. But have it in both, I think. So we have a whole panel with only arrows but it's also in the panel. "
+    },
+    "supp_embedding_comparison": {
+      "decision": "Move to supplement",
+      "note": "Pre-LDH is clearly better. Note however that the IPI high risk is super hard to read so maybe find better colors for this. "
+    },
+    "supp_embedding_gallery_1": {
+      "decision": "Keep original",
+      "note": "I like all of these original ones"
+    },
+    "supp_embedding_gallery_2": {
+      "decision": "",
+      "note": "I like all of these original ones"
+    },
+    "supp_embedding_gallery_3": {
+      "decision": "",
+      "note": "I like all of these original ones"
+    },
+    "supp_embedding_gallery_4": {
+      "decision": "",
+      "note": "I like all of these original ones"
+    },
+    "supp_embedding_gallery_5": {
+      "decision": "",
+      "note": "I like all of these original ones"
+    },
+    "supp_embedding_gallery_6": {
+      "decision": "",
+      "note": "I like all of these original ones"
+    },
+    "model_inputs": {
+      "decision": "Move to supplement",
+      "note": "Yeah, so check the ehr2meds repo to see some examples of regions and codes etc. but overall it's good. "
+    },
+    "cohort_flow": {
+      "decision": "Move to supplement",
+      "note": "pretty good. "
+    },
+    "source_router": {
+      "decision": "Revise differently",
+      "note": "Keep the same design but make it so everything actually works as the final router does"
+    },
+    "source_router_intuition": {
+      "decision": "Omit / archive",
+      "note": "This is pretty bad, I don't get this. "
+    },
+    "router_source_factorial": {
+      "decision": "Omit / archive",
+      "note": "Also, don't get this, redo and make it better. "
+    },
+    "readout_architectures": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "study_design_mock": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "clinical_sparse_tied_groups": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "clinical_sparse_tied_score": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_calibration_extremes": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_disease_facets_10_diseases": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_disease_facets_24_diseases": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_headline_fallback_font": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_patient_map_10_diseases": {
+      "decision": "Omit / archive",
+      "note": ""
+    },
+    "stress_patient_map_24_diseases": {
+      "decision": "Omit / archive",
+      "note": ""
+    }
+  }
+}

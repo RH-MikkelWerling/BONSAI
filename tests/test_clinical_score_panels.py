@@ -231,7 +231,8 @@ def test_population_flow_exposes_scores_outside_dlbcl_without_enlarging_comparis
     assert flow.predicted_n.sum() == 4
 
 
-def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_path, monkeypatch):
+@pytest.mark.parametrize('grouping_rule', ['risk_matched_low', 'cohort_size_matched'])
+def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_path, monkeypatch, grouping_rule):
     """Exercise actual adaptation, thresholds, metrics and plots, without mocked readers."""
     import json
     import numpy as np
@@ -268,7 +269,7 @@ def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_p
         group_column='nccn_ipi_group', group_order=NATIVE_FOUR,
         group_map={g: g for g in NATIVE_FOUR}, age_column='age_at_index',
         score_timing='Synthetic baseline', threshold_split='train',
-        cutoff_rule='risk_matched_low', death_in_endpoint=True,
+        cutoff_rule=grouping_rule, death_in_endpoint=True,
         manuscript_figures=True, lock_provenance='Synthetic regression test',
         applicability_review='Synthetic regression test')
     config = tmp_path / 'scores.yaml'
@@ -295,6 +296,15 @@ def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_p
     assert diagnostics.status.tolist() == ['estimable']
     anchors = pd.read_csv(output / 'classification_at_anchors.csv')
     assert len(anchors) == 8 and set(anchors.operating_point) == {'low', 'high'}
+    if grouping_rule == 'cohort_size_matched':
+        groups = pd.read_csv(output / 'risk_group_point_estimates.csv')
+        assert groups.pivot(index='group', columns='system', values='n').nunique(axis=1).eq(1).all()
+        paired = pd.read_csv(output / 'size_matched_survival_comparisons.csv')
+        assert len(paired) == 4 and paired.model_n.eq(paired.index_n).all()
+        assert paired.estimand.eq('km_survival').all()
+        assert set(metrics.threshold_split) == {'baseline_cohort_rank'}
+        assert pd.read_csv(output / 'km_matched_low_groups.csv').status.tolist() == ['estimable']
+        assert pd.read_csv(output / 'headline_scores.csv').high_comparison.tolist() == ['independent_specificity_anchor']
     flow = pd.read_csv(output / 'score_population_flow.csv')
     assert flow.score_available_n.sum() == 840
     # Expected non-estimability completes with explicit gaps and retains the

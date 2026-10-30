@@ -63,7 +63,24 @@ def test_cpu_refresh_requires_exported_training_predictions_before_writing(tmp_p
     assert not output.exists()
 
 
-def test_cpu_refresh_rebuilds_native_groups_and_reuses_configured_training_export(tmp_path, monkeypatch):
+def test_clinical_refresh_zip_excludes_patient_arrays_and_unknown_tables(tmp_path):
+    import zipfile
+    from opera.run.refresh_clinical_figures import package_clinical
+    directory = tmp_path / 'clinical_scores'
+    (directory / 'cll').mkdir(parents=True)
+    (directory / 'cll/risk.png').write_bytes(b'figure')
+    (directory / 'size_matched_survival_comparisons.csv').write_text('group,difference\nLow,0.1\n')
+    (directory / 'patients_INTERNAL.npz').write_bytes(b'private')
+    (directory / 'patients.csv').write_text('subject_id,risk\na,.1\n')
+    (tmp_path / 'patient_metadata.parquet').write_bytes(b'private metadata outside figures')
+    output = tmp_path / 'clinical.zip'
+    package_clinical(directory, output)
+    with zipfile.ZipFile(output) as archive:
+        assert set(archive.namelist()) == {'cll/risk.png', 'size_matched_survival_comparisons.csv'}
+
+
+@pytest.mark.parametrize('grouping_mode', ['current', 'cohort_size_matched'])
+def test_cpu_refresh_rebuilds_native_groups_and_reuses_configured_training_export(tmp_path, monkeypatch, grouping_mode):
     import numpy as np
     import pandas as pd
     import yaml
@@ -91,13 +108,17 @@ def test_cpu_refresh_rebuilds_native_groups_and_reuses_configured_training_expor
         commands.append(command)
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr(refresh.subprocess, 'run', execute)
-    monkeypatch.setattr('sys.argv', ['refresh', '--workspace', str(workspace), '--output-dir', str(output)])
+    monkeypatch.setattr('sys.argv', ['refresh', '--workspace', str(workspace), '--output-dir', str(output),
+                                   '--grouping-mode', grouping_mode])
     refresh.main()
     assert len(commands) == 1 and commands[0][2] == 'opera.run.render_clinical_score_panels'
     updated = yaml.safe_load((output / 'analysis_inventory/analysis.yaml').read_text())
     assert updated['clinical_threshold_artifacts'][0]['path'] == str(training)
     assert updated['clinical_threshold_artifacts'][0]['data_contract'] == 'release-test'
     recipe = yaml.safe_load((output / 'configs/clinical_score_panels.tuning.yaml').read_text())
+    if grouping_mode == 'cohort_size_matched':
+        assert recipe['all_indices']['template']['cutoff_rule'] == 'cohort_size_matched'
+        assert all(spec['cutoff_rule'] == 'cohort_size_matched' for spec in recipe['scores'])
     main, = [s for s in recipe['scores'] if s.get('manuscript_figures')]
     assert main['group_order'] == NATIVE_FOUR and main['threshold_split'] == 'train'
     assert set(pd.read_parquet(output / 'patient_metadata.parquet').nccn_ipi_group) == set(NATIVE_FOUR)

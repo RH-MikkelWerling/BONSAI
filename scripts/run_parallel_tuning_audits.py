@@ -24,11 +24,14 @@ CLINICAL_FILES = (
     "classification_at_thresholds.csv", "score_population_flow.csv", "headline_scores.csv",
     "stratification_diagnostics.csv", "risk_group_point_estimates.csv", "score_availability.csv",
     "report_manifest.json", "layout_report.json",
+    "size_matched_survival_comparisons.csv", "km_matched_low_groups.csv",
+    'clinical_operating_point_counts.csv',
 )
 WHOLE_COHORT_FILES = (
     "available_population_estimates.csv", "common_population_estimates.csv",
     "paired_contrasts.csv", "model_coverage.csv", "contrast_coverage.csv",
     "common_population_calibration.csv", "manifest.json",
+    "population_by_disease.csv", "auc_pair_composition.csv",
 )
 
 

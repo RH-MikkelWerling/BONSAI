@@ -42,11 +42,11 @@ def test_tiny_source_effects_do_not_receive_full_contrast_or_lineage_claims():
     fig=figures.figure_borrowing_map(pd.DataFrame(rows))
     image=fig.axes[0].images[0]
     assert image.norm.vmax>=1
-    assert any('Absolute effects' in ax.get_title(loc='left') for ax in fig.axes)
+    assert any('Size of individual-source effects' in ax.get_title(loc='left') for ax in fig.axes)
     plt.close(fig)
 
 
-def test_raw_borrowing_display_keeps_original_posterior_in_shrinkage_diagnostic():
+def test_raw_borrowing_display_reports_absolute_raw_effect_distribution():
     rows=[]
     for target in ['CLL','DLBCL','MM']:
         for source in ['CLL','DLBCL','MM']:
@@ -55,10 +55,10 @@ def test_raw_borrowing_display_keeps_original_posterior_in_shrinkage_diagnostic(
                 raw_effect=.1,raw_lower=-.3,raw_upper=.4,n_cells=40))
     fig=figures.figure_borrowing_map(pd.DataFrame(rows),pair_estimate='raw',pair_vmax=2.)
     assert fig.axes[0].images[0].norm.vmax == 2.
-    panel=next(ax for ax in fig.axes if 'Absolute effects' in ax.get_title(loc='left'))
-    points=panel.collections[0].get_offsets()
-    assert all(abs(float(y)-.00001)<1e-10 for x,y in points)
-    assert all(abs(float(x)-.1)<1e-10 for x,y in points)
+    panel=next(ax for ax in fig.axes if 'Size of individual-source effects' in ax.get_title(loc='left'))
+    magnitude=panel.lines[0].get_xdata()
+    assert all(abs(float(x)-.1)<1e-10 for x in magnitude[1:])
+    assert panel.lines[0].get_ydata()[-1] == 1
     plt.close(fig)
 
 

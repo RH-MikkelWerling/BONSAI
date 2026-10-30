@@ -33,6 +33,8 @@ def main():
     parser.add_argument('--restriction-dir', type=Path, help='Explicit completed input_restrictions directory')
     parser.add_argument('--clinical-dir', type=Path, help='Explicit refreshed clinical_scores directory')
     parser.add_argument('--attribution-dir', type=Path, help='Explicit completed IG directory with summary_365d')
+    parser.add_argument('--whole-cohort-dir', type=Path, help='Explicit completed aggregate whole-cohort evaluation')
+    parser.add_argument('--mechanism-dir', type=Path, help='Explicit completed frozen-router mechanism audit')
     args = parser.parse_args()
     root = args.analysis_root.resolve()
     clinical = args.clinical_dir.resolve() if args.clinical_dir else root / 'clinical_scores'
@@ -87,6 +89,11 @@ def main():
     recipe = yaml.safe_load((repo / 'opera/configs/paper_results_figures.full.example.yaml').read_text())
     for plate in recipe['figures']:
         plate.setdefault('options', {})['mark'] = mark
+        if plate['id'] == 'fig_headline':
+            selected = inventory.get('opera_model', 'R_L')
+            plate['options']['clinical_model'] = selected
+            plate['options']['focus_label'] = {'R_E': 'OPERA (national)',
+                'R_EA': 'OPERA (national, adapted)'}.get(selected, 'OPERA (local)')
         for section in ('tables','json_inputs'):
             for key, source in plate.get(section, {}).items():
                 if not source.startswith('${OPERA_PAPER_ANALYSIS_ROOT}/'):
@@ -97,6 +104,46 @@ def main():
             if '/clinical_scores/' in source:
                 plate['tables'][key] = str(clinical_inputs / source.split('/clinical_scores/',1)[1])
     render('main', recipe)
+    if args.whole_cohort_dir:
+        import pandas as pd
+        whole = args.whole_cohort_dir.resolve()
+        manifest = json.loads((whole / 'manifest.json').read_text())
+        if manifest['split'] != args.split:
+            raise ValueError('Whole-cohort evaluation uses a different split')
+        values = pd.read_csv(whole / 'common_population_estimates.csv')
+        pages = max(1, (values.loc[values.horizon_days.eq(365), 'outcome'].nunique()+11)//12)
+        render('whole_cohort', dict(figures=[dict(id=f'supp_whole_cohort_{page}',
+            function='figure_whole_cohort', options=dict(page=page, horizon=365, mark=mark),
+            tables=dict(estimates=str(whole / 'common_population_estimates.csv'),
+                        coverage=str(whole / 'model_coverage.csv'))) for page in range(1, pages+1)]))
+        for name in ('manifest.json', 'common_population_estimates.csv', 'paired_contrasts.csv',
+                     'model_coverage.csv', 'population_by_disease.csv', 'auc_pair_composition.csv'):
+            source = whole / name
+            if source.is_file():
+                target = output / 'reports/whole_cohort' / ('report_manifest.json' if name == 'manifest.json' else name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+    if args.mechanism_dir:
+        mechanism = args.mechanism_dir.resolve()
+        manifest = json.loads((mechanism / 'report.json').read_text())
+        if manifest.get('split') != args.split or manifest.get('status') != 'complete':
+            raise ValueError('Mechanism audit must be complete and use the requested split')
+        fit = json.loads((root / 'completion.json').read_text())['inputs']['fit']
+        if manifest.get('checkpoint_sha256') != fit['checkpoint_sha256']:
+            raise ValueError('Mechanism audit and figure workspace identify different fitted models')
+        for name in ('router_mechanism', 'router_mechanism_probability', 'router_mechanism_sensitivity'):
+            for suffix in ('.png', '.pdf'):
+                source = mechanism / (name + suffix)
+                target = output / 'mechanism' / source.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        report['mechanism_dir'] = str(mechanism)
+        for name in ('report.json', 'effect_summaries.csv', 'joint_path_summaries.csv'):
+            source = mechanism / name
+            if source.is_file():
+                target = output / 'reports/mechanism' / ('report_manifest.json' if name == 'report.json' else name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
     zero = copy.deepcopy(recipe)
     zero['required_figures'] = []
     zero['figures'] = [p for p in zero['figures'] if p['id'] in {'fig_borrowing_map','supp_borrowing_detail'}]
@@ -114,9 +161,16 @@ def main():
             if not source.startswith('${'):
                 plate['tables'][key] = str((repo / 'opera/configs' / source).resolve())
     render('attributions', recipe)
-    render('recent_records', dict(figures=[dict(id='supp_recent_record_gaps',
-        function='figure_recent_record_gaps', tables=dict(restrictions=str(restrictions / 'input_restriction_summary.csv')),
-        options=dict(mark=mark))]))
+    multi_horizon_summary = restrictions / 'input_restriction_summary_by_horizon.csv'
+    if multi_horizon_summary.is_file():
+        import pandas as pd
+        from opera.run.compare_input_restrictions import figure_recipe
+        render('recent_records', figure_recipe(multi_horizon_summary,
+            sorted(pd.read_csv(multi_horizon_summary).horizon_days.unique().tolist()), mark))
+    else:
+        render('recent_records', dict(figures=[dict(id='supp_recent_record_gaps',
+            function='figure_recent_record_gaps', tables=dict(restrictions=str(restrictions / 'input_restriction_summary.csv')),
+            options=dict(mark=mark))]))
     for suffix in ('*.pdf','*.png'):
         for source in sorted(clinical.rglob(suffix)) if clinical_check['valid'] else []:
             target = output / 'clinical_scores' / source.relative_to(clinical)
@@ -131,7 +185,9 @@ def main():
                      f'source_removal/{args.split}/analysis_provenance.json',
                      f'source_removal/{args.split}/borrowing_map.csv',
                      f'source_removal/{args.split}/borrowing_levels.csv',
-                     'input_restrictions/input_restriction_summary.csv'):
+                     'input_restrictions/input_restriction_summary.csv',
+                     'input_restrictions/input_restriction_summary_by_horizon.csv',
+                     'input_restrictions/input_restriction_auc_by_horizon.csv'):
         source = (clinical_inputs / relative.split('/',1)[1] if relative.startswith('clinical_scores/') else
                   restrictions / relative.split('/',1)[1] if relative.startswith('input_restrictions/') else root / relative)
         if source.is_file():

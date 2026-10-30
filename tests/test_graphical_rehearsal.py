@@ -133,7 +133,7 @@ def test_strategy_bars_include_joint_and_opera_and_do_not_drop_probability_mass(
         selected_model=['S','D','O','J','OPERA'], candidate_models=['S_L|D_L|O_L|J_L|OPERA']*5))
     fig = f.figure_strategy(cells, selection)
     bars = fig.axes[-1]
-    assert bars.get_legend_handles_labels()[1][-2:] == ['Joint','OPERA']
+    assert bars.get_legend_handles_labels()[1][-2:] == ['Joint (20% overall)','OPERA (20% overall)']
     assert np.isclose(sum(container[0].get_width() for container in bars.containers), 1.)
     plt.close(fig)
 

@@ -93,6 +93,7 @@ METRIC_LABEL = {
     "auc": "AUC gain",
     "brier": "Brier score improvement",
     "log_loss": "Log-loss improvement",
+    "ipa": "IPA gain",
 }
 
 
@@ -325,8 +326,12 @@ def gain_matrix(ax, cells, *, contrast, metric="auc", horizon=ALL_HORIZONS, vmax
     ax.tick_params(axis="y", labelsize=5.6, length=0)
     if order == "support":
         if show_xlabels:
-            ax.set_xlabel("Outcomes, from fewest to most training events", fontsize=6.6)
-        ax.set_xticks([])
+            from opera.visualization.outcome_names import outcome_display_name
+            ax.set_xticks(range(len(outcomes)), [outcome_display_name(o) for o in outcomes],
+                          rotation=90, ha='center', fontsize=6)
+            ax.tick_params(axis='x', length=0, pad=3)
+        else:
+            ax.set_xticks([])
         ax.support_axes = (diseases, outcomes)  # callers decide which edges get bars
     elif show_xlabels:
         breaks, starts = _group_breaks(outcomes, outcome_group)
@@ -403,12 +408,16 @@ def shared_gain_limit(cells, *, metric="auc", horizon=ALL_HORIZONS, quantile=0.9
 
 
 def figure_pooling_cells(cells, *, metric="auc", horizon=ALL_HORIZONS, order="support",
-                         include_router=True, mark=None):
+                         include_router=True, domain=None, contrast=None, mark=None):
     """Supplement: the full disease-by-outcome maps behind the pooling figure.
 
     Rows and columns run from fewest to most training events by default
     (``order="support"``); ``order="group"`` keeps the clinical grouping.
     """
+    if domain is not None:
+        cells = cells.loc[cells.endpoint_group.eq(domain)].copy()
+        if cells.empty:
+            raise ValueError(f'No outcomes in pooling domain {domain}')
     panels = [("D-S", "A", "Disease-pooled vs specialist"),
               ("O-S", "B", "Outcome-pooled vs specialist"),
               ("J-S", "C", "Joint vs specialist"),
@@ -418,30 +427,36 @@ def figure_pooling_cells(cells, *, metric="auc", horizon=ALL_HORIZONS, order="su
         router = next((c for c in ("OPERA-J", "R1") if c in available), None)
         if router:
             panels.append((router, "E", "OPERA vs joint"))
-    nrows = (len(panels) + 1) // 2
-    fig = plt.figure(figsize=(8.8, 3.6 * nrows))
-    top = fig.add_gridspec(nrows, 2, hspace=0.4, wspace=0.08, left=0.22, right=0.9,
-                           top=0.95, bottom=0.13)
+    comparable_contrasts = [p[0] for p in panels]
+    if contrast is not None:
+        panels = [p for p in panels if p[0] == contrast or contrast == 'OPERA-J' and p[0] == 'R1']
+        if not panels:
+            raise ValueError(f'Pooling comparison unavailable: {contrast}')
+    width = max(8.8, .145 * cells.outcome.nunique() + 2.1)
+    height = 7.0 if contrast is not None else 2.25 * len(panels) + 3.0
+    fig = plt.figure(figsize=(width, height))
+    top = fig.add_gridspec(len(panels), 1, hspace=0.35, left=0.18, right=0.91,
+                           top=0.955, bottom=2.3 / height)
     image = None
-    vmax = shared_gain_limit(cells.loc[cells.contrast.isin([p[0] for p in panels])],
+    vmax = shared_gain_limit(cells.loc[cells.contrast.isin(comparable_contrasts)],
                              metric=metric, horizon=horizon)
     for index, (contrast, letter, title) in enumerate(panels):
-        ax = fig.add_subplot(top[index // 2, index % 2])
+        ax = fig.add_subplot(top[index, 0])
         image = gain_matrix(ax, cells, contrast=contrast, metric=metric, vmax=vmax,
-                            horizon=horizon, show_ylabels=index % 2 == 0,
-                            show_xlabels=index >= len(panels) - 2, order=order)
+                            horizon=horizon, show_ylabels=True,
+                            show_xlabels=index == len(panels) - 1, order=order)
         titled = ax
         if order == "support":
             diseases, outcomes = ax.support_axes
-            if index < 2:  # outcome support above the top row only
+            if index == 0:
                 titled = _support_strip(ax, _support_totals(cells, "outcome", horizon)
                                         .reindex(outcomes), axis="x")
-            if index % 2 == 0:  # disease head count left of the left column only
+            if index == 0:
                 _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(diseases),
                                axis="y", labels=diseases, fontsize=5.8,
                                label=_support_label(cells, "cohort") if index == 0 else None)
         _panel_title(titled, letter, title)
-    cax = fig.add_axes([0.915, 0.58, 0.012, 0.3])
+    cax = fig.add_axes([0.935, 0.48, 0.012, 0.24])
     bar = fig.colorbar(image, cax=cax)
     bar.set_label(f"{_horizon_phrase(horizon)} {METRIC_LABEL[metric]}", fontsize=7.5)
     bar.ax.tick_params(labelsize=6.5)
@@ -457,9 +472,9 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     Tiles are the median one-year gain across the outcomes of an endpoint group
     within a fine disease; the cell-level maps are ``figure_pooling_cells``.
     """
-    fig = plt.figure(figsize=(7.2, 8.0))
+    fig = plt.figure(figsize=(7.2, 8.6))
     top = fig.add_gridspec(1, 2, width_ratios=[1.55, 1], wspace=0.06, left=0.29,
-                           right=0.86, top=0.955, bottom=0.42)
+                           right=0.86, top=0.94, bottom=0.47)
     joint = cells.loc[(cells.contrast == "J-S") & (cells.metric == metric)
                       & _horizon_mask(cells, horizon)]
     if order == "support":
@@ -509,8 +524,8 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
                               markersize=4.5, label=name)
                        for c, name in (("D-S", "Disease pooling"), ("O-S", "Outcome pooling"),
                                        ("J-S", "Both (joint)"))],
-              loc="upper center", bbox_to_anchor=(0.5, -0.135), ncol=3, frameon=False,
-              fontsize=6.3, handletextpad=0.15, columnspacing=0.8, borderaxespad=0)
+              loc="upper left", bbox_to_anchor=(-.08, -0.16), ncol=1, frameon=False,
+              fontsize=7, handletextpad=0.3, columnspacing=0.8, borderaxespad=0)
     _panel_title(bx, "B", "Gain by pooling axis")
     despine(bx, "x")
     cax = fig.add_axes([0.885, 0.62, 0.012, 0.25])
@@ -522,11 +537,15 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     colorbar.ax.yaxis.set_major_locator(MaxNLocator(5))
 
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.62, left=0.1,
-                              right=0.98, top=0.28, bottom=0.075)
+                              right=0.98, top=0.25, bottom=0.065)
     ax = fig.add_subplot(bottom[0])
     data = cells.loc[(cells.metric == metric) & _horizon_mask(cells, horizon)
                      & cells.contrast.isin(["D-S", "O-S", "J-S"])]
     joint = estimable_cells(data.loc[data.contrast == "J-S"])
+    gains = data.loc[data.contrast.eq('J-S'), 'gain'].dropna()
+    fig.text(.29, .985, f'Joint vs specialist: {(gains > 0).sum():,} higher, '
+             f'{(gains < 0).sum():,} lower, {(gains == 0).sum():,} tied / {len(gains):,} paired cells',
+             ha='left', va='top', fontsize=7, color=PALETTE['ink_secondary'])
     ax.scatter(joint.n_events_train.clip(lower=1), joint.gain, s=6, alpha=0.25,
                color=PALETTE["ink_muted"], linewidths=0, zorder=2, rasterized=True)
     handles = []
@@ -625,16 +644,32 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     if "J-LR" not in set(data.contrast) and {"J-X", "X-LR"} <= set(data.contrast):
         derived = _cell_sum(data, ("J-X", "X-LR"))
         data = pd.concat([data, derived.assign(contrast="J-LR", metric="auc")])
+    # Historical aggregate exports lack the newly registered direct contrasts.
+    # Recover point differences only. Their spreads remain descriptive IQRs,
+    # never sums of confidence bounds or means from different task rosters.
+    if focus_model == 'OPERA':
+        for name, terms in {'OPERA-D': ('OPERA-J', 'J-D'),
+                            'OPERA-O': ('OPERA-J', 'J-O'),
+                            'OPERA-XP': ('OPERA-J', 'J-XP'),
+                            'OPERA-LR': ('OPERA-X', 'X-LR')}.items():
+            if name not in set(data.contrast):
+                derived = _cell_sum(data, terms)
+                if derived is not None:
+                    data = pd.concat([data, derived.assign(contrast=name, metric='auc')], ignore_index=True)
     reference_spec = HEADLINE_REFERENCES if focus_model == "J" else (
         ("OPERA-S", "Specialist (same model, one task)", MODEL_STYLE["S"][0]),
+        ("OPERA-D", "Disease-pooled model", CONTRAST_STYLE['D-S'][0]),
+        ("OPERA-O", "Outcome-pooled model", CONTRAST_STYLE['O-S'][0]),
         ("OPERA-J", "Joint model", MODEL_STYLE["J"][0]),
         ("OPERA-X", "XGBoost per task", MODEL_STYLE["X"][0]),
         ("OPERA-XP", "XGBoost pooled over diseases", "#B18B4D"),
+        ("OPERA-LR", "Logistic regression", MODEL_STYLE['LR'][0]),
     )
     references = [r for r in reference_spec if r[0] in set(data.contrast)]
     if not references:
         raise ValueError(f"No direct headline contrasts for {focus_model}")
-    fig = plt.figure(figsize=(8.8 if model_overview else 7.2, 10.4 if model_overview else 8.9))
+    fig = plt.figure(figsize=(8.8 if model_overview else 7.2,
+                              10.4 if model_overview else 8.9 + .3 * max(0, len(references)-4)))
     outer = fig.add_gridspec(3, 1, height_ratios=[1.6 if model_overview else 1.0, 1.35, 1.0], hspace=0.55,
                              left=0.03, right=0.985, top=0.965, bottom=0.13)
     rng = np.random.default_rng(0)
@@ -650,7 +685,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.scatter(gains, row + rng.uniform(-0.28, 0.28, len(gains)), s=3.5,
                    color=color, alpha=0.28, linewidths=0, rasterized=True)
         q1, median, q3 = np.quantile(gains, [0.25, 0.5, 0.75])
-        center_label = "median"
+        center_label = "median (IQR)"
         if "panel_mean" in year:
             summary = year.loc[year.contrast == contrast,
                                ["panel_mean", "panel_lower", "panel_upper"]].drop_duplicates()
@@ -755,10 +790,14 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     horizon_models = HEADLINE_MODELS if focus_model == "J" else (
         ("Joint", MODEL_STYLE["J"][0], ("J-X",)),
         (focus_label, MODEL_STYLE["R"][0], ("OPERA-X",)),
-        ("Original router", "#71869E", ("Rorig-X",)),
         ("OPERA, national", "#408579", ("E-L:R", "R-X")),
         ("OPERA, adapted national", "#B18B4D", ("EA-L:R", "R-X")),
     )
+    # The selected OPERA alias may itself be a national variant. Show that
+    # fitted model once, rather than repeating it under a second legend entry.
+    duplicate = {'R_E': 'OPERA, national', 'R_EA': 'OPERA, adapted national'}.get(clinical_model)
+    if focus_model == 'OPERA' and duplicate:
+        horizon_models = tuple(item for item in horizon_models if item[0] != duplicate)
     for label, color, terms in horizon_models:
         gains = _cell_sum(data, terms)
         if gains is None or gains.empty:
@@ -831,7 +870,6 @@ def _headline_model_overview(ax, models, *, estimates=None, horizon=365):
         ('D','Disease-pooled',CONTRAST_STYLE['D-S'][0]),
         ('O','Outcome-pooled',CONTRAST_STYLE['O-S'][0]),
         ('J','Joint',MODEL_STYLE['J'][0]),
-        ('Rorig','Original router','#71869E'),
         ('OPERA','OPERA (local)',MODEL_STYLE['R'][0]),
         ('J_E','Joint (national)','#5C7AEA'),
         ('J_EA','Joint (national + adaptation)','#2D3A8C'),
@@ -870,9 +908,8 @@ def _headline_model_overview(ax, models, *, estimates=None, horizon=365):
 
 def figure_model_overview(models, *, horizon=365, mark=None):
     """Companion for all variants, retaining a compact reference-based headline."""
-    count = sum(c not in {'cohort', 'outcome', 'horizon_days', 'n_events_train',
-                          'cohort_group', 'endpoint_group'} for c in models.columns)
-    fig, ax = plt.subplots(figsize=(8.8, max(4.4, .36*count+1.2)))
+    count = sum(c in models for c in ('S','D','O','J','OPERA','J_E','J_EA','R_E','R_EA','LR','X','XP'))
+    fig, ax = plt.subplots(figsize=(8.8, max(3.5, .27*count+1.1)))
     fig.subplots_adjust(left=.34, right=.92, top=.91, bottom=.18)
     _headline_model_overview(ax, models, horizon=horizon)
     watermark(fig, mark)
@@ -908,8 +945,9 @@ def figure_tabular(cells, curve=None, *, horizon=ALL_HORIZONS, mark=None):
             ax.set_yticklabels([])
         ax.xaxis.set_major_locator(MaxNLocator(4))
         _panel_title(ax, letter, "Discrimination" if metric == "auc" else "Accuracy")
-    fig.legend(handles=handles, loc="upper left", ncol=2, frameon=False,
-               fontsize=7.2, bbox_to_anchor=(0.18, 0.995))
+    fig.legend(handles=handles, loc="upper center", ncol=2, frameon=False,
+               fontsize=7.2, bbox_to_anchor=(0.56, 0.995), title='Model comparisons in A and B',
+               title_fontsize=7.5)
 
     lower = grid[1, :].subgridspec(1, 2, wspace=0.42)
     ax = fig.add_subplot(lower[0])
@@ -999,11 +1037,15 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     panel_rows = cells if panel is None else panel
     efficiency = models is not None and {"J_L_F10", "J_EA_F10"} <= set(models)
     national, local = ORIGIN_STYLE["EA"][0], ORIGIN_STYLE["L"][0]
-    fig = plt.figure(figsize=(7.2, 6.9))
-    outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.95], hspace=0.62, left=0.09,
-                             right=0.975, top=0.94, bottom=0.12)
+    disease_rows = cells.loc[cells.contrast.eq('EA-L:J') & cells.metric.eq(metric)
+                             & cells.horizon_days.eq(horizon)]
+    n_diseases = disease_rows.cohort.nunique() if 'cohort' in disease_rows else 0
+    height = max(7.2, 4.1 + .19 * n_diseases)
+    fig = plt.figure(figsize=(8.8, height))
+    outer = fig.add_gridspec(2, 1, height_ratios=[1.0, max(1., .055*n_diseases)],
+                             hspace=0.62, left=0.09, right=0.975, top=0.94, bottom=0.12)
     top = outer[0].subgridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.55)
-    bottom = outer[1].subgridspec(1, 2, width_ratios=[1.0, 1.25], wspace=0.08)
+    bottom = outer[1].subgridspec(1, 2, width_ratios=[1.0, 1.25], wspace=0.75)
 
     def contrast(name):
         row = panel_rows.loc[(panel_rows.contrast == name) & (panel_rows.metric == metric)
@@ -1038,12 +1080,9 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
                        zorder=5)
             text = (f"Reaches the cohort-encoder model\ntrained on all patients with "
                     f"{'≤' if already else '≈'}{share:.0f}% of them")
-            ax.annotate(textwrap.fill(text.replace('\n', ' '), 44),
-                        xy=(share, target), xytext=(0.5, -0.30),
-                        textcoords="axes fraction", fontsize=6.6, color=national,
-                        fontweight="bold", ha="center", va="top", linespacing=1.15,
-                        arrowprops=dict(arrowstyle="-", color=national, lw=0.6,
-                                        connectionstyle="angle,angleA=180,angleB=90"))
+            ax.text(.02, -.31, textwrap.fill(text.replace('\n', ' '), 51),
+                    transform=ax.transAxes, fontsize=7, color=national,
+                    ha='left', va='top')
         part = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)]
         codes = [f"EA-L:F{f}" for f in EFFICIENCY_FRACTIONS[:-1]] + ["EA-L:J"]
         for f, code, low, high in list(zip(fn, codes, ql[:, 1], qn[:, 1]))[:-1]:
@@ -1054,7 +1093,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
                     solid_capstyle="butt")
             ax.text(f * 1.05, (low + high) / 2, _signed(gap), ha="left", va="center",
                     fontsize=6, color=national, fontweight="bold",
-                    bbox=dict(fc="white", ec="none", pad=0.4, alpha=0.85), zorder=5)
+                    zorder=5)
         ax.text(fn[-1] * 1.08, qn[-1, 1], "National,\nadapted", color=national,
                 fontsize=6.6, va="bottom", ha="left", fontweight="bold", linespacing=1.0)
         ax.text(fl[-1] * 1.08, ql[-1, 1] - 0.004, "Cohort", color=local, fontsize=6.6, va="top",
@@ -1143,7 +1182,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     data = cells.loc[(cells.contrast == "EA-L:J") & (cells.metric == metric)
                      & (cells.horizon_days == horizon)].dropna(subset=["gain"])
     cx = fig.add_subplot(bottom[0])
-    dx = fig.add_subplot(bottom[1], sharey=cx)
+    dx = fig.add_subplot(bottom[1])
     if "n_events_train" in data and data.n_events_train.gt(0).any():
         part = data.loc[data.n_events_train > 0]
         x = part.n_events_train.astype(float)
@@ -1164,24 +1203,34 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     despine(cx, "y")
     _panel_title(cx, "C", "By training events")
 
-    order = data.groupby("cohort_group").gain.median().sort_values(ascending=False).index
+    disease_key = 'cohort' if 'cohort' in data and data.cohort.notna().any() else 'cohort_group'
+    if disease_key == 'cohort' and 'n_patients_train' in data:
+        order = data.groupby(disease_key).n_patients_train.max().sort_values().index
+        ordering = 'Training cohort size, small to large'
+    elif disease_key == 'cohort':
+        order = _support_totals(data, 'cohort', horizon).sort_values().index
+        ordering = 'Training support, low to high'
+    else:
+        order = data.groupby(disease_key).gain.size().sort_values().index
+        ordering = 'Disease group'
     rng = np.random.default_rng(0)
     for k, group in enumerate(order):
-        gains = data.loc[data.cohort_group == group, "gain"].to_numpy()
-        dx.scatter(k + rng.uniform(-0.22, 0.22, len(gains)), gains, s=6, color=national,
-                   alpha=0.22, lw=0, zorder=2)
-        q1, median, q3 = np.quantile(gains, [0.25, 0.5, 0.75])
-        dx.plot([k, k], [q1, q3], color=national, lw=2.4, alpha=0.6, zorder=3,
-                solid_capstyle="round")
-        dx.scatter(k, median, marker="D", s=30, color=national, edgecolor="white", lw=0.7,
-                   zorder=4)
-    dx.axhline(0, color=PALETTE["zero_line"], lw=0.7)
-    dx.set_xticks(range(len(order)), list(order), rotation=40, ha="right", fontsize=6.6,
-                  rotation_mode="anchor")
-    dx.set_xlim(-0.6, len(order) - 0.4)
-    dx.tick_params(axis="y", labelleft=False)
-    despine(dx, "y")
-    _panel_title(dx, "D", "By disease")
+        gains = data.loc[data[disease_key] == group, 'gain'].dropna().to_numpy()
+        if not len(gains):
+            continue
+        dx.scatter(gains, k + rng.uniform(-.22, .22, len(gains)), s=6, color=national,
+                   alpha=.22, lw=0, zorder=2)
+        q1, median, q3 = np.quantile(gains, [.25, .5, .75])
+        dx.plot([q1, q3], [k, k], color=national, lw=2.2, alpha=.6)
+        dx.scatter(median, k, marker='D', s=24, color=national, zorder=4)
+    dx.axvline(0, color=PALETTE['zero_line'], lw=.7)
+    dx.set_yticks(range(len(order)), list(order), fontsize=7)
+    dx.set_ylim(len(order)-.5, -.5)
+    dx.set_xlabel(f'{METRIC_LABEL[metric]} (median, IQR)')
+    dx.set_ylabel(ordering)
+    dx.xaxis.set_major_locator(MaxNLocator(4))
+    despine(dx, 'x')
+    _panel_title(dx, 'D', 'By disease')
     watermark(fig, mark)
     return fig
 
@@ -1203,7 +1252,8 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
     grid = fig.add_gridspec(1, 2, width_ratios=[1.2, 1.0], wspace=0.9, left=0.21,
                             right=0.98, top=0.83, bottom=0.22)
     ax = fig.add_subplot(grid[0])
-    data = cells.loc[(cells.contrast == "R1") & (cells.metric == metric)
+    router_contrast = 'OPERA-J' if 'OPERA-J' in set(cells.contrast) else 'R1'
+    data = cells.loc[(cells.contrast == router_contrast) & (cells.metric == metric)
                      & _horizon_mask(cells, horizon)]
     order = data.groupby("endpoint_group").gain.median().sort_values(ascending=False)
     summary = _summary_rows(data.assign(series="R1"), ["endpoint_group", "series"])
@@ -1213,13 +1263,12 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
                     xlabel=f"{METRIC_LABEL[metric]}, routed vs joint (median, IQR)",
                     show_counts=False)
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    _panel_title(ax, "A", "Primary OPERA vs joint")
+    _panel_title(ax, "A", "OPERA vs joint" if router_contrast == 'OPERA-J' else "Local routed vs joint")
 
     ax = fig.add_subplot(grid[1])
-    labels = {"R0": "All sources masked vs joint", "R2": "Disease bank added", "R3": "Outcome bank added",
-              "R4": "Outcome given disease", "R5": "Disease given outcome",
-              "R6": "Both banks", "R7": "Bank interaction"}
-    ax.axvspan(-tolerance, tolerance, color=PALETTE["grid"], zorder=0)
+    labels = {"R0": "All sources masked vs joint", "R2": "Disease bank vs no banks", "R3": "Outcome bank vs no banks",
+              "R4": "Add outcomes to disease bank", "R5": "Add diseases to outcome bank",
+              "R6": "Both banks vs no banks", "R7": "Both minus the two single-bank gains"}
     missing_intervals = False
     for y, contrast in enumerate(labels):
         row = gate.loc[gate.contrast == contrast]
@@ -1235,16 +1284,14 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
         ax.scatter(row.gain, y, marker="D", s=24, edgecolors=color,
                    facecolors=color if finite_ci else "none", zorder=3)
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
-    ax.set_yticks(range(len(labels)), list(labels.values()), fontsize=7)
+    ax.set_yticks(range(len(labels)), [textwrap.fill(label, 28) for label in labels.values()], fontsize=7)
     ax.invert_yaxis()
     ax.set_xlabel(f"Panel {METRIC_LABEL[metric]} (95% CI)")
     ax.xaxis.set_major_locator(MaxNLocator(4))
-    ax.text(tolerance, len(labels) - 0.45, "equivalence\nmargin", fontsize=6.5,
-            color=PALETTE["ink_muted"], ha="right", va="bottom")
     if missing_intervals:
         ax.text(0, -0.27, "Open diamonds: CI unavailable", transform=ax.transAxes,
                 fontsize=6.3, color=PALETTE["ink_secondary"])
-    _panel_title(ax, "B", "Original bank controls")
+    _panel_title(ax, "B", "Bank controls (original router)")
     despine(ax, "x")
     watermark(fig, mark)
     return fig
@@ -1253,9 +1300,9 @@ def figure_routing(cells, gate, *, metric="auc", horizon=ALL_HORIZONS, tolerance
 BORROWING_SHORT = {"TRANSFORMED_FL": "tFL", "AMYLOIDOSIS": "AL", "SolM": "SP"}
 LEVEL_STYLE = {
     # Shades of the routed model's colour, darkest for the within-model level.
-    "dependence": ("#4B3B7A", "Cross-disease dependence"),
-    "trained_borrowing": ("#8974AC", "Full vs own-source control"),
-    "routing": ("#B7A9D3", "Routing (vs joint model)"),
+    "dependence": ("#4B3B7A", "Full vs other-disease corrections replaced"),
+    "trained_borrowing": ("#8974AC", "Full vs trained own-task model"),
+    "routing": ("#B7A9D3", "OPERA vs trained joint model"),
 }
 
 
@@ -1450,7 +1497,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     ax.set_ylabel("Target disease (registry population n)")
     for spine in ax.spines.values():
         spine.set_visible(False)
-    _panel_title(ax, "A", f"{estimate_label} source-alone effects")
+    _panel_title(ax, "A", "One disease source retained")
     cax = ax.inset_axes([0.0, -0.215, 1.0, 0.022])
     beyond = np.isfinite(matrix) & (np.abs(matrix) > vmax)
     colorbar = fig.colorbar(image, cax=cax, orientation="horizontal",
@@ -1477,9 +1524,9 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     bx.tick_params(axis="y", labelleft=False, length=0)
     bx.tick_params(axis="x", labelsize=6.6)
     bx.xaxis.set_major_locator(MaxNLocator(3))
-    bx.set_xlabel("Cross-disease dependence\n(points; dashed: all diseases)")
+    bx.set_xlabel("Full − all other diseases replaced\n(AUC points; dashed: overall)")
     bx.grid(axis="y", visible=False)
-    _panel_title(bx, "B", "Cross-disease dependence")
+    _panel_title(bx, "B", "All disease sources together")
     despine(bx, "x")
 
     cx = fig.add_axes([1.85 / width, 0.1, 2.15 / width, 0.275])
@@ -1517,19 +1564,24 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
 
     else:
         diagnostic = shrinkage_table.loc[shrinkage_table.endpoint_group == 'All outcomes']
-        pairs = diagnostic.loc[diagnostic.target != diagnostic.source].dropna(subset=["raw_effect", "effect"]) if "raw_effect" in diagnostic else diagnostic.iloc[:0]
-        if len(pairs):
-            limit = max(1.0, float(np.abs(pairs.raw_effect).max()), float(np.abs(pairs.effect).max()))
-            cx.plot([-limit, limit], [-limit, limit], ls="--", lw=.7, color=PALETTE["ink_muted"])
-            cx.scatter(pairs.raw_effect, pairs.effect, s=6, color=MODEL_STYLE["R"][0], alpha=.4, linewidths=0)
-            cx.set_xlim(-limit, limit)
-            cx.set_ylim(-limit, limit)
-        cx.axhline(0, color=PALETTE["zero_line"], lw=.6)
-        cx.set_xlabel("Unshrunk source-alone gain (points)")
-        cx.set_ylabel("Shrunken source-alone gain (points)")
+        column = 'raw_effect' if 'raw_effect' in diagnostic else 'effect'
+        effects = diagnostic.loc[diagnostic.target.ne(diagnostic.source), column].dropna()
+        if len(effects):
+            magnitude = np.sort(np.abs(effects.to_numpy(float)))
+            cx.step(np.r_[0, magnitude], np.r_[0, np.arange(1, len(magnitude)+1)/len(magnitude)],
+                    where='post', color=MODEL_STYLE['R'][0], lw=1.6)
+            cx.text(.97, .05, f'{len(effects):,} source–target pairs\n'
+                    f'Median |gain| {np.median(magnitude):.3g}\n'
+                    f'95th percentile {np.quantile(magnitude, .95):.3g}',
+                    transform=cx.transAxes, ha='right', va='bottom', fontsize=7,
+                    color=PALETTE['ink_secondary'])
+        cx.set_ylim(0, 1.04)
+        cx.set_xlim(left=0)
+        cx.set_xlabel('Absolute single-source AUC gain (points)')
+        cx.set_ylabel('Fraction of source–target pairs')
         cx.tick_params(labelsize=6.6)
         despine(cx, "both")
-        _panel_title(cx, "C", "Absolute effects and shrinkage")
+        _panel_title(cx, "C", "Size of individual-source effects")
 
     # D: for which outcomes borrowing matters, all diseases weighing equally.
     dx = fig.add_axes([5.3 / width, 0.1, 1.75 / width, 0.275])
@@ -1553,10 +1605,10 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     dx.tick_params(axis="y", length=0, labelsize=6.8)
     dx.tick_params(axis="x", labelsize=6.6)
     dx.xaxis.set_major_locator(MaxNLocator(3))
-    dx.set_xlabel("Cross-disease dependence\n(points, 95% CI)")
+    dx.set_xlabel("Full − all other diseases replaced\n(AUC points, 95% CI)")
     dx.grid(axis="y", visible=False)
     despine(dx, "x")
-    _panel_title(dx, "D", "For which outcomes")
+    _panel_title(dx, "D", "Combined effect by outcome")
     if ablation_mode is not None:
         if ablation_mode not in {'mean','zero'}:
             raise ValueError('Unknown source-ablation mode')
@@ -1699,7 +1751,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
                                groups, vmax, labels=False)
         if left_col:
             ax.set_yticks(range(len(groups)), groups)
-        if last and left_col:
+        if last:
             ax.set_xticks(range(len(groups)), groups, rotation=90)
         ax.tick_params(labelsize=6.2)
         ax.set_title(SHORT_GROUP.get(domain, domain), fontsize=8, pad=4)
@@ -1827,7 +1879,8 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
             cohort="All diseases", cohort_group="All")
     year = models.loc[models.horizon_days == horizon]
     lead = "J"  # Both the cell matrix and native pooled strip describe the joint fit.
-    matrix = year.pivot_table(index="outcome", columns="cohort", values=lead)
+    matrix = year.pivot_table(index="outcome", columns="cohort", values=lead).reindex(
+        index=year.outcome.drop_duplicates(), columns=year.cohort.drop_duplicates())
     domains = (year.drop_duplicates("outcome").set_index("outcome").endpoint_group
                .reindex(matrix.index))
     rank = {d: i for i, d in enumerate(domain_order)}
@@ -1838,15 +1891,18 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     matrix = matrix.reindex(index=rows, columns=columns)
     strip = (atlas.pivot_table(index="outcome", columns="horizon_days", values="cif_auc")
              .reindex(rows))
-    height = 0.115 * len(rows) + 1.7
+    height = max(4., 0.115 * len(rows) + 2.3)
     fig = plt.figure(figsize=(7.2, height))
     grid = fig.add_gridspec(1, 3, width_ratios=[len(columns), max(len(strip.columns), 1), 0.6],
                             wspace=0.06, left=0.31, right=0.975,
-                            top=1 - 1.15 / height, bottom=0.45 / height)
+                            top=1 - 1.15 / height, bottom=1.05 / height)
     norm = plt.Normalize(vmin, vmax)
     ax = fig.add_subplot(grid[0])
     image = ax.imshow(matrix.to_numpy(float), aspect="auto", cmap=ATLAS_CMAP, norm=norm,
                       interpolation="nearest")
+    for r, c in zip(*np.nonzero(~np.isfinite(matrix.to_numpy(float)))):
+        ax.add_patch(Rectangle((c-.5, r-.5), 1, 1, facecolor=PALETTE['missing'],
+                              edgecolor='white', hatch='///', lw=0, zorder=2))
     ax.set_yticks(range(len(rows)), rows, fontsize=5.2)
     ax.set_xticks(range(len(columns)), columns, fontsize=5.6, rotation=90)
     ax.xaxis.tick_top()
@@ -1900,6 +1956,8 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
                   + ")", fontsize=6.6)
     bar.ax.tick_params(labelsize=6)
     bar.outline.set_visible(False)
+    fig.text(.31, .012, 'Hatched grey: performance not estimable', fontsize=6.5,
+             color=PALETTE['ink_secondary'])
     watermark(fig, mark)
     return fig
 
@@ -1954,7 +2012,7 @@ def _matched_embedding_tables(coords, outcomes):
 
 def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
                              horizon=365, grid_size=90, min_effective_support=25.0,
-                             bandwidth=None, mode="predicted_points", mark=None):
+                             bandwidth=None, mode="observed_surface", mark=None):
     """Patient-level final predictions, or observed risk, in a shared embedding.
 
     ``coords``: ``subject_id``, ``x``, ``y`` (the selected checkpoint's shared projection).
@@ -2082,8 +2140,8 @@ def _embedding_title(name, width=19):
 
 def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_size=110,
                        min_effective_support=25.0, disease_contours=True,
-                       disease_centroids=False, calibration_style='surface',
-                       calibration_outcome=None, mode="predicted_points", mark=None):
+                       disease_centroids=True, calibration_style='surface',
+                       calibration_outcome=None, mode="observed_surface", mark=None):
     """Where risk lies in the selected model's shared patient representation.
 
     ``coords``: ``subject_id``, ``x``, ``y`` and ``disease``; ``outcomes`` as for
@@ -2122,7 +2180,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
             from opera.visualization.outcome_names import outcome_display_name
             preferred = [outcome_display_name(name) for name in (
                 "infection_diagnosis_or_antimicrobial_use_composite", "overall_survival",
-                "anemia_g2plus", "hospitalisation", "creatinine_increased_g2plus")]
+                "neutropenia_g3plus", "hospitalisation", "creatinine_increased_g2plus")]
             present = set(outcomes.outcome)
             highlights = [name for name in preferred if name in present]
             # Fill slots if older exports use different names for preferred endpoints.
@@ -2380,7 +2438,7 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
     fig = plt.figure(figsize=(max(8.8, 1.5 * len(names) + 1.3), max(3.2, 1.85 * len(rows) + 0.65)))
     grid = fig.add_gridspec(len(rows), len(names) + 1,
                             width_ratios=[1] * len(names) + [0.06],
-                            wspace=0.24, hspace=0.22, left=0.10, right=0.91,
+                            wspace=0.34, hspace=0.32, left=0.10, right=0.91,
                             top=0.91, bottom=0.07)
     risk_cmap = plt.get_cmap("plasma").copy()
     risk_cmap.set_bad((1, 1, 1, 0))
@@ -2594,11 +2652,11 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     routes["target_group"] = routes.outcome.map(outcome_groups)
     if routes[['patient_group', 'target_group']].isna().any().any():
         raise ValueError('Disease/outcome groups must cover every router target')
-    fig = plt.figure(figsize=(9.2, 7.6))
+    fig = plt.figure(figsize=(9.2, 8.4))
     top = fig.add_gridspec(1, 2, width_ratios=[1.0, 0.78], wspace=0.72, left=0.14,
-                           right=0.93, top=0.955, bottom=0.5)
+                           right=0.93, top=0.955, bottom=0.55)
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 0.82], wspace=0.75, left=0.14,
-                              right=0.97, top=0.445, bottom=0.17)
+                              right=0.97, top=0.39, bottom=0.17)
 
     # A: disease bank, patient disease -> source disease (row-normalised).
     ax = fig.add_subplot(top[0])
@@ -2649,9 +2707,11 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
                  label="Share of outcome-bank\nweight (own group hatched)")
     labels = [SHORT_GROUP.get(g, g) for g in groups]
     ax.set_yticks(range(len(groups)), labels, fontsize=6.2)
-    ax.set_xticks(range(len(groups)), labels, fontsize=6.2, rotation=90)
+    source_counts = outcome.groupby('source_group').source.nunique()
+    ax.set_xticks(range(len(groups)), [f'{label} ({source_counts.get(g, 0)})'
+                  for g, label in zip(groups, labels)], fontsize=6.2, rotation=90)
     ax.tick_params(length=0, pad=1.5)
-    ax.set_xlabel("Outcome source group", fontsize=7.5)
+    ax.set_xlabel("Outcome source group (number of source slots)", fontsize=7.5)
     ax.set_ylabel("Target outcome group", fontsize=7.5)
     _panel_title(ax, "B", "Outcome bank")
 
@@ -2668,7 +2728,7 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     left = np.zeros(len(patient_order))
     for key, color, label in [('disease', '#3E8A87', 'Other diseases'),
                                ('outcome', '#8974AC', 'Other outcomes'),
-                               ('own_shared', '#D9DDE4', 'Own sources / shared')]:
+                               ('own_shared', '#D9DDE4', 'Own / null slots')]:
         values = mass[key].to_numpy()
         ax.barh(range(len(patient_order)), values, left=left, height=.70,
                   color=color, label=label)
@@ -2704,8 +2764,6 @@ def figure_router_usage(routes, disease_groups, outcome_groups, *, mark=None):
     ax.set_xlim(0, maximum_sources * 1.06)
     ax.xaxis.set_major_locator(MaxNLocator(4))
     _panel_title(ax, 'D', 'Breadth of the mean gate profile')
-    fig.text(.14, .018, 'Gate weight describes allocation, not predictive benefit. Breadth is computed from mean gates, not patient-level entropy.',
-              fontsize=7, color=PALETTE['ink_secondary'])
     watermark(fig, mark)
     return fig
 
@@ -2774,8 +2832,8 @@ def figure_calibration(summary, reliability, examples, *, horizon=ALL_HORIZONS, 
     ``reliability`` the IPCW reliability bins; ``examples`` maps panel titles
     to (cohort, outcome) for the reliability curves.
     """
-    fig = plt.figure(figsize=(7.2, 6.4))
-    top = fig.add_gridspec(1, 2, wspace=0.1, left=0.19, right=0.98, top=0.9,
+    fig = plt.figure(figsize=(8.8, 6.8))
+    top = fig.add_gridspec(1, 2, wspace=0.18, left=0.19, right=0.98, top=0.88,
                            bottom=0.47)
     data = summary.loc[_horizon_mask(summary, horizon)
                        & (summary.status == "estimated")]
@@ -2809,7 +2867,7 @@ def figure_calibration(summary, reliability, examples, *, horizon=ALL_HORIZONS, 
         _panel_title(ax, letter, title)
     fig.legend(handles=handles, loc="upper left", ncol=4, frameon=False, fontsize=7.2,
                bbox_to_anchor=(0.18, 0.99))
-    bottom = fig.add_gridspec(1, len(examples), wspace=0.36, left=0.08, right=0.98,
+    bottom = fig.add_gridspec(1, len(examples), wspace=0.62, left=0.08, right=0.98,
                               top=0.30, bottom=0.07)
     for index, (title, (cohort, outcome)) in enumerate(examples.items()):
         ax = fig.add_subplot(bottom[index])
@@ -2846,7 +2904,7 @@ def figure_calibration(summary, reliability, examples, *, horizon=ALL_HORIZONS, 
 
 
 def figure_benchmarks(cells, curve=None, summary=None, reliability=None, examples=None, *,
-                      horizon=ALL_HORIZONS, mark=None):
+                      horizon=ALL_HORIZONS, horizon_panel=True, mark=None):
     """Against tabular models: discrimination and calibration together.
 
     A: AUC gain over per-task XGBoost by clinical domain (joint, specialist,
@@ -2908,7 +2966,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
         ax.xaxis.set_major_locator(MaxNLocator(4))
     _panel_title(ax, "B", "Calibration")
 
-    shown = list((examples or {}).items())[:2]
+    shown = list((examples or {}).items())[:1]
     bottom = fig.add_gridspec(1, 1 + len(shown), width_ratios=[1.45] + [1] * len(shown),
                               wspace=0.45, left=0.09, right=0.985, top=0.34, bottom=0.08)
     ax = fig.add_subplot(bottom[0])
@@ -2926,6 +2984,22 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
     ax.set_xlabel("Target training events (log scale)")
     ax.set_ylabel(f"AUC gain, {'OPERA' if lead == 'OPERA' else 'joint'} vs XGBoost")
     _panel_title(ax, "C", "Gain by training events")
+    if horizon_panel:
+        ax.clear()
+        for code, (color, _) in styles.items():
+            part = cells.loc[cells.contrast.eq(code) & cells.metric.eq('auc')
+                             & cells.horizon_days.gt(0)]
+            if part.empty:
+                continue
+            trend = part.groupby('horizon_days').gain.median()
+            ax.plot(trend.index, trend.values, marker='D', ms=3.5, lw=1.4, color=color)
+        ax.axhline(0, color=PALETTE['zero_line'], lw=.7)
+        ax.set_xscale('log')
+        ax.set_xticks(list(HORIZON_COLORS), [str(h) for h in HORIZON_COLORS])
+        ax.minorticks_off()
+        ax.set_xlabel('Horizon (days)')
+        ax.set_ylabel('Median AUC gain over comparator')
+        _panel_title(ax, 'C', 'Differences across horizons')
     despine(ax, "y")
     for index, (title, (cohort, outcome)) in enumerate(shown):
         ax = fig.add_subplot(bottom[index + 1])
@@ -3083,7 +3157,7 @@ def _cif_band(time, event, grid, rng, draws=150):
 def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
                        thresholds=(0.1, 0.4), ipi_label="IPI",
                        ipi_order=("Low", "Intermediate", "High"),
-                       mark=None, seed=0, event_free=False):
+                       mark=None, seed=0, event_free=False, grouping_note=None):
     """Cumulative incidence by model risk group versus the clinical score.
 
     ``patients`` has ``time_days``, ``event`` (0 censored, 1 outcome, 2
@@ -3098,8 +3172,7 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
     names = list(ipi_order)
     if len(names) != len(thresholds) + 1 or len(names) > len(RISK_COLORS):
         raise ValueError("Register 2–4 groups with matching cutoffs")
-    data["model_group"] = pd.cut(data.model_risk, [-np.inf, *thresholds, np.inf],
-                                 labels=names, right=False).astype(str)
+    data['model_group'] = np.asarray(names)[np.digitize(data.model_risk, thresholds)]
     grid = np.unique(np.r_[np.linspace(0, horizon_days * 1.25, 120), horizon_days])
     fig = plt.figure(figsize=(9.2, 7.8))
     top = fig.add_gridspec(1, 2, wspace=0.12, left=0.08, right=0.98, top=0.94,
@@ -3112,6 +3185,8 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         for group_index, (color, group) in enumerate(zip(_risk_colors(len(order)), order)):
             part = data.loc[data[key] == group]
             if len(part) < 10:
+                ax.plot([], [], color=color, ls=['-', '--', '-.', ':'][group_index],
+                        label=f'{group} (n={_count_text(len(part))}; insufficient)')
                 continue
             point, low, high = _cif_band(part.time_days.to_numpy(float),
                                          part.event.to_numpy(int), grid, rng)
@@ -3229,6 +3304,8 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
     _count_grid(ax, [[cell[3] for cell in row] for row in table], xlabels=names,
                 xlabel="Model risk group", fontsize=7, label_size=6.8)
     del image
+    if grouping_note:
+        fig.text(.5, .075, grouping_note, ha='center', fontsize=7, color=PALETTE['ink_secondary'])
     watermark(fig, mark)
     return fig
 
@@ -3244,6 +3321,16 @@ def _known_status(data, horizon_days):
 def _risk_tick_labels(names):
     """Keep native category names legible in narrow four-column heatmaps."""
     return [str(name).replace('-intermediate', '-\nintermediate') for name in names]
+
+
+def _risk_cutoff_labels(thresholds):
+    """Preserve visibly distinct small cutoffs rather than printing 0.00."""
+    values = np.asarray(thresholds, float)
+    for digits in range(2, 7):
+        rounded = np.round(values, digits)
+        if np.array_equal(rounded > 0, values > 0) and len(np.unique(rounded)) == len(np.unique(values)):
+            return [f'{v:.{digits}f}' for v in values]
+    return [f'{v:.6g}' for v in values]
 
 
 def _score_label(label):
@@ -3278,6 +3365,8 @@ def _clinical_precision_recall_panel(ax, known, label, *, ipi_label, ipi_high,
     specificity = float((~high[label == 0]).mean())
     cut = float(model_threshold) if model_threshold is not None else float(
         np.quantile(known.loc[label == 0, 'model_risk'], specificity))
+    if not np.isfinite(cut):
+        return ['Independent development classifier unavailable; continuous comparison shown.']
     # The exported binary metrics and pd.cut risk groups include threshold ties.
     flagged = known.model_risk >= cut
     sensitivity = float(flagged[label == 1].mean())
@@ -3307,7 +3396,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                           thresholds=(0.1, 0.4), ipi_label="IPI",
                           ipi_order=("Low", "Intermediate", "High"),
                           ipi_high=6, age_bins=(0, 60, 75, np.inf), mark=None,
-                          event_free=False, model_threshold=None):
+                          event_free=False, model_threshold=None, grouping_note=None):
     """The model against the clinical score on the patients who have one.
 
     Supply ``model_threshold`` locked on training data for held-out evaluation.
@@ -3327,28 +3416,28 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
         raise ValueError("Event-free KM requires a death-inclusive composite")
     data = patients.loc[patients.ipi_group.notna() & patients.ipi_score.notna()].copy()
     names = list(ipi_order)
-    data["model_group"] = pd.cut(data.model_risk, [-np.inf, *thresholds, np.inf],
-                                 labels=names, right=False).astype(str)
+    data['model_group'] = np.asarray(names)[np.digitize(data.model_risk, thresholds)]
     known, label = _known_status(data, horizon_days)
     fig = plt.figure(figsize=(9.2, 8.1))
     top = fig.add_gridspec(1, 2, width_ratios=[1, 1.15], wspace=0.46, left=0.09,
-                           right=0.97, top=0.86, bottom=0.59)
+                           right=0.97, top=0.87, bottom=0.61)
     ax = fig.add_subplot(top[0])
     summary = _clinical_precision_recall_panel(
         ax, known, label, ipi_label=ipi_label, ipi_high=ipi_high,
         model_threshold=model_threshold)
-    for y, text in zip((.478, .450, .422), summary):
+    for y, text in zip((.475, .445, .415), summary):
         fig.text(.09, y, textwrap.fill(text, 75), ha="left", va="top", fontsize=7,
                  color=PALETTE["ink_secondary"])
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
-    ax.legend(loc="upper left", bbox_to_anchor=(0, -.25),
-              borderaxespad=0, frameon=False, fontsize=8, ncol=1, handlelength=2.5)
+    ax.legend(loc="upper left", bbox_to_anchor=(.09, .55), bbox_transform=fig.transFigure,
+              borderaxespad=0, frameon=False, fontsize=7.5, ncol=1, handlelength=2.5,
+              title='Continuous risk and index thresholds', title_fontsize=7.5)
     horizon_label = "1 year" if horizon_days == 365 else (f"{horizon_days / 365:g} years" if horizon_days % 365 == 0 else f"{horizon_days:g} days")
     _panel_title(ax, "A", f"Events by {horizon_label}")
-    ax.set_title(f"A  Events by {horizon_label}", loc="left", fontsize=TITLE_SIZE, pad=20)
+    ax.set_title(f"A  Events by {horizon_label}", loc="left", fontsize=TITLE_SIZE, pad=16)
     despine(ax, "both")
 
     ax = fig.add_subplot(top[1])
@@ -3368,10 +3457,11 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                bbox_to_anchor=(.60, .475), ncol=2, frameon=False,
                fontsize=8, title_fontsize=8, handlelength=1.3,
                columnspacing=.7, borderaxespad=0)
-    ax.text(0, -0.30, "Model cutoffs (fixed on training):\n" + " / ".join(
-                [f"< {thresholds[0]:.2f}",
-                 *[f"{lo:.2f}–< {hi:.2f}" for lo, hi in zip(thresholds[:-1], thresholds[1:])],
-                 f"≥ {thresholds[-1]:.2f}"]),
+    cutoff_labels = _risk_cutoff_labels(thresholds)
+    ax.text(0, -0.30, (grouping_note + '\n' if grouping_note else "Model cutoffs (fixed on training):\n") + " / ".join(
+                [f"< {cutoff_labels[0]}",
+                 *[f"{lo}–< {hi}" for lo, hi in zip(cutoff_labels[:-1], cutoff_labels[1:])],
+                 f"≥ {cutoff_labels[-1]}"]),
             transform=ax.transAxes, ha="left", fontsize=7,
             color=PALETTE["ink_secondary"])
     for y, group in enumerate(ipi_order):
@@ -3432,7 +3522,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                             color="white" if np.isfinite(value) and
                             (value < 0.45 if event_free else value > 0.55)
                             else PALETTE["ink"])
-        ax.set_xticks(range(len(names)), names,
+        ax.set_xticks(range(len(names)), _risk_tick_labels(names),
                       fontsize=6.8)
         ax.set_yticks(range(len(age_labels)), age_labels, fontsize=6.8)
         if column:
@@ -3449,6 +3539,51 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     fig.text(0.55, 0.015, f"{metric_label} by "
              f"{horizon_label} (95% CI), with patients per cell below", ha="center",
              fontsize=7, color=PALETTE["ink_secondary"])
+    watermark(fig, mark)
+    return fig
+
+
+def figure_clinical_operating_points(low_groups, detection, *, estimand='cif_ipcw', mark=None):
+    """Clinical counts at separate frozen Low and high-specificity thresholds."""
+    detection = detection.loc[detection.estimand.eq(estimand)].copy()
+    order = list(dict.fromkeys(detection.score_id))
+    labels = detection.set_index('score_id').label.to_dict()
+    height = max(4., .32 * len(order) + 1.8)
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, height), sharey=True)
+    fig.subplots_adjust(left=.20, right=.97, top=.82, bottom=.30, wspace=.5)
+    for ax, letter, title in zip(axes, 'AB', ['Additional low-risk patients', 'Additional events identified']):
+        ax.axvline(0, color=PALETTE['zero_line'], lw=.8)
+        ax.set_yticks(range(len(order)), [labels[s] for s in order], fontsize=8)
+        ax.set_ylim(len(order)-.5, -.5)
+        ax.xaxis.set_major_locator(MaxNLocator(4))
+        _panel_title(ax, letter, title)
+        despine(ax, 'x')
+    for y, key in enumerate(order):
+        if len(low_groups) and 'additional_low_per_1000' in low_groups:
+            low = low_groups.loc[low_groups.score_id.eq(key)]
+            if len(low) == 1 and np.isfinite(low.additional_low_per_1000.iloc[0]):
+                row = low.iloc[0]
+                axes[0].plot([row.additional_low_per_1000_lower, row.additional_low_per_1000_upper],
+                             [y, y], color=MODEL_STYLE['OPERA'][0], lw=1.4, alpha=.55)
+                axes[0].scatter(row.additional_low_per_1000, y, marker='D', s=25,
+                                color=MODEL_STYLE['OPERA'][0])
+            else:
+                axes[0].text(.98, y, 'Not estimable', transform=axes[0].get_yaxis_transform(),
+                             ha='right', va='center', fontsize=7, color=PALETTE['ink_muted'])
+        else:
+            axes[0].text(.98, y, 'Not estimable', transform=axes[0].get_yaxis_transform(),
+                         ha='right', va='center', fontsize=7, color=PALETTE['ink_muted'])
+        row = detection.loc[detection.score_id.eq(key)].iloc[0]
+        axes[1].plot([row.lower, row.upper], [y, y], color=MODEL_STYLE['OPERA'][0], lw=1.4, alpha=.55)
+        axes[1].scatter(row.additional_events_per_1000, y, marker='D', s=25,
+                        color=MODEL_STYLE['OPERA'][0])
+    axes[0].set_xlabel('Additional patients per 1,000 (95% CI)\nDevelopment KM-matched Low cutoff')
+    axes[1].set_xlabel('Additional events per 1,000 (95% CI)\nDevelopment specificity-matched cutoff')
+    axes[1].tick_params(labelleft=False)
+    fig.text(.20, .04, 'Cutoffs fixed before evaluation. Achieved survival and specificity are reported separately.\n'
+             + ('Event counts use the full risk set with IPCW.' if estimand == 'cif_ipcw'
+                else 'Event counts use patients with known horizon status.'),
+             fontsize=7, color=PALETTE['ink_secondary'])
     watermark(fig, mark)
     return fig
 
@@ -3474,11 +3609,8 @@ def figure_score_overview(scores, *, mark=None, seed=0):
     for row, spec in enumerate(scores):
         data = spec["patients"].loc[spec["patients"].ipi_group.notna()].copy()
         order = list(spec["ipi_order"])
-        names = ["Low", "Intermediate", "High"][:len(spec["thresholds"]) + 1] \
-            if len(spec["thresholds"]) == 2 else order
-        data["model_group"] = pd.cut(data.model_risk,
-                                     [-np.inf, *spec["thresholds"], np.inf],
-                                     labels=names, right=False).astype(str)
+        names = order
+        data['model_group'] = np.asarray(names)[np.digitize(data.model_risk, spec['thresholds'])]
         horizon = spec["horizon_days"]
         grid_days = np.linspace(0, horizon * 1.25, 100)
         estimates = []
@@ -3724,8 +3856,8 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         ax = fig.add_subplot(maps[index])
         _draw_denmark(ax, values, geometry, norm, cmap, fmt=fmt, intervals=intervals,
                       reference=reference)
-        ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, color=PALETTE["ink"],
-                     pad=3)
+        ax.set_title(f"{letter}  {title}", loc="left", fontsize=TITLE_SIZE, color=PALETTE["ink"],
+                     pad=6)
         box = ax.get_position()
         bar = fig.add_axes([box.x0 + 0.03, box.y0 - 0.035, box.width - 0.06, 0.012])
         cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=bar,
@@ -3765,7 +3897,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
              + "Maps: 95% CI under each value; hatched where the interval includes 0.",
              fontsize=6.2, color=PALETTE["ink_muted"], ha="left", va="bottom")
 
-    lower = fig.add_gridspec(2, 2, wspace=.35, hspace=.85, left=.17, right=.97, top=.54,
+    lower = fig.add_gridspec(2, 2, wspace=.40, hspace=1.0, left=.17, right=.97, top=.54,
                              bottom=.075)
     styles = {"J-S": (MODEL_STYLE["J"][0], "Joint vs specialist"),
               "J-X": (MODEL_STYLE["J"][0], "Joint vs XGBoost")}
@@ -3776,7 +3908,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
                         "X": model_styles["X"]}
 
     def header(ax, letter, title):
-        ax.set_title(f"{letter}  {title}", loc="left", fontsize=8.2, pad=42,
+        ax.set_title(f"{letter}  {title}", loc="left", fontsize=TITLE_SIZE, pad=44,
                      color=PALETTE["ink"])
 
     ax = fig.add_subplot(lower[0])
@@ -3806,8 +3938,8 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         regions = [r for r in REGION_TILES if r in cov.index]
         y = np.arange(len(regions))
         for offset, column, color, label in (
-                (-0.15, "history_event_count", PALETTE["ink_muted"], "All records"),
-                (0.15, "laboratory_event_count", "#B18B4D", "Laboratory")):
+                (-0.15, "history_event_count", "#60748B", "All records"),
+                (0.15, "laboratory_event_count", "#B87C52", "Laboratory")):
             if f"{column}_median" not in cov:
                 continue
             rows = cov.reindex(regions)
@@ -4076,9 +4208,9 @@ def figure_support(cells, training=None, coverage=None, *, horizon=ALL_HORIZONS,
 
 
 # Router decomposition: own corrections, borrowing, both (lock addenda 2026-10-26).
-HIERARCHY_STYLE = {"own": ("#B18B4D", "Own disease and outcome correction"),
-                   "borrow": (MODEL_STYLE["R"][0], "Borrowing from other tasks"),
-                   "both": (PALETTE["opera"], "Both (routed vs global-only)")}
+HIERARCHY_STYLE = {"own": ("#B18B4D", "Own-task vs global-only model"),
+                   "borrow": (MODEL_STYLE["R"][0], "Full OPERA vs own-task model"),
+                   "both": (PALETTE["opera"], "Full OPERA vs global-only model")}
 SUPPORT_BANDS = [(0, 20, "<20"), (20, 100, "20–100"), (100, 500, "100–500"),
                  (500, np.inf, "≥500")]
 BAND_COLORS = ["#C3CAE6", "#8C9AD0", "#5367B0", "#1F2A72"]  # blue arm of GAIN_CMAP
@@ -4087,14 +4219,106 @@ BAND_COLORS = ["#C3CAE6", "#8C9AD0", "#5367B0", "#1F2A72"]  # blue arm of GAIN_C
 def _log_support_fit(x, y, grid, *, n_boot=200, seed=0):
     """Quadratic in log10 training events, with a 95% bootstrap band over cells
     (descriptive; the inferential support curves are the hierarchical ones)."""
+    keep = np.isfinite(x) & np.isfinite(y) & (x > 0)
+    x, y = np.asarray(x)[keep], np.asarray(y)[keep]
+    if not len(x):
+        return (np.full(len(grid), np.nan),) * 3
+    degree = min(2, len(np.unique(x)) - 1)
     rng = np.random.default_rng(seed)
     lx, lg = np.log10(x), np.log10(grid)
-    centre = np.polyval(np.polyfit(lx, y, 2), lg)
+    centre = np.polyval(np.polyfit(lx, y, degree), lg)
     fits = []
     for _ in range(n_boot):
         i = rng.integers(0, len(x), len(x))
-        fits.append(np.polyval(np.polyfit(lx[i], y[i], 2), lg))
+        fitted_degree = min(degree, len(np.unique(lx[i])) - 1)
+        fits.append(np.polyval(np.polyfit(lx[i], y[i], fitted_degree), lg))
     return centre, *np.quantile(np.array(fits), [0.025, 0.975], axis=0)
+
+
+def figure_support_sensitivity(cells, *, horizon=365, cutoffs=(5, 10, 20, 50),
+                               contrasts=None, mark=None):
+    """Descriptive support sensitivity on one common finite comparison roster."""
+    if contrasts is None:
+        contrasts = ('J-S', 'OPERA-J' if 'OPERA-J' in set(cells.contrast) else 'R1')
+    data = cells.loc[cells.metric.eq('auc') & _horizon_mask(cells, horizon)
+                     & cells.contrast.isin(contrasts)].copy()
+    if not {'n_cases', 'n_controls'} <= set(data):
+        raise ValueError('Support sensitivity requires actual evaluation cases and controls')
+    keys = ['cohort', 'outcome', 'horizon_days']
+    valid = data.loc[data.gain.notna()].groupby(keys).contrast.nunique()
+    shared = valid[valid.eq(len(contrasts))].index
+    data = data.loc[pd.MultiIndex.from_frame(data[keys]).isin(shared)]
+    if data.empty:
+        raise ValueError('No common supported comparison roster')
+    fig, axes = plt.subplots(1, 2, figsize=(8.8, 4.5))
+    fig.subplots_adjust(left=.10, right=.97, bottom=.24, top=.88, wspace=.5)
+    for code in contrasts:
+        selected = data.loc[data.contrast.eq(code)]
+        means, counts = [], []
+        for cutoff in cutoffs:
+            kept = selected.loc[selected.n_cases.ge(cutoff) & selected.n_controls.ge(cutoff)]
+            means.append(kept.gain.mean())
+            counts.append(len(kept))
+        color, label = CONTRAST_STYLE.get(code, (MODEL_STYLE['OPERA'][0], 'OPERA vs joint'))
+        axes[0].plot(cutoffs, means, marker='D', ms=4, lw=1.4, color=color, label=label)
+        axes[1].plot(cutoffs, counts, marker='D', ms=4, lw=1.4, color=color)
+    for ax, letter, title in zip(axes, 'AB', ['Performance on retained cells', 'How many cells remain']):
+        ax.set_xscale('log')
+        ax.set_xticks(cutoffs, [str(c) for c in cutoffs])
+        ax.minorticks_off()
+        ax.set_xlabel('Minimum cases and minimum controls')
+        _panel_title(ax, letter, title)
+        despine(ax, 'y')
+    axes[0].axhline(0, color=PALETTE['zero_line'], lw=.7)
+    axes[0].set_ylabel('AUC gain (descriptive mean)')
+    axes[1].set_ylabel('Disease–outcome cells')
+    fig.legend(*axes[0].get_legend_handles_labels(), loc='lower left',
+               bbox_to_anchor=(.09, .025), ncol=2, frameon=False, fontsize=8)
+    watermark(fig, mark)
+    return fig
+
+
+def figure_whole_cohort(estimates, coverage, *, horizon=365, page=1, per_page=12, mark=None):
+    """Common-population pooled AUC alongside each model's prediction coverage."""
+    from opera.visualization.outcome_names import outcome_display_name
+    data = estimates.loc[estimates.metric.eq('auc') & estimates.horizon_days.eq(horizon)].copy()
+    cover = coverage.loc[coverage.horizon_days.eq(horizon)].copy()
+    outcomes = sorted(set(data.outcome) | set(cover.outcome))[(page-1)*per_page:page*per_page]
+    if not outcomes:
+        raise ValueError('Whole-cohort page has no outcomes')
+    models = list(dict.fromkeys(cover.model))
+    names = {'J_L': 'Joint', 'R_L': 'OPERA (local)', 'R_AB_L': 'OPERA (local)',
+             'OPERA': 'OPERA', 'X': 'Specialist XGBoost portfolio', 'XP': 'Disease-pooled XGBoost'}
+    colors = {'J_L': MODEL_STYLE['J'][0], 'X': MODEL_STYLE['X'][0], 'XP': '#B18B4D'}
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, max(4.8, .38*len(outcomes)+1.6)), sharey=True)
+    fig.subplots_adjust(left=.29, right=.97, top=.86, bottom=.22, wspace=.35)
+    for offset, model in zip(np.linspace(-.23, .23, len(models)), models):
+        color = colors.get(model, MODEL_STYLE['OPERA'][0])
+        part = data.loc[data.model.eq(model)].set_index('outcome').reindex(outcomes)
+        if len(part):
+            axes[0].hlines(np.arange(len(outcomes))+offset, part.lower, part.upper, color=color, alpha=.55, lw=1)
+            axes[0].scatter(part.estimate, np.arange(len(outcomes))+offset, color=color, marker='D', s=16)
+        part = cover.loc[cover.model.eq(model)].set_index('outcome').reindex(outcomes)
+        if 'union_n' in part:
+            share = part.available_n / part.union_n
+        else:
+            share = part.available_n / cover.groupby('outcome').available_n.max().reindex(outcomes)
+        axes[1].scatter(share, np.arange(len(outcomes))+offset, color=color, marker='D', s=16,
+                        label=names.get(model, model))
+    for ax, letter, title in zip(axes, 'AB', ['AUC on the common population', 'Prediction coverage']):
+        ax.set_yticks(range(len(outcomes)), [outcome_display_name(o) for o in outcomes], fontsize=7)
+        ax.set_ylim(len(outcomes)-.5, -.5)
+        _panel_title(ax, letter, title)
+        despine(ax, 'x')
+    axes[0].set_xlabel('Pooled AUC (paired 95% CI)')
+    axes[0].xaxis.set_major_locator(MaxNLocator(4))
+    axes[1].set_xlim(-.03, 1.03)
+    axes[1].set_xticks([0, .5, 1], ['0%', '50%', '100%'])
+    axes[1].set_xlabel('Patients with predictions / union roster')
+    fig.legend(*axes[1].get_legend_handles_labels(), loc='lower left',
+               bbox_to_anchor=(.28, .02), ncol=2, frameon=False, fontsize=7)
+    watermark(fig, mark)
+    return fig
 
 
 def figure_hierarchy(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
@@ -4129,7 +4353,7 @@ def figure_hierarchy(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
     harmed = data.loc[data.tuning_joint_vs_specialist < 0]
     if len(harmed):
         ax.text(0.03, 0.03, f"Left of the line (hurt by pooling):\n"
-                f"{(harmed.both > 0).mean():.0%} of cells better routed,\n"
+                f"{(harmed.both > 0).mean():.0%} higher vs global-only,\n"
                 f"median {harmed.both.median():+.3f}", transform=ax.transAxes,
                 ha="left", va="bottom", fontsize=6.5, color=PALETTE["ink_secondary"],
                 linespacing=1.3, zorder=10,
@@ -4161,17 +4385,8 @@ def figure_hierarchy(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
         ax.fill_between(grid, low, high, color=color, alpha=0.18, linewidth=0, zorder=3)
         ax.plot(grid, centre, color=color, lw=2.0, zorder=4, solid_capstyle="round")
         curves[column] = centre
-    gap = curves["own"] - curves["borrow"]
-    crossings = np.nonzero(np.diff(np.sign(gap)))[0]
-    if len(crossings):
-        cross = grid[crossings[0]]
-        ax.axvline(cross, color=PALETTE["ink_muted"], lw=0.7, ls=(0, (2, 2)), zorder=1)
-        ax.text(cross * 1.12, 0.04, f"crossover\n≈{cross:,.0f} events",
-                transform=ax.get_xaxis_transform(), fontsize=6.5,
-                color=PALETTE["ink_muted"], va="bottom")
     for column, offset, va in (("borrow", 8, "bottom"), ("own", -8, "top")):
-        ax.annotate(HIERARCHY_STYLE[column][1].split(" from")[0].replace(
-                        " disease and outcome", ""),
+        ax.annotate({'own': 'Own-task corrections', 'borrow': 'Borrowed corrections'}[column],
                     (grid[2], curves[column][2]), xytext=(0, offset),
                     textcoords="offset points", color=HIERARCHY_STYLE[column][0],
                     fontsize=7.5, fontweight="bold", va=va)
@@ -4260,9 +4475,9 @@ def figure_rescue(cells, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.0, m
     ax.set_ylim(1.5, -.5)
     ax.xaxis.set_major_locator(MaxNLocator(4))
     _panel_title(ax, 'B', 'Gains within the tuning strata')
-    fig.legend(handles=[Line2D([], [], marker='D', ls='', color=c, label=label)
-                         for c, label in styles.values()], loc='upper center',
-               bbox_to_anchor=(.59, .99), ncol=2, frameon=False, fontsize=8)
+    ax.legend(handles=[Line2D([], [], marker='D', ls='', color=c, label=label)
+                         for c, label in styles.values()], loc='lower left',
+               bbox_to_anchor=(-.35, 1.12), ncol=1, frameon=False, fontsize=8)
     fig.text(.10, .07, 'Orange: joint worse on tuning. Strata fixed on tuning; tuning-on-tuning results are descriptive.',
               fontsize=7.2, color=PALETTE['ink_secondary'])
     watermark(fig, mark)
@@ -4278,7 +4493,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     chosen strategy per cell with its ``endpoint_group``.
     """
     fig = plt.figure(figsize=(8.8, 7.0))
-    grid = fig.add_gridspec(2, 2, height_ratios=[1,1.25], hspace=.65, wspace=.35, left=.22,
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.25,1.25], hspace=.65, wspace=.35, left=.22,
                             right=.97, top=.94, bottom=.16)
     data = cells.loc[_horizon_mask(cells, horizon)]
     data = data.copy()
@@ -4333,12 +4548,13 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     if 'candidate_models' in selection:
         for names in selection.candidate_models.dropna().unique():
             candidates.update(str(names).replace('_L', '').split('|'))
+    overall = selection.selected_model.value_counts(normalize=True)
     for key, (color, label) in styles.items():
         if key not in candidates:
             continue
         values = shares.reindex(order).get(key, pd.Series(0, index=order)).to_numpy()
         ax.barh(range(len(order)), values, left=left, color=color, height=0.72,
-                label=label)
+                label=f'{label} ({overall.get(key, 0):.0%} overall)')
         left += values
     ax.set_yticks(range(len(order)), [SHORT_GROUP.get(g, g) for g in order], fontsize=6.6)
     ax.set_xlim(0, 1)
@@ -4349,7 +4565,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
     fig.legend(*ax.get_legend_handles_labels(), loc="lower left", ncol=3,
                frameon=False, fontsize=8, handlelength=1, columnspacing=0.8,
                bbox_to_anchor=(0.21, 0.045))
-    fig.text(.22, .015, 'Selection uses tuning log loss. Panel B retains the original S/D/O policy.',
+    fig.text(.22, .015, 'Overall shares count tuning-selected cells. Panel B retains the original S/D/O policy.',
               fontsize=7, color=PALETTE['ink_secondary'])
     despine(ax, "none")
     watermark(fig, mark)
@@ -4433,6 +4649,11 @@ def figure_embedding_comparison(coords, *, model_order=None, color_rows=None,
                           if "order" in row else sorted(present, key=str))
             palette = (CATEGORICAL + ["#BD648E", "#697481"]) if column == "disease" else (
                 _risk_colors(len(categories)) if "order" in row else CATEGORICAL)
+            if column == 'ipi_group':
+                clinical_colors = {'Low': '#3E8A87', 'Low-intermediate': '#B18B4D',
+                    'Intermediate': '#B18B4D', 'High-intermediate': '#C16A58',
+                    'High': '#8E2F3C', 'Very high': '#58162B'}
+                palette = [clinical_colors.get(c, palette[i]) for i, c in enumerate(categories)]
             if len(categories) > len(palette):
                 raise ValueError("Too many categories for the fixed figure palette")
             colors = {c: palette[i] for i, c in enumerate(categories)}
@@ -4561,7 +4782,7 @@ def _category_regions(ax, data, column, colors, extent, *, label=False, mass=0.5
 def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
                              thresholds=(0.1, 0.4), ipi_label="IPI",
                              ipi_order=("Low", "Intermediate", "High"),
-                             event_free=False, mark=None, seed=0,
+                             event_free=False, mark=None, seed=0, grouping_note=None,
                              age_bins=(0, 50, 60, 70, 80, np.inf)):
     """Separate counts, mean predictions and observed risk on identical cells."""
     from opera.visualization.style import sequential_cmap
@@ -4571,8 +4792,7 @@ def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
     if len(names) != len(thresholds) + 1:
         raise ValueError("Group/cutoff mismatch")
     data = patients.loc[patients.ipi_group.notna()].copy()
-    data["model_group"] = pd.cut(data.model_risk, [-np.inf, *thresholds, np.inf],
-                                 labels=names, right=False)
+    data['model_group'] = np.asarray(names)[np.digitize(data.model_risk, thresholds)]
     ages = pd.cut(data.age, age_bins, right=False)
     labels = [f"<{int(b.right)}" if b.left == 0 else
               (f"≥{int(b.left)}" if not np.isfinite(b.right) else
@@ -4677,33 +4897,79 @@ def figure_patient_tracks(episodes, *, outcomes=None, scale="logit", mark=None):
     return render(episodes, outcomes=outcomes, scale=scale, mark=mark)
 
 
-def figure_recent_record_gaps(restrictions, *, mark=None):
-    """Paired one-year AUC change after hiding recent history, by domain."""
+def figure_recent_record_gaps(restrictions, *, horizons=None, mark=None):
+    """Paired AUC changes by clinical family, at at most two horizons per page."""
     labels = [f'Last {days} days hidden' for days in (7, 14, 21, 28)]
-    data = restrictions.loc[restrictions.restriction.isin(labels)]
+    data = restrictions.loc[restrictions.restriction.isin(labels)].copy()
     if data.empty:
         raise ValueError('No recent-record gap results available')
+    if 'horizon_days' not in data:
+        data['horizon_days'] = 365
+    finite_limits = 100 * data[['lower', 'upper', 'mean_delta']].to_numpy(float).ravel()
+    finite_limits = finite_limits[np.isfinite(finite_limits)]
+    limits = (min(0., finite_limits.min()), max(0., finite_limits.max())) if len(finite_limits) else (-1., 1.)
+    margin = max((limits[1] - limits[0]) * .06, .1)
+    horizons = list(horizons) if horizons is not None else ([365] if 365 in set(data.horizon_days) else sorted(data.horizon_days.unique())[:2])
+    if not 1 <= len(horizons) <= 2 or set(horizons) - set(data.horizon_days):
+        raise ValueError('Choose one or two available horizons per family page')
+    data = data.loc[data.horizon_days.isin(horizons)]
+    if data.duplicated(['restriction', 'group', 'horizon_days']).any():
+        raise ValueError('Duplicate recent-record family/horizon estimates')
     groups = list(dict.fromkeys(data.group))
     order = ['All outcomes', *SHORT_GROUP]
     groups = [g for g in order if g in groups] + [g for g in groups if g not in order]
-    fig, ax = plt.subplots(figsize=(8.8, max(4, len(groups) * .45 + 1.1)))
-    fig.subplots_adjust(left=.25, right=.97, top=.86, bottom=.13)
-    for i, label in enumerate(labels):
-        part = data.loc[data.restriction == label].set_index('group').reindex(groups)
-        y = np.arange(len(groups)) + (i - 1.5) * .16
-        color = list(HORIZON_COLORS.values())[i]
-        ax.hlines(y, 100 * part.lower, 100 * part.upper, color=color, alpha=.65, lw=1.3)
-        ax.scatter(100 * part.mean_delta, y, s=22, marker='D',
-                   color=color, label=label)
-    ax.axvline(0, color=PALETTE['zero_line'], linewidth=.8)
-    ax.set(yticks=np.arange(len(groups)), yticklabels=[SHORT_GROUP.get(g, g) for g in groups],
-           xlabel='One-year AUC change (×100; mean, paired 95% CI)')
-    ax.tick_params(labelsize=8.5)
-    ax.xaxis.set_major_locator(MaxNLocator(5))
-    _panel_title(ax, 'A', 'Prediction with recent records hidden')
-    ax.invert_yaxis()
-    fig.legend(*ax.get_legend_handles_labels(), loc='upper center', bbox_to_anchor=(.6,.99),
+    fig, axes = plt.subplots(1, len(horizons), squeeze=False, sharey=True,
+                             figsize=(9.2 if len(horizons) == 2 else 8.8, max(4.5, len(groups) * .46 + 1.6)))
+    fig.subplots_adjust(left=.25, right=.97, top=.84, bottom=.14, wspace=.15)
+    for panel, (ax, horizon) in enumerate(zip(axes[0], horizons)):
+        for i, label in enumerate(labels):
+            part = data.loc[data.restriction.eq(label) & data.horizon_days.eq(horizon)].set_index('group').reindex(groups)
+            y = np.arange(len(groups)) + (i - 1.5) * .16
+            color = list(HORIZON_COLORS.values())[i]
+            ax.hlines(y, 100 * part.lower, 100 * part.upper, color=color, alpha=.65, lw=1.3)
+            ax.scatter(100 * part.mean_delta, y, s=22, marker='D', color=color, label=label)
+        ax.axvline(0, color=PALETTE['zero_line'], linewidth=.8)
+        ax.set(yticks=np.arange(len(groups)), yticklabels=[SHORT_GROUP.get(g, g) for g in groups],
+               xlabel='AUC change (×100; paired 95% CI)')
+        ax.tick_params(labelsize=8.5)
+        ax.set_xlim(limits[0] - margin, limits[1] + margin)
+        ax.xaxis.set_major_locator(MaxNLocator(4))
+        label = f'{horizon:g} days' if horizon < 365 else f'{horizon / 365:g} year' + ('s' if horizon > 365 else '')
+        _panel_title(ax, chr(65 + panel), label)
+        despine(ax, 'x')
+    axes[0, 0].invert_yaxis()
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc='upper center', bbox_to_anchor=(.6,.99),
                ncol=2, fontsize=8, frameon=False)
-    despine(ax, 'x')
+    fig.text(.60, .04, 'Equal outcome means within clinical families; diseases pooled within each outcome',
+             ha='center', fontsize=7, color=PALETTE['ink_secondary'])
+    watermark(fig, mark)
+    return fig
+
+
+def figure_recent_record_gap_horizons(restrictions, *, mark=None):
+    """Overall recent-history reliance across prediction horizons."""
+    data = restrictions.loc[restrictions.group.eq('All outcomes')].copy()
+    if 'horizon_days' not in data:
+        data['horizon_days'] = 365
+    if data.empty or data.duplicated(['restriction', 'horizon_days']).any():
+        raise ValueError('Need unique overall horizon/restriction results')
+    horizons = sorted(data.horizon_days.unique())
+    fig, ax = plt.subplots(figsize=(7.2, 4.3))
+    fig.subplots_adjust(left=.13, right=.97, bottom=.20, top=.73)
+    for i, days in enumerate((7, 14, 21, 28)):
+        label = f'Last {days} days hidden'
+        part = data.loc[data.restriction.eq(label)].set_index('horizon_days').reindex(horizons)
+        x = np.arange(len(horizons)) + (i - 1.5) * .045
+        color = list(HORIZON_COLORS.values())[i]
+        ax.plot(x, 100 * part.mean_delta, color=color, lw=1.2, marker='D', ms=4, label=label)
+        ax.vlines(x, 100 * part.lower, 100 * part.upper, color=color, lw=1, alpha=.6)
+    ax.axhline(0, color=PALETTE['zero_line'], lw=.8)
+    ax.set_xticks(range(len(horizons)), [f'{int(h)} d' if h < 365 else f'{h / 365:g} y' for h in horizons])
+    ax.set_xlabel('Prediction horizon')
+    ax.set_ylabel('AUC change (×100; paired 95% CI)')
+    _panel_title(ax, 'A', 'Reliance on recent clinical history')
+    fig.legend(*ax.get_legend_handles_labels(), loc='upper center', bbox_to_anchor=(.55,.98),
+               ncol=2, frameon=False, fontsize=8)
+    despine(ax, 'both')
     watermark(fig, mark)
     return fig

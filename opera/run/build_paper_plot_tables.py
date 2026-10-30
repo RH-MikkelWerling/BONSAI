@@ -45,6 +45,7 @@ CONTRAST_CODES = {
     **{f"FD{f}": f"EA:F{f}-L" for f in (10, 25, 50)},
     **{f"C{i}": f"C{i}" for i in range(1, 7)}, "RS1": "RS1",
     "O1": "OPERA-X", "O2": "OPERA-J", "O3": "OPERA-S",
+    "O4": "OPERA-D", "O5": "OPERA-O", "O6": "OPERA-XP", "O7": "OPERA-LR",
     "R1_orig": "Rorig-J", "T1_orig": "Rorig-X", "R_orig": "Rorig-R",
     "E1": "E-L:J", "E2": "E-L:R", "A1": "EA-E:J", "A2": "EA-E:R",
     "E3": "EA-L:J", "E4": "EA-L:R",
@@ -369,9 +370,10 @@ SUBGROUP_FIGURES = {
                        "IPI": "Clinical risk score"},
     },
     "national_subgroups": {
+        "include_overall": True,
         "contrasts": {"E3": ("#2D3A8C", "Adapted national vs local"),
                       "E1": ("#5C7AEA", "National vs local")},
-        "covariates": {"national_vocabulary_coverage":
+        "covariates": {"overall": "Overall", "national_vocabulary_coverage":
                        "History covered by national vocabulary",
                        "support_bin": "Target training events",
                        "index_year": "Year of treatment"},
@@ -432,6 +434,13 @@ def subgroup_table(panels, summaries, spec, *, seed=None, horizon=ALL_HORIZONS,
                     & data.contrast.isin(spec["contrasts"])
                     & data.covariate.isin(spec["covariates"])].copy()
     rows = [data[["covariate", "subgroup", "contrast", "gain", "lower", "upper"]]]
+    if summaries is not None and spec.get('include_overall'):
+        overall = _select(summaries, seed=seed)
+        overall = overall.loc[overall.stratum.eq('all_cells') & overall.metric.eq('brier')
+                              & overall.horizon_days.eq(horizon)
+                              & overall.contrast.isin(spec['contrasts'])]
+        rows.append(overall.assign(covariate='overall', subgroup='All supported cells')[
+            ['covariate', 'subgroup', 'contrast', 'gain', 'lower', 'upper']])
     if summaries is not None and "support_bin" in spec["covariates"]:
         cells = _select(summaries, seed=seed)
         cells = cells.loc[(cells.stratum == "support_bin") & (cells.metric == "brier")

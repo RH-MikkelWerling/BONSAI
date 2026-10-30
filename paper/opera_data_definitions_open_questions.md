@@ -108,9 +108,13 @@ Section references (S1-S10) point to the rewritten supplement.
     Diagnosis-based infection outcomes take the first post-index code without
     excluding continuation coding of a pre-index episode. Evidence:
     AE:2140-2222.
-20. **External AKI algorithm (S6).** The AKI table algorithm (baseline, KDIGO
-    criteria, meaning of `aki_episode`) is external and undocumented in the
-    repository; the script comment asks to "ask Christian". Evidence:
+20. **AKI baseline-window correction (S6), confirmed 30 October.** The author
+    confirms that the external table used the reversed annual-window condition.
+    This includes current/future measurements. Corrected episode dates and the
+    resulting OPERA labels/censoring need a development-data comparison before
+    final evaluation. The imported endpoint uses onset dates, not episode stage.
+    See `docs/AKI_BASELINE_BUG_IMPACT_20261030.md` and
+    `docs/AKI_CORRECTION_RECOVERY_PLAN_20261030.md`. Evidence:
     AE:23-31, 449-455, 1044-1049.
 21. **ALT candidate abnormal-baseline multipliers (S6).** Confirm the
     1.5x / 2.0x baseline multipliers against the intended reference before
