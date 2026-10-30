@@ -120,3 +120,21 @@ def test_stage_seven_adds_the_two_candidates_and_reuses_everything_else():
         validate_direct_cr_config(new[alias])
     national = external_routed({"competing_risk": {}}, "R_PT3V_L")["competing_risk"]
     assert national["adapter_task_routing"] is True and national["adapter_borrow_mix"] == "variance_preserving"
+
+
+def test_router_gradients_are_finite_and_ordinary_at_the_start():
+    """A zero task query gave ~1e11 gradients (normalising a zero vector), which
+    overflow in 16-bit mixed precision so every step was skipped (31 October)."""
+    r = TaskRoutedPoolingReadout(64, [f"D{i}" for i in range(6)], [f"O{j}" for j in range(5)], bottleneck=4,
+                                 query_mode="interacting", query_hidden_dim=32, global_adapter=True,
+                                 tau_prior=10.0)
+    r.set_training_support([10] * 11, [10] * 11, [10] * 11)
+    r.set_cell_support([[10] * 5] * 6)
+    assert float(r._task_query(torch.tensor([0])).norm()) > 0.01
+    with torch.no_grad():
+        r.up.normal_(std=0.3)
+    r.train(); r.router_frozen = False
+    r(torch.randn(4, 64), torch.tensor([0, 1, 2, 3])).pow(2).sum().backward()
+    for name in ("fine_query.weight", "target_query.weight", "source_keys"):
+        grad = dict(r.named_parameters())[name].grad
+        assert grad is not None and torch.isfinite(grad).all() and float(grad.abs().max()) < 10

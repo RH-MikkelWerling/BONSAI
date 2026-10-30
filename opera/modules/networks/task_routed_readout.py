@@ -33,6 +33,8 @@ from torch.nn import functional as F
 from opera.modules.networks.partial_pooling_readout import _MASKED, PartialPoolingReadout
 
 MIXES = ("per_source", "variance_preserving")
+QUERY_INIT_STD = 0.02
+NORMALIZE_EPS = 1e-4
 
 
 class TaskRoutedPoolingReadout(PartialPoolingReadout):
@@ -50,6 +52,14 @@ class TaskRoutedPoolingReadout(PartialPoolingReadout):
             self.patient_query.weight.zero_()
         self.patient_query.weight.requires_grad_(False)
         self.temperature_log_ratio.requires_grad_(False)
+        # The parent starts the disease and outcome queries at zero. Normalising a
+        # zero query has a ~1/eps gradient, which overflows in 16-bit mixed
+        # precision, so every step was skipped and routing never moved (first
+        # launch, 31 October). Small random queries start near an even mix with
+        # ordinary gradients; a forked RNG keeps every other initialisation equal.
+        with torch.random.fork_rng(devices=[]):
+            torch.nn.init.normal_(self.fine_query.weight, std=QUERY_INIT_STD)
+            torch.nn.init.normal_(self.target_query.weight, std=QUERY_INIT_STD)
 
     def _task_query(self, fine_index):
         """(batch, target outcome, hidden) from disease and outcome only."""
@@ -71,9 +81,9 @@ class TaskRoutedPoolingReadout(PartialPoolingReadout):
             raise ValueError("fine_index must have one value per patient")
         known = (fine_index >= 0) & (fine_index < self.n_disease)
         safe_index = fine_index.clamp(0, self.n_disease - 1)
-        query = F.normalize(self._task_query(safe_index), dim=-1)
-        scores = self.logit_bound * torch.einsum(
-            "boh,sh->bos", query, F.normalize(self.source_keys, dim=-1))
+        query = F.normalize(self._task_query(safe_index).float(), dim=-1, eps=NORMALIZE_EPS)
+        keys = F.normalize(self.source_keys.float(), dim=-1, eps=NORMALIZE_EPS)
+        scores = self.logit_bound * torch.einsum("boh,sh->bos", query, keys)
         own = torch.zeros(len(patient), self.n_outcome, self.n_sources,
                           dtype=torch.bool, device=patient.device)
         own[torch.arange(len(patient), device=patient.device), :, safe_index] = True
