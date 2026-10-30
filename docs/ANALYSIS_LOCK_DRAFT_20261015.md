@@ -665,3 +665,59 @@ from learned routing (what and how much to borrow); R_PP_FROZEN minus R_AB the
 gain from the structural changes (bounded corrections, explicit own weight). In
 the synthetic positive control the two parts were of similar size (mean AUC for
 A: R_AB-style 0.777, frozen 0.803, routed 0.830).
+
+**Recognisable routes (prespecified 30 October 2026, evening, while the R_PP
+fits were training and before any R_PP output existed).** A borrowed source is
+"recognisable" for a target task when it shares the target's group at one of
+three levels, all taken from the paper cell metadata fixed before routing
+results: lineage (`cohort_group`, 10 groups; disease bank), endpoint family
+(`loss_endpoint`, 52 families pairing grade variants of one finding; outcome
+bank) and endpoint group (12 clinical display groups; outcome bank). The
+endpoint family is the tight level. Endpoint groups are coarser and some mix
+outcomes that need not be related (e.g. death, next treatment and next
+malignancy in "Disease course and later malignancy"), so they are read with
+that caveat.
+
+Statistic, per level, from the mechanism audit's task-level mean gates: for
+each target task with at least one available group partner, the share of its
+borrowed weight (within the level's bank) on in-group sources, against the
+share an even mix would give (the in-group fraction of available sources).
+Summary: mean observed and expected share across tasks, their ratio
+(enrichment), and a permutation p-value (2,000 permutations; group labels
+permuted jointly for targets and sources, so each target still never borrows
+from itself), plus a descriptive breakdown by the target's group. The same
+statistic is computed for R_AB as the comparison. Clinical review of specific
+routes is descriptive and follows these numbers; it does not redefine them.
+The route statistics are an audit only. They play no part in the R_PP selection
+rule, which uses the two health criteria and pooled tuning AUC alone.
+
+## Amendment of 31 October 2026 (night): task-routed router candidates (before any test data were opened)
+
+**What happened to R_PP.** Within a few steps of its warm-up ending, R_PP's
+training-batch routing entropy fell from 4.48 (even over the borrowed sources)
+to about 0.01: one source per prediction. Its task-level routing (from the
+checkpoint parameters, patient term set to zero) was still even, so the
+concentration came from the patient term. Two causes, reproduced in a
+many-source toy (20 diseases in lineages of four, data-poor members):
+(1) the patient projection starts at full size while the disease and outcome
+query embeddings start at zero, so routing followed a direction common to all
+patients; (2) with bounded source corrections and unbounded logits,
+concentrating the gate was the fastest way to a large correction. The
+"final router design" statement above is withdrawn by the author; R_PP is
+reported as a failed design with this diagnosis.
+
+**Candidates.** Both keep R_PP's bounded corrections and own weight
+n/(n + tau), route from the target task only (disease and outcome, with their
+interaction; no patient term) and bound the logits at `bound x cos(query, key)`:
+R_PT5 (bound 5, per-source mixture) and R_PT3V (bound 3, variance-preserving
+mixture, the borrowed mix divided by sqrt(sum of squared weights)). In the toy
+(three seeds), data-poor diseases put 0.89 (R_PT5) and 0.56 (R_PT3V) of their
+borrowed weight on their true relatives (even mix 0.16; R_AB-style 0.20;
+R_PP 0.41), with 15 and 14 distinct top sources (no collapse) and AUC for the
+data-poor diseases 0.804 and 0.815 (R_AB-style 0.813, R_PP 0.793).
+R_PP_FROZEN is the frozen-router control for R_PT5 (identical even mixture).
+
+**Selection.** Unchanged in form: a candidate replaces R_AB only if its
+borrowed mixture passes both health criteria and its pooled tuning AUC is at
+least R_AB's minus the seed noise floor. If both pass, the higher pooled tuning
+AUC is chosen. Route statistics remain an audit only.

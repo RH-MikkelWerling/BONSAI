@@ -79,7 +79,22 @@ def module(name, *args):
 
 
 # The own-sources-only control of each routed design (source removal levels).
-OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L"}
+# Own-only reference for the trained-borrowing comparison. R_PP has no own-only
+# fit; its learned-routing comparison is PP2 (R_PP vs R_PP_FROZEN) instead, so
+# the sentinel matches no alias and that comparison is skipped.
+OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L",
+                 "R_PP_L": "NO_OWN_ONLY_FIT", "R_PP_s43_L": "NO_OWN_ONLY_FIT"}
+
+
+def removal_bundle(root, routed):
+    """The frozen bundle holding the routed model's fit."""
+    if routed == "R_L":
+        return root / "bundles" / "stage2"  # the original router
+    if routed.startswith("R_PP"):
+        return root / "bundles" / "stage6"  # partial-pooling router (2026-10-30)
+    if routed.startswith(("R_O", "RBH_O")):
+        return root / "bundles" / "stage4"
+    return root / "bundles" / "stage3"
 
 
 def stage_bundles(root):
@@ -178,6 +193,9 @@ def build_commands(args, env):
             if stage >= 6:
                 # Partial-pooling router (addendum 2026-10-30): R_PP and R_PP_s43.
                 command += ["--router-pp"]
+            if stage >= 7:
+                # Task-routed candidates (2026-10-31): R_PT5 and R_PT3V.
+                command += ["--router-pt"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]
@@ -403,7 +421,7 @@ def build_commands(args, env):
         routed = env.get("OPERA_PAPER_ROUTED_MODEL") or "R_L"
         command = module(
             "opera.run.paper_prediction_queue",
-            "--bundle-dir", root / "bundles" / ("stage2" if routed == "R_L" else "stage3"),
+            "--bundle-dir", removal_bundle(root, routed),
             "--runs-dir", runs,
             "--split", args.split,
             "--output-dir", root / "predictions",

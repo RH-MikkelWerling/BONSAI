@@ -236,5 +236,7 @@ class PartialPoolingReadout(SourceAnchoredReadout):
                     "temperature": float(self.temperature),
                     "temperature_prior": self.temperature_prior,
                     "pool_scale": float(self.pool_scale),
+                    "fine_names": list(self.fine_names),
+                    "outcome_names": list(self.outcome_names),
                     "own_weight_by_cell": own.tolist(),
                     "cell_train_events": self.cell_train_events.tolist()}

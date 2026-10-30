@@ -339,3 +339,113 @@ def test_positive_control_router_finds_the_matching_source_and_it_pays_off():
     assert mean(pp, lambda r: r["auc_A"]) > 0.75
     assert mean(pp, lambda r: r["auc_A"]) > mean(ab, lambda r: r["auc_A"])
     assert all(r["weight_A_from"]["A"] == 0 for r in pp)  # own source never in the borrowed mix
+
+
+def test_the_audit_can_select_any_declared_router_and_finds_its_checkpoint(tmp_path):
+    import yaml
+
+    from opera.run.audit_frozen_router_mechanism import (
+        checkpoint_for_predictions, file_hash, ladder_for, selected_inputs)
+
+    data = tmp_path / "data"
+    run = "L/seed42/abc123"
+    predictions = data / "predictions" / run / "tuning" / "direct_cr_predictions.parquet"
+    checkpoint = data / "neural_runs" / run / "best.ckpt"
+    for path in (predictions, checkpoint):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"x")
+    assert checkpoint_for_predictions(predictions) == checkpoint.resolve()
+    with pytest.raises(ValueError):
+        checkpoint_for_predictions(tmp_path / "elsewhere" / "p.parquet")
+    root = tmp_path / "analysis"
+    (root / "analysis_inventory").mkdir(parents=True)
+    artifact = {"model": "R_PP_L", "split": "tuning", "seed": 42, "format": "direct_cif",
+                "path": str(predictions)}
+    (root / "analysis_inventory/analysis.yaml").write_text(yaml.safe_dump(
+        {"estimand": "cif_ipcw", "opera_model": "R_L", "artifacts": [artifact]}))
+    _, spec, fit = selected_inputs(root, 42, "R_PP_L")
+    assert spec == artifact and fit["model"] == "R_PP_L"
+    assert fit["checkpoint"] == str(checkpoint.resolve())
+    assert fit["checkpoint_sha256"] == file_hash(checkpoint)
+    with pytest.raises(ValueError):  # undeclared alias
+        selected_inputs(root, 42, "R_PP_s43_L")
+    assert ladder_for("R_PP_L") == ["J_L", "R_AB_L", "R_PP_FROZEN_L", "R_PP_L"]
+    assert ladder_for(None) == ["J_L", "N_A_L", "RBH_AB_L", "R_AB_L"]
+
+
+def test_partial_pooling_contrasts_reach_the_paper_numbers_and_routes_are_exported():
+    from opera.run.analyse_locked_predictions import PARTIAL_POOLING, models_for
+    from opera.run.build_paper_numbers import CODES
+    from opera.run.paper_prediction_queue import export_flags
+
+    assert set(PARTIAL_POOLING) <= set(CODES)
+    assert models_for(PARTIAL_POOLING) == {"J_L", "R_L", "R_PP_L", "R_PP_FROZEN_L", "R_PP_s43_L"}
+    for alias in ("R_PP_L", "R_PP_s43_L", "R_PP_FROZEN_L"):
+        assert export_flags([alias], SimpleNamespace(export_routes=False)) == {
+            "export_embeddings": True, "export_routes": True}
+
+
+def test_gate_tables_say_where_borrowed_weight_goes(tmp_path):
+    from opera.run.audit_frozen_router_mechanism import gate_tables
+
+    model = _pooling_model()
+    head = FrozenRouterHead(model.source_adapter_readout, model.competing_risk_head.weight,
+                            model.competing_risk_head.bias, [30, 365], no_competing_outcomes=[]).eval()
+    x, fine, idx = torch.randn(8, 16), torch.tensor([0, 1] * 4), torch.tensor([0, 1])
+    terms, gates = head.terms(x, fine, idx)
+    ref = TaskReferences(head, 2)
+    ref.add(fine, torch.ones(8, 2, dtype=torch.bool), terms, gates, head.borrowed_mask(fine, idx))
+    result, _ = gate_tables(head, ref.finalize(), ["x", "y"], tmp_path)
+    assert result["status"] == "complete" and result["tasks"] == 4
+    tasks = __import__("pandas").read_csv(tmp_path / "borrowed_weights_by_task.csv")
+    # Own disease and own outcome never appear as borrowed sources.
+    for row in tasks.itertuples():
+        assert row.source != f"disease:{row.disease}" and row.source != f"outcome:{row.outcome}"
+    shares = tasks.groupby(["disease", "outcome"]).share_of_borrowed.sum()
+    assert shares.round(6).eq(1).all()
+    assert (tmp_path / "borrowed_weights_by_disease.csv").is_file()
+
+
+def test_the_borrowing_map_uses_the_bundle_holding_the_routed_model(tmp_path):
+    from opera.run.paper_experiments import OWN_REFERENCE, removal_bundle
+
+    assert removal_bundle(tmp_path, "R_PP_L").name == "stage6"
+    assert removal_bundle(tmp_path, "R_AB_L").name == "stage3"
+    assert removal_bundle(tmp_path, "R_L").name == "stage2"
+    assert removal_bundle(tmp_path, "R_O_L").name == "stage4"
+    assert OWN_REFERENCE["R_PP_L"] == "NO_OWN_ONLY_FIT"  # no mislabelled trained-borrowing
+
+
+def test_route_concentration_detects_within_group_borrowing_and_not_an_even_mix():
+    import pandas as pd
+
+    from opera.run.audit_frozen_router_mechanism import route_concentration
+
+    # Four lineages of three (a six-disease example has only 15 pairings, so even
+    # perfect within-pair routing cannot reach p < 1/15 under the exact null).
+    diseases = [f"D{i}" for i in range(12)]
+    lineage = {d: f"G{i // 3}" for i, d in enumerate(diseases)}
+    meta = pd.DataFrame([dict(cohort=d, outcome="death", cohort_group=lineage[d],
+                              loss_endpoint="death", endpoint_group="course") for d in diseases])
+
+    def tasks(weight_in_group):
+        rows = []
+        for d in diseases:
+            others = [x for x in diseases if x != d]
+            inside = [x for x in others if lineage[x] == lineage[d]]
+            for x in others:
+                share = (weight_in_group / len(inside) if x in inside
+                         else (1 - weight_in_group) / (len(others) - len(inside)))
+                rows.append(dict(disease=d, outcome="death", source=f"disease:{x}", bank="disease",
+                                 mean_gate=share))
+        return pd.DataFrame(rows)
+
+    even = route_concentration(tasks(2 / 11), meta, permutations=200)["lineage"]
+    assert even["enrichment"] == pytest.approx(1.0) and even["permutation_p"] > 0.2
+    routed = route_concentration(tasks(0.8), meta, permutations=200)["lineage"]
+    assert routed["observed_in_group_share"] == pytest.approx(0.8)
+    assert routed["enrichment"] == pytest.approx(0.8 / (2 / 11)) and routed["permutation_p"] < 0.01
+    assert routed["n_tasks"] == 12
+    assert set(routed["by_target_group"]) == {"G0", "G1", "G2", "G3"}
+    # No outcome sources in this example: those levels are not estimable, not errors.
+    assert route_concentration(tasks(0.8), meta, permutations=10)["endpoint_family"]["status"] == "not_estimable"

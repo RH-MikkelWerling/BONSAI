@@ -758,7 +758,8 @@ def main():
         "references": {name: str(path) for name, path in references.items()},
         "effects": {"dependence": "AUC(full) - AUC(none)",
                     "routing": f"AUC({args.model}) - AUC(J_L)",
-                    "trained_borrowing": f"AUC({args.model}) - AUC({args.own_reference})",
+                    **({"trained_borrowing": f"AUC({args.model}) - AUC({args.own_reference})"}
+                       if "RDH" in references else {}),
                     "in": "AUC(own + source) - AUC(none); map and claims",
                     "out": "AUC(full) - AUC(all but source)"},
         "units": "AUC points",

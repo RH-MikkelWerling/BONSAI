@@ -122,6 +122,19 @@ ROUTER_PP = {
     "R_PP": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42),
     "R_PP_s43": ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 43),
 }
+# Task-routed candidates (stage 7; 31 October 2026, before any test data): R_PP
+# with routing from disease and outcome only and bounded logits (bound x cosine);
+# R_PT3V adds the variance-preserving borrowed mixture. Values: (bound, mix).
+ROUTER_PT = {"R_PT5": (5.0, "per_source"), "R_PT3V": (3.0, "variance_preserving")}
+
+
+def task_routing(config, bound, mix):
+    partial_pooling(config)
+    config["competing_risk"].update(adapter_task_routing=True, adapter_logit_bound=bound,
+                                    adapter_borrow_mix=mix)
+    return config
+
+
 # Control, never a primary candidate: R_PP with the router frozen for the whole
 # fit (warm-up = training length), so tau and the borrowed mix stay at their
 # starting values. R_PP minus this control is the gain from learned routing.
@@ -138,7 +151,8 @@ def partial_pooling(config):
 
 def apply_router_fix(config, fix):
     """The readout settings of a router-fix design (e.g. R_AB, or R_PP)."""
-    designs = {**ROUTER_FIX, **ROUTER_PP}
+    designs = {**ROUTER_FIX, **ROUTER_PP,
+               **{name: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42) for name in ROUTER_PT}}
     _, borrowing, global_adapter, warmup, scale, _ = designs[fix]
     config["competing_risk"].update(adapter_global=global_adapter,
                                     adapter_router_warmup_epochs=warmup)
@@ -148,6 +162,8 @@ def apply_router_fix(config, fix):
         config["competing_risk"]["adapter_logit_scale"] = scale
     if fix in ROUTER_PP:
         partial_pooling(config)
+    if fix in ROUTER_PT:
+        task_routing(config, *ROUTER_PT[fix])
     return config
 
 
@@ -156,7 +172,7 @@ def routed_fix(routed_model):
     if not routed_model or routed_model == "R_L":
         return None
     fix = routed_model.removesuffix("_L")
-    if fix not in ROUTER_FIX and fix not in ROUTER_PP:
+    if fix not in ROUTER_FIX and fix not in ROUTER_PP and fix not in ROUTER_PT:
         raise ValueError(f"Unknown primary routed model {routed_model}")
     return fix
 
@@ -265,6 +281,7 @@ def build_bundle(
     routed_model=None,
     sampling_ipw=False,
     router_pp=False,
+    router_pt=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -509,6 +526,16 @@ def build_bundle(
         entries += router_fix_entries(base, reference, checkpoints, selected_router,
                                       epochs=epochs, patience=patience,
                                       fits={**ROUTER_PP, **ROUTER_PP_CONTROLS}, pooling=True)
+    if router_pt:
+        if not router_pp:
+            raise ValueError("Stage 7 repeats the stage-6 fits")
+        for alias, (bound, mix) in ROUTER_PT.items():
+            entry = router_fix_entries(base, reference, checkpoints, selected_router,
+                                       epochs=epochs, patience=patience,
+                                       fits={alias: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42)},
+                                       pooling=True)[0]
+            task_routing(entry["config"], bound, mix)
+            entries.append(entry)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -665,6 +692,8 @@ def main():
                         help="Override data-loading workers consistently in every arm")
     parser.add_argument("--sampling-ipw", action="store_true",
                         help="stage 5: J and R_AB with importance-weighted event sampling")
+    parser.add_argument("--router-pt", action="store_true",
+                        help="stage 7: task-routed candidates R_PT5 and R_PT3V")
     parser.add_argument("--router-pp", action="store_true",
                         help="stage 6: the partial-pooling router R_PP and its seed-43 repeat")
     parser.add_argument("--routed-model",
@@ -714,6 +743,7 @@ def main():
         routed_model=args.routed_model,
         sampling_ipw=args.sampling_ipw,
         router_pp=args.router_pp,
+        router_pt=args.router_pt,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

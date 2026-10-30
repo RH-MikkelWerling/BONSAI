@@ -361,9 +361,9 @@ def route_table(routes, *, seed=None, model="R_L"):
 
 SUBGROUP_FIGURES = {
     "patient_subgroups": {
-        "contrasts": {"P5": ("#2D3A8C", "Joint vs specialist"),
+        "contrasts": {"P5": ("#8974AC", "Joint vs specialist"),
                       "T2": ("#408579", "Joint vs XGBoost"),
-                      "O1": ("#8974AC", "OPERA vs XGBoost")},
+                      "O1": ("#2D3A8C", "OPERA vs XGBoost")},
         "covariates": {"history_event_count": "Recorded history before treatment",
                        "age_at_index": "Age", "sex": "Sex",
                        "predominant_region": "Region",

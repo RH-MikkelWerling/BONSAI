@@ -178,7 +178,7 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         }:
             raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
         for flag in ("adapter_borrowing", "adapter_disease_embedding", "adapter_global",
-                     "adapter_own_outside", "adapter_partial_pooling"):
+                     "adapter_own_outside", "adapter_partial_pooling", "adapter_task_routing"):
             if not isinstance(competing.get(flag, False), bool):
                 raise ValueError(f"{flag} must be true or false")
         if competing.get("adapter_partial_pooling", False):
@@ -195,6 +195,14 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
                 raise ValueError("adapter_partial_pooling requires source_anchored_adapters")
             if float(competing.get("adapter_logit_scale", 0.0)) != 0:
                 raise ValueError("adapter_partial_pooling uses a learned temperature, not a logit scale")
+        if competing.get("adapter_task_routing", False):
+            if not competing.get("adapter_partial_pooling", False):
+                raise ValueError("adapter_task_routing extends adapter_partial_pooling")
+            bound = float(competing.get("adapter_logit_bound", 5.0))
+            if not math.isfinite(bound) or bound <= 0:
+                raise ValueError("adapter_logit_bound must be finite and positive")
+            if competing.get("adapter_borrow_mix", "per_source") not in {"per_source", "variance_preserving"}:
+                raise ValueError("adapter_borrow_mix must be per_source or variance_preserving")
         shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
         if not math.isfinite(shared_init):
             raise ValueError("adapter_shared_logit_init must be finite")

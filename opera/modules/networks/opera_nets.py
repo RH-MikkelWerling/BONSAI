@@ -1842,6 +1842,17 @@ class OperaContrastiveModel(nn.Module):
                 readout_class = PartialPoolingReadout
                 pooling_options = {"tau_prior": float(
                     competing_risk_settings.get("adapter_event_tau", 20.0))}
+                if competing_risk_settings.get("adapter_task_routing", False):
+                    # Task-routed candidates (2026-10-31): routing from disease and
+                    # outcome only, bounded logits, optional variance-preserving mix.
+                    from opera.modules.networks.task_routed_readout import (
+                        TaskRoutedPoolingReadout,
+                    )
+
+                    readout_class = TaskRoutedPoolingReadout
+                    pooling_options.update(
+                        logit_bound=float(competing_risk_settings.get("adapter_logit_bound", 5.0)),
+                        borrow_mix=str(competing_risk_settings.get("adapter_borrow_mix", "per_source")))
             self.source_adapter_readout = readout_class(
                 hidden_size,
                 competing_risk_settings.get("fine_names", []),

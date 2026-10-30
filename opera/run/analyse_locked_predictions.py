@@ -217,6 +217,16 @@ SAMPLING_SENSITIVITY = {"IPW_R": "gain(R_AB_IPW_L,R_AB_L)", "IPW_J": "gain(J_IPW
 ORIGINAL_ROUTER = {"R1_orig": "gain(R_ORIG_L,J_L)", "T1_orig": "gain(R_ORIG_L,X)",
                    "R_orig": "gain(R_ORIG_L,R_L)"}
 
+# Partial-pooling router (lock amendment 2026-10-30), computed when its fits are
+# present. R_L is the primary routed model (R_AB unless R_PP is selected).
+PARTIAL_POOLING = {
+    "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
+    "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
+    "PP3": "gain(R_PP_FROZEN_L,R_L)",     # gain from the structural changes
+    "PP4": "gain(R_PP_L,J_L)",            # against the joint model
+    "PP0": "gain(R_PP_L,R_PP_s43_L)",     # seed noise floor
+}
+
 
 def with_opera_alias(predictions, model):
     if not model or model not in set(predictions.model):
@@ -411,6 +421,8 @@ def run(config, output_dir):
     predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
     contrasts.update(opera_contrasts)
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in PARTIAL_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     if "R_ORIG_L" in set(predictions.model):
         # The originally locked router, kept as a sensitivity model when another

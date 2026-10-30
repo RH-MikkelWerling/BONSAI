@@ -27,16 +27,37 @@ from opera.evaluation.secondary_analysis import (
 from opera.run.analyse_locked_predictions import file_hash, read_artifact, read_table
 
 
-def selected_inputs(root, seed):
-    """Select only the declared tuning artifact, never discover test files."""
+def checkpoint_for_predictions(predictions):
+    """predictions/<origin>/seed<k>/<hash>/tuning/<file> -> neural_runs/.../best.ckpt."""
+    path = Path(predictions).resolve()
+    run, data = path.parent.parent, path.parents[5] if len(path.parents) > 5 else None
+    if path.parent.name != 'tuning' or data is None or path.parents[4].name != 'predictions':
+        raise ValueError(f'Unexpected prediction layout, pass --checkpoint: {path}')
+    return data / 'neural_runs' / run.relative_to(path.parents[4]) / 'best.ckpt'
+
+
+def selected_inputs(root, seed, model=None, checkpoint=None):
+    """Select only the declared tuning artifact, never discover test files.
+
+    Without ``model``: the analysis's declared OPERA model and the fit recorded
+    in completion.json. With ``model`` (e.g. R_PP_L; lock amendment 2026-10-30):
+    that alias's declared tuning artifact and its checkpoint, whose identity the
+    saved encoder vectors must confirm."""
     analysis = yaml.safe_load((root / 'analysis_inventory/analysis.yaml').read_text())
     if analysis.get('estimand') != 'cif_ipcw':
         raise ValueError('This audit requires the paper CIF IPCW estimand')
-    model = analysis.get('opera_model', 'R_L')
-    candidates = [a for a in analysis['artifacts'] if a['model'] == model
+    declared = model or analysis.get('opera_model', 'R_L')
+    candidates = [a for a in analysis['artifacts'] if a['model'] == declared
                   and a.get('split') == 'tuning' and int(a.get('seed', 42)) == seed]
     if len(candidates) != 1 or candidates[0].get('format') != 'direct_cif':
-        raise ValueError('Need exactly one declared native tuning artifact for the primary router')
+        raise ValueError(f'Need exactly one declared native tuning artifact for {declared}')
+    if model is not None:
+        path = Path(checkpoint) if checkpoint else checkpoint_for_predictions(candidates[0]['path'])
+        if not path.is_file():
+            raise FileNotFoundError(f'No checkpoint for {model}: {path}')
+        fit = dict(predictions=candidates[0]['path'], checkpoint=str(path),
+                   checkpoint_sha256=file_hash(path), model=model)
+        return analysis, candidates[0], fit
     fit = json.loads((root / 'completion.json').read_text())['inputs']['fit']
     if Path(candidates[0]['path']).resolve() != Path(fit['predictions']).resolve():
         raise ValueError('Primary artifact and recorded fit identify different predictions')
@@ -188,12 +209,141 @@ def risk_change_table(baseline, candidate, variant):
     return pd.DataFrame(rows)
 
 
-def trained_control_ladder(root, seed, horizons, outcomes, output):
+# Separately trained ladders. The partial-pooling one (lock amendment
+# 2026-10-30) splits R_PP's difference from R_AB into the structural change
+# (R_PP_FROZEN - R_AB) and learned routing (R_PP - R_PP_FROZEN).
+LADDERS = {'R_AB': ['J_L', 'N_A_L', 'RBH_AB_L', 'R_AB_L'],
+           'R_PP': ['J_L', 'R_AB_L', 'R_PP_FROZEN_L', 'R_PP_L']}
+
+
+def ladder_for(model):
+    return LADDERS['R_PP'] if model and model.startswith('R_PP') else LADDERS['R_AB']
+
+
+def gate_tables(head, reference, outcomes, output):
+    """Where the borrowed weight goes (lock amendment 2026-10-30): the mean
+    gate of every borrowed source for each disease x target task, and its
+    disease-level average. Unlabelled tuning means; descriptive, not reliance."""
+    r = head.readout
+    sources = [*(f'disease:{n}' for n in r.fine_names), *(f'outcome:{n}' for n in r.outcome_names)]
+    rows = []
+    for d, disease in enumerate(r.fine_names):
+        for o, outcome in enumerate(outcomes):
+            n = float(reference.count[d, o])
+            if n <= 0:
+                continue
+            gates = reference.gates[d, o, 1:]
+            own = {d, r.n_disease + r.outcome_names.index(outcome)}
+            borrowed = sum(float(gates[s]) for s in range(r.n_sources) if s not in own)
+            for s, source in enumerate(sources):
+                if s in own:
+                    continue
+                weight = float(gates[s])
+                rows.append(dict(disease=disease, outcome=outcome, source=source,
+                                 bank=source.split(':', 1)[0], n_patients=int(n),
+                                 mean_gate=weight,
+                                 share_of_borrowed=weight / borrowed if borrowed > 0 else float('nan')))
+    tasks = pd.DataFrame(rows)
+    if tasks.empty:
+        return dict(status='not_available'), tasks
+    tasks.to_csv(output / 'borrowed_weights_by_task.csv', index=False)
+    by_disease = (tasks.groupby(['disease', 'source', 'bank'], as_index=False)
+                  .share_of_borrowed.mean().sort_values(['disease', 'share_of_borrowed'],
+                                                        ascending=[True, False]))
+    by_disease.to_csv(output / 'borrowed_weights_by_disease.csv', index=False)
+    top = by_disease.groupby('disease').head(3)
+    return dict(status='complete', tasks=len(tasks.groupby(['disease', 'outcome'])),
+                top_sources_by_disease={d: list(zip(g.source, g.share_of_borrowed.round(4)))
+                                        for d, g in top.groupby('disease')}), tasks
+
+
+# Prespecified route definitions (lock amendment 2026-10-30, before any R_PP
+# result): a borrowed source is "recognisable" when it shares the target's group
+# at one of these levels, taken from the paper cell metadata.
+ROUTE_LEVELS = {'lineage': ('disease', 'cohort_group'),
+                'endpoint_family': ('outcome', 'loss_endpoint'),
+                'endpoint_group': ('outcome', 'endpoint_group')}
+
+
+def route_concentration(tasks, cell_metadata, *, permutations=2000, seed=2026):
+    """Within-group share of borrowed weight against an even mix, per level.
+
+    For each target task, the observed share is the borrowed weight (within the
+    level's bank) on sources in the target's own group; the expected share is
+    the in-group fraction of available sources. Tasks without an available
+    group partner are excluded. The permutation null shuffles group labels
+    among sources, keeping group sizes.
+    """
+    rng = np.random.default_rng(seed)
+    meta = cell_metadata.drop_duplicates(['cohort', 'outcome'])
+    groups = {'disease': meta.drop_duplicates('cohort').set_index('cohort'),
+              'outcome': meta.drop_duplicates('outcome').set_index('outcome')}
+    results = {}
+    for level, (bank, column) in ROUTE_LEVELS.items():
+        if column not in groups[bank]:
+            results[level] = dict(status='not_available', reason=f'No {column} in cell metadata')
+            continue
+        label = groups[bank][column].astype(str).to_dict()
+        part = tasks.loc[tasks.bank == bank].copy()
+        part['name'] = part.source.str.split(':', n=1).str[1]
+        part = part.loc[(part.mean_gate > 1e-12) & part.name.isin(label)]
+        if part.empty:
+            results[level] = dict(status='not_estimable', reason=f'No available {bank} sources')
+            continue
+        part = part.loc[part[bank].isin(label)]
+        # Targets and sources are the same set (diseases, or outcomes): one
+        # permutation relabels both, so a target's own exclusion is preserved.
+        names = sorted(set(part.name) | set(part[bank]))
+        codes = {name: i for i, name in enumerate(names)}
+        source_label = np.array([label[name] for name in names])
+        source_index = part.name.map(codes).to_numpy()
+        target_index = part[bank].map(codes).to_numpy()
+        task_index = pd.MultiIndex.from_frame(part[['disease', 'outcome']])
+        task, task_keys = task_index.factorize()
+        gate = part.mean_gate.to_numpy(float)
+        total = np.bincount(task, gate)
+        available = np.bincount(task)
+
+        def shares(assigned, *, with_keys=False):
+            inside = assigned[source_index] == assigned[target_index]
+            in_count = np.bincount(task, inside, minlength=len(total))
+            keep = in_count > 0  # tasks with an available group partner
+            observed = np.bincount(task, gate * inside, minlength=len(total))[keep] / total[keep]
+            expected = in_count[keep] / available[keep]
+            if with_keys:
+                return observed, expected, task_keys[keep]
+            return pd.Series(observed), pd.Series(expected)
+
+        observed, expected = shares(source_label)
+        if observed.empty:
+            results[level] = dict(status='not_estimable', reason='No task has an available group partner')
+            continue
+        statistic = float(observed.mean())
+        null = np.array([shares(rng.permutation(source_label))[0].mean() for _ in range(permutations)])
+        # Descriptive breakdown by the target's own group: where any concentration sits.
+        obs, exp, keys = shares(source_label, with_keys=True)
+        target_group = [label[key[0] if bank == 'disease' else key[1]] for key in keys]
+        by_group = (pd.DataFrame(dict(group=target_group, observed=obs, expected=exp))
+                    .groupby('group').agg(n_tasks=('observed', 'size'), observed=('observed', 'mean'),
+                                          expected=('expected', 'mean')))
+        by_group['enrichment'] = by_group.observed / by_group.expected
+        results[level] = dict(
+            by_target_group={g: {k: (int(v) if k == 'n_tasks' else round(float(v), 4))
+                                 for k, v in row.items()} for g, row in by_group.iterrows()},
+            status='complete', grouping=column, n_tasks=int(len(observed)),
+            observed_in_group_share=statistic, expected_in_group_share=float(expected.mean()),
+            enrichment=statistic / float(expected.mean()) if float(expected.mean()) > 0 else float('nan'),
+            permutation_p=float((1 + (null >= statistic).sum()) / (1 + permutations)),
+            permutations=permutations)
+    return results
+
+
+def trained_control_ladder(root, seed, horizons, outcomes, output, models=None):
     """Descriptive existing-fit comparisons, kept separate from interventions."""
     source = root / 'prediction_analysis/estimates.csv'
     if not source.is_file():
         return dict(status='not_available', reason='No existing per-model estimate table')
-    models = ['J_L', 'N_A_L', 'RBH_AB_L', 'R_AB_L']
+    models = list(models or LADDERS['R_AB'])
     columns = ['split', 'seed', 'cohort', 'outcome', 'horizon_days', 'model', 'metric', 'estimate']
     parts = []
     for chunk in pd.read_csv(source, usecols=columns, chunksize=100_000):
@@ -475,8 +625,10 @@ def package_review(output):
                 'index.html', 'figure_render.json']
     included += [name + suffix for name in ('router_mechanism', 'router_mechanism_probability',
         'router_mechanism_sensitivity') for suffix in ('.pdf', '.png')]
-    if (output / 'trained_control_ladder.csv').is_file():
-        included.append('trained_control_ladder.csv')
+    for name in ('trained_control_ladder.csv', 'borrowed_weights_by_task.csv',
+                 'borrowed_weights_by_disease.csv'):
+        if (output / name).is_file():
+            included.append(name)
     included += [p.name for p in sorted(output.glob('joint_path_*.csv'))]
     with zipfile.ZipFile(output / 'router_mechanism_review.zip', 'w', zipfile.ZIP_DEFLATED) as bundle:
         for name in included:
@@ -493,6 +645,10 @@ def main():
     parser.add_argument('--outcomes', nargs='+', default=['all'])
     parser.add_argument('--horizons', nargs='+', type=int)
     parser.add_argument('--seed', type=int, default=42, help='Selected training seed')
+    parser.add_argument('--model', help='Audit this declared tuning alias (e.g. R_PP_L) instead of '
+                                        'the analysis OPERA model')
+    parser.add_argument('--checkpoint', type=Path, help='With --model: checkpoint, if not in the '
+                                                        'standard neural_runs layout')
     parser.add_argument('--bootstrap', type=int, default=400)
     parser.add_argument('--bootstrap-seed', type=int, default=2026)
     parser.add_argument('--batch-size', type=int, default=128)
@@ -512,7 +668,7 @@ def main():
     if output.exists():
         raise FileExistsError('Use a fresh mechanism-audit output directory')
     root = args.analysis_root.resolve()
-    analysis, spec, fit = selected_inputs(root, args.seed)
+    analysis, spec, fit = selected_inputs(root, args.seed, args.model, args.checkpoint)
     torch.set_num_threads(args.threads)
     head = FrozenRouterHead.from_checkpoint(Path(fit['checkpoint'])).eval()
     ids, vectors, vector_path, marker_path = load_vectors(root, fit, args.vectors)
@@ -522,6 +678,7 @@ def main():
         raise ValueError('Saved encoder-vector width differs from the selected readout')
     output.mkdir(parents=True)
     report = dict(status='running', split='tuning', training_seed=args.seed,
+        audited_model=args.model or analysis.get('opera_model', 'R_L'),
         checkpoint=fit['checkpoint'], checkpoint_sha256=fit['checkpoint_sha256'],
         vectors=str(vector_path), vector_marker=str(marker_path), n_patients=len(patient),
         n_prediction_rows=len(baseline), outcomes=outcomes, horizons_days=horizons,
@@ -551,6 +708,10 @@ def main():
         replay = predictions['FULL'][row_index]
         original = baseline.probability.to_numpy(float)
         close = np.isclose(replay, original, atol=1e-5, rtol=1e-4)
+        report['borrowed_weights'], tasks = gate_tables(head, reference, outcomes, output)
+        if not tasks.empty and analysis.get('cell_metadata'):
+            report['route_concentration'] = route_concentration(
+                tasks, read_table(analysis['cell_metadata']))
         report['reconstruction'] = dict(passed=bool(close.all()), n_rows=len(close),
             mismatched_rows=int((~close).sum()), max_probability_error=float(abs(replay-original).max()),
             max_head_algebra_error=error, atol=1e-5, rtol=1e-4)
@@ -595,7 +756,8 @@ def main():
         summary = pd.concat(all_summary, ignore_index=True)
         summary.to_csv(output / 'effect_summaries.csv', index=False)
         pd.concat(risk_tables, ignore_index=True).to_csv(output / 'risk_changes.csv', index=False)
-        report['trained_controls'] = trained_control_ladder(root, args.seed, horizons, outcomes, output)
+        report['trained_controls'] = trained_control_ladder(
+            root, args.seed, horizons, outcomes, output, ladder_for(args.model))
         render_report(summary.loc[summary.weighting == 'equal_cell'], output)
         report['status'] = 'complete'
         report['support'] = dict(min_cases=analysis.get('performance_min_cases', 5),

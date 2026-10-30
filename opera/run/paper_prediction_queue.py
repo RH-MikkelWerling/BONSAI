@@ -90,7 +90,11 @@ ROUTED_MODELS = {"R_L", "R_E", "R_EA",
                  "R_AB_L", "RBH_AB_L", "R_A_L", "R_ABT_L", "R_AB_s43_L",
                  "R_O_L", "RBH_O_L", "R_O_s43_L",
                  # sampling sensitivity (2026-10-27)
-                 "R_AB_IPW_L"}
+                 "R_AB_IPW_L",
+                 # partial-pooling router and its controls (2026-10-30)
+                 "R_PP_L", "R_PP_s43_L", "R_PP_FROZEN_L",
+                 # task-routed candidates (2026-10-31)
+                 "R_PT5_L", "R_PT3V_L"}
 
 
 def export_flags(aliases, args):

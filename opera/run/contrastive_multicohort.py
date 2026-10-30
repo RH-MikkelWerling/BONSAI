@@ -109,6 +109,13 @@ def _record_router_code_provenance(model_save_dir: str, model) -> None:
         parent = Path(inspect.getfile(SourceAnchoredReadout)).resolve()
         payload["parent_class_file"] = str(parent)
         payload["parent_class_file_sha256"] = hashlib.sha256(parent.read_bytes()).hexdigest()
+        # Deeper subclasses (e.g. task routing over partial pooling) also pin the
+        # classes in between; direct subclasses keep their earlier payload exactly.
+        between = [Path(inspect.getfile(cls)).resolve() for cls in type(readout).__mro__[1:]
+                   if issubclass(cls, SourceAnchoredReadout) and cls is not SourceAnchoredReadout]
+        if between:
+            payload["intermediate_class_files"] = {
+                str(item): hashlib.sha256(item.read_bytes()).hexdigest() for item in between}
     if sidecar.is_file():
         previous = json.loads(sidecar.read_text(encoding="utf-8"))
         if previous != payload:

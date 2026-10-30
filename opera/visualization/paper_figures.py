@@ -56,9 +56,11 @@ CONTRAST_STYLE = {
 }
 MODEL_STYLE = {
     "S": ("#7189BC", "Specialist"),
-    "J": ("#2D3A8C", "Joint"),
-    "R": ("#8974AC", "Routed"),
-    "OPERA": ("#8974AC", "OPERA"),  # the configuration chosen on tuning data
+    "J": ("#8974AC", "Joint"),
+    "R": ("#2D3A8C", "Routed"),
+    # OPERA is the hero identity in deep indigo, as in opera.visualization.style;
+    # the joint model takes lavender (fixed 2026-10-30: the two were swapped).
+    "OPERA": ("#2D3A8C", "OPERA"),  # the configuration chosen on tuning data
     "X": ("#408579", "XGBoost"),
     "LR": ("#9E9E9E", "Logistic regression"),
 }
@@ -2012,11 +2014,12 @@ def _matched_embedding_tables(coords, outcomes):
 
 def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
                              horizon=365, grid_size=90, min_effective_support=25.0,
-                             bandwidth=None, mode="observed_surface", mark=None):
+                             bandwidth=None, mode="predicted_points", mark=None):
     """Patient-level final predictions, or observed risk, in a shared embedding.
 
     ``coords``: ``subject_id``, ``x``, ``y`` (the selected checkpoint's shared projection).
-    Default colours are final-model patient risk, including the fitted readout.
+    Default colours are final-model patient risk, one point per patient, as in
+    the gallery the author approved ("keep original", review of 30 October).
     ``mode="observed_surface"`` restores the observed-outcome kernel diagnostic.
     ``outcomes``: long table with ``subject_id``, ``outcome`` (display name),
     ``domain``, ``domain_order``, ``time_days`` and ``event``. Each panel is the
