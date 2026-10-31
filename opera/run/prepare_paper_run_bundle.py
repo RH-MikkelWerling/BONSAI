@@ -188,6 +188,68 @@ ROUTER_PF_CONTROLS = {"R_PF_OFF": {"values": "off"}, "R_PF5E_FROZEN": {"warmup":
                       "R_PF_OFF_F10": {"values": "off", "fraction": 0.1}}
 
 
+# Stage 9 (1 November 2026): task-conditioned pooling. The joint model with
+# outcome-conditioned attention over the encoder's token states instead of one
+# shared summary vector (zero-gated, so each fit starts exactly at J). Every
+# correction tried in stages 3-8 acts on that one shared vector; these test
+# whether letting each outcome read the record differently is the bigger lever.
+# Values: (readout mode, condition on the diagnosis, own corrections, lineage
+# groups, outcome query rank). Lineage groups tie the diagnosis terms of the
+# factorized attention to the lineage (FPF) and add lineage corrections (OWN).
+# A query rank ties outcomes: each outcome's query is a combination of that many
+# shared basis queries plus its own deviation.
+TASK_POOLING = {
+    "J_OA": ("outcome_attention", False, False, False, 0),                     # one query per outcome
+    "J_OA_LR": ("outcome_attention", False, False, False, 8),                  # outcome queries tied (rank 8)
+    "J_SP": ("shared_attention_prototypes", False, False, False, 0),           # shared maps, mixed per outcome
+    "J_FP": ("factorized_cohort_outcome_prototypes", False, False, False, 0),  # mixture by disease group x outcome
+    "J_FPF": ("factorized_cohort_outcome_prototypes", True, False, False, 0),  # mixture by diagnosis x outcome
+    "J_OA_OWN": ("outcome_attention", False, True, False, 0),                  # + own disease/outcome corrections
+    "J_OA_LR_OWN": ("outcome_attention", False, True, False, 8),               # tied queries + own corrections
+    "J_OA_OWN_PH": ("outcome_attention", False, True, True, 0),                # + lineage corrections (hierarchy)
+    "J_FPF_OWN": ("factorized_cohort_outcome_prototypes", True, True, False, 0),
+    "J_FPF_PH": ("factorized_cohort_outcome_prototypes", True, False, True, 0),   # diagnosis terms tied to lineage
+    "J_FPF_PH_OWN_PH": ("factorized_cohort_outcome_prototypes", True, True, True, 0),  # + own and lineage corrections
+}
+
+
+def task_pooling_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
+    from opera.visualization.paper_taxonomy import fine_cohort_groups
+
+    # Claimed before the remaining stage-8 fits (negative order), the designs the
+    # token-level toy favoured first.
+    order = ["J_OA_OWN", "J_OA_LR_OWN", "J_OA", "J_OA_LR", "J_OA_OWN_PH", "J_FPF_PH_OWN_PH",
+             "J_FPF_PH", "J_FPF", "J_FP", "J_FPF_OWN", "J_SP"]
+    entries = []
+    for alias, (mode, by_diagnosis, own, groups, query_rank) in TASK_POOLING.items():
+        config = copy.deepcopy(factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                                 seed=seed, patience=patience)["J_all_diseases_all_outcomes"])
+        risk = config["competing_risk"]
+        risk["readout_mode"] = mode
+        if by_diagnosis or own:
+            risk.update(fine_column="cohort_fine", fine_names=[
+                fine for fine in ALL_EVALUATED_FINE if fine_to_grouped(fine) in config["cohorts"]])
+        if by_diagnosis:
+            risk["prototype_condition"] = "fine"
+        if query_rank:
+            risk["outcome_attention_query_rank"] = int(query_rank)
+        if own:
+            risk.update(attention_own_corrections=True, attention_own_rank=int(selected_router["rank"]),
+                        adapter_residual_scale=float(reference["competing_risk"]["adapter_residual_scale"]))
+        if groups:
+            lineage = fine_cohort_groups()
+            tied = {name: lineage[name] for name in risk["fine_names"]}
+            if own:
+                risk["attention_own_disease_groups"] = tied
+            if by_diagnosis:
+                risk["prototype_condition_groups"] = tied
+        config.setdefault("training", {})["enable_validation_probe"] = False
+        entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+                        "seed": seed, "condition": {}, "config": config,
+                        "queue_order": order.index(alias) - len(order)})
+    return entries
+
+
 def full_own(config, spec):
     """Settings of one stage-8 design (anchor plus the spec's changes)."""
     design = {**PF_ANCHOR, **spec}
@@ -378,6 +440,7 @@ def build_bundle(
     router_pp=False,
     router_pt=False,
     router_pf=False,
+    task_pooling=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -656,6 +719,11 @@ def build_bundle(
             full_own(entry["config"], spec)
             entry["queue_order"] = queue_order  # workers claim stage 8 in this order
             entries.append(entry)
+    if task_pooling:
+        if not router_pf:
+            raise ValueError("Stage 9 repeats the stage-8 fits")
+        entries += task_pooling_entries(base, reference, checkpoints, selected_router,
+                                        epochs=epochs, patience=patience, seed=seeds[0])
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -814,6 +882,8 @@ def main():
                         help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--router-pt", action="store_true",
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
+    parser.add_argument("--task-pooling", action="store_true",
+                        help="stage 9: the joint model with task-conditioned attention pooling")
     parser.add_argument("--router-pf", action="store_true",
                         help="stage 8: full own corrections, design sweep around R_PF5E")
     parser.add_argument("--router-pp", action="store_true",
@@ -867,6 +937,7 @@ def main():
         router_pp=args.router_pp,
         router_pt=args.router_pt,
         router_pf=args.router_pf,
+        task_pooling=args.task_pooling,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

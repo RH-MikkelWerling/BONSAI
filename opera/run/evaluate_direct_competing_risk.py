@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from bonsai.functional.checkpointing import get_saved_encoder_config
 from bonsai.functional.input_contract import resolve_numeric_value_control
 from opera.diagnostics.representation_gradient_conflict import _load_model
+from opera.functional.direct_cr_contract import needs_fine_index
 from opera.evaluation.metrics import compute_competing_risk_metrics_at_horizon
 from opera.modules.datamodules.ContrastiveDataModule import contrastive_collate
 from opera.modules.datamodules.MultiCohortContrastiveDataModule import (
@@ -269,7 +270,7 @@ def main() -> None:
         numeric_value_control=resolve_numeric_value_control(
             cfg.training.get("numeric_value_control", "inherit"), checkpoint_hparams
         ),
-        fine_names=cfg.competing_risk.get("fine_names") if cfg.competing_risk.get("readout_mode") in {"source_anchored_adapters", "unanchored_adapters"} else None,
+        fine_names=cfg.competing_risk.get("fine_names") if needs_fine_index(OmegaConf.to_container(cfg.competing_risk, resolve=True)) else None,
         fine_column=str(cfg.competing_risk.get("fine_column", "cohort_fine")),
     )
     device = _device(args.device)

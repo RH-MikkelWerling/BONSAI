@@ -266,6 +266,32 @@ FULL_OWN = {
     **{f"{code}_E": f"gain({model},R_PF5E_L)" for code, model in PF_VARIANTS.items()},
 }
 
+# Task-conditioned pooling (stage 9, 1 November 2026), when the fits are present.
+TASK_POOLING = {
+    "OA_J": "gain(J_OA_L,J_L)",    # one attention query per outcome, against the joint model
+    "SP_J": "gain(J_SP_L,J_L)",    # shared attention maps mixed per outcome
+    "FP_J": "gain(J_FP_L,J_L)",    # mixture by disease group x outcome
+    "OA_AB": "gain(J_OA_L,R_L)",   # against the primary router
+    "SP_AB": "gain(J_SP_L,R_L)",
+    "FP_AB": "gain(J_FP_L,R_L)",
+    "FP_OA": "gain(J_FP_L,J_OA_L)",
+    "FPF_J": "gain(J_FPF_L,J_L)",            # mixture by diagnosis x outcome
+    "FPF_FP": "gain(J_FPF_L,J_FP_L)",        # diagnosis against disease group
+    "OAOWN_J": "gain(J_OA_OWN_L,J_L)",       # attention + own corrections
+    "OAOWN_AB": "gain(J_OA_OWN_L,R_L)",
+    "OAOWN_OA": "gain(J_OA_OWN_L,J_OA_L)",   # own corrections on top of attention
+    "OAOWNPH_OAOWN": "gain(J_OA_OWN_PH_L,J_OA_OWN_L)",  # lineage corrections on top
+    "OAOWNPH_AB": "gain(J_OA_OWN_PH_L,R_L)",
+    "FPFOWN_AB": "gain(J_FPF_OWN_L,R_L)",
+    "FPFOWN_FPF": "gain(J_FPF_OWN_L,J_FPF_L)",
+    "FPFPH_FPF": "gain(J_FPF_PH_L,J_FPF_L)",            # diagnosis terms tied to lineage
+    "FPFPHOWN_AB": "gain(J_FPF_PH_OWN_PH_L,R_L)",
+    "FPFPHOWN_FPFOWN": "gain(J_FPF_PH_OWN_PH_L,J_FPF_OWN_L)",
+    "OALR_OA": "gain(J_OA_LR_L,J_OA_L)",                # outcomes tied through a shared query basis
+    "OALROWN_OAOWN": "gain(J_OA_LR_OWN_L,J_OA_OWN_L)",
+    "OALROWN_AB": "gain(J_OA_LR_OWN_L,R_L)",
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -470,6 +496,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in TASK_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in FULL_OWN.items()
                       if models_for({name: expression}) <= set(predictions.model)})

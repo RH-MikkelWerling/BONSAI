@@ -256,13 +256,30 @@ class OutcomeAttentionReadout(nn.Module):
         *,
         num_heads: int = 8,
         dropout: float = 0.1,
+        query_rank: int = 0,
     ):
         super().__init__()
         if hidden_size % num_heads:
             raise ValueError("Outcome-attention heads must divide the encoder hidden size.")
+        if query_rank < 0:
+            raise ValueError("query_rank must be nonnegative.")
         self.outcome_names = list(outcome_names)
         self.queries = nn.Parameter(torch.empty(len(outcome_names), hidden_size))
         nn.init.normal_(self.queries, mean=0.0, std=0.02)
+        # Stage 9 (2026-11-01): outcomes tied through a shared query basis. Each
+        # outcome's query is a combination of ``query_rank`` shared basis queries
+        # plus its own deviation (``queries``, then started at zero), so outcomes
+        # that read the record alike share parameters and inform each other.
+        self.query_rank = int(query_rank)
+        self.query_basis = self.query_coefficients = None
+        if self.query_rank:
+            with torch.no_grad():
+                self.queries.zero_()
+            with torch.random.fork_rng(devices=[]):
+                self.query_basis = nn.Parameter(torch.empty(self.query_rank, hidden_size))
+                self.query_coefficients = nn.Parameter(torch.empty(len(outcome_names), self.query_rank))
+                nn.init.normal_(self.query_basis, mean=0.0, std=0.02)
+                nn.init.normal_(self.query_coefficients, mean=0.0, std=self.query_rank ** -0.5)
         self.attention = nn.MultiheadAttention(
             hidden_size,
             num_heads,
@@ -288,7 +305,7 @@ class OutcomeAttentionReadout(nn.Module):
         empty = ~valid.any(dim=1)
         if empty.any():
             valid[rows[empty], lengths[empty]] = True
-        queries = self.queries.unsqueeze(0).expand(hidden.shape[0], -1, -1)
+        queries = self.outcome_queries().unsqueeze(0).expand(hidden.shape[0], -1, -1)
         context, _ = self.attention(
             queries,
             hidden,
@@ -298,6 +315,12 @@ class OutcomeAttentionReadout(nn.Module):
         )
         gates = torch.tanh(self.residual_gates).view(1, -1, 1)
         return shared.unsqueeze(1) + gates * self.dropout(context)
+
+    def outcome_queries(self) -> torch.Tensor:
+        """(outcome, hidden): free queries, or shared basis plus own deviation."""
+        if self.query_basis is None:
+            return self.queries
+        return self.query_coefficients @ self.query_basis + self.queries
 
 
 class SharedAttentionPrototypeReadout(nn.Module):
@@ -413,6 +436,7 @@ class FactorizedCohortOutcomePrototypeReadout(nn.Module):
         num_heads: int = 8,
         dropout: float = 0.1,
         mixture_temperature: float = 1.0,
+        cohort_groups: Optional[List[int]] = None,
     ):
         super().__init__()
         if hidden_size % num_heads:
@@ -421,6 +445,8 @@ class FactorizedCohortOutcomePrototypeReadout(nn.Module):
             )
         if num_prototypes < 1:
             raise ValueError("Prototype attention requires at least one prototype.")
+        if cohort_groups is not None and len(cohort_groups) != len(cohort_names):
+            raise ValueError("cohort_groups needs one group index per cohort.")
         if interaction_rank < 1:
             raise ValueError("Factorized prototype attention requires a positive rank.")
         if mixture_temperature <= 0:
@@ -462,6 +488,17 @@ class FactorizedCohortOutcomePrototypeReadout(nn.Module):
         )
         nn.init.normal_(self.cohort_factors, mean=0.0, std=0.02)
         nn.init.normal_(self.outcome_factors, mean=0.0, std=0.02)
+        # Stage 9 (2026-11-01): hierarchical cohort terms. A cohort's mixture
+        # logits and interaction factor are its group's plus its own, so a
+        # rare diagnosis starts from its lineage's way of reading the record.
+        self.group_mixture_logits = self.group_factors = None
+        if cohort_groups is not None:
+            n_groups = max(cohort_groups) + 1
+            self.register_buffer("cohort_group_index", torch.tensor(cohort_groups, dtype=torch.long))
+            self.group_mixture_logits = nn.Parameter(torch.zeros(n_groups, num_prototypes))
+            with torch.random.fork_rng(devices=[]):
+                self.group_factors = nn.Parameter(torch.empty(n_groups, interaction_rank))
+                nn.init.normal_(self.group_factors, mean=0.0, std=0.02)
 
         self.dropout = nn.Dropout(dropout)
         self.residual_gates = nn.Parameter(torch.zeros(len(outcome_names)))
@@ -471,14 +508,25 @@ class FactorizedCohortOutcomePrototypeReadout(nn.Module):
         if cohort_indices.ndim != 1:
             raise ValueError("cohort_index must have shape (batch,).")
         cohort_indices = cohort_indices.long()
+        allow_unknown = getattr(self, "allow_unknown", False)
         if cohort_indices.numel() and (
-            cohort_indices.min() < 0
+            (cohort_indices.min() < 0 and not allow_unknown)
             or cohort_indices.max() >= len(self.cohort_names)
         ):
             raise ValueError("cohort_index contains an unknown configured cohort.")
 
+        # Fine-conditioned (stage 9): an unknown diagnosis (-1) uses the global
+        # and outcome terms only.
+        known = (cohort_indices >= 0).to(self.cohort_mixture_logits.dtype)[:, None]
+        cohort_indices = cohort_indices.clamp_min(0)
         cohort_main = self.cohort_mixture_logits[cohort_indices]
         cohort_factor = self.cohort_factors[cohort_indices]
+        if self.group_mixture_logits is not None:
+            group = self.cohort_group_index[cohort_indices]
+            cohort_main = cohort_main + self.group_mixture_logits[group]
+            cohort_factor = cohort_factor + self.group_factors[group]
+        cohort_main = known * cohort_main
+        cohort_factor = known * cohort_factor
         interaction = torch.einsum(
             "br,or,rk->bok",
             cohort_factor,
@@ -1828,6 +1876,8 @@ class OperaContrastiveModel(nn.Module):
                 "'source_anchored_adapters', or 'unanchored_adapters'."
             )
         self.outcome_attention_readout = None
+        self.prototype_condition = "cohort"
+        self.attention_own_corrections = None
         self.source_adapter_readout = None
         if self.outcome_readout_mode in {"source_anchored_adapters", "unanchored_adapters"}:
             from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
@@ -1916,6 +1966,7 @@ class OperaContrastiveModel(nn.Module):
                     dropout=float(
                         competing_risk_settings.get("outcome_attention_dropout", 0.1)
                     ),
+                    query_rank=int(competing_risk_settings.get("outcome_attention_query_rank", 0)),
                 )
             elif self.outcome_readout_mode == "shared_attention_prototypes":
                 self.outcome_attention_readout = SharedAttentionPrototypeReadout(
@@ -1939,11 +1990,23 @@ class OperaContrastiveModel(nn.Module):
                     ),
                 )
             else:
+                # Stage 9 (2026-11-01): condition on the diagnosis (fine
+                # disease) instead of the training cohort group.
+                self.prototype_condition = str(
+                    competing_risk_settings.get("prototype_condition", "cohort"))
+                prototype_names = (
+                    list(competing_risk_settings.get("fine_names", []))
+                    if self.prototype_condition == "fine" else list(cohort_names or []))
+                group_map = competing_risk_settings.get("prototype_condition_groups")
+                prototype_groups = None
+                if group_map:
+                    group_names = sorted({group_map[name] for name in prototype_names})
+                    prototype_groups = [group_names.index(group_map[name]) for name in prototype_names]
                 self.outcome_attention_readout = (
                     FactorizedCohortOutcomePrototypeReadout(
                         hidden_size,
                         outcome_names,
-                        list(cohort_names or []),
+                        prototype_names,
                         num_prototypes=int(
                             competing_risk_settings.get(
                                 "prototype_attention_num_prototypes", 10
@@ -1969,8 +2032,23 @@ class OperaContrastiveModel(nn.Module):
                                 "prototype_mixture_temperature", 1.0
                             )
                         ),
+                        cohort_groups=prototype_groups,
                     )
                 )
+                self.outcome_attention_readout.allow_unknown = self.prototype_condition == "fine"
+
+        if competing_risk_settings.get("attention_own_corrections", False):
+            # Stage 9 (2026-11-01): own disease/outcome corrections on the
+            # outcome-conditioned representations.
+            from opera.modules.networks.attention_own_corrections import AttentionOwnCorrections
+
+            if self.outcome_attention_readout is None:
+                raise ValueError("attention_own_corrections requires an attention readout")
+            self.attention_own_corrections = AttentionOwnCorrections(
+                hidden_size, competing_risk_settings.get("fine_names", []), outcome_names,
+                rank=int(competing_risk_settings.get("attention_own_rank", 8)),
+                residual_scale=float(competing_risk_settings.get("adapter_residual_scale", 0.7)),
+                disease_groups=competing_risk_settings.get("attention_own_disease_groups"))
 
         if freeze_encoder:
             for p in self.encoder.parameters():
@@ -2212,20 +2290,27 @@ class OperaContrastiveModel(nn.Module):
         hidden = self._encode_hidden(batch)
         shared = self._pool_hidden(hidden, batch)
         if self.outcome_readout_mode == "factorized_cohort_outcome_prototypes":
-            if "cohort_index" not in batch:
+            key = "cohort_fine_index" if self.prototype_condition == "fine" else "cohort_index"
+            if key not in batch:
                 raise ValueError(
-                    "Factorized cohort-outcome attention requires cohort_index "
+                    f"Factorized cohort-outcome attention requires {key} "
                     "in every batch."
                 )
-            return self.outcome_attention_readout(
+            representation = self.outcome_attention_readout(
                 hidden,
                 shared,
                 batch["attention_mask"],
-                batch["cohort_index"],
+                batch[key],
             )
-        return self.outcome_attention_readout(
-            hidden, shared, batch["attention_mask"]
-        )
+        else:
+            representation = self.outcome_attention_readout(
+                hidden, shared, batch["attention_mask"]
+            )
+        if self.attention_own_corrections is not None:
+            if "cohort_fine_index" not in batch:
+                raise ValueError("Own corrections require cohort_fine_index in every batch.")
+            representation = self.attention_own_corrections(representation, batch["cohort_fine_index"])
+        return representation
 
     def competing_risk_log_hazards(
         self, pooled: torch.Tensor, fine_index: Optional[torch.Tensor] = None,

@@ -213,6 +213,9 @@ def build_commands(args, env):
             if stage >= 8:
                 # Full own corrections (2026-10-31, evening): design sweep around R_PF5E.
                 command += ["--router-pf"]
+            if stage >= 9:
+                # Task-conditioned pooling (2026-11-01): J_OA, J_SP, J_FP.
+                command += ["--task-pooling"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

@@ -152,6 +152,31 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             )
         if int(competing.get("prototype_interaction_rank", 8)) < 1:
             raise ValueError("prototype_interaction_rank must be positive.")
+    if competing.get("prototype_condition", "cohort") not in {"cohort", "fine"}:
+        raise ValueError("prototype_condition must be cohort or fine")
+    if competing.get("prototype_condition", "cohort") == "fine" and \
+            readout_mode != "factorized_cohort_outcome_prototypes":
+        raise ValueError("prototype_condition=fine applies to factorized_cohort_outcome_prototypes")
+    query_rank = competing.get("outcome_attention_query_rank", 0)
+    if not isinstance(query_rank, int) or isinstance(query_rank, bool) or query_rank < 0:
+        raise ValueError("outcome_attention_query_rank must be a nonnegative integer")
+    if query_rank and readout_mode != "outcome_attention":
+        raise ValueError("outcome_attention_query_rank applies to readout_mode=outcome_attention")
+    groups = competing.get("prototype_condition_groups")
+    if groups is not None:
+        if competing.get("prototype_condition", "cohort") != "fine":
+            raise ValueError("prototype_condition_groups applies to prototype_condition=fine")
+        if not isinstance(groups, dict) or set(competing.get("fine_names", [])) - set(groups):
+            raise ValueError("prototype_condition_groups must give every fine name a group")
+    if not isinstance(competing.get("attention_own_corrections", False), bool):
+        raise ValueError("attention_own_corrections must be true or false")
+    if competing.get("attention_own_corrections", False) and readout_mode not in {
+            "outcome_attention", "shared_attention_prototypes", "factorized_cohort_outcome_prototypes"}:
+        raise ValueError("attention_own_corrections requires an attention readout")
+    if needs_fine_index(competing) and readout_mode not in {"source_anchored_adapters", "unanchored_adapters"}:
+        fine_names = list(competing.get("fine_names", []))
+        if not fine_names or len(set(fine_names)) != len(fine_names):
+            raise ValueError("Diagnosis-conditioned attention and own corrections need unique fine_names")
     if readout_mode in {"source_anchored_adapters", "unanchored_adapters"}:
         fine_names = list(competing.get("fine_names", []))
         if not fine_names or len(set(fine_names)) != len(fine_names):
@@ -265,3 +290,12 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
     curriculum = dict(competing.get("curriculum", {}))
     if curriculum.get("enabled") and len(outcomes) < 2:
         raise ValueError("Curriculum learning requires at least two outcomes.")
+
+
+def needs_fine_index(competing: dict) -> bool:
+    """Whether batches must carry the diagnosis (cohort_fine_index): source
+    adapters, diagnosis-conditioned attention, or own corrections on
+    attention-pooled representations (stage 9)."""
+    return (str(competing.get("readout_mode", "shared")) in {"source_anchored_adapters", "unanchored_adapters"}
+            or competing.get("prototype_condition", "cohort") == "fine"
+            or bool(competing.get("attention_own_corrections", False)))

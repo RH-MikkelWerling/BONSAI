@@ -801,3 +801,32 @@ nothing when scarce; routed borrowing +0.002 to +0.005; the R_PT cap lowest or
 near lowest; routing on top of the hierarchy added nothing. The fit order puts
 the designs the toy disfavoured (live sources, bound 10, patient gate, one
 source bank) last; they still run, so real data, not the toy, rules them out.
+
+## Amendment of 1 November 2026: task-conditioned pooling (stage 9; before any test data were opened)
+
+**Why.** Every correction in stages 3-8 acts on one summary vector per patient,
+computed before the model knows which outcome it predicts; corrections can only
+reshape what that vector holds. Stage 9 lets each outcome read the record
+itself: learned queries attend over the encoder's token states (existing
+readouts, zero-gated so each fit starts at the joint model).
+
+**Fits.** J_OA (one query per outcome; keys, values and encoder shared by all
+outcomes), J_SP (shared attention maps mixed per outcome), J_FP (mixture by
+disease group x outcome), J_FPF (by diagnosis x outcome: global, diagnosis and
+outcome terms plus a low-rank interaction), J_FPF_PH (diagnosis terms tied to
+the lineage), and with own corrections on the outcome-specific summaries
+(own diagnosis adapter shared across outcomes, own outcome adapter shared across
+diagnoses, global adapter): J_OA_OWN, J_OA_OWN_PH (+ lineage adapters),
+J_FPF_OWN, J_FPF_PH_OWN_PH. Each differs from J only in the readout.
+
+**Token-level toy (3 seeds; the shared summary is a mean over tokens, lossy by
+construction, so gains show the mechanism, not their size).** Hard cells, ample
+data: J 0.758, own corrections 0.814, hierarchy 0.821, J_OA 0.803, J_FPF 0.825,
+J_FPF_PH 0.842, J_OA_OWN 0.869, J_OA_OWN_PH 0.870, J_FPF_PH_OWN_PH 0.870.
+Scarce (10%): J 0.743, own corrections 0.735, hierarchy 0.770, J_OA 0.753,
+J_OA_OWN 0.753, J_OA_OWN_PH 0.776, J_FPF 0.733 (seed SD 0.02-0.05).
+
+**Selection.** Stage-9 fits are candidates under the same rule (pooled tuning
+AUC at least R_AB's minus the seed noise floor; the highest chosen). Contrasts:
+each against J (what task-conditioned reading adds), against R_AB, and own and
+lineage terms on top. Only the selected design is evaluated on the test set.

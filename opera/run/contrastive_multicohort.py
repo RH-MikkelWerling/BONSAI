@@ -45,7 +45,7 @@ from bonsai.functional.input_contract import (
     resolve_numeric_value_control,
 )
 from opera.compat.bonsai import build_bonsai_encoder, encoder_hparams
-from opera.functional.direct_cr_contract import validate_direct_cr_config
+from opera.functional.direct_cr_contract import needs_fine_index, validate_direct_cr_config
 from opera.modules.networks.opera_nets import OperaContrastiveModel
 from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
 from opera.modules.networks.outcome_scaling import resolve_outcome_reference_scales
@@ -532,7 +532,7 @@ def main(cfg: DictConfig) -> None:
         logical_batch_size=cfg.training.get("logical_batch_size"),
         logical_val_batch_size=cfg.training.get("logical_val_batch_size"),
         numeric_value_control=numeric_value_control,
-        fine_names=competing_risk_config.get("fine_names") if model.source_adapter_readout is not None else None,
+        fine_names=competing_risk_config.get("fine_names") if needs_fine_index(competing_risk_config) else None,
         fine_column=str(competing_risk_config.get("fine_column", "cohort_fine")),
         outcome_label_cache_dir=cfg.paths.get("outcome_label_cache_dir"),
         train_patient_fraction=float(cfg.training.get("train_patient_fraction", 1.0)),
