@@ -138,3 +138,29 @@ def test_router_gradients_are_finite_and_ordinary_at_the_start():
     for name in ("fine_query.weight", "target_query.weight", "source_keys"):
         grad = dict(r.named_parameters())[name].grad
         assert grad is not None and torch.isfinite(grad).all() and float(grad.abs().max()) < 10
+
+
+def test_saturation_summary_separates_even_and_bound_routing():
+    r = _readout(bound=5.0)
+    with torch.no_grad():
+        r.source_keys.zero_(); r.source_keys[:, 0] = 1.0  # every key identical: even routing
+    even = r.saturation_summary()
+    assert even["median_task_entropy"] == pytest.approx(even["median_uniform_entropy"], abs=1e-4)
+    with torch.no_grad():  # each task's query aligned with one key: pinned at the bound
+        r.query_interaction[-1].weight.zero_(); r.query_interaction[-1].bias.zero_()
+        r.target_query.weight.zero_(); r.fine_query.weight.zero_()
+        r.fine_query.weight[:, 1] = 1.0
+        r.source_keys.zero_(); r.source_keys[:, 1] = -1.0; r.source_keys[1, 1] = 1.0  # cos = +-1
+    pinned = r.saturation_summary()
+    assert pinned["share_scores_near_bound"] > 0.9
+    assert pinned["median_task_entropy"] < even["median_task_entropy"]
+
+
+def test_candidate_contrasts_reach_the_numbers_and_the_ladder():
+    from opera.run.analyse_locked_predictions import TASK_ROUTED
+    from opera.run.audit_frozen_router_mechanism import ladder_for
+    from opera.run.build_paper_numbers import CODES
+
+    assert set(TASK_ROUTED) <= set(CODES)
+    assert ladder_for("R_PT5_L") == ["J_L", "R_AB_L", "R_PP_FROZEN_L", "R_PT5_L"]
+    assert ladder_for("R_PT3V_L")[-1] == "R_PT3V_L"

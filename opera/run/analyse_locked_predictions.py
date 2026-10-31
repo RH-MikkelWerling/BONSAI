@@ -219,6 +219,18 @@ ORIGINAL_ROUTER = {"R1_orig": "gain(R_ORIG_L,J_L)", "T1_orig": "gain(R_ORIG_L,X)
 
 # Partial-pooling router (lock amendment 2026-10-30), computed when its fits are
 # present. R_L is the primary routed model (R_AB unless R_PP is selected).
+# Task-routed candidates (31 October 2026), computed when their fits are present.
+TASK_ROUTED = {
+    "PT5_AB": "gain(R_PT5_L,R_L)",            # selection rule: R_PT5 against the primary router
+    "PT3V_AB": "gain(R_PT3V_L,R_L)",          # selection rule: R_PT3V against the primary router
+    "PT5_J": "gain(R_PT5_L,J_L)",             # against the joint model
+    "PT3V_J": "gain(R_PT3V_L,J_L)",
+    "PT5_FZ": "gain(R_PT5_L,R_PP_FROZEN_L)",  # learned routing (identical even-mix control)
+    "FZ_AB": "gain(R_PP_FROZEN_L,R_L)",       # structural change, no learned routing
+    "PT3V_PT5": "gain(R_PT3V_L,R_PT5_L)",     # between the candidates
+    "NF_AB": "gain(R_AB_s43_L,R_L)",          # seed noise floor of the routed design
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -421,6 +433,8 @@ def run(config, output_dir):
     predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
     contrasts.update(opera_contrasts)
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in PARTIAL_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})

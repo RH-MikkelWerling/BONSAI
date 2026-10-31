@@ -83,13 +83,16 @@ def module(name, *args):
 # fit; its learned-routing comparison is PP2 (R_PP vs R_PP_FROZEN) instead, so
 # the sentinel matches no alias and that comparison is skipped.
 OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L",
-                 "R_PP_L": "NO_OWN_ONLY_FIT", "R_PP_s43_L": "NO_OWN_ONLY_FIT"}
+                 "R_PP_L": "NO_OWN_ONLY_FIT", "R_PP_s43_L": "NO_OWN_ONLY_FIT",
+                 "R_PT5_L": "NO_OWN_ONLY_FIT", "R_PT3V_L": "NO_OWN_ONLY_FIT"}
 
 
 def removal_bundle(root, routed):
     """The frozen bundle holding the routed model's fit."""
     if routed == "R_L":
         return root / "bundles" / "stage2"  # the original router
+    if routed.startswith("R_PT"):
+        return root / "bundles" / "stage7"  # task-routed candidates (2026-10-31)
     if routed.startswith("R_PP"):
         return root / "bundles" / "stage6"  # partial-pooling router (2026-10-30)
     if routed.startswith(("R_O", "RBH_O")):

@@ -127,8 +127,37 @@ class TaskRoutedPoolingReadout(PartialPoolingReadout):
         adjusted = torch.where(borrowed, terms * scale[..., None], terms)
         return base + (terms - adjusted).sum(2).to(base.dtype), adjusted
 
+    @torch.no_grad()
+    def saturation_summary(self, margin: float = 0.05) -> dict:
+        """Does routing race to its bound? Task-level cosine scores (routing does
+        not depend on the patient) against +-bound, and each task's borrowed-mix
+        entropy against the lowest entropy the bound allows."""
+        fine = torch.arange(self.n_disease, device=self.source_keys.device)
+        query = F.normalize(self._task_query(fine).float(), dim=-1, eps=NORMALIZE_EPS)
+        cos = torch.einsum("doh,sh->dos", query,
+                           F.normalize(self.source_keys.float(), dim=-1, eps=NORMALIZE_EPS))
+        available = torch.ones_like(cos, dtype=torch.bool)
+        available[fine, :, fine] = False
+        rows = torch.arange(self.n_outcome, device=cos.device)
+        available[:, rows, self.n_disease + rows] = False
+        available &= (self.source_shrinkage > 0)[None, None, :]
+        weights = self.route_weights(torch.zeros(self.n_disease, self.hidden_size,
+                                                 device=cos.device), fine)[..., 1:].float()
+        entropy = -(weights * weights.clamp_min(1e-12).log()).sum(-1)
+        count = available.sum(-1).float()
+        top = torch.exp(torch.tensor(self.logit_bound))
+        p_top = top / (top + (count - 1) * torch.exp(torch.tensor(-self.logit_bound)))
+        floor = -(p_top * p_top.log() + (1 - p_top) * ((1 - p_top) / (count - 1)).log())
+        values = cos[available]
+        return {"share_scores_near_bound": float((values.abs() > 1 - margin).float().mean()),
+                "median_abs_cosine": float(values.abs().median()),
+                "median_task_entropy": float(entropy.median()),
+                "median_entropy_floor": float(floor.median()),
+                "median_uniform_entropy": float(count.log().median()),
+                "share_tasks_within_0.1_of_floor": float(((entropy - floor) < 0.1).float().mean())}
+
     def pooling_summary(self) -> dict:
         summary = super().pooling_summary()
         summary.update(logit_bound=self.logit_bound, borrow_mix=self.borrow_mix,
-                       routing="task (disease x outcome)")
+                       routing="task (disease x outcome)", saturation=self.saturation_summary())
         return summary

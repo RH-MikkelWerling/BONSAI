@@ -217,6 +217,9 @@ LADDERS = {'R_AB': ['J_L', 'N_A_L', 'RBH_AB_L', 'R_AB_L'],
 
 
 def ladder_for(model):
+    if model and model.startswith('R_PT'):
+        # Task-routed candidates: frozen even-mix control, then the candidate.
+        return ['J_L', 'R_AB_L', 'R_PP_FROZEN_L', model]
     return LADDERS['R_PP'] if model and model.startswith('R_PP') else LADDERS['R_AB']
 
 
