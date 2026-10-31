@@ -133,7 +133,10 @@ def todo(bundle_dirs, decisions, speculative=False):
                 gate = None
             seen.add(row["scientific_hash"])
             rows.append((row, bundle_dir, gate))
-    rows.sort(key=lambda item: (priority(item[0]), item[0]["seed"], item[0]["name"]))
+    # queue_order (stage 8, 2026-10-31): an explicit order within a phase; rows
+    # without it (every earlier stage) keep the seed-then-name order.
+    rows.sort(key=lambda item: (priority(item[0]), item[0].get("queue_order", 0),
+                                item[0]["seed"], item[0]["name"]))
     return rows
 
 

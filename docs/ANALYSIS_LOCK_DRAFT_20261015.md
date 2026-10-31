@@ -721,3 +721,83 @@ R_PP_FROZEN is the frozen-router control for R_PT5 (identical even mixture).
 borrowed mixture passes both health criteria and its pooled tuning AUC is at
 least R_AB's minus the seed noise floor. If both pass, the higher pooled tuning
 AUC is chosen. Route statistics remain an audit only.
+
+## Amendment of 31 October 2026 (evening): full own corrections (before any test data were opened)
+
+**What the task-routed candidates showed.** On the tuning macro AUC in the
+training logs at the selected checkpoint, R_PT5 (0.7799), R_PT3V (0.7805) and
+R_PP_FROZEN (0.7794) all sat about 0.004 below R_AB (0.7836; seed 43 0.7834),
+and learned routing recovered only 0.0005-0.001 of the gap. Their learned tau
+fell below the prior (6-11 against 20; median own weight 0.83-0.90) and the
+correction scale grew from 1 to 1.7. The fits asked for more of their own
+correction, while the partial-pooling readout capped it: own corrections were
+soft-normalised to norm below 1 and multiplied by the own weight. R_AB's own
+corrections are unbounded at full weight, and they carry its gain over the
+joint model (own-only control 0.7832). The structural change, not routing,
+cost the accuracy. The underlying design error was that the candidates did not
+contain the primary model as a special case.
+
+**Stage 8: one design sweep that closes the question.** The "how to borrow"
+analysis asks three things, and stage 8 is built so each has an answer:
+
+1. *Do task-specific corrections help beyond uniform borrowing?* R_PF_OFF (own
+   corrections exactly as in R_O, nothing borrowed) against J. R_PF_OFF against
+   RBH_O checks that the new code reproduces the existing own-only fit.
+2. *Does borrowing between tasks add anything on top of own corrections, by any
+   reasonable mechanism?* Every design below contains R_PF_OFF as a special
+   case (borrowed scale 0), so it can switch borrowing off. Mechanisms:
+   learned task-level routing over the other tasks' adapters (anchor R_PF5E:
+   task routing bounded at 5 x cos, borrowed share tau/(n + tau), borrowed
+   corrections equalised in size, so a gate is a share); learned sharing
+   (R_PF5E_LIVE: borrowers also train the sources, a task-level mixture of
+   experts); learned grouping (R_PL8: eight shared group adapters, the router learns which tasks share them; group routing is trained from the first step with bound 10, because with a warm-up the groups never separated in the toy); known structure (R_PH_G: lineage adapters; R_PH_GE: lineage and
+   endpoint-group adapters, i.e. hierarchical shrinkage, no router); and both
+   (R_PH_GE_PF5E). R_PF5E_FROZEN (routing and tau frozen) isolates learned
+   selectivity from an even mix.
+3. *If borrowing adds nothing at full data, is that because the tasks do not
+   need it or because the mechanism cannot?* The same comparisons with 10% of
+   training patients (the J_L_F10 subset): R_PF_OFF_F10, R_PF5E_F10,
+   R_PH_GE_F10, R_PL8_F10, R_PF5E_LIVE_F10. Borrowing that helps only here means the
+   mechanism works and the full cohort does not need it.
+
+One-factor-at-a-time variants of the anchor test whether a design choice keeps
+the router from learning what helps: borrowed corrections raw (R_PF5) or capped
+(R_PF5B); looser routing (R_PF10E); patient-specific routing through a gate
+starting at 0 (R_PF5EP); a free borrowed share per disease x outcome
+(R_PF5EL); one source bank only (R_PF5ED, R_PF5EO); routing parameters at 10x
+learning rate (R_PF5E_LR10); no router warm-up (R_PF5E_W0); rank 32 instead of
+the locked rank (R_PF5E_R32, with its own-only control R_PF_OFF_R32). R_PF5E_s43
+repeats the anchor with seed 43 as the noise floor of this family.
+
+**Selection.** Unchanged in form: a routed design replaces R_AB only if its
+borrowed mixture passes both health criteria and its pooled tuning AUC is at
+least R_AB's minus the seed noise floor; among those, the highest pooled tuning
+AUC is chosen. Hierarchical designs without a router (R_PH_G, R_PH_GE) are
+eligible on the AUC criterion alone. Scarce-data fits, controls and the seed
+repeat are never selected. The sweep is development on tuning data; only the
+selected design is evaluated on the test set, alongside R_AB. Route statistics
+remain an audit only.
+
+**Pre-flight (31 October, night).** All 25 stage-8 configs pass an integration
+test through the real model code (training step with finite gradients reaching
+every mechanism, validation correction-size logs, optimizer groups, audit
+checkpoint reconstruction). In the many-source toy (3 seeds; shared, distinct
+and scarce scenarios), the own-only floor matched or beat the R_AB-style
+readout in every scenario; the R_PT cap reproduced (own correction 1.2 against
+2.9 uncapped, tau falling and scale rising as on the real data); routed
+borrowing added 0 to 0.016 data-poor AUC; known lineage groups added 0.10 when
+data were scarce (the toy is lineage-structured, so this flatters them); a
+looser bound (10) collapsed 92-97% of tasks onto one source without gain, and
+the patient gate lowered AUC. Each fit is smoke-tested on the GPU
+(`opera.run.router_smoke`) before launch.
+A multi-outcome toy (12 diseases in 3 lineages, 9 outcomes in 3 families, a
+lineage x family interaction, data-poor diseases and rare outcomes, checkpoint
+chosen on validation loss as in the real fits, 3 seeds) gave, on cells of a
+data-poor disease or rare outcome: the lineage and endpoint-group hierarchy
+(R_PH_GE) best or tied best in every scenario (equal to the R_AB-style readout
+with ample shared data, +0.006 when diseases are distinct, +0.039 with 10% of
+the data); learned groups +0.008 over the own-only floor with ample data and
+nothing when scarce; routed borrowing +0.002 to +0.005; the R_PT cap lowest or
+near lowest; routing on top of the hierarchy added nothing. The fit order puts
+the designs the toy disfavoured (live sources, bound 10, patient gate, one
+source bank) last; they still run, so real data, not the toy, rules them out.

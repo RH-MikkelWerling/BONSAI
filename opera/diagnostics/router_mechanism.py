@@ -14,6 +14,7 @@ from torch.nn import functional as F
 from opera.modules.networks.competing_risk import piecewise_exponential_cif
 from opera.modules.networks.partial_pooling_readout import PartialPoolingReadout
 from opera.modules.networks.source_anchored_readout import SourceAnchoredReadout
+from opera.modules.networks.full_own_routed_readout import FullOwnTaskRoutedReadout
 from opera.modules.networks.task_routed_readout import TaskRoutedPoolingReadout
 
 
@@ -87,6 +88,16 @@ class FrozenRouterHead(nn.Module):
             readout_class = TaskRoutedPoolingReadout
             extra.update(logit_bound=float(risk.get('adapter_logit_bound', 5.0)),
                          borrow_mix=str(risk.get('adapter_borrow_mix', 'per_source')))
+            if risk.get('adapter_own_full', False):
+                readout_class = FullOwnTaskRoutedReadout
+                extra.update(borrow_values=str(risk.get('adapter_borrow_values', 'raw')),
+                             patient_gate=bool(risk.get('adapter_patient_gate', False)),
+                             borrow_amount=str(risk.get('adapter_borrow_amount', 'support')),
+                             borrow_from=str(risk.get('adapter_borrow_from', 'both')),
+                             disease_groups=risk.get('adapter_disease_groups'),
+                             outcome_groups=risk.get('adapter_outcome_groups'),
+                             live_sources=bool(risk.get('adapter_live_sources', False)),
+                             latent_groups=int(risk.get('adapter_latent_groups', 0)))
         readout = readout_class(
             tensors['down'].shape[-1], risk['fine_names'], outcomes,
             bottleneck=tensors['down'].shape[1],

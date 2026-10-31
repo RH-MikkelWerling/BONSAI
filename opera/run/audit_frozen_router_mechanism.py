@@ -217,6 +217,9 @@ LADDERS = {'R_AB': ['J_L', 'N_A_L', 'RBH_AB_L', 'R_AB_L'],
 
 
 def ladder_for(model):
+    if model and model.startswith(('R_PF', 'R_PH', 'R_PL')):
+        # Full own corrections: own-only in the same code, frozen routing, the candidate.
+        return ['J_L', 'R_PF_OFF_L', 'R_PF5E_FROZEN_L', model]
     if model and model.startswith('R_PT'):
         # Task-routed candidates: frozen even-mix control, then the candidate.
         return ['J_L', 'R_AB_L', 'R_PP_FROZEN_L', model]

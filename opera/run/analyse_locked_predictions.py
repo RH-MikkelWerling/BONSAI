@@ -231,6 +231,41 @@ TASK_ROUTED = {
     "NF_AB": "gain(R_AB_s43_L,R_L)",          # seed noise floor of the routed design
 }
 
+# Full own corrections (stage 8, 31 October, evening): a one-factor-at-a-time
+# sweep around the anchor R_PF5E, computed when the fits are present. Each
+# variant is compared with the primary router (_AB) and with the anchor (_E).
+PF_VARIANTS = {"PF5": "R_PF5_L", "PF5B": "R_PF5B_L", "PF10E": "R_PF10E_L", "PF5EP": "R_PF5EP_L",
+               "PF5EL": "R_PF5EL_L", "PF5ED": "R_PF5ED_L", "PF5EO": "R_PF5EO_L",
+               "PFLR": "R_PF5E_LR10_L", "PFW0": "R_PF5E_W0_L", "PFR32": "R_PF5E_R32_L",
+               "PHG": "R_PH_G_L", "PHGE": "R_PH_GE_L", "PHGEP": "R_PH_GE_PF5E_L",
+               "PF5E43": "R_PF5E_s43_L", "PFLIVE": "R_PF5E_LIVE_L", "PL8": "R_PL8_L"}
+FULL_OWN = {
+    "PF5E_AB": "gain(R_PF5E_L,R_L)",                # selection rule: the anchor against the primary router
+    "PF5E_J": "gain(R_PF5E_L,J_L)",                 # against the joint model
+    "PF5E_FZ": "gain(R_PF5E_L,R_PF5E_FROZEN_L)",    # learned routing (identical frozen control)
+    "PF5E_OWN": "gain(R_PF5E_L,R_PF_OFF_L)",        # borrowing on top of own corrections
+    "PFOFF_RBHO": "gain(R_PF_OFF_L,RBH_O_L)",       # implementation check: should be ~0
+    "PFOFF_AB": "gain(R_PF_OFF_L,R_L)",             # own-outside floor against the primary router
+    "PFR32_OWN": "gain(R_PF5E_R32_L,R_PF_OFF_R32_L)",  # borrowing at rank 32
+    "PFOFF32_OFF": "gain(R_PF_OFF_R32_L,R_PF_OFF_L)",  # capacity alone (own-only, rank 32 vs locked)
+    "PHG_OFF": "gain(R_PH_G_L,R_PF_OFF_L)",         # lineage hierarchy on top of own corrections
+    "PHGE_OFF": "gain(R_PH_GE_L,R_PF_OFF_L)",       # lineage + endpoint hierarchy
+    "PHGEP_PHGE": "gain(R_PH_GE_PF5E_L,R_PH_GE_L)",  # routing on top of the hierarchy
+    "PFLIVE_OFF": "gain(R_PF5E_LIVE_L,R_PF_OFF_L)",  # learned sharing on top of own corrections
+    # Scarce data (10% of training patients; J_L_F10 is the same subset).
+    "F10_OFF_J": "gain(R_PF_OFF_F10_L,J_L_F10)",     # own corrections when data are scarce
+    "F10_PF5E_OFF": "gain(R_PF5E_F10_L,R_PF_OFF_F10_L)",  # routed borrowing when data are scarce
+    "F10_PHGE_OFF": "gain(R_PH_GE_F10_L,R_PF_OFF_F10_L)",  # hierarchy when data are scarce
+    "F10_LIVE_OFF": "gain(R_PF5E_LIVE_F10_L,R_PF_OFF_F10_L)",  # learned sharing when data are scarce
+    "F10_PF5E_J": "gain(R_PF5E_F10_L,J_L_F10)",
+    "PL8_OFF": "gain(R_PL8_L,R_PF_OFF_L)",           # learned grouping on top of own corrections
+    "PL8_PHGE": "gain(R_PL8_L,R_PH_GE_L)",           # learned against known grouping
+    "F10_PL8_OFF": "gain(R_PL8_F10_L,R_PF_OFF_F10_L)",
+    "F10_PL8_PHGE": "gain(R_PL8_F10_L,R_PH_GE_F10_L)",
+    **{f"{code}_AB": f"gain({model},R_L)" for code, model in PF_VARIANTS.items()},
+    **{f"{code}_E": f"gain({model},R_PF5E_L)" for code, model in PF_VARIANTS.items()},
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -435,6 +470,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in FULL_OWN.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in PARTIAL_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})

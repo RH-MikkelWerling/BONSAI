@@ -94,7 +94,14 @@ ROUTED_MODELS = {"R_L", "R_E", "R_EA",
                  # partial-pooling router and its controls (2026-10-30)
                  "R_PP_L", "R_PP_s43_L", "R_PP_FROZEN_L",
                  # task-routed candidates (2026-10-31)
-                 "R_PT5_L", "R_PT3V_L"}
+                 "R_PT5_L", "R_PT3V_L",
+                 # full own corrections (2026-10-31, evening)
+                 "R_PF5E_L", "R_PH_G_L", "R_PH_GE_L", "R_PH_GE_PF5E_L", "R_PF5E_R32_L",
+                 "R_PF5_L", "R_PF5B_L", "R_PF10E_L", "R_PF5EP_L", "R_PF5EL_L",
+                 "R_PF5ED_L", "R_PF5EO_L", "R_PF5E_LR10_L", "R_PF5E_W0_L", "R_PF5E_s43_L",
+                 "R_PF5E_LIVE_L", "R_PF5E_F10_L", "R_PH_GE_F10_L", "R_PF5E_LIVE_F10_L",
+                 "R_PL8_L", "R_PL8_F10_L",
+                 "R_PF5E_FROZEN_L", "R_PF_OFF_L", "R_PF_OFF_R32_L", "R_PF_OFF_F10_L"}
 
 
 def export_flags(aliases, args):

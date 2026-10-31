@@ -135,6 +135,98 @@ def task_routing(config, bound, mix):
     return config
 
 
+# Stage 8 (31 October, evening): the R_PT candidates finished ~0.004 below R_AB,
+# with tau falling and the correction scale growing (they wanted more of their
+# own correction). Own corrections are applied as in R_O (full weight,
+# unbounded); only the borrowed part is pooled, with task routing bounded at
+# 5 x cosine. The stage is a one-factor-at-a-time sweep around the anchor
+# R_PF5E; each fit changes one design choice (lock amendment 2026-10-31,
+# evening). Keys: values (borrowed corrections raw, equalised, bounded or off),
+# bound (routing logit bound), patient_gate, amount (support-based or learned
+# per-task borrowed share), borrow_from (source banks), router_lr (learning-rate
+# multiplier for routing parameters), warmup (router warm-up epochs), rank
+# (adapter rank), groups (hierarchical lineage / endpoint-group adapters),
+# live (borrowed sources with live parameters: a task-level mixture of
+# experts), latent (K learned group adapters with task routing over them),
+# fraction (share of training patients, the data-efficiency subset)
+# and seed. Order is priority: workers claim fits in bundle order.
+PF_ANCHOR = {"values": "equalised", "bound": 5.0, "patient_gate": False, "amount": "support",
+             "borrow_from": "both", "router_lr": 1.0, "warmup": ROUTER_FIX_WARMUP,
+             "rank": None, "groups": None, "live": False, "latent": 0, "fraction": 1.0, "seed": 42}
+ROUTER_PF = {
+    "R_PF5E": {},                         # anchor
+    # Hierarchical shrinkage over known structure, no routing; then both.
+    "R_PH_G": {"values": "off", "groups": "disease"},        # lineage adapters
+    "R_PH_GE": {"values": "off", "groups": "both"},          # + endpoint-group adapters
+    "R_PH_GE_PF5E": {"groups": "both"},                      # hierarchy + routed borrowing
+    # Learned grouping: 8 shared group adapters, routing learns who shares them.
+    "R_PL8": {"values": "off", "latent": 8},
+    # Capacity: the corrections at rank 32 instead of the locked rank.
+    "R_PF5E_R32": {"rank": 32},
+    "R_PF5": {"values": "raw"},           # borrowed corrections as they are
+    "R_PF5B": {"values": "bounded"},      # borrowed corrections capped as in R_PT
+    "R_PF10E": {"bound": 10.0},           # looser routing
+    "R_PF5EP": {"patient_gate": True},    # patient-specific routing, gated from 0
+    "R_PF5EL": {"amount": "learned"},     # free borrowed share per disease x outcome
+    "R_PF5ED": {"borrow_from": "disease"},  # borrow from diseases only
+    "R_PF5EO": {"borrow_from": "outcome"},  # borrow from outcomes only
+    "R_PF5E_LR10": {"router_lr": 10.0},   # routing parameters at 10x learning rate
+    "R_PF5E_W0": {"warmup": 0},           # no router warm-up
+    "R_PF5E_s43": {"seed": 43},           # noise floor of the anchor
+    "R_PF5E_LIVE": {"live": True},        # learned sharing: borrowers train the sources
+    # Scarce data (10% of training patients, the J_L_F10 subset): where borrowing
+    # should matter if it can.
+    "R_PF5E_F10": {"fraction": 0.1},
+    "R_PH_GE_F10": {"values": "off", "groups": "both", "fraction": 0.1},
+    "R_PF5E_LIVE_F10": {"live": True, "fraction": 0.1},
+    "R_PL8_F10": {"values": "off", "latent": 8, "fraction": 0.1},
+}
+# Controls, never selected: routing and tau frozen for the whole fit; nothing
+# borrowed (the own-only control RBH_O implemented in this code).
+ROUTER_PF_CONTROLS = {"R_PF_OFF": {"values": "off"}, "R_PF5E_FROZEN": {"warmup": None},
+                      "R_PF_OFF_R32": {"values": "off", "rank": 32},
+                      "R_PF_OFF_F10": {"values": "off", "fraction": 0.1}}
+
+
+def full_own(config, spec):
+    """Settings of one stage-8 design (anchor plus the spec's changes)."""
+    design = {**PF_ANCHOR, **spec}
+    task_routing(config, design["bound"], "per_source")
+    risk = config["competing_risk"]
+    risk.update(adapter_own_full=True, adapter_borrow_values=design["values"])
+    if design["patient_gate"]:
+        risk["adapter_patient_gate"] = True
+    if design["amount"] != "support":
+        risk["adapter_borrow_amount"] = design["amount"]
+    if design["borrow_from"] != "both":
+        risk["adapter_borrow_from"] = design["borrow_from"]
+    if design["router_lr"] != 1.0:
+        config.setdefault("training", {})["router_lr_multiplier"] = design["router_lr"]
+    if design["latent"]:
+        risk["adapter_latent_groups"] = int(design["latent"])
+    if design["live"]:
+        risk["adapter_live_sources"] = True
+    if design["fraction"] != 1.0:
+        config.setdefault("training", {}).update(
+            train_patient_fraction=float(design["fraction"]),
+            train_fraction_seed=int(design["seed"]))
+    if design["rank"] is not None:
+        risk["adapter_bottleneck"] = int(design["rank"])
+    if design["groups"] is not None:
+        from opera.visualization.paper_taxonomy import fine_cohort_groups, outcome_endpoint_groups
+
+        lineage = fine_cohort_groups()
+        risk["adapter_disease_groups"] = {name: lineage[name] for name in risk["fine_names"]}
+        if design["groups"] == "both":
+            endpoint = outcome_endpoint_groups()
+            risk["adapter_outcome_groups"] = {name: endpoint[name] for name in config["outcomes"]}
+    if "warmup" in spec:
+        # None: frozen for the whole fit (the training length).
+        risk["adapter_router_warmup_epochs"] = (
+            spec["warmup"] if spec["warmup"] is not None else int(config["training"]["epochs"]))
+    return config
+
+
 # Control, never a primary candidate: R_PP with the router frozen for the whole
 # fit (warm-up = training length), so tau and the borrowed mix stay at their
 # starting values. R_PP minus this control is the gain from learned routing.
@@ -152,7 +244,8 @@ def partial_pooling(config):
 def apply_router_fix(config, fix):
     """The readout settings of a router-fix design (e.g. R_AB, or R_PP)."""
     designs = {**ROUTER_FIX, **ROUTER_PP,
-               **{name: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42) for name in ROUTER_PT}}
+               **{name: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, 42)
+                  for name in (*ROUTER_PT, *ROUTER_PF)}}
     _, borrowing, global_adapter, warmup, scale, _ = designs[fix]
     config["competing_risk"].update(adapter_global=global_adapter,
                                     adapter_router_warmup_epochs=warmup)
@@ -164,6 +257,8 @@ def apply_router_fix(config, fix):
         partial_pooling(config)
     if fix in ROUTER_PT:
         task_routing(config, *ROUTER_PT[fix])
+    if fix in ROUTER_PF:
+        full_own(config, ROUTER_PF[fix])
     return config
 
 
@@ -172,7 +267,7 @@ def routed_fix(routed_model):
     if not routed_model or routed_model == "R_L":
         return None
     fix = routed_model.removesuffix("_L")
-    if fix not in ROUTER_FIX and fix not in ROUTER_PP and fix not in ROUTER_PT:
+    if fix not in ROUTER_FIX and fix not in ROUTER_PP and fix not in ROUTER_PT and fix not in ROUTER_PF:
         raise ValueError(f"Unknown primary routed model {routed_model}")
     return fix
 
@@ -282,6 +377,7 @@ def build_bundle(
     sampling_ipw=False,
     router_pp=False,
     router_pt=False,
+    router_pf=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -536,6 +632,30 @@ def build_bundle(
                                        pooling=True)[0]
             task_routing(entry["config"], bound, mix)
             entries.append(entry)
+    if router_pf:
+        if not router_pt:
+            raise ValueError("Stage 8 repeats the stage-7 fits")
+        # Decisive fits first: anchor, own-only floor, frozen routing, hierarchy.
+        # Order revised after the multi-outcome toy (31 October, night): the
+        # designs it favoured or that test its open questions first; the ones
+        # it disfavoured (live sources, bound 10, patient gate, one source bank)
+        # last, still run so real data, not the toy, rules them out.
+        order = ["R_PF5E", "R_PF_OFF", "R_PH_GE", "R_PL8", "R_PF5E_FROZEN", "R_PF_OFF_R32",
+                 "R_PF5E_R32", "R_PF_OFF_F10", "R_PH_GE_F10", "R_PF5E_F10", "R_PL8_F10",
+                 "R_PH_G", "R_PH_GE_PF5E", "R_PF5E_s43", "R_PF5EL", "R_PF5", "R_PF5B",
+                 "R_PF5E_LR10", "R_PF5E_W0", "R_PF5ED", "R_PF5EO", "R_PF10E", "R_PF5EP",
+                 "R_PF5E_LIVE", "R_PF5E_LIVE_F10"]
+        designs = {**ROUTER_PF, **ROUTER_PF_CONTROLS}
+        for queue_order, alias in enumerate([*order, *(a for a in designs if a not in order)], 1):
+            spec = designs[alias]
+            seed = int(spec.get("seed", 42))
+            entry = router_fix_entries(base, reference, checkpoints, selected_router,
+                                       epochs=epochs, patience=patience,
+                                       fits={alias: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, seed)},
+                                       pooling=True)[0]
+            full_own(entry["config"], spec)
+            entry["queue_order"] = queue_order  # workers claim stage 8 in this order
+            entries.append(entry)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -694,6 +814,8 @@ def main():
                         help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--router-pt", action="store_true",
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
+    parser.add_argument("--router-pf", action="store_true",
+                        help="stage 8: full own corrections, design sweep around R_PF5E")
     parser.add_argument("--router-pp", action="store_true",
                         help="stage 6: the partial-pooling router R_PP and its seed-43 repeat")
     parser.add_argument("--routed-model",
@@ -744,6 +866,7 @@ def main():
         sampling_ipw=args.sampling_ipw,
         router_pp=args.router_pp,
         router_pt=args.router_pt,
+        router_pf=args.router_pf,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

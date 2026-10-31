@@ -178,7 +178,8 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         }:
             raise ValueError("adapter_source_mode must be both, disease_only, outcome_only, or none")
         for flag in ("adapter_borrowing", "adapter_disease_embedding", "adapter_global",
-                     "adapter_own_outside", "adapter_partial_pooling", "adapter_task_routing"):
+                     "adapter_own_outside", "adapter_partial_pooling", "adapter_task_routing",
+                     "adapter_own_full"):
             if not isinstance(competing.get(flag, False), bool):
                 raise ValueError(f"{flag} must be true or false")
         if competing.get("adapter_partial_pooling", False):
@@ -203,6 +204,30 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
                 raise ValueError("adapter_logit_bound must be finite and positive")
             if competing.get("adapter_borrow_mix", "per_source") not in {"per_source", "variance_preserving"}:
                 raise ValueError("adapter_borrow_mix must be per_source or variance_preserving")
+        if competing.get("adapter_own_full", False):
+            # Stage 8 (2026-10-31): full own corrections under task routing.
+            if not competing.get("adapter_task_routing", False):
+                raise ValueError("adapter_own_full extends adapter_task_routing")
+            if competing.get("adapter_borrow_mix", "per_source") != "per_source":
+                raise ValueError("adapter_own_full uses the per_source borrowed mix")
+            if competing.get("adapter_borrow_values", "raw") not in {"raw", "equalised", "bounded", "off"}:
+                raise ValueError("adapter_borrow_values must be raw, equalised, bounded or off")
+            if not isinstance(competing.get("adapter_patient_gate", False), bool):
+                raise ValueError("adapter_patient_gate must be true or false")
+            if competing.get("adapter_borrow_amount", "support") not in {"support", "learned"}:
+                raise ValueError("adapter_borrow_amount must be support or learned")
+            if competing.get("adapter_borrow_from", "both") not in {"both", "disease", "outcome"}:
+                raise ValueError("adapter_borrow_from must be both, disease or outcome")
+            latent = competing.get("adapter_latent_groups", 0)
+            if not isinstance(latent, int) or isinstance(latent, bool) or latent < 0:
+                raise ValueError("adapter_latent_groups must be a nonnegative integer")
+            if not isinstance(competing.get("adapter_live_sources", False), bool):
+                raise ValueError("adapter_live_sources must be true or false")
+            for key in ("adapter_disease_groups", "adapter_outcome_groups"):
+                groups = competing.get(key)
+                if groups is not None and (not isinstance(groups, dict) or not all(
+                        isinstance(k, str) and isinstance(v, str) for k, v in groups.items())):
+                    raise ValueError(f"{key} must map names to group names")
         shared_init = float(competing.get("adapter_shared_logit_init", 3.0))
         if not math.isfinite(shared_init):
             raise ValueError("adapter_shared_logit_init must be finite")
@@ -216,6 +241,11 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
         if not math.isfinite(scale) or scale < 0:
             raise ValueError("adapter_logit_scale must be finite and nonnegative")
     adapter_epsilon = training.get("adapter_optimizer_epsilon")
+    router_lr = float(training.get("router_lr_multiplier", 1.0))
+    if not math.isfinite(router_lr) or router_lr <= 0:
+        raise ValueError("router_lr_multiplier must be finite and positive")
+    if router_lr != 1.0 and training.get("adapter_epsilon_scope", "matrices") != "router":
+        raise ValueError("router_lr_multiplier requires adapter_epsilon_scope: router")
     if adapter_epsilon is not None:
         if readout_mode not in {"source_anchored_adapters", "unanchored_adapters"}:
             raise ValueError("adapter_optimizer_epsilon requires source adapters")

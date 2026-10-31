@@ -84,13 +84,24 @@ def module(name, *args):
 # the sentinel matches no alias and that comparison is skipped.
 OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L",
                  "R_PP_L": "NO_OWN_ONLY_FIT", "R_PP_s43_L": "NO_OWN_ONLY_FIT",
-                 "R_PT5_L": "NO_OWN_ONLY_FIT", "R_PT3V_L": "NO_OWN_ONLY_FIT"}
+                 "R_PT5_L": "NO_OWN_ONLY_FIT", "R_PT3V_L": "NO_OWN_ONLY_FIT",
+                 # Full own corrections (stage 8): own-only is the same code with
+                 # borrowing off (R_PF_OFF).
+                 **{f"{alias}_L": "R_PF_OFF_L" for alias in (
+                     "R_PF5E", "R_PH_G", "R_PH_GE", "R_PH_GE_PF5E", "R_PF5", "R_PF5B", "R_PF10E",
+                     "R_PF5EP", "R_PF5EL", "R_PF5ED", "R_PF5EO", "R_PF5E_LR10", "R_PF5E_W0",
+                     "R_PF5E_s43", "R_PF5E_LIVE", "R_PL8")},
+                 "R_PF5E_R32_L": "R_PF_OFF_R32_L",
+                 **{f"{alias}_L": "R_PF_OFF_F10_L" for alias in (
+                     "R_PF5E_F10", "R_PH_GE_F10", "R_PF5E_LIVE_F10", "R_PL8_F10")}}
 
 
 def removal_bundle(root, routed):
     """The frozen bundle holding the routed model's fit."""
     if routed == "R_L":
         return root / "bundles" / "stage2"  # the original router
+    if routed.startswith(("R_PF", "R_PH", "R_PL")):
+        return root / "bundles" / "stage8"  # full own corrections (2026-10-31, evening)
     if routed.startswith("R_PT"):
         return root / "bundles" / "stage7"  # task-routed candidates (2026-10-31)
     if routed.startswith("R_PP"):
@@ -199,6 +210,9 @@ def build_commands(args, env):
             if stage >= 7:
                 # Task-routed candidates (2026-10-31): R_PT5 and R_PT3V.
                 command += ["--router-pt"]
+            if stage >= 8:
+                # Full own corrections (2026-10-31, evening): design sweep around R_PF5E.
+                command += ["--router-pf"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

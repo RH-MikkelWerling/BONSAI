@@ -51,7 +51,13 @@ HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
          "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50",
          "LS10", "LS25", "LS50", "LSE10", "LSE25", "LSE50", "FD10", "FD25", "FD50", "RS1",
-         "J_vs_best_tuning", "O1", "O2", "O3", "T5_router", "T5_shared", "T5E_router", "T5E_shared", "PP0", "PP1", "PP2", "PP3", "PP4", "PT5_AB", "PT3V_AB", "PT5_J", "PT3V_J", "PT5_FZ", "FZ_AB", "PT3V_PT5", "NF_AB", "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
+         "J_vs_best_tuning", "O1", "O2", "O3", "T5_router", "T5_shared", "T5E_router", "T5E_shared", "PP0", "PP1", "PP2", "PP3", "PP4", "PT5_AB", "PT3V_AB", "PT5_J", "PT3V_J", "PT5_FZ", "FZ_AB", "PT3V_PT5", "NF_AB", "PF5E_AB", "PF5E_J", "PF5E_FZ", "PF5E_OWN", "PFOFF_RBHO", "PFOFF_AB",
+         "PFR32_OWN", "PFOFF32_OFF", "PHG_OFF", "PHGE_OFF", "PHGEP_PHGE", "PFLIVE_OFF",
+         "F10_OFF_J", "F10_PF5E_OFF", "F10_PHGE_OFF", "F10_LIVE_OFF", "F10_PF5E_J",
+         "PL8_OFF", "PL8_PHGE", "F10_PL8_OFF", "F10_PL8_PHGE",
+         *(f"{code}_{suffix}" for code in ("PF5", "PF5B", "PF10E", "PF5EP", "PF5EL", "PF5ED", "PF5EO", "PFLR",
+                                           "PFW0", "PFR32", "PHG", "PHGE", "PHGEP", "PF5E43", "PFLIVE", "PL8")
+           for suffix in ("AB", "E")), "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
          *(f"router_{part}_{design}" for part in ("own", "borrow", "both")
            for design in ("O", "AB")))
 # Table 2, grouped by question; fixed T contrasts retain joint identities.

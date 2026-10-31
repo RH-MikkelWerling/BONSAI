@@ -1853,6 +1853,23 @@ class OperaContrastiveModel(nn.Module):
                     pooling_options.update(
                         logit_bound=float(competing_risk_settings.get("adapter_logit_bound", 5.0)),
                         borrow_mix=str(competing_risk_settings.get("adapter_borrow_mix", "per_source")))
+                    if competing_risk_settings.get("adapter_own_full", False):
+                        # Stage 8 (2026-10-31): own corrections at full weight and
+                        # unbounded; only the borrowed part is pooled.
+                        from opera.modules.networks.full_own_routed_readout import (
+                            FullOwnTaskRoutedReadout,
+                        )
+
+                        readout_class = FullOwnTaskRoutedReadout
+                        pooling_options.update(
+                            borrow_values=str(competing_risk_settings.get("adapter_borrow_values", "raw")),
+                            patient_gate=bool(competing_risk_settings.get("adapter_patient_gate", False)),
+                            borrow_amount=str(competing_risk_settings.get("adapter_borrow_amount", "support")),
+                            borrow_from=str(competing_risk_settings.get("adapter_borrow_from", "both")),
+                            disease_groups=competing_risk_settings.get("adapter_disease_groups"),
+                            outcome_groups=competing_risk_settings.get("adapter_outcome_groups"),
+                            live_sources=bool(competing_risk_settings.get("adapter_live_sources", False)),
+                            latent_groups=int(competing_risk_settings.get("adapter_latent_groups", 0)))
             self.source_adapter_readout = readout_class(
                 hidden_size,
                 competing_risk_settings.get("fine_names", []),
@@ -2454,6 +2471,25 @@ class OperaContrastiveModel(nn.Module):
                     log_dict[f"cr/route_source/{name}"] = (
                         routes[..., 1 + source_index].mean().detach()
                     )
+                readout = self.source_adapter_readout
+                if hasattr(readout, "pooling_summary"):
+                    # Pooling routers (2026-10-31): how much is borrowed, and how
+                    # large each correction is against the patient representation,
+                    # so a capped or switched-off component shows in the first epoch.
+                    log_dict["cr/pool_tau"] = readout.tau.detach().float()
+                    log_dict["cr/pool_scale"] = readout.pool_scale.detach().float()
+                    if not self.training:
+                        with torch.no_grad():
+                            vectors = readout.component_vectors(pooled, fine_index, routes)
+                            scale = readout.residual_scale
+                            log_dict["cr/patient_norm"] = pooled.float().norm(dim=-1).mean()
+                            for label, members in (
+                                ("own", ("own_disease", "own_outcome")),
+                                ("borrowed", ("borrowed_disease", "borrowed_outcome")),
+                                ("global", ("global",)),
+                            ):
+                                size = scale * sum(vectors[m] for m in members).norm(dim=-1)
+                                log_dict[f"cr/correction_norm/{label}"] = size.mean()
 
         anchor_loss = (
             self._compute_anchor_loss(pooled, subject_ids)

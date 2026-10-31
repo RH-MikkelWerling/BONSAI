@@ -68,6 +68,7 @@ class OperaContrastiveModule(L.LightningModule):
         checkpoint_metadata: dict = None,
         adapter_optimizer_epsilon: float = None,
         adapter_epsilon_scope: str = "matrices",
+        router_lr_multiplier: float = 1.0,
         checkpoint_selection_metric: str = "val/cr_cif_auc_endpoint_group_macro",
     ):
         super().__init__()
@@ -102,6 +103,15 @@ class OperaContrastiveModule(L.LightningModule):
         if adapter_epsilon_scope not in {"matrices", "router"}:
             raise ValueError("adapter_epsilon_scope must be 'matrices' or 'router'")
         self.adapter_epsilon_scope = adapter_epsilon_scope
+        # Stage-8 design sweep (2026-10-31): routing parameters (everything in
+        # the readout but the adapter matrices) at a multiple of the learning
+        # rate. With the router's tiny Adam epsilon, each step moves a parameter
+        # by about the learning rate, so this is the lever on routing speed.
+        if not math.isfinite(float(router_lr_multiplier)) or float(router_lr_multiplier) <= 0:
+            raise ValueError("router_lr_multiplier must be finite and positive")
+        if float(router_lr_multiplier) != 1.0 and adapter_epsilon_scope != "router":
+            raise ValueError("router_lr_multiplier requires adapter_epsilon_scope='router'")
+        self.router_lr_multiplier = float(router_lr_multiplier)
         self.scheduler_warmup_epochs = scheduler_warmup_epochs
         self.gradient_cache = bool(gradient_cache)
         self.probe_every_n_epochs = max(1, int(probe_every_n_epochs))
@@ -705,8 +715,21 @@ class OperaContrastiveModule(L.LightningModule):
         if self.adapter_optimizer_epsilon is not None:
             if len(adapter_params) < 2:
                 raise ValueError("Adapter epsilon requires both source down/up matrices")
-            param_groups.append({"params": adapter_params, "lr": self.learning_rate,
-                                 "eps": float(self.adapter_optimizer_epsilon)})
+            if self.router_lr_multiplier == 1.0:
+                param_groups.append({"params": adapter_params, "lr": self.learning_rate,
+                                     "eps": float(self.adapter_optimizer_epsilon)})
+            else:
+                matrices = {f"source_adapter_readout.{name}"
+                            for name in ("down", "up", "global_down", "global_up",
+                                         "group_down", "group_up", "latent_down", "latent_up")}
+                ids = {id(param) for name, param in self.model.named_parameters()
+                       if name in matrices}
+                param_groups += [
+                    {"params": [p for p in adapter_params if id(p) in ids],
+                     "lr": self.learning_rate, "eps": float(self.adapter_optimizer_epsilon)},
+                    {"params": [p for p in adapter_params if id(p) not in ids],
+                     "lr": self.learning_rate * self.router_lr_multiplier,
+                     "eps": float(self.adapter_optimizer_epsilon)}]
         if encoder_params:
             param_groups.append(
                 {
