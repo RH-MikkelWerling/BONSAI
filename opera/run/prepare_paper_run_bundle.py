@@ -345,6 +345,26 @@ def task_seed_entries(base, reference, checkpoints, selected_router, *, epochs, 
     return entries
 
 
+# Stage 15 (1 November 2026, night): the Table 2 ladder on a second seed.
+# J, R_AB and J_OA_OWN have seed 43 already (J_s43 in stage 14); the own-
+# corrections rung (R_PF_OFF) gets it here, so every mechanism step has a
+# second seed pair. Values: (stage-8 design, seed).
+LADDER_SEEDS = {"R_PF_OFF_s43": ("R_PF_OFF", 43)}
+
+
+def ladder_seed_entries(base, reference, checkpoints, selected_router, *, epochs, patience):
+    entries = []
+    for order, (alias, (design, seed)) in enumerate(LADDER_SEEDS.items()):
+        entry = router_fix_entries(base, reference, checkpoints, selected_router,
+                                   epochs=epochs, patience=patience,
+                                   fits={alias: ("selected", True, True, ROUTER_FIX_WARMUP, 0.0, seed)},
+                                   pooling=True)[0]
+        full_own(entry["config"], {**ROUTER_PF, **ROUTER_PF_CONTROLS}[design])
+        entry["queue_order"] = order - 190  # after the stage-14 seeds, before the rest
+        entries.append(entry)
+    return entries
+
+
 def task_pooling_design(routed_model):
     """J_OA_LR_OWN_L -> J_OA_LR_OWN when the primary model is a stage-9 design, else None."""
     alias = (routed_model or "").removesuffix("_L")
@@ -595,6 +615,7 @@ def build_bundle(
     task_ablation=False,
     task_design=False,
     task_seeds=False,
+    ladder_seeds=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -908,6 +929,11 @@ def build_bundle(
             raise ValueError("Stage 14 repeats the stage-13 fits")
         entries += task_seed_entries(base, reference, checkpoints, selected_router,
                                      epochs=epochs, patience=patience)
+    if ladder_seeds:
+        if not task_seeds:
+            raise ValueError("Stage 15 repeats the stage-14 fits")
+        entries += ladder_seed_entries(base, reference, checkpoints, selected_router,
+                                       epochs=epochs, patience=patience)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -1068,6 +1094,8 @@ def main():
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
     parser.add_argument("--task-design", action="store_true",
                         help="stage 13: shrinkage and diagnosis x outcome corrections for the reading design")
+    parser.add_argument("--ladder-seeds", action="store_true",
+                        help="stage 15: R_PF_OFF on seed 43 (the Table 2 ladder on a second seed)")
     parser.add_argument("--task-seeds", action="store_true",
                         help="stage 14: two more seeds of J_OA_OWN and a second seed of J")
     parser.add_argument("--task-ablation", action="store_true",
@@ -1140,6 +1168,7 @@ def main():
         task_ablation=args.task_ablation,
         task_design=args.task_design,
         task_seeds=args.task_seeds,
+        ladder_seeds=args.ladder_seeds,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

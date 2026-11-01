@@ -208,20 +208,42 @@ the probability of every outcome by each of six horizons.}
   \label{fig:source-router}
 \end{figure}
 
+% RETIRED 1 Nov 2026 (router design retired; OPERA = per-outcome reading + own corrections). Replaced by supp_design_search below; kept commented for reference.
+% \begin{figure}[p]
+%   \resultfigure[\textwidth]{supp_routing}{Routing}{Routed versus joint
+%     and adapter-bank comparison.}
+%   \caption{\textbf{Routed versus joint model, and adapter-bank comparisons.}
+%   \textbf{A}, Paired
+%   one-year AUC gain of the routed over the joint model by clinical domain, with the prespecified margin of practical equivalence shaded. \textbf{B},
+%   Test-set panel gains of the four source banks, trained with the locked rank and
+%   query under the same protocol: the router trained with every source masked
+%   against the joint model (the noise floor of refitting, and a check that the
+%   architecture alone changes nothing), disease adapters, outcome adapters, each
+%   added to the other, both, and their interaction; and the controls (the joint
+%   model told the disease, the own-disease and own-outcome routers). The primary amended router uses both disease and outcome adapter banks.
+%   The earlier router is a sensitivity analysis.}
+%   \label{fig:routing}
+% \end{figure}
+
 \begin{figure}[p]
-  \resultfigure[\textwidth]{supp_routing}{Routing}{Routed versus joint
-    and adapter-bank comparison.}
-  \caption{\textbf{Routed versus joint model, and adapter-bank comparisons.}
-  \textbf{A}, Paired
-  one-year AUC gain of the routed over the joint model by clinical domain, with the prespecified margin of practical equivalence shaded. \textbf{B},
-  Test-set panel gains of the four source banks, trained with the locked rank and
-  query under the same protocol: the router trained with every source masked
-  against the joint model (the noise floor of refitting, and a check that the
-  architecture alone changes nothing), disease adapters, outcome adapters, each
-  added to the other, both, and their interaction; and the controls (the joint
-  model told the disease, the own-disease and own-outcome routers). The primary amended router uses both disease and outcome adapter banks.
-  The earlier router is a sensitivity analysis.}
-  \label{fig:routing}
+  \resultfigure[\textwidth]{supp_design_search}{The design search}{Every tuned
+    design against the selected design and the primary router.}
+  \caption{\textbf{Every design tuned on the way to \opera{}.} Paired
+  tuning-set AUC differences (cells pooled over horizons and weighted equally;
+  paired patient-bootstrap 95\% CI) of every design fitted during development,
+  \textbf{A}, against the selected design (each outcome reads the record, with
+  own diagnosis and outcome corrections) and \textbf{B}, against the primary
+  router. Designs are grouped by what they change: learned routing between
+  tasks' corrections and its controls (stages 3--8), known and learned task
+  structure, capacity, outcome-specific reading without corrections (stage 9),
+  reading with own corrections and its ablations (stages 9 and 12), shrinkage,
+  diagnosis~$\times$~outcome and endpoint-family terms (stage 13), the encoder
+  learning rate (stages 10--11, a prespecified sensitivity analysis) and seed
+  repeats. The shaded band is the range of the selected design over training
+  seeds 42--45; differences inside it are within refitting noise. The selected
+  design is in bold; model codes are in grey. These are development comparisons
+  on tuning data; only the selected design was evaluated on the test set.}
+  \label{fig:supp-design-search}
 \end{figure}
 
 \begin{figure}[p]
@@ -237,48 +259,66 @@ the probability of every outcome by each of six horizons.}
   \label{fig:supp-rescue}
 \end{figure}
 
-\begin{figure}[p]
-  \resultfigure[0.9\textwidth]{supp_router_usage}{Router weights}{Router
-    weights by disease and clinical domain.}
-  \caption{\textbf{Router weights by disease and clinical domain.}
-  \textbf{A}, Disease-bank shares, normalized within each disease--outcome task
-  before averaging (own disease hatched). \textbf{B}, Outcome-bank shares
-  aggregated by clinical domain (own domain hatched). Sources without an
-  estimable target row remain in the source bank. \textbf{C}, Mean gate weight
-  assigned to other diseases, other outcomes and the remaining own/shared
-  sources, by patient disease group. These shares sum to one and describe
-  allocation, not correction magnitude.
-  \textbf{D}, Effective borrowed-source count (exponential entropy) computed
-  from mean gates, excluding the shared slot and own-disease/own-outcome slots;
-  points and bars show the median and interquartile range across disease
-  summaries. This is not the mean of patient-level effective source counts.
-  The base encoder path remains present independently of the gate. Weights
-  describe allocation, not predictive benefit (\cref{fig:borrowing-map}).}
-  \label{fig:supp-router-usage}
-\end{figure}
+% RETIRED 1 Nov 2026 (router design retired; OPERA = per-outcome reading + own corrections). Replaced by supp_specialisation below; kept commented for reference.
+% \begin{figure}[p]
+%   \resultfigure[0.9\textwidth]{supp_router_usage}{Router weights}{Router
+%     weights by disease and clinical domain.}
+%   \caption{\textbf{Router weights by disease and clinical domain.}
+%   \textbf{A}, Disease-bank shares, normalized within each disease--outcome task
+%   before averaging (own disease hatched). \textbf{B}, Outcome-bank shares
+%   aggregated by clinical domain (own domain hatched). Sources without an
+%   estimable target row remain in the source bank. \textbf{C}, Mean gate weight
+%   assigned to other diseases, other outcomes and the remaining own/shared
+%   sources, by patient disease group. These shares sum to one and describe
+%   allocation, not correction magnitude.
+%   \textbf{D}, Effective borrowed-source count (exponential entropy) computed
+%   from mean gates, excluding the shared slot and own-disease/own-outcome slots;
+%   points and bars show the median and interquartile range across disease
+%   summaries. This is not the mean of patient-level effective source counts.
+%   The base encoder path remains present independently of the gate. Weights
+%   describe allocation, not predictive benefit (\cref{fig:borrowing-map}).}
+%   \label{fig:supp-router-usage}
+% \end{figure}
 
 \begin{figure}[p]
-  \resultfigure[\textwidth]{supp_borrowing_detail}{Borrowing in detail}{Three
-    levels of borrowing per disease, by disease size, the expected pairs with the
-    source left out, and borrowing between disease groups by clinical domain.}
-  \caption{\textbf{Borrowing in detail.} \textbf{A}, For each target disease, over
-  all outcomes and horizons: cross-disease source dependence (other-disease terms retained versus
-  replaced by their tuning means, with the outcome bank retained, as in \cref{fig:borrowing-map}B), the gain
-  over the own-source control (a separately trained router) and routing (against the joint model). The last two compare
-  separately trained models and carry the noise of refitting; cross-disease dependence can
-  exceed the trained gain because the encoder was trained alongside the
-  borrowed corrections. \textbf{B}, Cross-disease dependence and the gain over the own-source control against
-  the number of patients with the disease. \textbf{C}, The pairs of
-  the draft candidate-pair plan, shown descriptively, with the source alone (filled) and the loss when only
-  that source is left out of the full model (open).
-  \textbf{D}, Mean unshrunk gain from a source disease alone between
-  disease groups (rows: target, columns: source) in each of the 12 clinical
-  domains, on one scale; diseases with few estimable outcomes are omitted, and
-  the groups summarise for reading only (they do not enter the pooling). AUC
-  points with paired patient-bootstrap 95\% intervals; IPA differences are in
-  \placeholder{Supplementary Table}.}
-  \label{fig:supp-borrowing-detail}
+  \resultfigure[\textwidth]{supp_specialisation}{Specialisation per task}{Reading
+    gate and correction size per outcome and per diagnosis, against training events.}
+  \caption{\textbf{How far each task departs from what is shared.}
+  \textbf{A}, For each outcome, the gate $|\tanh g|$ with which its own reading
+  of the record is added to the shared summary, against the outcome's training
+  events (summed over diagnoses; log scale). \textbf{B}, The size of the
+  outcome's own correction (Frobenius norm of the effective low-rank map
+  up~$\cdot$~down). \textbf{C}, The size of each diagnosis's own correction
+  against the diagnosis's training events over all outcomes. Outcomes are
+  coloured by clinical domain and diagnoses by lineage, with the three largest
+  values named; Spearman correlations with training events are descriptive.
+  Values are parameters of the selected checkpoint; no patient data enter.}
+  \label{fig:supp-specialisation}
 \end{figure}
+
+% RETIRED 1 Nov 2026 (router design retired; OPERA = per-outcome reading + own corrections). Replaced by nothing (borrowing between tasks retired with the router); kept commented for reference.
+% \begin{figure}[p]
+%   \resultfigure[\textwidth]{supp_borrowing_detail}{Borrowing in detail}{Three
+%     levels of borrowing per disease, by disease size, the expected pairs with the
+%     source left out, and borrowing between disease groups by clinical domain.}
+%   \caption{\textbf{Borrowing in detail.} \textbf{A}, For each target disease, over
+%   all outcomes and horizons: cross-disease source dependence (other-disease terms retained versus
+%   replaced by their tuning means, with the outcome bank retained, as in \cref{fig:borrowing-map}B), the gain
+%   over the own-source control (a separately trained router) and routing (against the joint model). The last two compare
+%   separately trained models and carry the noise of refitting; cross-disease dependence can
+%   exceed the trained gain because the encoder was trained alongside the
+%   borrowed corrections. \textbf{B}, Cross-disease dependence and the gain over the own-source control against
+%   the number of patients with the disease. \textbf{C}, The pairs of
+%   the draft candidate-pair plan, shown descriptively, with the source alone (filled) and the loss when only
+%   that source is left out of the full model (open).
+%   \textbf{D}, Mean unshrunk gain from a source disease alone between
+%   disease groups (rows: target, columns: source) in each of the 12 clinical
+%   domains, on one scale; diseases with few estimable outcomes are omitted, and
+%   the groups summarise for reading only (they do not enter the pooling). AUC
+%   points with paired patient-bootstrap 95\% intervals; IPA differences are in
+%   \placeholder{Supplementary Table}.}
+%   \label{fig:supp-borrowing-detail}
+% \end{figure}
 
 \begin{figure}[p]
   \resultfigure[\textwidth]{supp_strategy}{Joint model versus per-cell
@@ -291,6 +331,22 @@ the probability of every outcome by each of six horizons.}
   the joint model and OPERA. This expanded selection does not change the
   original specialist/disease-pooled/outcome-pooled policy compared in B.}
   \label{fig:strategy}
+\end{figure}
+
+\begin{figure}[p]
+  \resultfigure[\textwidth]{supp_xgboost_gap}{Where per-task XGBoost leads}{Gap to
+    per-task XGBoost and OPERA's gain over the joint model, by clinical domain.}
+  \caption{\textbf{Where per-task XGBoost still leads.} \textbf{A}, Paired
+  test-period AUC difference of the joint model and of \opera{} against
+  per-task XGBoost by clinical domain (cells pooled over horizons and weighted
+  equally; paired patient-bootstrap 95\% CI; number of cells in brackets), from
+  the largest gap. \textbf{B}, \opera{} against the joint model in the same
+  domains. Dashed lines mark the means over all cells. XGBoost reads exact
+  laboratory values summarised over fixed windows, whereas the sequence model
+  reads values in quantile bins set from each code's training counts; coarser
+  value resolution for less often measured laboratory codes is one explanation
+  considered in the Discussion.}
+  \label{fig:supp-xgboost-gap}
 \end{figure}
 
 \begin{figure}[p]
@@ -325,25 +381,52 @@ the probability of every outcome by each of six horizons.}
   \resultfigure[0.9\textwidth]{supp_calibration_maps}{Calibration maps}{Local
     calibration over the patient representation.}
   \caption{\textbf{Local calibration across the patient representation.} Two-dimensional projection of test patients' representations
-  for example outcomes. Rows show event status, projected routed corrections,
+  for example outcomes. The map is the shared representation, before any
+  outcome-specific reading of it. Rows show event status,
   IPCW kernel estimates of observed risk, patient-level final-model predicted
   risk and local calibration residuals (observed minus predicted). Kernel
   residual estimates are sampled at patient positions for the residual colours,
   rather than displaying each patient's binary event minus predicted risk.
-  Arrow magnification is shared across outcomes and stated in the key.}
+  How each outcome moves patients on this map is shown in
+  \cref{fig:supp-correction-arrows}.}
   \label{fig:supp-calibration-maps}
 \end{figure}
 
+% RETIRED 1 Nov 2026 (router design retired; OPERA = per-outcome reading + own corrections). Replaced by supp_correction_arrows below; kept commented for reference.
+% \begin{figure}[p]
+%   \resultfigure{supp_router_arrows}{Projected router corrections}
+%     {A larger companion view of the corrections in the local calibration maps.}
+%   \caption{\textbf{Projected router corrections by outcome.} The same patient
+%   coordinates and routed corrections as in \cref{fig:supp-calibration-maps},
+%   with one shared arrow magnification. Arrows show mean local displacement in
+%   supported bins that meet the stated coherence rule. They describe changes
+%   in the model representation, not causal changes in patients. An absent
+%   vector export is labelled explicitly.}
+%   \label{fig:supp-router-arrows}
+% \end{figure}
+
 \begin{figure}[p]
-  \resultfigure{supp_router_arrows}{Projected router corrections}
-    {A larger companion view of the corrections in the local calibration maps.}
-  \caption{\textbf{Projected router corrections by outcome.} The same patient
-  coordinates and routed corrections as in \cref{fig:supp-calibration-maps},
-  with one shared arrow magnification. Arrows show mean local displacement in
-  supported bins that meet the stated coherence rule. They describe changes
-  in the model representation, not causal changes in patients. An absent
-  vector export is labelled explicitly.}
-  \label{fig:supp-router-arrows}
+  \resultfigure{supp_correction_arrows}{Where each outcome moves the representation}
+    {Binned mean displacement from the shared representation to each outcome's
+    final representation.}
+  \caption{\textbf{Where each outcome moves patients away from the shared
+  representation.} The map is the shared patient representation of
+  \cref{fig:supp-calibration-maps}: \opera{}'s summary before any
+  outcome-specific reading, projected by standardisation, PCA and UMAP fitted on
+  tuning patients and applied unchanged to test patients. For example outcomes
+  (columns), arrows show the mean displacement, in map bins of at least 20 test
+  patients, from a patient's shared summary to \textbf{A}, the outcome's final
+  representation; \textbf{B}, the representation after the outcome's own
+  reading of the record; \textbf{C}, from there to after its own diagnosis,
+  outcome and global corrections. Every representation is placed on the map
+  with the fitted UMAP transform. UMAP is nonlinear: arrows show local direction
+  and relative size, and lengths are not comparable between distant regions.
+  Only bins whose shifts agree in direction (coherence at least 0.3) are drawn,
+  and one magnification, stated in the key, is shared by all panels. Grey
+  shading marks map regions with at least 20 patients. Only these binned
+  aggregates leave the server. Arrows describe changes in the model's
+  representation, not in patients.}
+  \label{fig:supp-correction-arrows}
 \end{figure}
 
 \begin{figure}[p]
@@ -462,10 +545,17 @@ the probability of every outcome by each of six horizons.}
   outcomes.} \textbf{A}, For every pair of outcomes, how much they agree on which
   episodes of a patient's history raise or lower risk (Spearman correlation of
   episode contributions within patients, averaged over patients). Episodes are
-  events within one day of each other, and each clinical domain is outlined.
+  events within one day of each other. Outcomes are numbered and grouped under
+  clinical-domain headings, with the same outcome order on both axes.
   \textbf{B}, Change in held-out AUC ($\times$100) when the same fitted model
-  reads only part of the record, averaged over all outcomes and over the
-  outcomes of each domain. The model is not retrained, so this measures what it
+  reads only part of the record, for each individual outcome in the same row
+  order as A. A separate strip beneath B's column headings and above its
+  individual-outcome rows reports the average over all outcomes.
+  Changes are relative to the full record, with negative values indicating
+  lower discrimination.
+  Grey cells indicate unavailable estimates. Exact effects and uncertainty
+  intervals are reported in the accompanying tables.
+  The model is not retrained, so this measures what it
   relies on, not what a model trained without that input could achieve.}
   \label{fig:attribution-structure}
 \end{figure}
@@ -512,29 +602,48 @@ the probability of every outcome by each of six horizons.}
   \label{fig:atlas}
 \end{figure}
 
+% RETIRED 1 Nov 2026 (router design retired; OPERA = per-outcome reading + own corrections). Replaced by supp_task_organisation below; kept commented for reference.
+% \begin{figure}[p]
+%   \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
+%     {A: unshrunk source-alone gains. B: cross-disease source dependence.
+%     C: the effect of shrinkage. D: dependence by clinical domain.}
+%   \caption{\textbf{What the fitted model borrows from other diseases.}
+%   Other-disease adapter terms are replaced by their tuning means without
+%   retraining or renormalizing the remaining gates; own-disease terms, the
+%   outcome bank, global corrections and the base encoder path are retained.
+%   Comparisons use the same evaluated patients (AUC points).
+%   \textbf{A}, Unshrunk gains when one source disease is retained
+%   alongside the target's own disease. Own-source cells are grey. Colour alone does
+%   not establish an effect for an individual pair. Lineage groups organise the
+%   display. \textbf{B}, Unshrunk cross-disease
+%   dependence: full-model AUC minus AUC with other-disease terms replaced;
+%   paired patient-bootstrap intervals and a dashed all-disease mean.
+%   \textbf{C}, Unshrunk versus shrunken source-alone estimates on an absolute
+%   AUC-point scale. The diagonal indicates no change under shrinkage.
+%   Near-zero shrunken effects are not normalised into lineage shares.
+%   \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
+%   weighing equally; dashed line, all outcomes. Source-alone gains are not
+%   additive in AUC and need not sum to the total dependence. Further contrasts
+%   appear in \cref{fig:supp-borrowing-detail}.}
+%   \label{fig:borrowing-map}
+% \end{figure}
+
 \begin{figure}[p]
-  \resultfigure{fig_borrowing_map}{What the model borrows from other diseases}
-    {A: unshrunk source-alone gains. B: cross-disease source dependence.
-    C: the effect of shrinkage. D: dependence by clinical domain.}
-  \caption{\textbf{What the fitted model borrows from other diseases.}
-  Other-disease adapter terms are replaced by their tuning means without
-  retraining or renormalizing the remaining gates; own-disease terms, the
-  outcome bank, global corrections and the base encoder path are retained.
-  Comparisons use the same evaluated patients (AUC points).
-  \textbf{A}, Unshrunk gains when one source disease is retained
-  alongside the target's own disease. Own-source cells are grey. Colour alone does
-  not establish an effect for an individual pair. Lineage groups organise the
-  display. \textbf{B}, Unshrunk cross-disease
-  dependence: full-model AUC minus AUC with other-disease terms replaced;
-  paired patient-bootstrap intervals and a dashed all-disease mean.
-  \textbf{C}, Unshrunk versus shrunken source-alone estimates on an absolute
-  AUC-point scale. The diagonal indicates no change under shrinkage.
-  Near-zero shrunken effects are not normalised into lineage shares.
-  \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
-  weighing equally; dashed line, all outcomes. Source-alone gains are not
-  additive in AUC and need not sum to the total dependence. Further contrasts
-  appear in \cref{fig:supp-borrowing-detail}.}
-  \label{fig:borrowing-map}
+  \resultfigure{supp_task_organisation}{How OPERA organises its tasks}{Similarity
+    of outcome queries, outcome corrections and diagnosis corrections.}
+  \caption{\textbf{How \opera{} organises its tasks.} Cosine similarity between
+  the learned parameters of pairs of tasks in the selected checkpoint, ordered
+  by clinical taxonomy and clustered (average linkage) within each group; white
+  lines separate the groups. \textbf{A}, Outcome attention queries after the
+  key projection (heads concatenated): outcomes with similar queries read the
+  record alike. \textbf{B}, Outcomes' own corrections, in the order of A.
+  \textbf{C}, Diagnoses' own corrections, by lineage. Corrections are compared
+  through their effective low-rank map (up~$\cdot$~down, without the adapter's
+  nonlinearity). Below each panel, the mean similarity within versus between
+  groups, with a one-sided p from 2,000 permutations of the group labels. Query
+  and correction similarities have separate colour scales, each centred at
+  zero. Parameters, not patients, are compared.}
+  \label{fig:task-organisation}
 \end{figure}
 
 \begin{figure}[p]

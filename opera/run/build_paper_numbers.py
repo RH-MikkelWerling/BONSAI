@@ -55,10 +55,10 @@ CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6",
          "PFR32_OWN", "PFOFF32_OFF", "PHG_OFF", "PHGE_OFF", "PHGEP_PHGE", "PFLIVE_OFF",
          "F10_OFF_J", "F10_PF5E_OFF", "F10_PHGE_OFF", "F10_LIVE_OFF", "F10_PF5E_J",
          "PL8_OFF", "PL8_PHGE", "F10_PL8_OFF", "F10_PL8_PHGE",
-         "OA_J", "SP_J", "FP_J", "OA_AB", "SP_AB", "FP_AB", "FP_OA", "FPF_J", "FPF_FP", "OAOWN_J",
+         "OA_J", "SP_J", "FP_J", "OA_AB", "SP_AB", "FP_AB", "FP_OA", "FPF_J", "FPF_FP", "OAOWN_J", "OFF_J", "OAOWN_OFF", "AB_OFF",
          "OAOWN_AB", "OAOWN_OA", "OAOWNPH_OAOWN", "OAOWNPH_AB", "FPFOWN_AB", "FPFOWN_FPF", "FPFPH_FPF", "FPFPHOWN_AB", "FPFPHOWN_FPFOWN", "OALR_OA", "OALROWN_OAOWN", "OALROWN_AB", "ELR_J", "ELR_AB", "ELR3_AB", "OAOWN_NF", "OAOWN_R32", "OAOWN_DIS", "OAOWN_OUT", "F10_OAOWN_OFF", "F10_OAOWN_PHGE",
          "SW20_OAOWN", "SW100_OAOWN", "X_OAOWN", "XSW_OAOWN", "PE_OAOWN", "PHX_OAOWN", "PEXSW_OAOWN",
-         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
+         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "OFF_J_s43", "OAOWN_OFF_s43", "AB_OFF_s43", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
          *(f"{code}_{suffix}" for code in ("PF5", "PF5B", "PF10E", "PF5EP", "PF5EL", "PF5ED", "PF5EO", "PFLR",
                                            "PFW0", "PFR32", "PHG", "PHGE", "PHGEP", "PF5E43", "PFLIVE", "PL8")
            for suffix in ("AB", "E")), "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
@@ -67,25 +67,29 @@ CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6",
 # Table 2, grouped by question; fixed T contrasts retain joint identities.
 # O1 is the explicitly selected OPERA-versus-XGBoost comparison.
 TABLE_ROWS = (
-    (None, "Learning across diseases and outcomes (against the specialist)"),
-    ("P1", "Other diseases (disease-pooled)"), ("P2", "Other outcomes (outcome-pooled)"),
-    ("P5", "Both (joint)"),
-    (None, "Learning how much to borrow"), ("R1", "Routed vs joint"),
-    (None, "Population pretraining (joint model)"),
-    ("E1", "National vs cohort encoder"), ("E3", "Adapted national vs cohort encoder"),
-    (None, "Population pretraining (OPERA)"),
-    ("E2", "OPERA (national) vs OPERA (local)"),
-    ("E4", "OPERA (national + adaptation) vs OPERA (local)"),
-    (None, "Sequence models against tabular models"),
-    ("T3", "Specialist vs per-task XGBoost"), ("T7", "Pooled vs per-task XGBoost"),
-    ("O1", "OPERA (local) vs per-task XGBoost"),
-    ("T5E_router", "OPERA (national) vs per-task XGBoost"),
-    ("T5_router", "OPERA (national + adaptation) vs per-task XGBoost"),
-    ("T2", "Joint vs per-task XGBoost"),
-    ("T5E_shared", "Joint (national) vs per-task XGBoost"),
-    ("T5_shared", "Joint (national + adaptation) vs per-task XGBoost"),
-    ("T6", "Joint vs pooled XGBoost"),
-    ("T9", "Joint vs XGBoost with registry variables"),
+    (None, "Borrowing across tasks (each against one model per task)"),
+    ("P1", "Patients with other diseases"), ("P2", "Other outcomes in the same patients"),
+    ("P5", "Both"),
+    (None, "Specialising each prediction (each step added to the one above)"),
+    ("OFF_J", "Corrections for the patient's disease and the outcome"),
+    ("OAOWN_OFF", "\\quad + each outcome reading the record its own way"),
+    ("O2", "\\quad = all specialisation (OPERA against the joint model)"),
+    ("AB_OFF", "Instead: learning which other tasks to borrow from"),
+    (None, "Pretraining on the national population (against the cohort encoder)"),
+    ("E1", "Joint model, national encoder"),
+    ("E3", "Joint model, national encoder adapted to the cohort"),
+    ("E2", "OPERA, national encoder"),
+    ("E4", "OPERA, national encoder adapted to the cohort"),
+    (None, "Sequence models against tabular models (per-task XGBoost unless stated)"),
+    ("T3", "One model per task (specialist)"), ("T7", "XGBoost pooled across diseases"),
+    ("O1", "OPERA, cohort encoder"),
+    ("T5E_router", "OPERA, national encoder"),
+    ("T5_router", "OPERA, national encoder adapted to the cohort"),
+    ("T2", "Joint model"),
+    ("T5E_shared", "Joint model, national encoder"),
+    ("T5_shared", "Joint model, national encoder adapted to the cohort"),
+    ("T6", "Joint model, against XGBoost pooled across diseases"),
+    ("T9", "Joint model, against XGBoost with registry variables"),
 )
 
 
@@ -343,7 +347,7 @@ def table_rows(panel):
         for variant in ("NA", "N", "L"):
             label = label.replace("OPERA-" + variant, r"\opera{} ("
                                   + {"L": "local", "N": "national", "NA": "national + adaptation"}[variant] + ")")
-        label = label.replace('OPERA (', r'\opera{} (')
+        label = label.replace('OPERA', r'\opera{}')
         label = "\\quad " + label
         found = panel.loc[panel.contrast == code]
         if not len(found):

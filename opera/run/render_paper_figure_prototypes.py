@@ -786,6 +786,8 @@ def synthetic_attribution_patterns(seed=41, n=500):
     similarity = similarity.assign(outcome_a=similarity.column_a.map(reverse),
                                    outcome_b=similarity.column_b.map(reverse))
     restrictions = []
+    outcome_restrictions = []
+    endpoint_rng = np.random.default_rng(seed + 17)
     effects = {item["label"]: value for item, value in zip(
         config["restrictions"], (-0.06, -0.025, -0.012, -0.015, -0.003, -0.008))}
     lab_heavy = ("Neutrophil", "Renal", "Erythroid", "Liver", "Sodium", "Calcium", "Metabolic")
@@ -802,6 +804,13 @@ def synthetic_attribution_patterns(seed=41, n=500):
             half = 0.004 if group == "All outcomes" else 0.01
             restrictions.append({"restriction": name, "group": group, "mean_delta": mean,
                                  "lower": mean - half, "upper": mean + half})
+        for outcome in columns:
+            group_mean = next(r["mean_delta"] for r in restrictions
+                              if r["restriction"] == name and r["group"] == domains[outcome])
+            delta = group_mean * endpoint_rng.uniform(0.6, 1.4)
+            outcome_restrictions.append({"restriction": name, "outcome": outcome,
+                                         "delta": delta, "lower": delta - .012,
+                                         "upper": delta + .012})
 
     # One curated patient, on the absolute-risk scale, for the clinical figure.
     curated = synthetic_patient(weights, factors)
@@ -836,6 +845,7 @@ def synthetic_attribution_patterns(seed=41, n=500):
                 variance_windows=pd.concat(variance["window"], ignore_index=True),
                 concepts=pd.concat(concepts, ignore_index=True), similarity=similarity,
                 restrictions=pd.DataFrame(restrictions), explanation=explanation,
+                outcome_restrictions=pd.DataFrame(outcome_restrictions),
                 episodes_risk=episodes_risk, episodes_logit=episodes_logit,
                 wide=wide, patients=patients)
 
@@ -937,7 +947,8 @@ def main():
         patterns["variance_sources"], patterns["variance_windows"], patterns["concepts"],
         mark=mark)
     renders["supp_attribution_structure"] = figures.figure_attribution_structure(
-        patterns["similarity"], patterns["restrictions"], mark=mark)
+        patterns["similarity"], patterns["restrictions"],
+        outcome_restrictions=patterns["outcome_restrictions"], mark=mark)
     renders["supp_attribution_patient"] = figure_patient_tracks(
         patterns["episodes_logit"], mark=mark)
     renders["fig_attribution"] = figures.figure_attribution_main(

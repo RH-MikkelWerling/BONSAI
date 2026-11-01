@@ -31,7 +31,7 @@ REPORT_TABLES = {
     'clinical_operating_point_counts.csv',
     'stratification_diagnostics.csv', 'borrowing_map.csv', 'borrowing_levels.csv',
     'borrowing_hypotheses.csv', 'borrowing_hypothesis_test.csv',
-    'input_restriction_summary.csv', 'attribution_quality.csv',
+    'input_restriction_summary.csv', 'input_restriction_auc.csv', 'attribution_quality.csv',
     'input_restriction_summary_by_horizon.csv', 'input_restriction_auc_by_horizon.csv',
     'attribution_variance_sources.csv', 'attribution_variance_windows.csv',
     'attribution_outcome_similarity.csv', 'attribution_concepts.csv',

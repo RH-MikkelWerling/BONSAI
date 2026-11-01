@@ -280,6 +280,11 @@ TASK_POOLING = {
     "OAOWN_J": "gain(J_OA_OWN_L,J_L)",       # attention + own corrections
     "OAOWN_AB": "gain(J_OA_OWN_L,R_L)",
     "OAOWN_OA": "gain(J_OA_OWN_L,J_OA_L)",   # own corrections on top of attention
+    # The ladder in the main text (1 November 2026): J -> own corrections ->
+    # + own reading, and learned routing on top of own corrections.
+    "OFF_J": "gain(R_PF_OFF_L,J_L)",         # own diagnosis and outcome corrections
+    "OAOWN_OFF": "gain(J_OA_OWN_L,R_PF_OFF_L)",  # own reading on top of own corrections
+    "AB_OFF": "gain(R_AB_L,R_PF_OFF_L)",     # learned routing on top of own corrections
     "OAOWNPH_OAOWN": "gain(J_OA_OWN_PH_L,J_OA_OWN_L)",  # lineage corrections on top
     "OAOWNPH_AB": "gain(J_OA_OWN_PH_L,R_L)",
     "FPFOWN_AB": "gain(J_FPF_OWN_L,R_L)",
@@ -335,7 +340,57 @@ TASK_SEEDS = {
     "OAOWN_NF4345": "gain(J_OA_OWN_s43_L,J_OA_OWN_s45_L)",
     "J_NF": "gain(J_L,J_s43_L)",                              # seed noise floor of J
     "OAOWN_J_s43": "gain(J_OA_OWN_s43_L,J_s43_L)",            # the main gain on a second seed pair
+    "OFF_J_s43": "gain(R_PF_OFF_s43_L,J_s43_L)",              # ladder steps on seed 43 (stage 15)
+    "OAOWN_OFF_s43": "gain(J_OA_OWN_s43_L,R_PF_OFF_s43_L)",
+    "AB_OFF_s43": "gain(R_AB_s43_L,R_PF_OFF_s43_L)",
 }
+
+# The design search (supplementary figure, 1 November 2026): every tuned design
+# against the selected reading design (J_OA_OWN) and against the primary router
+# (R_L = R_AB), computed for the fits present. Contrast names are
+# "DS_<model>__OAOWN" and "DS_<model>__AB"; display labels and groups live in
+# build_paper_plot_tables.DESIGN_LABELS. The seed repeats give the seed band.
+# ``design_search: false`` in the analysis config switches the family off.
+DESIGN_SEARCH_REFERENCES = {"OAOWN": "J_OA_OWN_L", "AB": "R_L"}
+DESIGN_SEARCH_MODELS = (
+    # Learned routing and its controls (stages 3-8)
+    "N_A_L", "RBH_O_L", "RBH_AB_L", "R_PF_OFF_L", "R_O_L", "R_L", "R_ORIG_L",
+    "R_PP_L", "R_PP_FROZEN_L", "R_PT5_L", "R_PT3V_L", "R_PF5E_L", "R_PF5_L",
+    "R_PF5B_L", "R_PF10E_L", "R_PF5EP_L", "R_PF5EL_L", "R_PF5ED_L", "R_PF5EO_L",
+    "R_PF5E_LR10_L", "R_PF5E_W0_L", "R_PF5E_LIVE_L", "R_PF5E_FROZEN_L",
+    # Known and learned structure (stage 8)
+    "R_PH_G_L", "R_PH_GE_L", "R_PH_GE_PF5E_L", "R_PL8_L",
+    # Capacity
+    "R_PF_OFF_R32_L", "R_PF5E_R32_L", "J_OA_OWN_R32_L",
+    # Readouts (stage 9)
+    "J_L", "J_OA_L", "J_OA_LR_L", "J_SP_L", "J_FP_L", "J_FPF_L", "J_FPF_PH_L",
+    # Reading + own corrections (stages 9 and 12)
+    "J_OA_OWN_L", "J_OA_OWN_PH_L", "J_OA_LR_OWN_L", "J_FPF_OWN_L", "J_FPF_PH_OWN_PH_L",
+    "J_OA_OWN_NODIS_L", "J_OA_OWN_NOOUT_L",
+    # Shrinkage, cross and endpoint-family terms (stage 13)
+    "J_OA_OWN_SW20_L", "J_OA_OWN_SW100_L", "J_OA_OWN_X_L", "J_OA_OWN_X_SW_L",
+    "J_OA_OWN_PE_L", "J_OA_OWN_PH_X_L", "J_OA_OWN_PE_X_SW_L", "J_OA_OWN_MAX_L",
+    # Encoder learning rate (stages 10-11)
+    "J_ELR10_L", "R_AB_ELR10_L", "R_AB_ELR3_L", "J_OA_OWN_ELR10_L",
+    "J_FPF_PH_OWN_PH_ELR10_L",
+    # Seed repeats
+    "J_OA_OWN_s43_L", "J_OA_OWN_s44_L", "J_OA_OWN_s45_L", "R_AB_s43_L", "J_s43_L",
+    "R_PF5E_s43_L", "R_PF_OFF_s43_L",
+)
+
+
+def design_search_contrasts(models) -> dict:
+    """``DS_<model>__<reference>`` for every design and reference present."""
+    models = set(models)
+    contrasts = {}
+    for tag, reference in DESIGN_SEARCH_REFERENCES.items():
+        if reference not in models:
+            continue
+        for model in DESIGN_SEARCH_MODELS:
+            if model in models and model != reference:
+                contrasts[f"DS_{model}__{tag}"] = f"gain({model},{reference})"
+    return contrasts
+
 
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
@@ -556,6 +611,8 @@ def run(config, output_dir):
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in PARTIAL_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})
+    if config.get("design_search", True):
+        contrasts.update(design_search_contrasts(set(predictions.model)))
     if "R_ORIG_L" in set(predictions.model):
         # The originally locked router, kept as a sensitivity model when another
         # router fit is primary (lock amendment 2026-10-27).

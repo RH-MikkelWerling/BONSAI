@@ -36,6 +36,8 @@ def main():
                         help="Render every plate in memory to validate schemas without writing outputs")
     args = parser.parse_args()
     from opera.visualization import paper_figures as figures
+    # New-OPERA figures (1 Nov 2026) live in their own module.
+    from opera.visualization import opera_design_figures as design_figures
     from opera.visualization.style import save_fig
     from opera.visualization.layout_audit import audit_layout
     import matplotlib
@@ -60,9 +62,10 @@ def main():
             raise ValueError("Figure IDs must be unique safe filenames")
         ids.add(name)
         kind = plate["function"]
-        if not kind.startswith("figure_") or not callable(getattr(figures, kind, None)):
+        function = next((getattr(module, kind) for module in (figures, design_figures)
+                         if callable(getattr(module, kind, None))), None)
+        if not kind.startswith("figure_") or function is None:
             raise ValueError("Unknown paper figure function")
-        function = getattr(figures, kind)
         inputs = dict(plate.get("options", {}))
         hashes = {}
         if args.available_only or args.validate_render:
@@ -97,6 +100,7 @@ def main():
         prepared.append((name, function, inputs, hashes))
     code_hashes = {label: file_hash(Path(path)) for label, path in {
         'renderer': __file__, 'figures': inspect.getsourcefile(figures),
+        'design_figures': inspect.getsourcefile(design_figures),
         'style': inspect.getsourcefile(save_fig),
         'layout_audit': inspect.getsourcefile(audit_layout)}.items()}
     validation = []

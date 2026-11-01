@@ -10,13 +10,20 @@ corrections) and writes, without any patient data:
   cosine similarity between the effective low-rank maps up @ down of the own
   outcome and own diagnosis corrections: which tasks are adjusted alike.
 * ``outcome_specialisation.csv``: per outcome, the attention gate |tanh g|, the
-  size of its own correction (Frobenius norm of up @ down), its validation cases
-  and endpoint family; ``disease_specialisation.csv`` likewise per diagnosis.
-* ``summary.json``: for each similarity, mean similarity within vs between
-  endpoint families (outcomes) or lineages (diagnoses), with a permutation p.
+  size of its own correction (Frobenius norm of up @ down), its training events
+  (summed over diagnoses), validation cases and endpoint family;
+  ``disease_specialisation.csv`` likewise per diagnosis (``size``: training
+  events over all outcomes).
+* ``task_structure_summary.json``: for each similarity, mean similarity within
+  vs between endpoint families (outcomes) or lineages (diagnoses), with a
+  permutation p.
+
+Every table is about tasks (outcomes, diagnoses), never patients. The file
+names are unique, so the output directory can be the paper plot-table
+directory, where the figure recipe reads them.
 
     python -m opera.run.export_opera_task_structure --run-dir <neural run dir> \\
-        --output-dir <dir>
+        --output-dir <analysis root>/figure_inputs/plot_tables
 """
 from __future__ import annotations
 
@@ -56,7 +63,7 @@ def within_between(similarity: np.ndarray, labels, *, permutations=2000, seed=0)
 
 
 def task_structure(state: dict, outcomes, diseases, *, outcome_family=None, disease_lineage=None,
-                   outcome_cases=None, disease_size=None):
+                   outcome_cases=None, disease_size=None, outcome_events=None):
     """All tables from a model state dict (keys without the ``model.`` prefix)."""
     readout = {k.split("outcome_attention_readout.", 1)[1]: v.float() for k, v in state.items()
                if "outcome_attention_readout." in k}
@@ -86,6 +93,7 @@ def task_structure(state: dict, outcomes, diseases, *, outcome_family=None, dise
     tables["outcome_specialisation"] = pd.DataFrame({
         "outcome": outcomes, "gate": gates,
         "correction_size": outcome_maps.flatten(1).norm(dim=1).numpy(),
+        "training_events": [None if outcome_events is None else outcome_events.get(o) for o in outcomes],
         "validation_cases": [None if outcome_cases is None else outcome_cases.get(o) for o in outcomes],
         "endpoint_family": [family.get(o) for o in outcomes]})
     tables["disease_specialisation"] = pd.DataFrame({
@@ -121,16 +129,19 @@ def main() -> None:
     if inventory.is_file():
         frame = pd.DataFrame(json.loads(inventory.read_text())).query("horizon_days == 365")
         cases = frame.set_index("outcome")["n_cases"].to_dict()
-    size = None
+    size = events = None
     support = args.run_dir / "attention_own_cell_support.csv"
     if support.is_file():
-        size = pd.read_csv(support).groupby("disease")["training_events"].sum().to_dict()
+        cells = pd.read_csv(support)
+        size = cells.groupby("disease")["training_events"].sum().to_dict()
+        events = cells.groupby("outcome")["training_events"].sum().to_dict()
     tables, summary = task_structure(state, outcomes, diseases, outcome_family=outcome_endpoint_groups(),
-                                     disease_lineage=fine_cohort_groups(), outcome_cases=cases, disease_size=size)
+                                     disease_lineage=fine_cohort_groups(), outcome_cases=cases,
+                                     disease_size=size, outcome_events=events)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(args.output_dir / f"{name}.csv", index=name.endswith("similarity"))
-    (args.output_dir / "summary.json").write_text(json.dumps(
+    (args.output_dir / "task_structure_summary.json").write_text(json.dumps(
         {"checkpoint": str(args.run_dir / args.checkpoint), "epoch": checkpoint.get("epoch"), **summary}, indent=2))
     print(json.dumps(summary, indent=2))
 

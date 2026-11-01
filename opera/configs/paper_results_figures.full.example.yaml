@@ -44,6 +44,14 @@ required_figures:
 - supp_pooling_cells_03
 - supp_pooling_cells_04
 - supp_pooling_cells_05
+# New OPERA design (1 Nov 2026). The router figures above stay registered while
+# their inputs exist; the manuscript uses these in their place.
+- fig_gain_sources
+- supp_design_search
+- supp_task_organisation
+- supp_specialisation
+- supp_correction_arrows
+- supp_xgboost_gap
 figures:
 - id: fig_atlas
   function: figure_atlas
@@ -287,3 +295,41 @@ figures:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: OPERA-J
+# New OPERA design (1 Nov 2026). gain_sources_cells.csv and design_search.csv
+# come from plot-tables; the task-structure tables from
+# opera.run.export_opera_task_structure and the arrow aggregates from
+# opera.run.export_opera_correction_arrows, both written into plot_tables.
+- id: fig_gain_sources
+  function: figure_gain_sources
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/gain_sources_cells.csv
+- id: supp_design_search
+  function: figure_design_search
+  tables:
+    designs: ${OPERA_PAPER_PLOT_TABLE_ROOT}/design_search.csv
+- id: supp_task_organisation
+  function: figure_task_organisation
+  tables:
+    outcome_similarity: ${OPERA_PAPER_PLOT_TABLE_ROOT}/outcome_query_similarity.csv
+    disease_similarity: ${OPERA_PAPER_PLOT_TABLE_ROOT}/disease_correction_similarity.csv
+    outcome_correction_similarity: ${OPERA_PAPER_PLOT_TABLE_ROOT}/outcome_correction_similarity.csv
+    outcome_family: ${OPERA_PAPER_PLOT_TABLE_ROOT}/outcome_specialisation.csv
+    disease_lineage: ${OPERA_PAPER_PLOT_TABLE_ROOT}/disease_specialisation.csv
+  json_inputs:
+    summary: ${OPERA_PAPER_PLOT_TABLE_ROOT}/task_structure_summary.json
+- id: supp_specialisation
+  function: figure_specialisation
+  tables:
+    outcomes: ${OPERA_PAPER_PLOT_TABLE_ROOT}/outcome_specialisation.csv
+    diseases: ${OPERA_PAPER_PLOT_TABLE_ROOT}/disease_specialisation.csv
+- id: supp_correction_arrows
+  function: figure_correction_arrows
+  tables:
+    arrows: ${OPERA_PAPER_PLOT_TABLE_ROOT}/correction_arrows.csv
+    density: ${OPERA_PAPER_PLOT_TABLE_ROOT}/correction_arrow_density.csv
+  json_inputs:
+    meta: ${OPERA_PAPER_PLOT_TABLE_ROOT}/correction_arrows.json
+- id: supp_xgboost_gap
+  function: figure_xgboost_gap
+  tables:
+    cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv

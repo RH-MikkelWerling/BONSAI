@@ -186,6 +186,7 @@ def main():
                      f'source_removal/{args.split}/borrowing_map.csv',
                      f'source_removal/{args.split}/borrowing_levels.csv',
                      'input_restrictions/input_restriction_summary.csv',
+                     'input_restrictions/input_restriction_auc.csv',
                      'input_restrictions/input_restriction_summary_by_horizon.csv',
                      'input_restrictions/input_restriction_auc_by_horizon.csv'):
         source = (clinical_inputs / relative.split('/',1)[1] if relative.startswith('clinical_scores/') else

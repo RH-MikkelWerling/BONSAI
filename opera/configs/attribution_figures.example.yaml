@@ -24,6 +24,7 @@ figures:
     tables:
       similarity: ${OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR}/attribution_outcome_similarity.csv
       restrictions: ${OPERA_PAPER_INPUT_RESTRICTION_DIR}/input_restriction_summary.csv
+      outcome_restrictions: ${OPERA_PAPER_INPUT_RESTRICTION_DIR}/input_restriction_auc.csv
   - id: supp_attribution_patient
     function: figure_patient_tracks
     tables:

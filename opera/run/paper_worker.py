@@ -89,6 +89,16 @@ def raw_config(bundle_dir, row):
 
 
 HOLD_SPECIALISTS = "HOLD_SPECIALISTS"
+# One fit name per line (the last name component without "fix_", e.g. R_AB_ELR3):
+# those fits are parked while everything else runs; deleting a line releases it.
+HOLD_FITS = "HOLD_FITS"
+
+
+def held_fits(paper_root):
+    path = Path(paper_root) / HOLD_FITS
+    if not path.is_file():
+        return set()
+    return {line.split("#")[0].strip() for line in path.read_text().splitlines()} - {""}
 
 
 def priority(row):
@@ -120,8 +130,11 @@ def todo(bundle_dirs, decisions, speculative=False):
             # everything else runs; removing the file releases them (no restart).
             held = ((bundle_dir.parent.parent / HOLD_SPECIALISTS).exists()
                     and row["phase"] == "supervision" and row["regime"] == "S")
+            fit = row["name"].rsplit("/", 1)[-1].removeprefix("fix_")
             if held:
                 gate = "blocked_held:specialists"
+            elif fit in held_fits(bundle_dir.parent.parent):
+                gate = "blocked_held:" + fit
             elif missing and not speculative:
                 gate = "blocked_needs_decision:" + ",".join(sorted(missing))
             elif any(

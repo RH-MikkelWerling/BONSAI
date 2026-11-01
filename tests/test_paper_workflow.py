@@ -488,7 +488,8 @@ def test_split_specific_inventory_is_compatible_with_coverage_analysis():
     assert summary.set_index("split").n_cases.to_dict() == {"tuning": 0, "held_out": 1}
 
 
-def test_inventory_collects_verified_models_and_records_missing_cells(tmp_path):
+@pytest.mark.parametrize("stale_routes", [False, True])
+def test_inventory_collects_verified_models_and_records_missing_cells(tmp_path, stale_routes):
     import yaml
     from opera.run.paper_analysis_inventory import build_inventory
     from opera.run.run_paper_queue import file_hash
@@ -539,7 +540,9 @@ def test_inventory_collects_verified_models_and_records_missing_cells(tmp_path):
     cell.write_text(
         "cohort,outcome,horizon_days,n_events_train\nCLL,overall_survival,365,10\n"
     )
-    template.write_text("estimand: binary_known_status_unweighted\nartifacts: []\n")
+    template.write_text("estimand: binary_known_status_unweighted\nartifacts: []\n" + (
+        "route_weights: /old/router/routes.parquet\nroute_model: R_L\nroute_seed: 42\n"
+        if stale_routes else ""))
     option = Namespace(
         output_dir=tmp_path / "inventory",
         bundle_dir=directory,
@@ -557,6 +560,7 @@ def test_inventory_collects_verified_models_and_records_missing_cells(tmp_path):
     assert report["n_artifacts"] == 2
     recipe = yaml.safe_load((option.output_dir / "analysis.yaml").read_text())
     assert all(artifact["model"] == "J_L" for artifact in recipe["artifacts"])
+    assert not {"route_weights", "route_model", "route_seed"} & set(recipe)
     assert all(
         artifact["include_horizons_days"] == [365] for artifact in recipe["artifacts"]
     )

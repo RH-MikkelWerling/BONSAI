@@ -22,6 +22,11 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
+TASK_STRUCTURE_TABLES = ("outcome_query_similarity.csv", "outcome_correction_similarity.csv",
+                         "disease_correction_similarity.csv", "outcome_specialisation.csv",
+                         "disease_specialisation.csv", "task_structure_summary.json")
+CORRECTION_ARROW_TABLES = ("correction_arrows.csv", "correction_arrow_density.csv",
+                           "correction_arrows.json")
 RESULTS_RECIPE = REPO / "opera/configs/paper_results_figures.full.example.yaml"
 ATTRIBUTION_RECIPE = REPO / "opera/configs/attribution_figures.example.yaml"
 # Rendered by the clinical-scores action into <analysis root>/clinical_scores.
@@ -42,7 +47,10 @@ def manuscript_text(path: Path) -> str:
         child = path.parent / (name if name.endswith(".tex") else f"{name}.tex")
         return manuscript_text(child) if child.is_file() else match.group(0)
 
-    return re.sub(r"\\input\{([^}]+)\}", expand, path.read_text())
+    # LaTeX comments are not part of the manuscript (retired figure blocks are
+    # kept commented out); drop them before looking for figures and inputs.
+    text = re.sub(r"(?<!\\)%.*", "", path.read_text())
+    return re.sub(r"\\input\{([^}]+)\}", expand, text)
 
 
 def manuscript_figures(path: Path) -> list[str]:
@@ -55,6 +63,10 @@ def producer(path: Path, analysis_root: Path) -> str:
     text = str(path)
     if path.name in EMBEDDING_TABLES:
         return "embedding-tables"
+    if path.name in TASK_STRUCTURE_TABLES:
+        return "task-structure"
+    if path.name in CORRECTION_ARROW_TABLES:
+        return "correction-arrows (after embedding-tables' map stage is exported)"
     if "/plot_tables/" in text:
         return "plot-tables"
     if "/clinical_scores/" in text:

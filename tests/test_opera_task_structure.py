@@ -4,6 +4,7 @@ with planted family structure)."""
 import matplotlib
 matplotlib.use("Agg")
 import numpy as np
+import pandas as pd
 import torch
 
 from opera.run.export_opera_task_structure import task_structure, within_between
@@ -64,3 +65,17 @@ def test_figures_render(tmp_path):
     fig = figure_specialisation(tables["outcome_specialisation"])
     fig.savefig(tmp_path / "specialisation.png")
     assert (tmp_path / "organisation.png").stat().st_size > 10_000
+
+
+def test_task_matrices_share_the_colour_scale_of_their_single_colourbar():
+    import matplotlib.pyplot as plt
+
+    outcome = pd.DataFrame([[1, .8], [.8, 1]], index=["o1", "o2"], columns=["o1", "o2"])
+    disease = pd.DataFrame([[1, -.2], [-.2, 1]], index=["d1", "d2"], columns=["d1", "d2"])
+    fig = figure_task_organisation(outcome, disease,
+                                   {"o1": "F", "o2": "F"}, {"d1": "L", "d2": "L"})
+    first, second = [axis.images[0] for axis in fig.axes[:2]]
+    assert first.norm.vmin == second.norm.vmin == -.8
+    assert first.norm.vmax == second.norm.vmax == .8
+    np.testing.assert_allclose(first.cmap(first.norm(.2)), second.cmap(second.norm(.2)))
+    plt.close(fig)

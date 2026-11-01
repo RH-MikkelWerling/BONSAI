@@ -291,6 +291,189 @@ def hierarchy_cells(contrasts, metadata, *, seed=None, designs=("AB", "O")):
                                   metadata).assign(router_design=design))
 
 
+# Where the gain comes from (main-text figure, 1 November 2026): analysis
+# contrast -> (ladder step, sign). The stage-12 ablations are analysed as what a
+# correction adds (full minus ablated); the figure shows removing it, so their
+# sign is flipped here (gain and interval bounds alike).
+GAIN_SOURCE_STEPS = {
+    "OFF_J": ("corrections", 1),     # own diagnosis + outcome corrections vs J
+    "OAOWN_OFF": ("reading", 1),     # each outcome reads the record, on top
+    "AB_OFF": ("routing", 1),        # learned routing on top of own corrections
+    "OAOWN_DIS": ("no_disease", -1),  # remove the diagnosis correction
+    "OAOWN_OUT": ("no_outcome", -1),  # remove the outcome correction
+    "OAOWN_J": ("total", 1),         # OPERA vs J
+}
+
+
+def _flip(frame, columns):
+    """Negate signed estimates and swap their interval bounds."""
+    frame = frame.copy()
+    for prefix in columns:
+        centre = "gain" if prefix == "" else f"{prefix}mean"
+        low, high = f"{prefix}lower", f"{prefix}upper"
+        if centre in frame:
+            frame[centre] = -frame[centre]
+        if low in frame and high in frame:
+            frame[low], frame[high] = -frame[high], -frame[low]
+    return frame
+
+
+def gain_sources_cells(contrasts, summaries, metadata, *, seed=None, steps=None):
+    """Per cell: each step of the gain-source ladder, with the saved paired panel
+    and clinical-domain summaries (same columns as paired_cells.csv, with
+    ``step`` instead of ``contrast``)."""
+    steps = steps or GAIN_SOURCE_STEPS
+    data = _select(contrasts, seed=seed)
+    data = data.loc[data.contrast.isin(steps)].copy()
+    if not {"OFF_J", "OAOWN_OFF"} & set(data.contrast):
+        raise Missing("no gain-source contrasts (OFF_J, OAOWN_OFF) in the analysis; "
+                      "analyse R_PF_OFF_L and J_OA_OWN_L")
+    data = _with_cells(data, metadata)
+    effects = _select(summaries, seed=seed)
+    effects = effects.loc[effects.contrast.isin(steps)]
+    for stratum, prefix, keys in [
+            ("all_cells", "panel", ["contrast", "metric", "horizon_days"]),
+            ("endpoint_group", "group", ["contrast", "metric", "horizon_days", "endpoint_group"])]:
+        selected = effects.loc[effects.stratum == stratum].copy()
+        if stratum == "endpoint_group":
+            selected["endpoint_group"] = selected.stratum_value
+        selected = selected.rename(columns={"gain": f"{prefix}_mean", "lower": f"{prefix}_lower",
+                                            "upper": f"{prefix}_upper"})
+        columns = [f"{prefix}_{suffix}" for suffix in ("mean", "lower", "upper")]
+        data = data.merge(selected[keys + columns], on=keys, how="left", validate="many_to_one")
+    parts = []
+    for code, (step, sign) in steps.items():
+        part = data.loc[data.contrast == code].assign(step=step)
+        parts.append(_flip(part, ["", "panel_", "group_"]) if sign < 0 else part)
+    data = pd.concat(parts, ignore_index=True)
+    columns = ["cohort", "cohort_group", "outcome", "endpoint_group", "horizon_days", "step",
+               "metric", "gain", "lower", "upper", "n_events_train", "n_patients_train",
+               "n_cases", "n_controls", "panel_mean", "panel_lower", "panel_upper",
+               "group_mean", "group_lower", "group_upper"]
+    return to_display(data[[c for c in columns if c in data]])
+
+
+# Display catalogue of the design search (supplementary figure). Model code ->
+# (group, readable mechanism label); the figure prints the code beside it in
+# small grey. Groups appear in this order. Models absent here are shown under
+# "Other" with their code.
+DESIGN_GROUPS = (
+    "Learned routing (stages 3–8)",
+    "Known and learned structure (stage 8)",
+    "Capacity",
+    "Outcome-specific reading (stage 9)",
+    "Reading + own corrections (stages 9, 12)",
+    "Shrinkage, cross and family terms (stage 13)",
+    "Encoder learning rate (stages 10–11)",
+    "Seed repeats",
+)
+_G = dict(enumerate(DESIGN_GROUPS))
+DESIGN_LABELS = {
+    "N_A_L": (_G[0], "Global correction only"),
+    "RBH_O_L": (_G[0], "Own corrections only, router code (R_O)"),
+    "RBH_AB_L": (_G[0], "Own corrections only, router code (R_AB)"),
+    "R_PF_OFF_L": (_G[0], "Own diagnosis and outcome corrections"),
+    "R_O_L": (_G[0], "Routing, own corrections outside the mix"),
+    "R_L": (_G[0], "Learn whom to borrow from (primary router)"),
+    "R_ORIG_L": (_G[0], "Original router"),
+    "R_PP_L": (_G[0], "Partial-pooling router"),
+    "R_PP_FROZEN_L": (_G[0], "Partial pooling, even mix (frozen)"),
+    "R_PT5_L": (_G[0], "Task-level routing, bound 5"),
+    "R_PT3V_L": (_G[0], "Task-level routing, bound 3, variance-preserving"),
+    "R_PF5E_L": (_G[0], "Routing on top of own corrections"),
+    "R_PF5_L": (_G[0], "  borrowed corrections raw"),
+    "R_PF5B_L": (_G[0], "  borrowed corrections capped"),
+    "R_PF10E_L": (_G[0], "  looser routing (bound 10)"),
+    "R_PF5EP_L": (_G[0], "  patient-specific routing"),
+    "R_PF5EL_L": (_G[0], "  free borrowed share per cell"),
+    "R_PF5ED_L": (_G[0], "  disease sources only"),
+    "R_PF5EO_L": (_G[0], "  outcome sources only"),
+    "R_PF5E_LR10_L": (_G[0], "  routing at 10× learning rate"),
+    "R_PF5E_W0_L": (_G[0], "  no router warm-up"),
+    "R_PF5E_LIVE_L": (_G[0], "  sources trained by borrowers"),
+    "R_PF5E_FROZEN_L": (_G[0], "  routes frozen (even mix)"),
+    "R_PH_G_L": (_G[1], "Lineage corrections"),
+    "R_PH_GE_L": (_G[1], "Lineage and endpoint-group corrections"),
+    "R_PH_GE_PF5E_L": (_G[1], "Lineage and endpoint groups + routing"),
+    "R_PL8_L": (_G[1], "Eight learned task groups"),
+    "R_PF_OFF_R32_L": (_G[2], "Own corrections, rank 32"),
+    "R_PF5E_R32_L": (_G[2], "Routing on own corrections, rank 32"),
+    "J_OA_OWN_R32_L": (_G[2], "Reading + own corrections, rank 32"),
+    "J_L": (_G[3], "Joint model: one shared summary"),
+    "J_OA_L": (_G[3], "Each outcome reads the record"),
+    "J_OA_LR_L": (_G[3], "Outcome queries tied through a shared basis"),
+    "J_SP_L": (_G[3], "Shared attention maps mixed per outcome"),
+    "J_FP_L": (_G[3], "Reading by disease group × outcome"),
+    "J_FPF_L": (_G[3], "Reading by diagnosis × outcome"),
+    "J_FPF_PH_L": (_G[3], "Diagnosis × outcome reading tied to lineage"),
+    "J_OA_OWN_L": (_G[4], "Each outcome reads the record + own corrections"),
+    "J_OA_OWN_PH_L": (_G[4], "  with lineage corrections"),
+    "J_OA_LR_OWN_L": (_G[4], "Tied outcome queries + own corrections"),
+    "J_FPF_OWN_L": (_G[4], "Diagnosis × outcome reading + own corrections"),
+    "J_FPF_PH_OWN_PH_L": (_G[4], "Lineage-tied reading + lineage corrections"),
+    "J_OA_OWN_NODIS_L": (_G[4], "  without the diagnosis correction"),
+    "J_OA_OWN_NOOUT_L": (_G[4], "  without the outcome correction"),
+    "J_OA_OWN_SW20_L": (_G[5], "Corrections shrunk by cell support (τ 20)"),
+    "J_OA_OWN_SW100_L": (_G[5], "Corrections shrunk by cell support (τ 100)"),
+    "J_OA_OWN_X_L": (_G[5], "Diagnosis × outcome correction"),
+    "J_OA_OWN_X_SW_L": (_G[5], "Diagnosis × outcome correction, shrunk"),
+    "J_OA_OWN_PE_L": (_G[5], "Endpoint-family corrections"),
+    "J_OA_OWN_PH_X_L": (_G[5], "Lineage + diagnosis × outcome corrections"),
+    "J_OA_OWN_PE_X_SW_L": (_G[5], "Family + cross + shrinkage"),
+    "J_OA_OWN_MAX_L": (_G[5], "All of the above at rank 32"),
+    "J_ELR10_L": (_G[6], "Joint model, encoder at 1×"),
+    "R_AB_ELR10_L": (_G[6], "Primary router, encoder at 1×"),
+    "R_AB_ELR3_L": (_G[6], "Primary router, encoder at 0.3×"),
+    "J_OA_OWN_ELR10_L": (_G[6], "Reading + own corrections, encoder at 1×"),
+    "J_FPF_PH_OWN_PH_ELR10_L": (_G[6], "Lineage-tied reading + corrections, encoder at 1×"),
+    "J_OA_OWN_s43_L": (_G[7], "Selected design, seed 43"),
+    "J_OA_OWN_s44_L": (_G[7], "Selected design, seed 44"),
+    "J_OA_OWN_s45_L": (_G[7], "Selected design, seed 45"),
+    "R_AB_s43_L": (_G[7], "Primary router, seed 43"),
+    "J_s43_L": (_G[7], "Joint model, seed 43"),
+    "R_PF5E_s43_L": (_G[7], "Routing on own corrections, seed 43"),
+    "R_PF_OFF_s43_L": (_G[7], "Own corrections, seed 43"),
+}
+# Aggregate exports from the selected checkpoint, written straight into the
+# plot-table directory by their own steps (not built here).
+TASK_STRUCTURE_TABLES = ("outcome_query_similarity.csv", "outcome_correction_similarity.csv",
+                         "disease_correction_similarity.csv", "outcome_specialisation.csv",
+                         "disease_specialisation.csv", "task_structure_summary.json")
+CORRECTION_ARROW_TABLES = ("correction_arrows.csv", "correction_arrow_density.csv",
+                           "correction_arrows.json")
+SELECTED_DESIGN = "J_OA_OWN_L"
+SELECTED_SEEDS = ("J_OA_OWN_s43_L", "J_OA_OWN_s44_L", "J_OA_OWN_s45_L")
+DESIGN_REFERENCES = {"OAOWN": "J_OA_OWN", "AB": "R_AB"}
+
+
+def design_code(model: str) -> str:
+    """Short design code shown beside the label (R_L is the primary R_AB)."""
+    return "R_AB" if model == "R_L" else model.removesuffix("_L")
+
+
+def design_search_table(summaries, *, seed=None, metric="auc", horizon=ALL_HORIZONS):
+    """Every tuned design against the selected design and the primary router:
+    paired panel gains on the tuning split (development; never the test set)."""
+    data = _select(summaries, split="tuning", seed=seed)
+    data = data.loc[(data.stratum == "all_cells") & data.contrast.str.startswith("DS_")
+                    & (data.metric == metric) & (data.horizon_days == horizon)].copy()
+    if data.empty:
+        raise Missing("no design-search contrasts (DS_*) on the tuning split; "
+                      "analyse with design_search enabled")
+    parsed = data.contrast.str.removeprefix("DS_").str.rsplit("__", n=1, expand=True)
+    data["model"], data["reference"] = parsed[0], parsed[1].map(DESIGN_REFERENCES)
+    catalogue = list(DESIGN_LABELS)
+    data["group"] = data.model.map(lambda m: DESIGN_LABELS.get(m, ("Other", m))[0])
+    data["label"] = data.model.map(lambda m: DESIGN_LABELS.get(m, ("Other", design_code(m)))[1])
+    data["code"] = data.model.map(design_code)
+    data["order"] = data.model.map(lambda m: catalogue.index(m) if m in catalogue else len(catalogue))
+    data["selected"] = data.model.eq(SELECTED_DESIGN)
+    data["seed_of_selected"] = data.model.isin(SELECTED_SEEDS)
+    columns = ["model", "code", "label", "group", "order", "reference", "metric", "horizon_days",
+               "gain", "lower", "upper", "n_cells", "selected", "seed_of_selected"]
+    return data[[c for c in columns if c in data]].sort_values(["order", "reference"])
+
+
 def coverage_table(metadata, contrast_coverage, model_coverage=None, *, horizon=365,
                    seed=None, registry_outcomes=None):
     """Why each disease–outcome cell was or was not compared at ``horizon``.
@@ -816,6 +999,11 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("hierarchy_cells.csv", lambda: hierarchy_cells(
         cell_contrasts(), cell_metadata_all, seed=seed,
         designs=(design, "AB", "O") if design else ("AB", "O")))
+    # The new OPERA design (1 November 2026): the gain-source ladder on the
+    # evaluation split, and the design search on tuning data only.
+    table("gain_sources_cells.csv", lambda: gain_sources_cells(
+        cell_contrasts(), summaries(), cell_metadata_all, seed=seed))
+    table("design_search.csv", lambda: design_search_table(summaries(), seed=seed))
 
     def coverage():
         model_coverage = analysis / "model_coverage.csv"
@@ -897,7 +1085,9 @@ def build(analysis_root: Path, cell_metadata: Path, output_dir: Path, *, seed=No
     table("disease_groups.json", lambda: diseases)
     table("outcome_groups.json", lambda: outcomes)
     for name in ("patient_coordinates.csv",
-                 "calibration_map_outcomes.json", "matched_patient_embeddings.csv"):
+                 "calibration_map_outcomes.json", "matched_patient_embeddings.csv",
+                 # Written by export_opera_task_structure / export_opera_correction_arrows.
+                 *TASK_STRUCTURE_TABLES, *CORRECTION_ARROW_TABLES):
         report.setdefault(name, {"status": "present_upstream" if (output_dir / name).is_file()
                                  else "pending_upstream_builder"})
     manifest = {"analysis_root": str(analysis_root), "seed": seed,

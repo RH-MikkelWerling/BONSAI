@@ -241,6 +241,9 @@ def build_commands(args, env):
             if stage >= 14:
                 # Seed spread: two more J_OA_OWN seeds and a second J seed.
                 command += ["--task-seeds"]
+            if stage >= 15:
+                # The Table 2 ladder on a second seed: R_PF_OFF_s43.
+                command += ["--ladder-seeds"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]
@@ -640,6 +643,26 @@ def build_commands(args, env):
                        "--output-dir", analysis_root / "figure_inputs" / "plot_tables")
                 + (["--rehearse-on-tuning"]
                    if value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out") == "tuning" else [])]
+    if args.action in {"task-structure", "correction-arrows"}:
+        # The selected OPERA checkpoint (default: the attribution checkpoint,
+        # the locked best model). Aggregates only, written into plot_tables.
+        checkpoint = Path(path_value(env, "OPERA_PAPER_TASK_STRUCTURE_CHECKPOINT",
+                                     env.get("OPERA_PAPER_ATTRIBUTION_CHECKPOINT")))
+        plot_tables = analysis_root / "figure_inputs" / "plot_tables"
+        if args.action == "task-structure":
+            return [module("opera.run.export_opera_task_structure",
+                           "--run-dir", checkpoint.parent, "--checkpoint", checkpoint.name,
+                           "--output-dir", plot_tables)]
+        return [module("opera.run.export_opera_correction_arrows",
+                       "--checkpoint", checkpoint,
+                       "--config-name", value(env, "OPERA_PAPER_TASK_STRUCTURE_CONFIG_NAME",
+                                              env.get("OPERA_PAPER_ATTRIBUTION_CONFIG_NAME")),
+                       "--config-dir", path_value(env, "OPERA_PAPER_ATTRIBUTION_CONFIG_DIR",
+                                                  str(REPO / "opera/configs")),
+                       "--embedding-config", path_value(env, "OPERA_PAPER_EMBEDDING_CONFIG"),
+                       "--output-dir", plot_tables)
+                + (["--rehearse-on-tuning"]
+                   if value(env, "OPERA_PAPER_PLOT_SPLIT", "held_out") == "tuning" else [])]
     if args.action == "plot-tables":
         command = module("opera.run.build_paper_plot_tables",
                          "--analysis-root", analysis_root,
@@ -951,6 +974,8 @@ def main():
             "patient-metadata",
             "table1",
             "embedding-tables",
+            "task-structure",
+            "correction-arrows",
             "plot-tables",
             "paper-numbers",
             "supplement-tables",

@@ -49,8 +49,23 @@ def load_stage(paths) -> pd.DataFrame:
     return frame
 
 
-def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None, allow_partial_routed=False) -> pd.DataFrame:
-    """2-D coordinates fitted on tuning patients, applied to held-out patients.
+class MapProjection:
+    """The fitted map: standardisation, PCA and UMAP (or the first two PCs).
+
+    ``transform`` places any vector of the same space on the map, which is how
+    displaced (outcome-specific or routed) representations are drawn on the
+    shared-representation map."""
+
+    def __init__(self, scaler, pca, reducer, method):
+        self.scaler, self.pca, self.reducer, self.method = scaler, pca, reducer, method
+
+    def transform(self, vectors) -> np.ndarray:
+        reduced = self.pca.transform(self.scaler.transform(np.asarray(vectors)))
+        return self.reducer.transform(reduced) if self.method == "umap" else reduced[:, :2]
+
+
+def fit_projection(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False):
+    """Fit the map on tuning patients; return it with the displayed patients.
 
     ``rehearse``: no held-out data; fit on half of the tuning patients and
     display the other half (fixed by subject id), to test the pipeline."""
@@ -70,19 +85,27 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, route
     scaler = StandardScaler().fit(fit)
     pca = PCA(n_components=min(50, fit.shape[1], len(fit) - 1), random_state=seed)
     reduced_fit = pca.fit_transform(scaler.transform(fit))
-    reduced_held = pca.transform(scaler.transform(np.stack(held.embedding)))
-    used = "pca"
+    reducer, used = None, "pca"
     if method == "umap":
         try:
             from umap import UMAP
 
             reducer = UMAP(n_components=2, n_neighbors=30, min_dist=0.3,
                            random_state=seed).fit(reduced_fit)
-            xy, used = reducer.transform(reduced_held), "umap"
+            used = "umap"
         except ImportError:
-            xy = reduced_held[:, :2]
-    else:
-        xy = reduced_held[:, :2]
+            pass
+    return MapProjection(scaler, pca, reducer, used), held
+
+
+def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None, allow_partial_routed=False) -> pd.DataFrame:
+    """2-D coordinates fitted on tuning patients, applied to held-out patients.
+
+    ``rehearse``: no held-out data; fit on half of the tuning patients and
+    display the other half (fixed by subject id), to test the pipeline."""
+    projection, held = fit_projection(frame, method=method, seed=seed, rehearse=rehearse)
+    used = projection.method
+    xy = projection.transform(np.stack(held.embedding))
     result = pd.DataFrame({"subject_id": held.subject_id.to_numpy(), "x": xy[:, 0],
                            "y": xy[:, 1], "projection": used})
     for outcome, path in (routed_vectors or {}).items():
@@ -104,8 +127,7 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, route
         shared, adapted = vectors['shared'][positions[present]], vectors['adapted'][positions[present]]
         if not np.allclose(shared, np.stack(held.embedding)[present], atol=1e-5, rtol=1e-4):
             raise ValueError('Router arrows require the same checkpoint shared embedding as the map')
-        reduced = pca.transform(scaler.transform(adapted))
-        after = reducer.transform(reduced) if used == 'umap' else reduced[:, :2]
+        after = projection.transform(adapted)
         result[f'routed:{outcome}:x'] = np.nan
         result[f'routed:{outcome}:y'] = np.nan
         result.loc[present, f'routed:{outcome}:x'] = after[:, 0]

@@ -106,11 +106,19 @@ ROUTED_MODELS = {"R_L", "R_E", "R_EA",
                  "R_PF5E_FROZEN_L", "R_PF_OFF_L", "R_PF_OFF_R32_L", "R_PF_OFF_F10_L"}
 
 
-def export_flags(aliases, args):
-    """Embeddings for every locked paper model; routes for the locked routers."""
+def export_flags(aliases, args, config=None):
+    """Embeddings for paper models; route exports only for source readouts.
+
+    National OPERA retains the R_E/R_EA aliases when its selected architecture
+    uses outcome attention. Those names alone no longer imply a router.
+    """
+    routes = bool(args.export_routes or ROUTED_MODELS & set(aliases))
+    readout = (config or {}).get("competing_risk", {}).get("readout_mode")
+    if readout is not None:
+        routes = routes and readout in {"source_anchored_adapters", "unanchored_adapters"}
     return {
         "export_embeddings": bool(aliases),
-        "export_routes": bool(args.export_routes or ROUTED_MODELS & set(aliases)),
+        "export_routes": routes,
     }
 
 
@@ -214,7 +222,7 @@ def evaluate_row(row, path, config, args, aliases=(), borrowing_design=False):
         "config_sha256": row["config_sha256"],
         "split": args.split,
         "horizons": args.horizons,
-        **(export_flags(aliases, args) if not borrowing_design
+        **(export_flags(aliases, args, config) if not borrowing_design
            else {"borrowing_design": "drop_source_term_v1"}),
     }
     output.mkdir(parents=True, exist_ok=True)

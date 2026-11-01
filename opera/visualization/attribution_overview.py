@@ -6,7 +6,8 @@
     lower which risks, with the cells where an effect was expected boxed.
 ``figure_attribution_structure`` (scientific)
     which outcomes rest on the same parts of the history, and what each part
-    of the record adds to discrimination, by clinical domain.
+    of the record adds to discrimination, for individual outcomes grouped by
+    clinical domain.
 ``figure_patient_tracks`` (clinical)
     one patient's history read for several complications: one track per
     outcome, with the episodes of care that move each risk at their time.
@@ -92,7 +93,7 @@ def _domain_rows(outcomes, domains):
     order = list(yaml.safe_load(Path(DISPLAY_GROUPS).read_text()))
     rank = {d: i for i, d in enumerate(order)}
     present = sorted({domains.get(o, "Other") for o in outcomes},
-                     key=lambda d: rank.get(d, 99))
+                     key=lambda d: (rank.get(d, 99), d))
     rows, labels, headers = [], [], []
     for domain in present:
         headers.append(len(rows))
@@ -250,95 +251,166 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     return fig
 
 
-def figure_attribution_structure(similarity, restrictions=None, *, domains=None, mark=None):
-    """Does the model read the same history differently for different outcomes?
+def figure_attribution_structure(similarity, restrictions=None, *, outcome_restrictions=None,
+                                 domains=None, mark=None):
+    """Episode-attribution agreement and input-removal effects, outcome by outcome.
 
-    A: for every pair of outcomes, how much they agree on which episodes of a
-    patient's history raise or lower risk (Spearman correlation of episode
-    contributions within patients, averaged over patients), outcomes ordered
-    by clinical domain with each domain outlined. B: change in held-out AUC
-    (x100) when the fitted model reads only part of the record, averaged over
-    the outcomes of each domain, in the same order.
+    Both panels use exactly the same outcome rows and clinical-domain headings.
+    ``restrictions`` supplies the separate all-outcome summary; the endpoint
+    estimates in ``outcome_restrictions`` must come from input_restriction_auc.csv.
+    Family averages must never be painted as individual-outcome estimates.
     """
-    from opera.visualization.paper_figures import RISK_CMAP, SHORT_GROUP, watermark
+    from opera.visualization.paper_figures import BANK_CMAP, RISK_CMAP, watermark
     from opera.visualization.paper_taxonomy import outcome_endpoint_groups
 
-    domains = domains or outcome_endpoint_groups()
-    rows, labels, headers = _domain_rows(list(dict.fromkeys(similarity.outcome_a)), domains)
-    outcomes = [r for r in rows if r is not None]
-    matrix = (similarity.pivot_table(index="outcome_a", columns="outcome_b", values="spearman")
-              .reindex(index=outcomes, columns=outcomes))
-    groups = [domains.get(o, "Other") for o in outcomes]
-    starts = [i for i in range(len(outcomes)) if i == 0 or groups[i] != groups[i - 1]]
-    ends = [*starts[1:], len(outcomes)]
+    domains = domains if domains is not None else outcome_endpoint_groups()
+    if outcome_restrictions is None and restrictions is not None and "outcome" in restrictions:
+        outcome_restrictions, restrictions = restrictions, None
+    if similarity.duplicated(["outcome_a", "outcome_b"]).any():
+        raise ValueError("Select one attribution horizon: duplicate outcome pairs")
+    outcomes_present = list(dict.fromkeys([*similarity.outcome_a, *similarity.outcome_b]))
+    if outcome_restrictions is not None:
+        outcomes_present = list(dict.fromkeys([*outcomes_present, *outcome_restrictions.outcome]))
+    rows, labels, headers = _domain_rows(outcomes_present, domains)
+    outcomes = [o for o in rows if o is not None]
+    positions = [i for i, o in enumerate(rows) if o is not None]
+    numbers = {o: i + 1 for i, o in enumerate(outcomes)}
+    # Header rows/columns stay empty, so both panels have identical geometry.
+    matrix = (similarity.pivot(index="outcome_a", columns="outcome_b", values="spearman")
+              .reindex(index=rows, columns=rows))
     pairs = similarity.loc[(similarity.outcome_a < similarity.outcome_b)
                            & similarity.spearman.notna()]
     same = pairs.outcome_a.map(domains) == pairs.outcome_b.map(domains)
     within = pairs.loc[same].spearman.median() if same.any() else np.nan
     between = pairs.loc[~same].spearman.median() if (~same).any() else np.nan
 
-    has_b = restrictions is not None and len(restrictions)
-    # Original (9e186f1) size and layout; the author preferred the original.
-    fig = plt.figure(figsize=(7.2, 4.4))
-    grid = fig.add_gridspec(1, 2 if has_b else 1, width_ratios=[1.35, 1] if has_b else [1],
-                            left=0.13, right=0.99, top=0.84, bottom=0.17, wspace=0.42)
+    has_b = outcome_restrictions is not None and len(outcome_restrictions) > 0
+    if restrictions is not None and len(restrictions) and not has_b:
+        raise ValueError("Individual-outcome panel B requires outcome_restrictions from "
+                         "input_restriction_auc.csv; family averages are not sufficient")
+    if has_b and outcome_restrictions.duplicated(["outcome", "restriction"]).any():
+        raise ValueError("Select one restriction horizon: duplicate outcome/restriction rows")
+
+    height = max(5.4, 0.12 * len(rows) + 1.65)
+    fig = plt.figure(figsize=(9.2, height))
+    grid = fig.add_gridspec(1, 2 if has_b else 1,
+                            width_ratios=[2.05, 1] if has_b else [1],
+                            left=0.29, right=0.985, top=1 - 0.85 / height,
+                            bottom=1.10 / height, wspace=0.16)
     ax = fig.add_subplot(grid[0])
-    image = ax.imshow(matrix.to_numpy(float), cmap=RISK_CMAP.reversed(),
+    cmap = RISK_CMAP.reversed().copy()
+    cmap.set_bad("#ECEEF1")
+    image = ax.imshow(matrix.to_numpy(float), cmap=cmap,
                       norm=TwoSlopeNorm(0, -1, 1), interpolation="nearest", aspect="auto")
     ax.grid(False)
-    for start, end in zip(starts, ends):
-        ax.add_patch(Rectangle((start - 0.5, start - 0.5), end - start, end - start,
-                               fill=False, ec=PALETTE["ink"], lw=0.8))
-    centres = [(s0 + e0 - 1) / 2 for s0, e0 in zip(starts, ends)]
-    names = [SHORT_GROUP.get(groups[s0], groups[s0]) for s0 in starts]
-    ax.set_yticks(centres, names, fontsize=6.0)
-    ax.set_xticks([])
-    ax.tick_params(length=0)
+    for k, start in enumerate(headers):
+        end = headers[k + 1] if k + 1 < len(headers) else len(rows)
+        ax.add_patch(Rectangle((start + 0.5, start + 0.5), end - start - 1,
+                               end - start - 1, fill=False, ec=PALETTE["ink"], lw=0.6))
+        ax.axhspan(start - 0.5, start + 0.5, color="white", lw=0)
+        ax.axvspan(start - 0.5, start + 0.5, color="white", lw=0)
+    display_labels = [label if o is None else f"{numbers[o]:02d}  {label}"
+                      for o, label in zip(rows, labels)]
+    _row_axis(ax, rows, display_labels, headers, show=True)
+    ax.tick_params(axis="y", labelsize=6, pad=4)
+    for i in headers:
+        ax.get_yticklabels()[i].set_fontsize(6.5)
+    ticks = [(i, o) for i, o in zip(positions, outcomes)
+             if numbers[o] == 1 or numbers[o] % 5 == 0]
+    ax.set_xticks([i for i, _ in ticks], [f"{numbers[o]:02d}" for _, o in ticks], fontsize=6)
+    ax.tick_params(axis="x", length=0, pad=3)
+    ax.set_xlabel("Outcome number (same order as rows)", fontsize=6.2, labelpad=5)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    bar = fig.colorbar(image, ax=ax, orientation="horizontal", fraction=0.05, pad=0.04)
-    bar.set_label("Agreement on which episodes raise or lower risk", fontsize=6.2)
-    bar.ax.tick_params(labelsize=5.8)
-    bar.ax.xaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
-    bar.ax.yaxis.set_ticks([])
-    bar.outline.set_visible(False)
-    # Within/between-domain median agreement goes to the caption.
+    abox = ax.get_position()
+    title_y = 1 + 0.58 / (abox.height * height)
+    _title(ax, "A", "Agreement in episode attributions", y=title_y, pad=0)
     fig.agreement_medians = {"within": within, "between": between}
-    _title(ax, "A", "Outcomes of one domain rest on the same history", pad=8)
+    fig.attribution_outcome_order = tuple(outcomes)
+    fig.attribution_row_order = tuple(rows)
+
+    # Explicit colourbar axes preserve row alignment across the two panels.
+    bar_bottom = 0.55 / height
+    bar_height = 0.08 / height
+    cax = fig.add_axes([abox.x0, bar_bottom, abox.width, bar_height])
+    bar = fig.colorbar(image, cax=cax, orientation="horizontal", ticks=[-1, -.5, 0, .5, 1])
+    bar.set_label("Spearman correlation of episode contributions", fontsize=6.2)
+    bar.ax.tick_params(labelsize=5.8, length=2)
+    bar.outline.set_visible(False)
+
     if has_b:
-        bx = fig.add_subplot(grid[1])
-        restriction_names = list(dict.fromkeys(restrictions.restriction))
-        order = ["All outcomes", *[groups[s0] for s0 in starts]]
-        table = (restrictions.pivot_table(index="group", columns="restriction",
-                                          values="mean_delta")
-                 .reindex(index=order, columns=restriction_names)) * 100
-        limit = max(0.5, float(np.nanmax(np.abs(table.to_numpy()))))
-        bx.imshow(table.to_numpy(float), cmap=RISK_CMAP.reversed(),
-                  norm=TwoSlopeNorm(0, -limit, limit), aspect="auto", interpolation="nearest")
+        bx = fig.add_subplot(grid[1], sharey=ax)
+        restriction_names = list(dict.fromkeys(outcome_restrictions.restriction))
+        table = (outcome_restrictions.pivot(index="outcome", columns="restriction",
+                                           values="delta")
+                 .reindex(index=rows, columns=restriction_names)) * 100
+        summary = None
+        if restrictions is not None and len(restrictions):
+            all_rows = restrictions.loc[restrictions.group.eq("All outcomes")]
+            if all_rows.duplicated("restriction").any():
+                raise ValueError("Select one restriction horizon for the all-outcome summary")
+            if len(all_rows):
+                summary = all_rows.set_index("restriction").mean_delta.reindex(restriction_names) * 100
+        finite = table.to_numpy()[np.isfinite(table.to_numpy())]
+        if summary is not None:
+            finite = np.r_[finite, summary.to_numpy()[np.isfinite(summary.to_numpy())]]
+        limit = max(0.5, float(np.max(np.abs(finite)))) if len(finite) else 0.5
+        norm = TwoSlopeNorm(0, -limit, limit)
+        # Reuse the pooling figures' terracotta/teal colours, with a separate AUC-change
+        # scale: negative is a loss of discrimination, positive is a gain.
+        # Correlation in A is agreement, not predictive performance.
+        change_cmap = BANK_CMAP.with_extremes(bad="#ECEEF1")
+        bimage = bx.imshow(table.to_numpy(float), cmap=change_cmap, norm=norm,
+                           aspect="auto", interpolation="nearest")
         bx.grid(False)
-        for (i, j), value in np.ndenumerate(table.to_numpy(float)):
-            if np.isfinite(value):
-                bx.text(j, i, f"{value:+.1f}", ha="center", va="center", fontsize=5.8,
-                        color="white" if abs(value) > 0.6 * limit else PALETTE["ink"],
-                        fontweight="bold" if i == 0 else "normal")
-        bx.set_yticks(range(len(order)), [SHORT_GROUP.get(g, g) for g in order], fontsize=6.0)
-        bx.get_yticklabels()[0].set_fontweight("bold")
-        bx.axhline(0.5, color="white", lw=2)
-        # Short two-line headers, as in the main attribution figure, so
-        # neighbouring column names never run into each other.
-        bx.set_xticks(range(len(restriction_names)),
-                      [RESTRICTION_SHORT.get(n, textwrap.fill(n, 9))
-                       for n in restriction_names], fontsize=6.2)
+        for start in headers:
+            bx.axhspan(start - 0.5, start + 0.5, color="white", lw=0)
+        # Missing outcome estimates are visibly distinct from a zero change.
+        for i, o in enumerate(rows):
+            if o is not None:
+                for j, value in enumerate(table.iloc[i]):
+                    if not np.isfinite(value):
+                        bx.text(j, i, "–", ha="center", va="center", fontsize=5.5,
+                                color=PALETTE["ink_muted"])
+        column_labels = [RESTRICTION_SHORT.get(n, textwrap.fill(n, 9))
+                         for n in restriction_names]
+        bx.set_xticks([])
         bx.xaxis.tick_top()
-        bx.tick_params(length=0)
+        bx.tick_params(axis="x", length=0, pad=5)
+        bx.tick_params(axis="y", left=False, labelleft=False)
+        bx.set_ylim(len(rows) - .5, -.5)
         for spine in bx.spines.values():
             spine.set_visible(False)
-        _title(bx, "B", "AUC change (×100), partial record", pad=8)
-        # Both titles on one line: B rises above its top column headers, so A
-        # takes the same height instead of hugging its own matrix.
-        fig.canvas.draw()
-        _title(ax, "A", "Outcomes of one domain rest on the same history", pad=8,
-               y=bx._left_title.get_position()[1])
+        bbox = bx.get_position()
+        # Headers, overall summary, then individual outcomes. Keep this band
+        # compact so A does not inherit a detached summary/title block.
+        if summary is not None:
+            sx = fig.add_axes([bbox.x0, bbox.y1 + 0.08 / height, bbox.width, 0.14 / height])
+            sx.imshow(summary.to_numpy()[None, :], cmap=change_cmap, norm=norm, aspect="auto")
+            sx.set_xticks(range(len(restriction_names)), column_labels, fontsize=6.2)
+            sx.xaxis.tick_top()
+            sx.tick_params(axis="x", length=0, pad=4)
+            sx.set_yticks([])
+            sx.grid(False)
+            for j, value in enumerate(summary):
+                if np.isfinite(value):
+                    sx.text(j, 0, f"{value:+.1f}", ha="center", va="center", fontsize=6,
+                            color="white" if abs(value) > .6 * limit else PALETTE["ink"])
+            bx.text(-.03, 1 + .15 / (bbox.height * height), "All outcomes",
+                    transform=bx.transAxes, ha="right", va="center", fontsize=6,
+                    color=PALETTE["ink_secondary"])
+            for spine in sx.spines.values():
+                spine.set_visible(False)
+        else:
+            bx.set_xticks(range(len(restriction_names)), column_labels, fontsize=6.2)
+        _title(bx, "B", "Input-removal effects", y=title_y, pad=0)
+        bcax = fig.add_axes([bbox.x0, bar_bottom, bbox.width, bar_height])
+        bbar = fig.colorbar(bimage, cax=bcax, orientation="horizontal")
+        bbar.ax.xaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
+        bbar.set_label("AUC change (percentage points)", fontsize=6.2)
+        bbar.ax.tick_params(labelsize=5.8, length=2)
+        bbar.outline.set_visible(False)
+        fig.restriction_outcome_order = tuple(outcomes)
     watermark(fig, mark)
     return fig
 

@@ -90,6 +90,14 @@ measured laboratory outcome groups (value resolution) and in rare cells.
 
 - Gain decomposition: J → + reading (J_OA / J_OA_LR) → + own corrections
   (selected), and R_AB, by outcome family and by cell support.
+- *Amended 1 Nov, evening (before test data).* Table 2 reports the ladder by
+  mechanism, each row a pair of models differing in one element:
+  own disease and outcome corrections (R_PF_OFF − J, `OFF_J`); + each outcome's
+  own reading (selected − R_PF_OFF, `OAOWN_OFF`); total (selected − J, `O2`);
+  learned routing instead, on the same corrections (R_AB − R_PF_OFF, `AB_OFF`).
+  R_PF_OFF, R_AB, J_OA, J_OA_OWN_NODIS and J_OA_OWN_NOOUT are therefore scored on
+  the test set with the locked models (section 7, step 2). The ablations
+  (`OAOWN_DIS`, `OAOWN_OUT`) are reported in the supplement, descriptively.
 - Specialisation per outcome: attention gate |tanh(g)| and the size of the
   outcome-specific term relative to the shared summary, against training events.
 - Outcome reading map: clustered similarity of outcome queries (tied basis
@@ -109,7 +117,7 @@ borrowing ladder, tabular (T1–T10) and clinical-index comparisons are unchange
 ## 7. Opening the test set
 
 1. Fix this note (all **[fill]** completed), commit, record the commit hash.
-2. Test predictions for every locked model (`evaluate --split test`), at
+2. Test predictions for every locked model (`evaluate --split held_out`), at
    `best.ckpt`, and at `last.ckpt` for section 3.
 3. Locked analysis on test (`analyse`, primary estimand), paper numbers, figures.
 4. National arm evaluated on test when its fits finish, unchanged protocol.

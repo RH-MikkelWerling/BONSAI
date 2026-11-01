@@ -230,6 +230,11 @@ def build_inventory(args):
         raise FileNotFoundError("Inventory inputs missing (build them first):\n  " + "\n  ".join(missing))
     bundle, rows = bundle_runs(args.bundle_dir)
     template = yaml.safe_load(Path(args.template).read_text())
+    requested_route_model = template.get("route_model", "R_L")
+    # A template may come from an older routed rehearsal. Route paths must be
+    # supplied by this inventory's actual selected exports, never inherited.
+    for key in ("route_weights", "route_model", "route_seed"):
+        template.pop(key, None)
     estimand = getattr(args, "estimand", None) or template.get(
         "estimand", "binary_known_status_unweighted"
     )
@@ -275,12 +280,12 @@ def build_inventory(args):
                     )
             routes = directory / "source_route_weights.parquet"
             if (ready and (split == "held_out" or splits == ("tuning",)) and routes.is_file()
-                    and template.get("route_model", "R_L") in aliases):
+                    and requested_route_model in aliases):
                 # The locked router's held-out routing weights describe which
                 # adapters patients used; a tuning-only inventory (the tuning
                 # preview) uses its tuning weights instead.
                 route_export = {"route_weights": str(routes.resolve()),
-                                "route_seed": row["seed"]}
+                                "route_seed": row["seed"], "route_model": requested_route_model}
             for alias in aliases:
                 if ready:
                     artifacts.append(

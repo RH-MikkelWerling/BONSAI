@@ -720,8 +720,8 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.8)
     ax.set_yticks(range(len(references)), [label for _, label, _ in references], fontsize=7)
     ax.invert_yaxis()
-    ax.set_xlabel(f"{_horizon_phrase(horizon)} AUC gain of {focus_label} "
-                  "(one point per disease–outcome cell)")
+    ax.set_xlabel(f"{_horizon_phrase(horizon)} AUC gain of {focus_label}, "
+                  "one point per disease–outcome cell")
     ax.xaxis.set_major_locator(MaxNLocator(5))
     key = []
     if True in summaries_used:
@@ -1201,7 +1201,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     despine(ax, "x")
     ax.legend(handles=[Line2D([], [], ls="none", marker="D", color=national, label="Joint"),
                        Line2D([], [], ls="none", marker="o", markerfacecolor="white",
-                              color=MODEL_STYLE["R"][0], label="Routed")],
+                              color=MODEL_STYLE["R"][0], label="OPERA")],
               loc="lower right", ncol=2, frameon=False,
               fontsize=6.3, handletextpad=0.3, columnspacing=1.0)
     _panel_title(ax, "A", "From cohort to national pretraining")
@@ -2168,9 +2168,15 @@ def figure_embedding_gallery(coords, outcomes, *, page=1, per_page=12, ncols=4,
             y = first.y1 + lift
             fig.add_artist(Line2D([first.x0, last.x1], [y, y], transform=fig.transFigure,
                                   color=PALETTE["ink_secondary"], lw=0.7))
+            domain = run.domain.iloc[0]
+            # A domain carried over from the row (or page) before is marked as
+            # continued rather than repeating its header.
+            before = (page - 1) * per_page + run.index[0] - 1
+            continued = before >= 0 and order.domain.iloc[before] == domain
             fig.text(first.x0, y + 0.03 / height,
-                     SHORT_GROUP.get(run.domain.iloc[0], run.domain.iloc[0]), fontsize=6.6,
-                     fontweight="bold", color=PALETTE["ink"], va="bottom", ha="left")
+                     SHORT_GROUP.get(domain, domain) + (" (continued)" if continued else ""),
+                     fontsize=6.6, fontweight="bold", color=PALETTE["ink"],
+                     va="bottom", ha="left")
     if image is not None:
         bar = fig.add_axes([0.3, 0.22 / height, 0.4, 0.1 / height])
         cb = fig.colorbar(image, cax=bar, orientation="horizontal")
@@ -2206,9 +2212,9 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
 
     ``coords``: ``subject_id``, ``x``, ``y`` and ``disease``; ``outcomes`` as for
     :func:`figure_embedding_gallery`, with predicted ``risk`` for the residual
-    panel. A: disease groups on the map. B-F: patient-level final-model
+    panel. A: disease groups on the map. B-F (one per highlighted outcome): patient-level final-model
     predicted risks by default; mode="observed_surface" gives observed risk
-    relative to each outcome's average (IPCW kernel). G: observed minus predicted risk of the selected model for the
+    relative to each outcome's average (IPCW kernel). Next letter (G with five outcomes): observed minus predicted risk of the selected model for the
     first of them (local calibration).
     """
     from matplotlib.colors import LogNorm
@@ -2327,7 +2333,13 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
         ax.text(0.5, -0.04, SHORT_GROUP.get(domain, domain), transform=ax.transAxes,
                 ha="center", va="top", fontsize=6, color=PALETTE["ink_secondary"])
 
-    ax = fig.add_subplot(grid[1, 4])
+    # Calibration takes the next free slot and the next letter, so fewer than
+    # five highlighted outcomes leave no empty slot and no skipped letter.
+    shown = min(len(highlights), len(slots))
+    cal_slot = slots[shown] if shown < len(slots) else (1, 4)
+    cal_letter = chr(66 + shown)
+    span = "B" if shown == 1 else f"B–{chr(65 + shown)}"
+    ax = fig.add_subplot(grid[cal_slot])
     frame(ax)
     if first is not None and "risk" in outcomes:
         outcome, part, at, data, support, density = first
@@ -2342,7 +2354,7 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
         rcmap.set_bad((1, 1, 1, 0))
         residual_image = ax.imshow(residual, origin="lower", extent=extent, cmap=rcmap,
                                    vmin=-0.1, vmax=0.1, interpolation="bilinear", zorder=2)
-        ax.set_title("G  " + pad_title("Calibration", 1), loc="left", fontsize=7.6,
+        ax.set_title(f"{cal_letter}  " + pad_title("Calibration", cal_slot[0]), loc="left", fontsize=7.6,
                      color=PALETTE["ink"], pad=3)
         ax.text(0.5, -0.04, textwrap.shorten(outcome, 26, placeholder="…"),
                 transform=ax.transAxes, ha="center", va="top", fontsize=6,
@@ -2356,13 +2368,13 @@ def figure_patient_map(coords, outcomes, *, highlights=None, horizon=365, grid_s
             cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
         cb.ax.minorticks_off()
         cb.ax.tick_params(labelsize=6)
-        cb.set_label("B–F: final-model predicted risk" if mode == "predicted_points"
-                     else "B–F: observed risk relative to the outcome's average", fontsize=6.4)
+        cb.set_label(f"{span}: final-model predicted risk" if mode == "predicted_points"
+                     else f"{span}: observed risk relative to the outcome's average", fontsize=6.4)
     if residual_image is not None:
         bar = fig.add_axes([0.8, 0.1, 0.17, 0.018])
         cb = fig.colorbar(residual_image, cax=bar, orientation="horizontal")
         cb.ax.tick_params(labelsize=6)
-        cb.set_label("G: observed − predicted", fontsize=6.4)
+        cb.set_label(f"{cal_letter}: observed − predicted", fontsize=6.4)
     watermark(fig, mark)
     return fig
 
@@ -2488,9 +2500,9 @@ def figure_calibration_maps(coords, outcomes, *, horizon=365, bandwidth=None,
     grid = fig.add_gridspec(len(rows), len(names) + 1,
                             width_ratios=[1] * len(names) + [0.06],
                             wspace=0.04, hspace=0.08, left=0.09, right=0.91,
-                            # legend + column titles take a fixed ~0.95 in at the top,
+                            # legend + column titles take a fixed ~0.7 in at the top,
                             # whatever the number of rows (was 0.85 of the height).
-                            top=1 - 0.95 / (1.62 * len(rows) + 0.55), bottom=0.045)
+                            top=1 - 0.7 / (1.62 * len(rows) + 0.55), bottom=0.045)
     risk_cmap = plt.get_cmap("plasma").copy()
     risk_cmap.set_bad((1, 1, 1, 0))
     residual_cmap = plt.get_cmap("RdBu_r").copy()
@@ -2832,6 +2844,17 @@ COVERAGE_STYLE = {
 
 RELIABILITY_MIN_BIN = 20  # bins with fewer patients swing wildly; not drawn
 SLOPE_AXIS_MAX = 3.0  # calibration-slope axis cut of the original figure
+
+
+def _cut_slope_axis(ax, rows, label):
+    """Original (9e186f1) axis: a few small domains have IQRs reaching slopes
+    of 30+; cut the axis so rows near 1 stay readable, and say so. Shared by
+    the calibration and benchmark figures so their slope axes match."""
+    low = min(-0.2, float(rows.q25.min()) - 0.1)
+    high = min(max(2.0, float(rows.q75.max()) + 0.1), SLOPE_AXIS_MAX)
+    ax.set_xlim(low, high)
+    if rows.q75.max() > high:
+        ax.set_xlabel(label + f"\naxis cut at {high:g}")
 RELIABILITY_MIN_SHOWN = 4  # an example needs this many drawable bins per model
 
 
@@ -2978,13 +3001,7 @@ def figure_calibration(summary, reliability, examples, *, horizon=ALL_HORIZONS, 
                                   xlabel=label, show_counts=False, zero_line=False)
         ax.axvline(reference, color=PALETTE["zero_line"], lw=0.7, zorder=1)
         if value == "calibration_slope":
-            # Original (9e186f1) axis: a few small domains have IQRs reaching
-            # slopes of 30+; cut the axis so rows near 1 stay readable, and say so.
-            low = min(-0.2, float(rows.q25.min()) - 0.1)
-            high = min(max(2.0, float(rows.q75.max()) + 0.1), SLOPE_AXIS_MAX)
-            ax.set_xlim(low, high)
-            if rows.q75.max() > high:
-                ax.set_xlabel(label + f"\naxis cut at {high:g}")
+            _cut_slope_axis(ax, rows, label)
         ax.xaxis.set_major_locator(MaxNLocator(4))
         if column:
             ax.tick_params(axis="y", labelleft=False)
@@ -3065,6 +3082,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
                                       xlabel="Calibration slope (median, IQR; ideal 1)",
                                       show_counts=False, zero_line=False)
         ax.axvline(1.0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
+        _cut_slope_axis(ax, rows, "Calibration slope (median, IQR; ideal 1)")
         fig.legend(handles=cal_handles, loc="upper left", ncol=2, frameon=False,
                    fontsize=6.4, bbox_to_anchor=(0.6, 0.995), handletextpad=0.2,
                    columnspacing=0.9)
@@ -3962,8 +3980,8 @@ def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}", intervals=
                   reference=None):
     """Regions coloured by ``values`` (region -> number); Bornholm as an inset.
 
-    ``intervals`` (region -> (lower, upper)) prints each 95% CI under the value.
-    Hatching is reserved for unavailable estimates across the paper, so an
+    ``intervals`` (region -> (lower, upper)) is not printed: the map shows the
+    value alone and the forest panels below show the 95% CI. Hatching is reserved for unavailable estimates across the paper, so an
     interval that includes ``reference`` is not hatched; the printed interval
     carries that information. Labels are plain text (no white halos)."""
     from matplotlib.patches import FancyBboxPatch, Polygon, Rectangle
@@ -4030,12 +4048,8 @@ def _draw_denmark(ax, values, geometry, norm, cmap, *, fmt="{:+.3f}", intervals=
                 ax.text(anchors[name][0], anchors[name][1] - 0.02, fmt.format(shown),
                         ha="center", va="top", fontsize=6.6, fontweight="bold",
                         color=main_ink, path_effects=halo, zorder=4)
-                if intervals and name in intervals:
-                    low, high = (round(float(v), 3) + 0.0 for v in intervals[name])
-                    ax.text(anchors[name][0], anchors[name][1] - 0.17,
-                            f"{fmt.format(low)} to {fmt.format(high)}", ha="center",
-                            va="top", fontsize=4.9, color=soft_ink,
-                            path_effects=halo, zorder=4)
+                # Intervals are not printed on the map: at 4.9 pt they crossed
+                # coastlines and clipped at the frame. Panels D-F below carry them.
     ax.add_patch(Rectangle((12.12, 56.42), 0.78, 0.52, fill=False,
                            edgecolor=PALETTE["grid"], lw=0.6))
     ax.text(12.16, 56.9, "Bornholm", fontsize=5, va="top", color=PALETTE["ink_muted"])
@@ -4093,7 +4107,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     disease-outcome-horizon cell weighing equally, as in Table 2.
     Maps: A, AUC gain over XGBoost of OPERA (the configuration chosen on tuning
     data, when analysed) or else the joint model; B, its AUC; C, its calibration
-    in the large; each with its 95% CI, hatched where the interval includes 0.
+    in the large (values only; their 95% CIs are in D-F).
     Below, with 95% CI: D, gains over the specialist and XGBoost; E, AUC of the
     joint model, OPERA and XGBoost; F, calibration in the large; G, records
     before treatment.
@@ -5199,9 +5213,11 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     return render(variance_sources, variance_windows, concepts, domains=domains, mark=mark)
 
 
-def figure_attribution_structure(similarity, restrictions=None, *, domains=None, mark=None):
+def figure_attribution_structure(similarity, restrictions=None, *, outcome_restrictions=None,
+                                 domains=None, mark=None):
     from opera.visualization.attribution_overview import figure_attribution_structure as render
-    return render(similarity, restrictions, domains=domains, mark=mark)
+    return render(similarity, restrictions, outcome_restrictions=outcome_restrictions,
+                  domains=domains, mark=mark)
 
 
 def figure_attribution_main(variance_sources, concepts, restrictions, episodes, *,

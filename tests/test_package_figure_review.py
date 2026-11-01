@@ -14,6 +14,9 @@ def test_partial_bundle_keeps_figures_and_aggregates_without_patient_data(tmp_pa
         review / 'clinical_scores', [dict(id='cll', model='R_L', threshold_split='train')], 'tuning')))
     (review / 'patients_INTERNAL.csv').write_text('patient_id,risk\n123,0.4\n')
     (review / 'embeddings.npz').write_bytes(b'private')
+    (review / 'reports/input_restrictions').mkdir(parents=True)
+    (review / 'reports/input_restrictions/input_restriction_auc.csv').write_text(
+        'outcome,restriction,delta,lower,upper\nanemia_g2plus,No labs,-.02,-.03,-.01\n')
     root = tmp_path / 'analysis'
     plots = root / 'figure_inputs/plot_tables'
     plots.mkdir(parents=True)
@@ -24,6 +27,7 @@ def test_partial_bundle_keeps_figures_and_aggregates_without_patient_data(tmp_pa
     with ZipFile(destination) as archive:
         names = archive.namelist()
         assert 'review/clinical_scores/cll/risk.pdf' in names
+        assert 'review/reports/input_restrictions/input_restriction_auc.csv' in names
         assert 'aggregates/figure_inputs/plot_tables/panel_effects.csv' in names
         assert not any('INTERNAL' in x or x.endswith('.npz') or 'model_cells.csv' in x for x in names)
         manifest = json.loads(archive.read('bundle_manifest.json'))

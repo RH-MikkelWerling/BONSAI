@@ -267,3 +267,17 @@ def test_router_only_analyses_refuse_a_stage_nine_primary(tmp_path, monkeypatch)
     args = argparse.Namespace(action="source-removal", split="tuning", execute=False, phase=None, stage=9)
     with pytest.raises(ValueError, match="has no sources"):
         paper_experiments.build_commands(args, env)
+
+
+@pytest.mark.parametrize("alias", ["R_E", "R_EA", "R_L", "J_OA_OWN_L"])
+@pytest.mark.parametrize("explicit_routes", [False, True])
+def test_reading_aliases_never_request_nonexistent_routes(alias, explicit_routes):
+    from argparse import Namespace
+    from opera.run.paper_prediction_queue import export_flags
+
+    args = Namespace(export_routes=explicit_routes)
+    flags = export_flags([alias], args, {"competing_risk": {"readout_mode": "outcome_attention"}})
+    assert flags == {"export_embeddings": True, "export_routes": False}
+    routed = export_flags(["R_AB_L"], args,
+                          {"competing_risk": {"readout_mode": "source_anchored_adapters"}})
+    assert routed == {"export_embeddings": True, "export_routes": True}
