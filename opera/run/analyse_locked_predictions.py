@@ -305,13 +305,27 @@ ENCODER_LR = {
 
 # Stage 12 (1 November 2026): what the leading reading design is made of.
 TASK_ABLATION = {
-    "OALROWN_NF": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_s43_L)",        # seed noise floor of the design
-    "OALROWN_R32": "gain(J_OA_LR_OWN_R32_L,J_OA_LR_OWN_L)",       # rank 32 vs 8 corrections
-    "OAOWNPH_R32": "gain(J_OA_OWN_PH_R32_L,J_OA_OWN_PH_L)",
-    "OALROWN_DIS": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_NODIS_L)",     # what the diagnosis correction adds
-    "OALROWN_OUT": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_NOOUT_L)",     # what the outcome correction adds
-    "F10_OALROWN_OFF": "gain(J_OA_LR_OWN_F10_L,R_PF_OFF_F10_L)",  # reading at 10% vs corrections only
-    "F10_OALROWN_PHGE": "gain(J_OA_LR_OWN_F10_L,R_PH_GE_F10_L)",
+    "OAOWN_NF": "gain(J_OA_OWN_L,J_OA_OWN_s43_L)",              # seed noise floor of the design
+    "OAOWN_R32": "gain(J_OA_OWN_R32_L,J_OA_OWN_L)",             # rank 32 vs 8 corrections
+    "OAOWN_DIS": "gain(J_OA_OWN_L,J_OA_OWN_NODIS_L)",           # what the diagnosis correction adds
+    "OAOWN_OUT": "gain(J_OA_OWN_L,J_OA_OWN_NOOUT_L)",           # what the outcome correction adds
+    "F10_OAOWN_OFF": "gain(J_OA_OWN_F10_L,R_PF_OFF_F10_L)",     # reading at 10% vs corrections only
+    "F10_OAOWN_PHGE": "gain(J_OA_OWN_F10_L,R_PH_GE_F10_L)",
+}
+
+# Stage 13 (1 November 2026): design changes to the leading reading design.
+TASK_DESIGN = {
+    "SW20_OAOWN": "gain(J_OA_OWN_SW20_L,J_OA_OWN_L)",        # cell shrinkage, tau 20
+    "SW100_OAOWN": "gain(J_OA_OWN_SW100_L,J_OA_OWN_L)",      # cell shrinkage, tau 100
+    "X_OAOWN": "gain(J_OA_OWN_X_L,J_OA_OWN_L)",              # diagnosis x outcome correction
+    "XSW_OAOWN": "gain(J_OA_OWN_X_SW_L,J_OA_OWN_L)",
+    "PE_OAOWN": "gain(J_OA_OWN_PE_L,J_OA_OWN_L)",            # endpoint-family corrections
+    "PHX_OAOWN": "gain(J_OA_OWN_PH_X_L,J_OA_OWN_L)",
+    "PEXSW_OAOWN": "gain(J_OA_OWN_PE_X_SW_L,J_OA_OWN_L)",
+    "XSW_AB": "gain(J_OA_OWN_X_SW_L,R_L)",
+    "PEXSW_AB": "gain(J_OA_OWN_PE_X_SW_L,R_L)",
+    "MAX_OAOWN": "gain(J_OA_OWN_MAX_L,J_OA_OWN_L)",          # moonshot: everything + rank 32
+    "MAX_AB": "gain(J_OA_OWN_MAX_L,R_L)",
 }
 
 PARTIAL_POOLING = {
@@ -518,6 +532,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in TASK_DESIGN.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ABLATION.items()
                       if models_for({name: expression}) <= set(predictions.model)})

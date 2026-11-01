@@ -152,6 +152,35 @@ def _initialize_source_adapters(model, source_path: str, outcome_names: list[str
         )
 
 
+def _attention_own_cell_events(own, train_dataset):
+    """Training events per (diagnosis, outcome) for the own corrections (stage 13)."""
+    cell_events = [[0] * own.n_outcome for _ in range(own.n_disease)]
+    for dataset in getattr(train_dataset, "datasets", [train_dataset]):
+        fine_map = dataset.fine_index_by_subject or {}
+        for outcome, records in dataset.outcome_dicts.items():
+            if outcome not in own.outcome_names:
+                continue
+            column = own.outcome_names.index(outcome)
+            for subject_id, record in records.items():
+                disease = fine_map.get(subject_id, -1)
+                if 0 <= disease < own.n_disease and int(record.get("event", -1)) == 1 \
+                        and float(record.get("time_days", -1)) >= 0:
+                    cell_events[disease][column] += 1
+    return cell_events
+
+
+def _set_attention_own_support(model, train_dataset, output_path: str) -> None:
+    own = model.attention_own_corrections
+    cell_events = _attention_own_cell_events(own, train_dataset)
+    own.set_cell_support(cell_events)
+    with open(output_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["disease", "outcome", "training_events"])
+        for d, disease in enumerate(own.fine_names):
+            for o, outcome in enumerate(own.outcome_names):
+                writer.writerow([disease, outcome, cell_events[d][o]])
+
+
 def _set_source_training_support(model, train_dataset, output_path: str, event_tau: float) -> None:
     """Count source support from eligible training records only."""
     readout = model.source_adapter_readout
@@ -554,6 +583,11 @@ def main(cfg: DictConfig) -> None:
             f"{model_save_dir}/source_training_support.csv",
             float(competing_risk_config.get("adapter_event_tau", 20.0)),
         )
+    if getattr(model, "attention_own_corrections", None) is not None:
+        # Stage 13: per-cell training events for the shrinkage of own corrections
+        # (counted for every own-correction fit; used only when shrink_tau is set).
+        _set_attention_own_support(model, data_module.train_dataset,
+                                   f"{model_save_dir}/attention_own_cell_support.csv")
 
     if float(competing_risk_config.get("loss_weight", 0.0)) > 0:
         support = summarize_competing_risk_support(

@@ -2050,7 +2050,10 @@ class OperaContrastiveModel(nn.Module):
                 residual_scale=float(competing_risk_settings.get("adapter_residual_scale", 0.7)),
                 disease_groups=competing_risk_settings.get("attention_own_disease_groups"),
                 use_disease=bool(competing_risk_settings.get("attention_own_disease", True)),
-                use_outcome=bool(competing_risk_settings.get("attention_own_outcome", True)))
+                use_outcome=bool(competing_risk_settings.get("attention_own_outcome", True)),
+                cross=bool(competing_risk_settings.get("attention_own_cross", False)),
+                shrink_tau=competing_risk_settings.get("attention_own_shrink_tau"),
+                outcome_groups=competing_risk_settings.get("attention_own_outcome_groups"))
 
         if freeze_encoder:
             for p in self.encoder.parameters():

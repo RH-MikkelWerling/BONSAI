@@ -27,20 +27,19 @@ def test_stage_twelve_changes_exactly_what_each_fit_names():
     before, after = _bundles()
     assert [e["config"] for e in after[: len(before)]] == [e["config"] for e in before]
     new = {canonical_models(e, e["config"], {"selected_router": LOCK})[0]: e for e in after[len(before):]}
-    assert set(new) == {"J_OA_LR_OWN_s43_L", "J_OA_LR_OWN_R32_L", "J_OA_OWN_PH_R32_L", "J_OA_LR_OWN_NODIS_L",
-                        "J_OA_LR_OWN_NOOUT_L", "J_OA_LR_OWN_F10_L"}
+    assert set(new) == {"J_OA_OWN_s43_L", "J_OA_OWN_R32_L", "J_OA_OWN_NODIS_L", "J_OA_OWN_NOOUT_L",
+                        "J_OA_OWN_F10_L"}
     source = {e["name"].split("fix_")[1]: e["config"] for e in before if "fix_J_OA" in e["name"]}
     expected = {
-        "J_OA_LR_OWN_R32_L": ("J_OA_LR_OWN", {"competing_risk.attention_own_rank"}),
-        "J_OA_OWN_PH_R32_L": ("J_OA_OWN_PH", {"competing_risk.attention_own_rank"}),
-        "J_OA_LR_OWN_NODIS_L": ("J_OA_LR_OWN", {"competing_risk.attention_own_disease"}),
-        "J_OA_LR_OWN_NOOUT_L": ("J_OA_LR_OWN", {"competing_risk.attention_own_outcome"}),
-        "J_OA_LR_OWN_F10_L": ("J_OA_LR_OWN", {"training.train_patient_fraction", "training.train_fraction_seed"}),
+        "J_OA_OWN_R32_L": ("J_OA_OWN", {"competing_risk.attention_own_rank"}),
+        "J_OA_OWN_NODIS_L": ("J_OA_OWN", {"competing_risk.attention_own_disease"}),
+        "J_OA_OWN_NOOUT_L": ("J_OA_OWN", {"competing_risk.attention_own_outcome"}),
+        "J_OA_OWN_F10_L": ("J_OA_OWN", {"training.train_patient_fraction", "training.train_fraction_seed"}),
     }
     for alias, entry in new.items():
         validate_direct_cr_config(entry["config"])
         assert entry["queue_order"] < min(e.get("queue_order", 0) for e in before)
-        if alias == "J_OA_LR_OWN_s43_L":
+        if alias.endswith("_s43_L"):
             assert entry["seed"] == 43
             continue
         design, changed = expected[alias]
@@ -48,8 +47,8 @@ def test_stage_twelve_changes_exactly_what_each_fit_names():
         diff = {f"{part}.{k}" for part in ("competing_risk", "training")
                 for k in {**a[part], **b[part]} if a[part].get(k) != b[part].get(k)}
         assert diff == changed, (alias, diff)
-    assert new["J_OA_LR_OWN_R32_L"]["config"]["competing_risk"]["attention_own_rank"] == 32
-    assert new["J_OA_LR_OWN_F10_L"]["config"]["training"]["train_patient_fraction"] == 0.1
+    assert new["J_OA_OWN_R32_L"]["config"]["competing_risk"]["attention_own_rank"] == 32
+    assert new["J_OA_OWN_F10_L"]["config"]["training"]["train_patient_fraction"] == 0.1
 
 
 @pytest.mark.parametrize("use_disease,use_outcome", [(False, True), (True, False)])
@@ -70,8 +69,8 @@ def test_contrasts_reach_the_numbers():
     assert set(TASK_ABLATION) <= set(CODES)
 
 
-@pytest.mark.parametrize("alias", ["J_OA_LR_OWN_s43", "J_OA_LR_OWN_R32", "J_OA_OWN_PH_R32",
-                                   "J_OA_LR_OWN_NODIS", "J_OA_LR_OWN_NOOUT", "J_OA_LR_OWN_F10"])
+@pytest.mark.parametrize("alias", ["J_OA_OWN_s43", "J_OA_OWN_R32", "J_OA_OWN_NODIS", "J_OA_OWN_NOOUT",
+                                   "J_OA_OWN_F10"])
 def test_every_stage_twelve_model_builds_trains_and_moves(alias):
     from opera.modules.networks.opera_nets import OperaContrastiveModel
     from test_router_axis_separation import _Encoder

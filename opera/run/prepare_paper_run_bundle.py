@@ -242,16 +242,63 @@ def encoder_lr_entries(entries, *, seed=42, designs=None, first_order=-100):
 
 
 # Stage 12 (1 November 2026): what the leading reading design is made of.
-# Sensitivity and ablation fits around J_OA_LR_OWN (and the other leader for
-# capacity); never selected. Values: (source design, changes).
+# Sensitivity and ablation fits around J_OA_OWN (the simplest leader; tied
+# queries added nothing measurable); never selected. Values: (source, changes).
 TASK_ABLATION = {
-    "J_OA_LR_OWN_s43": ("J_OA_LR_OWN", {"seed": 43}),            # seed noise floor of the design
-    "J_OA_LR_OWN_R32": ("J_OA_LR_OWN", {"rank": 32}),            # task-specific capacity
-    "J_OA_OWN_PH_R32": ("J_OA_OWN_PH", {"rank": 32}),
-    "J_OA_LR_OWN_NODIS": ("J_OA_LR_OWN", {"own_disease": False}),  # reading + outcome corrections
-    "J_OA_LR_OWN_NOOUT": ("J_OA_LR_OWN", {"own_outcome": False}),  # reading + diagnosis corrections
-    "J_OA_LR_OWN_F10": ("J_OA_LR_OWN", {"fraction": 0.1}),       # scarce data (the J_L_F10 subset)
+    "J_OA_OWN_s43": ("J_OA_OWN", {"seed": 43}),                  # seed noise floor (claimed first)
+    "J_OA_OWN_R32": ("J_OA_OWN", {"rank": 32}),                  # task-specific capacity
+    "J_OA_OWN_NODIS": ("J_OA_OWN", {"own_disease": False}),      # reading + outcome corrections
+    "J_OA_OWN_NOOUT": ("J_OA_OWN", {"own_outcome": False}),      # reading + diagnosis corrections
+    "J_OA_OWN_F10": ("J_OA_OWN", {"fraction": 0.1}),             # scarce data (the J_L_F10 subset)
 }
+
+
+# Stage 13 (1 November 2026): design changes aimed at the diagnosis of what
+# makes the reading designs better (own corrections overfit rare outcomes and
+# are not shrunk by support; the gain is synergy between reading and own
+# corrections). Candidates under the locked rule. Values: (source, changes).
+TASK_DESIGN = {
+    "J_OA_OWN_SW20": ("J_OA_OWN", {"shrink_tau": 20.0}),         # cell shrinkage, weak prior
+    "J_OA_OWN_SW100": ("J_OA_OWN", {"shrink_tau": 100.0}),       # cell shrinkage, strong prior
+    "J_OA_OWN_X": ("J_OA_OWN", {"cross": True}),                 # diagnosis x outcome correction
+    "J_OA_OWN_X_SW": ("J_OA_OWN", {"cross": True, "shrink_tau": 50.0}),
+    "J_OA_OWN_PE": ("J_OA_OWN", {"endpoint": True}),             # endpoint-family corrections
+    "J_OA_OWN_PH_X": ("J_OA_OWN", {"cross": True, "lineage": True}),
+    "J_OA_OWN_PE_X_SW": ("J_OA_OWN", {"endpoint": True, "cross": True, "shrink_tau": 50.0}),
+    # Moonshot: every mechanism with a positive sign, plus capacity, reined in by
+    # shrinkage where cells are small.
+    "J_OA_OWN_MAX": ("J_OA_OWN", {"endpoint": True, "lineage": True, "cross": True,
+                                  "shrink_tau": 50.0, "rank": 32}),
+}
+
+
+def task_design_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
+    from opera.visualization.paper_taxonomy import fine_cohort_groups
+
+    entries = []
+    for order, (alias, (design, change)) in enumerate(TASK_DESIGN.items()):
+        shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                   seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
+        config = task_pooling_config(shared, design, reference, selected_router)
+        risk = config["competing_risk"]
+        if change.get("cross"):
+            risk["attention_own_cross"] = True
+        if "shrink_tau" in change:
+            risk["attention_own_shrink_tau"] = float(change["shrink_tau"])
+        if "rank" in change:
+            risk["attention_own_rank"] = int(change["rank"])
+        if change.get("lineage"):
+            lineage = fine_cohort_groups()
+            risk["attention_own_disease_groups"] = {n: lineage[n] for n in risk["fine_names"]}
+        if change.get("endpoint"):
+            from opera.visualization.paper_taxonomy import outcome_endpoint_groups
+
+            family = outcome_endpoint_groups()
+            risk["attention_own_outcome_groups"] = {o: family[o] for o in config["outcomes"]}
+        entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+                        "seed": seed, "condition": {}, "config": config,
+                        "queue_order": order - 140})
+    return entries
 
 
 def task_ablation_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
@@ -272,8 +319,9 @@ def task_ablation_entries(base, reference, checkpoints, selected_router, *, epoc
                                       train_fraction_seed=seed)
         entries.append({"name": f"seed{fit_seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
                         "seed": fit_seed, "condition": {}, "config": config,
-                        # claimed before every other remaining fit
-                        "queue_order": order - 130})
+                        # claimed before every other remaining fit; the seed repeat
+                        # first of all (it is what lets the gain over R_AB be claimed)
+                        "queue_order": order - 150 if "seed" in change else order - 130})
     return entries
 
 
@@ -525,6 +573,7 @@ def build_bundle(
     encoder_lr_reading=False,
     external_encoder_lr=None,
     task_ablation=False,
+    task_design=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -828,6 +877,11 @@ def build_bundle(
             raise ValueError("Stage 12 repeats the stage-11 fits")
         entries += task_ablation_entries(base, reference, checkpoints, selected_router,
                                          epochs=epochs, patience=patience, seed=seeds[0])
+    if task_design:
+        if not task_ablation:
+            raise ValueError("Stage 13 repeats the stage-12 fits")
+        entries += task_design_entries(base, reference, checkpoints, selected_router,
+                                       epochs=epochs, patience=patience, seed=seeds[0])
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -986,6 +1040,8 @@ def main():
                         help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--router-pt", action="store_true",
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
+    parser.add_argument("--task-design", action="store_true",
+                        help="stage 13: shrinkage and diagnosis x outcome corrections for the reading design")
     parser.add_argument("--task-ablation", action="store_true",
                         help="stage 12: seed repeat, capacity and ablations of the leading reading design")
     parser.add_argument("--external-encoder-lr", type=float,
@@ -1054,6 +1110,7 @@ def main():
         encoder_lr_reading=args.encoder_lr_reading,
         external_encoder_lr=args.external_encoder_lr,
         task_ablation=args.task_ablation,
+        task_design=args.task_design,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

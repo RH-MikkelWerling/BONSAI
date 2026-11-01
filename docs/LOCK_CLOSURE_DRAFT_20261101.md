@@ -16,10 +16,13 @@ controls and seed repeats are never selected.
 
 **Candidates:** R_AB; stage 8 (R_PF5E and variants, R_PH_G, R_PH_GE,
 R_PH_GE_PF5E, R_PL8, R_PF5E_R32); stage 9 (J_OA, J_OA_LR, J_SP, J_FP, J_FPF,
-J_FPF_PH, J_OA_OWN, J_OA_LR_OWN, J_OA_OWN_PH, J_FPF_OWN, J_FPF_PH_OWN_PH).
+J_FPF_PH, J_OA_OWN, J_OA_LR_OWN, J_OA_OWN_PH, J_FPF_OWN, J_FPF_PH_OWN_PH); stage 13
+(J_OA_OWN_SW20, _SW100, _X, _X_SW, _PE, _PH_X, _PE_X_SW, _MAX). Stage 12 fits
+(second seed, rank 32, ablations, 10% data) are sensitivity analyses, never
+selected. Secondary: the average of the selected design's two seeds.
 
-**Training-log indication (not the decision):** J_OA_LR_OWN 0.7888 and
-J_OA_OWN_PH 0.7883 at the selected checkpoint against R_AB 0.7836 (still training).
+**Training-log indication (not the decision):** J_OA_OWN 0.7916, J_OA_OWN_PH
+0.7912 and J_OA_LR_OWN 0.7910 at the selected checkpoint against R_AB 0.7836.
 
 - Noise floor (R_AB s42 − s43, paired tuning AUC): **[fill]**
 - Pooled tuning AUC, every candidate vs R_AB: **[fill]**
@@ -39,7 +42,8 @@ R_AB_ELR10 beats R_AB, each by more than 0.002, the national arm is fine-tuned a
 
 - J_ELR10 − J: **[fill]**; R_AB_ELR10 − R_AB: **[fill]**; R_AB_ELR3 − R_AB: **[fill]**
 - Stage-11 reading designs at 1.0x vs 0.1x: **[fill]**
-- **National encoder rate: [fill]**. If 1.0x: the national-vs-local contrasts
+- **National encoder rate:** 0.1x expected (J_ELR10 0.7653 < J 0.7711, so the
+  rule cannot trigger); confirm on paired tuning AUC **[fill]**. If 1.0x: the national-vs-local contrasts
   (E1–E4) use the local fits at 1.0x (J_ELR10 and the selected design at 1.0x,
   added as a stage-12 fit if not already present), so they stay matched.
 

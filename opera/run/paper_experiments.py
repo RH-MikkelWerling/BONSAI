@@ -235,6 +235,9 @@ def build_commands(args, env):
             if stage >= 12:
                 # Seed repeat, capacity and ablations of the leading reading design.
                 command += ["--task-ablation"]
+            if stage >= 13:
+                # Shrinkage and diagnosis x outcome corrections (design changes).
+                command += ["--task-design"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

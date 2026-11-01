@@ -862,3 +862,33 @@ secondary result (those comparators do not depend on the neural learning
 rate); they do not replace the primary model. The fixed encoder rate across
 arms is stated as a limitation: per-arm tuning would favour no single rate,
 since small-data arms may overfit a harder-trained encoder.
+
+## Amendment of 1 November 2026 (evening): stages 12 and 13 (before any test data were opened)
+
+Training logs (single seed): the stage-9 reading designs with own corrections
+reached 0.7910–0.7916 at the selected checkpoint against R_AB 0.7836. A
+diagnosis from the logs (per-outcome AUC, checkpoints) found the gain
+concentrated in rare outcomes (20–49 validation cases: +0.013 over R_AB) and in
+liver/coagulation and infection outcomes; own corrections alone hurt rare
+outcomes, and own-correction size did not fall with support.
+
+**All built on J_OA_OWN** (the simplest leader, 0.7916; tied queries and
+lineage added nothing measurable). **Stage 12 (sensitivity and ablation; never
+selected):** a second seed (J_OA_OWN_s43, claimed first); rank-32 own corrections
+(J_OA_OWN_R32); without the diagnosis or the outcome correction (J_OA_OWN_NODIS,
+J_OA_OWN_NOOUT); with 10% of training patients (J_OA_OWN_F10). Contrasts
+OAOWN_NF, OAOWN_R32, OAOWN_DIS, OAOWN_OUT, F10_OAOWN_OFF, F10_OAOWN_PHGE.
+
+**Stage 13 (candidates under the same rule):** own corrections of each
+diagnosis x outcome cell scaled by n/(n + tau) with a fixed prior (J_OA_OWN_SW20,
+_SW100; learned from the training loss, shrinkage drifts to none); a diagnosis x
+outcome correction, each outcome rescaling the diagnosis adapter's bottleneck
+(J_OA_OWN_X); both (J_OA_OWN_X_SW, tau 50); endpoint-family corrections shared
+by the outcomes of a family (J_OA_OWN_PE); lineage with the diagnosis x outcome
+correction (J_OA_OWN_PH_X); endpoint families, diagnosis x outcome and shrinkage
+(J_OA_OWN_PE_X_SW); and a moonshot with every mechanism plus rank 32
+(J_OA_OWN_MAX). Contrasts SW20_OAOWN, SW100_OAOWN, X_OAOWN, XSW_OAOWN, PE_OAOWN,
+PHX_OAOWN, PEXSW_OAOWN, MAX_OAOWN and against R_AB (XSW_AB, PEXSW_AB, MAX_AB).
+A second-seed average of the selected design is a prespecified secondary result
+(no extra training). Selecting among more candidates adds selection optimism on
+tuning data; only the selected design is evaluated on the test set.

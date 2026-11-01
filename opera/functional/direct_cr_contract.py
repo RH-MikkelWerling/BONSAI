@@ -168,6 +168,18 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             raise ValueError("prototype_condition_groups applies to prototype_condition=fine")
         if not isinstance(groups, dict) or set(competing.get("fine_names", [])) - set(groups):
             raise ValueError("prototype_condition_groups must give every fine name a group")
+    if not isinstance(competing.get("attention_own_cross", False), bool):
+        raise ValueError("attention_own_cross must be true or false")
+    tau = competing.get("attention_own_shrink_tau")
+    if tau is not None and not (isinstance(tau, (int, float)) and not isinstance(tau, bool) and tau > 0):
+        raise ValueError("attention_own_shrink_tau must be a positive number")
+    families = competing.get("attention_own_outcome_groups")
+    if families is not None and (not isinstance(families, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in families.items())):
+        raise ValueError("attention_own_outcome_groups must map outcomes to endpoint families")
+    for key in ("attention_own_cross", "attention_own_shrink_tau", "attention_own_outcome_groups"):
+        if competing.get(key) not in (None, False) and not competing.get("attention_own_corrections", False):
+            raise ValueError(f"{key} applies to attention_own_corrections")
     for key in ("attention_own_disease", "attention_own_outcome"):
         if not isinstance(competing.get(key, True), bool):
             raise ValueError(f"{key} must be true or false")
