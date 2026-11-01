@@ -145,3 +145,17 @@ def test_endpoint_family_corrections_are_shared_within_a_family():
     assert float(m.outcome_group_up.grad.abs().sum()) > 0
     with pytest.raises(ValueError, match="No endpoint family"):
         AttentionOwnCorrections(16, ["A"], ["x", "y"], rank=4, outcome_groups={"x": "liver"})
+
+
+def test_checkpoints_from_before_the_support_buffer_still_load():
+    """Stage-9 fits (J_OA_OWN among them) were saved without cell_train_events;
+    resuming and evaluating them must load strictly and leave the outputs unchanged."""
+    old = _module()
+    state = {k: v for k, v in old.state_dict().items() if k != "cell_train_events"}
+    new = AttentionOwnCorrections(16, ["A", "B"], ["x", "y", "z"], rank=4)
+    new.load_state_dict(state)  # strict
+    rep, fine = torch.randn(3, 3, 16), torch.tensor([0, 1, -1])
+    torch.testing.assert_close(new(rep, fine), old(rep, fine))
+    assert float(new.cell_train_events.abs().sum()) == 0
+    wrapped = torch.nn.Sequential(AttentionOwnCorrections(16, ["A", "B"], ["x", "y", "z"], rank=4))
+    wrapped.load_state_dict({f"0.{k}": v for k, v in state.items()})  # nested prefix, as in the model

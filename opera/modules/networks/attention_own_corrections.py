@@ -94,6 +94,15 @@ class AttentionOwnCorrections(nn.Module):
                 for param in params:
                     param.requires_grad_(False)
 
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        # Checkpoints saved before stage 13 have no cell support buffer; it only
+        # feeds shrinkage, which those designs do not use, so its default (zero
+        # events) is exact for them. Resuming and evaluating them must not fail.
+        key = prefix + "cell_train_events"
+        if key not in state_dict:
+            state_dict[key] = self.cell_train_events.detach().clone()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
     def set_cell_support(self, events) -> None:
         """Training events per (diagnosis, outcome), from eligible training records."""
         events = torch.as_tensor(events, dtype=torch.float32)
