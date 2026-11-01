@@ -41,8 +41,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from omegaconf import OmegaConf
 
 from opera.evaluation.input_restriction import keep_tokens
+from opera.functional.direct_cr_contract import needs_fine_index
 from opera.interpretability.attribution_summaries import (
     SOURCE_ORDER,
     bin_counts,
@@ -103,8 +105,9 @@ def randomized_copy(model, scope, seed=0):
     """
     clone = copy.deepcopy(model)
     modules = [clone.competing_risk_head]
-    if getattr(clone, "source_adapter_readout", None) is not None:
-        modules.append(clone.source_adapter_readout)
+    for name in ("source_adapter_readout", "outcome_attention_readout", "attention_own_corrections"):
+        if getattr(clone, name, None) is not None:
+            modules.append(getattr(clone, name))
     if scope == "model":
         modules += [*clone.encoder.layers, clone.encoder.layernorm]
     elif scope != "head":
@@ -757,7 +760,10 @@ def _run(args):
         "source_anchored_adapters",
         "unanchored_adapters",
     }
-    fine_names = list(cfg.competing_risk.get("fine_names") or []) if adapters else []
+    # The diagnosis index is needed by router readouts and by the stage-9 readouts
+    # (diagnosis-conditioned attention, own corrections), not only by adapters.
+    fine_names = (list(cfg.competing_risk.get("fine_names") or [])
+                  if needs_fine_index(OmegaConf.to_container(cfg.competing_risk, resolve=True)) else [])
     data_module = MultiCohortContrastiveDataModule(
         cohort_configs=cohort_configs,
         outcome_configs=outcome_configs,

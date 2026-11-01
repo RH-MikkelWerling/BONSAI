@@ -54,6 +54,10 @@ def summarise(root: Path, row: dict) -> dict:
     if not logs:
         return out
     metrics = pd.concat([pd.read_csv(path) for path in logs], ignore_index=True)
+    if "epoch" not in metrics:
+        return out
+    # Logs read the epoch column as floats when some rows lack it.
+    metrics = metrics.dropna(subset=["epoch"]).astype({"epoch": int})
     if AUC in metrics:
         out["per_epoch"] = metrics.dropna(subset=[AUC]).groupby("epoch")[AUC].last().to_dict()
         out["best"] = max(out["per_epoch"].values()) if out["per_epoch"] else None
