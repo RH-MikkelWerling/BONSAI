@@ -224,9 +224,11 @@ def test_patient_map_honours_configured_highlight_order():
     assert [' '.join(ax.get_title(loc='left').split()) for ax in fig.axes[1:6]] == [
         f'{letter} ' + ' '.join(figures._embedding_title(name, width=17).split())
         for letter, name in zip('BCDEF', selected)]
-    # The selected design overlays disease contours on the observed patients.
-    assert any(type(collection).__name__ == 'QuadContourSet'
+    # Original (9e186f1) disease map: no KDE contours; numbered disease
+    # centroids (author request) identify the groups instead.
+    assert all(type(collection).__name__ != 'QuadContourSet'
                for collection in fig.axes[0].collections)
+    assert any(text.get_text() == '1' for text in fig.axes[0].texts)
     fig.canvas.draw()
     plt.close(fig)
 

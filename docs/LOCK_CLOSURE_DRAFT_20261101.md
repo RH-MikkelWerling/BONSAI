@@ -24,7 +24,26 @@ selected. Secondary: the average of the selected design's two seeds.
 **Training-log indication (not the decision):** J_OA_OWN 0.7916, J_OA_OWN_PH
 0.7912 and J_OA_LR_OWN 0.7910 at the selected checkpoint against R_AB 0.7836.
 
-- Noise floor (R_AB s42 − s43, paired tuning AUC): **[fill]**
+**Parsimony under noise (agreed 1 November 2026, before the stage-12/13 fits
+finished and before any test data).** The reading designs (stages 9 and 13)
+track each other within about ±0.002, and the design's own seed spread may be
+larger than R_AB's. Among candidates whose paired tuning AUC is within the
+design seed spread of the best candidate, the simplest is selected (J_OA_OWN);
+a more complex variant is selected only if it beats J_OA_OWN by more than that
+spread. Design seed spread: |paired tuning AUC of J_OA_OWN − J_OA_OWN_s43|.
+
+*Amended 1 November 2026, evening, before s44/s45 were trained (stage 14).*
+s43 trailed s42 by about 0.005 at almost every epoch, not only at the selected
+checkpoint, while R_AB's two seeds agreed to 0.0002; two seeds cannot say
+whether s42 was lucky or s43 unlucky. Stage 14 adds J_OA_OWN s44 and s45 and J
+s43. The design seed spread becomes the range (max − min) of tuning AUC over the
+four J_OA_OWN seeds. The fit that goes to the test set stays the prespecified
+seed 42; the tuning section reports the four-seed mean and range beside it, and
+OPERA − J is also reported on the second seed pair (J_OA_OWN_s43 − J_s43).
+
+- Design seed spread (range over J_OA_OWN s42–s45, tuning AUC): **[fill]**
+- J_OA_OWN four-seed mean tuning AUC (vs s42): **[fill]**
+- Noise floor (R_AB s42 − s43; J s42 − s43, paired tuning AUC): **[fill]**
 - Pooled tuning AUC, every candidate vs R_AB: **[fill]**
 - **Selected primary: [fill]** (alias written to `OPERA_PAPER_ROUTED_MODEL` and
   `OPERA_PAPER_OPERA_MODEL`)

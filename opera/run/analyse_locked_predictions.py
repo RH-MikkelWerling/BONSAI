@@ -328,6 +328,15 @@ TASK_DESIGN = {
     "MAX_AB": "gain(J_OA_OWN_MAX_L,R_L)",
 }
 
+# Stage 14 (1 November 2026): seed spread of the design and of J.
+TASK_SEEDS = {
+    "OAOWN_NF44": "gain(J_OA_OWN_L,J_OA_OWN_s44_L)",
+    "OAOWN_NF45": "gain(J_OA_OWN_L,J_OA_OWN_s45_L)",
+    "OAOWN_NF4345": "gain(J_OA_OWN_s43_L,J_OA_OWN_s45_L)",
+    "J_NF": "gain(J_L,J_s43_L)",                              # seed noise floor of J
+    "OAOWN_J_s43": "gain(J_OA_OWN_s43_L,J_s43_L)",            # the main gain on a second seed pair
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -534,6 +543,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_DESIGN.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in TASK_SEEDS.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ABLATION.items()
                       if models_for({name: expression}) <= set(predictions.model)})

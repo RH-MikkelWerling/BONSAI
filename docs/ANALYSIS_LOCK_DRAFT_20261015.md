@@ -892,3 +892,13 @@ PHX_OAOWN, PEXSW_OAOWN, MAX_OAOWN and against R_AB (XSW_AB, PEXSW_AB, MAX_AB).
 A second-seed average of the selected design is a prespecified secondary result
 (no extra training). Selecting among more candidates adds selection optimism on
 tuning data; only the selected design is evaluated on the test set.
+
+**Selection among reading designs (amendment, 1 November 2026, night; before the
+stage-12/13 fits finished and before any test data).** Among candidates whose
+paired tuning AUC is within the design seed spread (|J_OA_OWN − J_OA_OWN_s43|,
+paired tuning AUC) of the best candidate, the simplest design (J_OA_OWN) is
+selected; a more complex variant is selected only if it beats J_OA_OWN by more
+than that spread. Rationale: the stage-13 variants track J_OA_OWN within about
+±0.002, comparable to the design's seed spread, so picking the highest would let
+noise and tuning optimism choose. The primary gain over R_AB is reported for
+each seed and for the two-seed average.

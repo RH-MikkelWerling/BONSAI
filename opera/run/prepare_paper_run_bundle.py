@@ -325,6 +325,26 @@ def task_ablation_entries(base, reference, checkpoints, selected_router, *, epoc
     return entries
 
 
+# Stage 14 (1 November 2026): seed spread. J_OA_OWN s43 trailed s42 by 0.005
+# at almost every epoch, while R_AB's two seeds agreed to 0.0002; two seeds
+# cannot say which was the unusual one. Two more seeds of the design, and a
+# second seed of J (the reference of the main contrast). Values: (model, seed).
+TASK_SEEDS = {"J_OA_OWN_s44": ("J_OA_OWN", 44), "J_OA_OWN_s45": ("J_OA_OWN", 45), "J_s43": ("J", 43)}
+
+
+def task_seed_entries(base, reference, checkpoints, selected_router, *, epochs, patience):
+    entries = []
+    for order, (alias, (design, seed)) in enumerate(TASK_SEEDS.items()):
+        config = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                   seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
+        if design != "J":
+            config = task_pooling_config(config, design, reference, selected_router)
+        entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+                        "seed": seed, "condition": {}, "config": config,
+                        "queue_order": order - 200})  # claimed before every remaining fit
+    return entries
+
+
 def task_pooling_design(routed_model):
     """J_OA_LR_OWN_L -> J_OA_LR_OWN when the primary model is a stage-9 design, else None."""
     alias = (routed_model or "").removesuffix("_L")
@@ -574,6 +594,7 @@ def build_bundle(
     external_encoder_lr=None,
     task_ablation=False,
     task_design=False,
+    task_seeds=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -882,6 +903,11 @@ def build_bundle(
             raise ValueError("Stage 13 repeats the stage-12 fits")
         entries += task_design_entries(base, reference, checkpoints, selected_router,
                                        epochs=epochs, patience=patience, seed=seeds[0])
+    if task_seeds:
+        if not task_design:
+            raise ValueError("Stage 14 repeats the stage-13 fits")
+        entries += task_seed_entries(base, reference, checkpoints, selected_router,
+                                     epochs=epochs, patience=patience)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -1042,6 +1068,8 @@ def main():
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
     parser.add_argument("--task-design", action="store_true",
                         help="stage 13: shrinkage and diagnosis x outcome corrections for the reading design")
+    parser.add_argument("--task-seeds", action="store_true",
+                        help="stage 14: two more seeds of J_OA_OWN and a second seed of J")
     parser.add_argument("--task-ablation", action="store_true",
                         help="stage 12: seed repeat, capacity and ablations of the leading reading design")
     parser.add_argument("--external-encoder-lr", type=float,
@@ -1111,6 +1139,7 @@ def main():
         external_encoder_lr=args.external_encoder_lr,
         task_ablation=args.task_ablation,
         task_design=args.task_design,
+        task_seeds=args.task_seeds,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

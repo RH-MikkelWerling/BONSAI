@@ -238,6 +238,9 @@ def build_commands(args, env):
             if stage >= 13:
                 # Shrinkage and diagnosis x outcome corrections (design changes).
                 command += ["--task-design"]
+            if stage >= 14:
+                # Seed spread: two more J_OA_OWN seeds and a second J seed.
+                command += ["--task-seeds"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

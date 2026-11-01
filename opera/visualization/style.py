@@ -261,10 +261,15 @@ def align_panel_titles(fig: plt.Figure) -> None:
     fig.canvas.draw()  # resolve tick labels and layout before measuring extents
     renderer = fig.canvas.get_renderer()
     for ax in fig.axes:
+        text = ax._left_title  # the left-located title
+        if getattr(text, "_opera_letter_artist", None) is not None:
+            # Already split into a bold letter by an earlier export: restore.
+            text._opera_letter_artist.remove()
+            text._opera_letter_artist = None
+            text.set_text(text._opera_unwrapped_title)
         title = ax.get_title(loc="left")
         if not re.match(r"^[A-Z](\s|$)", title):
             continue
-        text = ax._left_title  # the left-located title
         title_y = text.get_position()[1]
         text.set_visible(False)  # measure the panel without its own title
         try:
@@ -298,6 +303,40 @@ def align_panel_titles(fig: plt.Figure) -> None:
                     current = trial
             lines.append(current)
         text.set_text('\n'.join(lines))
+        _bold_panel_letter(ax, text, renderer)
+
+
+def _bold_panel_letter(ax, text, renderer) -> None:
+    """Draw the leading panel letter of a left title in bold.
+
+    Matplotlib titles carry one font weight, so the letter becomes its own
+    text artist at the title's position and the rest of the title is shifted
+    right by the letter and its gap. Idempotent: repeated exports reuse it.
+    """
+    import re
+    from matplotlib.font_manager import FontProperties
+
+    original = text.get_text()
+    match = re.match(r"^([A-Z])( +)(\S.*)$", original, flags=re.S)
+    if not match:
+        return
+    letter, gap, rest = match.groups()
+    props = text.get_fontproperties()
+    bold = FontProperties(family=props.get_family(), size=props.get_size_in_points(),
+                          weight="bold")
+    letter_width = renderer.get_text_width_height_descent(letter, bold, ismath=False)[0]
+    gap_width = (renderer.get_text_width_height_descent(f"x{gap}x", props, ismath=False)[0]
+                 - renderer.get_text_width_height_descent("xx", props, ismath=False)[0])
+    axes_width = max(1.0, ax.get_window_extent(renderer).width)
+    x, y = text.get_position()
+    n_lines = rest.count("\n") + 1
+    artist = ax.text(x, y, letter + "\n" * (n_lines - 1), transform=text.get_transform(),
+                     fontproperties=bold, color=text.get_color(),
+                     ha="left", va=text.get_verticalalignment(), clip_on=False)
+    artist.set_linespacing(text._linespacing)
+    text.set_text(rest)
+    text.set_x(x + (letter_width + gap_width) / axes_width)
+    text._opera_letter_artist = artist
 
 
 def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:

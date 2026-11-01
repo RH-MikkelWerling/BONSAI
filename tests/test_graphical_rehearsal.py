@@ -145,7 +145,8 @@ def test_support_keeps_unknown_counts_out_of_cumulative_share():
     fig=f.figure_support(cells)
     curve=fig.axes[-1].lines[0]
     np.testing.assert_allclose(curve.get_ydata(),[.5,1])
-    assert any('1 counts unavailable' in t.get_text() for t in [*fig.axes[-1].texts,*fig.texts])
+    assert any('1 counts unavailable' in t.get_text() for t in [*fig.axes[-1].texts,*fig.texts,
+                *(t for leg in fig.legends for t in leg.get_texts())])
     plt.close(fig)
 
 
@@ -175,7 +176,8 @@ def test_support_retains_absent_disease_and_separates_not_applicable():
         status=['evaluated','not_applicable','fit_failed','no_training_events']))
     fig=f.figure_support(cells,coverage=coverage)
     assert fig.axes[0].images[0].get_array().shape==(2,2)
-    assert any('2 counts unavailable' in t.get_text() for t in [*fig.axes[-1].texts,*fig.texts])
+    assert any('2 counts unavailable' in t.get_text() for t in [*fig.axes[-1].texts,*fig.texts,
+                *(t for leg in fig.legends for t in leg.get_texts())])
     plt.close(fig)
 
 

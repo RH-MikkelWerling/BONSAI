@@ -42,7 +42,8 @@
       4.38/-5.62/OperaTeal,4.72/-5.84/OperaLavender,5.05/-5.57/OperaIndigo,
       5.38/-5.79/OperaTeal,5.66/-5.62/OperaPeriwinkle}
     \fill[\col!72] (\x,\y) circle (2.3pt);
-  \node[labelsmall,anchor=west] at (1.82,-6.08) {\shortstack[l]{broader cohorts\\including nationwide histories beyond cancer}};
+  % Top-anchored below the disease dots, so no dot sits on "broader".
+  \node[labelsmall,anchor=north west] at (1.82,-5.99) {\shortstack[l]{broader cohorts\\including nationwide histories beyond cancer}};
 
   \node[eyebrow,text=OperaTeal,anchor=east] at (1.58,-6.82) {OUTCOMES};
   \foreach \x/\y in {2.02/-6.72,2.32/-6.92}

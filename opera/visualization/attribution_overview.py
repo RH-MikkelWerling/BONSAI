@@ -41,6 +41,41 @@ def _title(ax, letter, text, **kwargs):
     ax.set_title(f"{letter}  {text}", loc="left", **kwargs)
 
 
+def _fig_heading(fig, x, y, letter, text, *, size=TITLE_SIZE, va="top"):
+    """A figure-level panel heading with a bold letter, as in the other plates."""
+    renderer = fig.canvas.get_renderer()
+    head = fig.text(x, y, letter, fontsize=size, fontweight="bold", va=va,
+                    color=PALETTE["ink"])
+    props = head.get_fontproperties().copy()
+    props.set_weight("normal")
+    gap = (renderer.get_text_width_height_descent("x  x", props, ismath=False)[0]
+           - renderer.get_text_width_height_descent("xx", props, ismath=False)[0])
+    width = head.get_window_extent(renderer).width + gap
+    fig.text(x + width / fig.bbox.width, y, text, fontsize=size, va=va, color=PALETTE["ink"])
+
+
+def _estimated_findings(concepts, findings):
+    """Drop concept columns with no estimate for any outcome.
+
+    A concept without carriers in the analysed histories (in the synthetic
+    proof: codes the generator never emits, e.g. ALT or sodium bins) would
+    otherwise be an all-grey column. The dropped labels are kept on the figure
+    as ``fig.dropped_concepts`` for the caption.
+    """
+    if not len(concepts):
+        return findings, []
+    estimated = set(concepts.loc[concepts.mean_pp.notna(), "label"])
+    return ([f for f in findings if f in estimated],
+            [f for f in findings if f not in estimated])
+
+
+RESTRICTION_SHORT = {"Only the timing of care": "Timing\nonly",
+                     "Without laboratory results": "No\nlabs",
+                     "Without medication": "No\nmeds", "Without diagnoses": "No\ndiagn.",
+                     "Without region and specialty": "No\nregion",
+                     "Only the last year": "Last\nyear"}
+
+
 WINDOW_COLORS = {"Last 30 days": "#1A237E", "31 days to 1 year": "#5C7AEA",
                  "Over 1 year": "#AEB8DA", "No time": "#737D8C"}
 REFERENCE_COLOR = "#ECEEF1"  # the timing of care alone: neutral, not a source
@@ -132,22 +167,20 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     outcomes = list(dict.fromkeys(variance_sources.outcome))
     rows, labels, headers = _domain_rows(outcomes, domains)
     findings = list(dict.fromkeys(concepts.label)) if len(concepts) else []
+    findings, dropped = _estimated_findings(concepts, findings)
     height = 0.14 * len(rows) + 3.65
     fig = plt.figure(figsize=(9.2, height))
     grid = fig.add_gridspec(1, 3, width_ratios=[2.2, 1.3, max(2.0, 0.2 * len(findings))],
                             wspace=0.06, left=0.25, right=0.985,
                             top=1 - 2.25 / height, bottom=1.05 / height)
-    title_y = 1 - 0.1 / height
-    fig.text(0.25, title_y, "What makes patients differ in predicted risk", fontsize=8.6,
-             va="top", fontweight="bold")
-    panel_y = 1 - 0.38 / height
+    panel_y = 1 - 0.2 / height
 
     ax = fig.add_subplot(grid[0])
     source_colors = {REFERENCE: REFERENCE_COLOR,
                      **{k: v for k, v in SOURCE_COLORS.items() if k != "Other"}}
     _stacked_shares(ax, variance_sources, rows, list(source_colors), source_colors)
     _row_axis(ax, rows, labels, headers, show=True)
-    fig.text(ax.get_position().x0, panel_y, "A  By source", fontsize=TITLE_SIZE, va="top")
+    _fig_heading(fig, ax.get_position().x0, panel_y, "A", "By source")
     ax.legend(handles=[Patch(color=c, label=n if n != REFERENCE else "Timing of care alone")
                        for n, c in source_colors.items()],
               loc="upper left", bbox_to_anchor=(-0.02, -0.12 / height * 3), ncol=2,
@@ -160,8 +193,7 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
     window_colors = {REFERENCE: REFERENCE_COLOR, **WINDOW_COLORS}
     _stacked_shares(bx, variance_windows, rows, list(window_colors), window_colors)
     _row_axis(bx, rows, labels, headers, show=False)
-    fig.text(bx.get_position().x0, panel_y, "B  By time", fontsize=TITLE_SIZE,
-             va="top")
+    _fig_heading(fig, bx.get_position().x0, panel_y, "B", "By time")
     bx.legend(handles=[Patch(color=c, label=n.replace("No time", "Background")
                              .replace("31 days to 1 year", "1 month to 1 year"))
                        for n, c in WINDOW_COLORS.items()],
@@ -202,11 +234,7 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         tested = concepts.loc[concepts.verdict.isin(["supported", "contradicted",
                                                      "inconclusive"])]
         supported = int((tested.verdict == "supported").sum())
-        fig.text(cx.get_position().x0, title_y, "Which findings raise which risks",
-                 fontsize=8.6, va="top", fontweight="bold")
-        fig.text(cx.get_position().x0, panel_y,
-                 "C  Findings and predicted risk", fontsize=TITLE_SIZE,
-                 va="top")
+        _fig_heading(fig, cx.get_position().x0, panel_y, "C", "Findings and predicted risk")
         position = cx.get_position()
         cax = fig.add_axes([position.x0 + 0.1 * position.width, 0.42 / height,
                             0.8 * position.width, 0.08 / height])
@@ -216,9 +244,8 @@ def figure_attribution_atlas(variance_sources, variance_windows, concepts, *, do
         bar.ax.tick_params(labelsize=5.4)
         bar.ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"×{np.exp(v):.2f}"))
         bar.outline.set_visible(False)
-    if 'mapping_status' in concepts and concepts.mapping_status.eq('provisional').any():
-        fig.text(.25,.03/height,'Proposed concept mappings · tuning audit only · bin extremes are not clinical reference ranges',
-                 fontsize=6,color=PALETTE['ink_secondary'])
+    # Mapping status (e.g. provisional concept mappings) belongs in the caption.
+    fig.dropped_concepts = dropped
     watermark(fig, mark)
     return fig
 
@@ -251,9 +278,10 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     between = pairs.loc[~same].spearman.median() if (~same).any() else np.nan
 
     has_b = restrictions is not None and len(restrictions)
-    fig = plt.figure(figsize=(10.2, 7.2))
+    # Original (9e186f1) size and layout; the author preferred the original.
+    fig = plt.figure(figsize=(7.2, 4.4))
     grid = fig.add_gridspec(1, 2 if has_b else 1, width_ratios=[1.35, 1] if has_b else [1],
-                            left=0.14, right=0.98, top=0.76, bottom=0.15, wspace=0.72)
+                            left=0.13, right=0.99, top=0.84, bottom=0.17, wspace=0.42)
     ax = fig.add_subplot(grid[0])
     image = ax.imshow(matrix.to_numpy(float), cmap=RISK_CMAP.reversed(),
                       norm=TwoSlopeNorm(0, -1, 1), interpolation="nearest", aspect="auto")
@@ -274,10 +302,9 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
     bar.ax.xaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
     bar.ax.yaxis.set_ticks([])
     bar.outline.set_visible(False)
-    _title(ax, "A", "Agreement between outcome attributions", pad=16)
-    ax.text(0, 1.02, f"Median agreement within domains {within:.2f}, between domains "
-            f"{between:.2f}", transform=ax.transAxes, fontsize=6.2,
-            color=PALETTE["ink_secondary"])
+    # Within/between-domain median agreement goes to the caption.
+    fig.agreement_medians = {"within": within, "between": between}
+    _title(ax, "A", "Outcomes of one domain rest on the same history", pad=8)
     if has_b:
         bx = fig.add_subplot(grid[1])
         restriction_names = list(dict.fromkeys(restrictions.restriction))
@@ -297,13 +324,21 @@ def figure_attribution_structure(similarity, restrictions=None, *, domains=None,
         bx.set_yticks(range(len(order)), [SHORT_GROUP.get(g, g) for g in order], fontsize=6.0)
         bx.get_yticklabels()[0].set_fontweight("bold")
         bx.axhline(0.5, color="white", lw=2)
+        # Short two-line headers, as in the main attribution figure, so
+        # neighbouring column names never run into each other.
         bx.set_xticks(range(len(restriction_names)),
-                      [textwrap.fill(n, 12) for n in restriction_names], fontsize=6.5)
+                      [RESTRICTION_SHORT.get(n, textwrap.fill(n, 9))
+                       for n in restriction_names], fontsize=6.2)
         bx.xaxis.tick_top()
         bx.tick_params(length=0)
         for spine in bx.spines.values():
             spine.set_visible(False)
-        _title(bx, "B", "AUC change with restricted input (×100)", pad=26)
+        _title(bx, "B", "AUC change (×100), partial record", pad=8)
+        # Both titles on one line: B rises above its top column headers, so A
+        # takes the same height instead of hugging its own matrix.
+        fig.canvas.draw()
+        _title(ax, "A", "Outcomes of one domain rest on the same history", pad=8,
+               y=bx._left_title.get_position()[1])
     watermark(fig, mark)
     return fig
 
@@ -313,7 +348,7 @@ def _sigmoid(value):
 
 
 def _tracks(ax, episodes, outcomes, *, scale="risk", label_top=5, size=1.0, levels=3,
-            key=False):
+            key=False, key_box=(0.42, -0.3, 0.58, 0.12)):
     """One patient's history read for several outcomes: one track per outcome.
 
     x is time before treatment (log scale, treatment on the right). Every
@@ -386,18 +421,33 @@ def _tracks(ax, episodes, outcomes, *, scale="risk", label_top=5, size=1.0, leve
                 xytext=(6, 0), textcoords="offset points", va="center", fontsize=5.6,
                 color=PALETTE["ink_muted"])
     if key:
+        # Size key (absolute change) and colour key (direction), side by side.
         values = [v for v in (largest / 4, largest / 2, largest) if v > 0]
         unit = " pp" if scale == "risk" else ""
-        inset = ax.inset_axes([0.5, -0.3, 0.5, 0.12])
+        inset = ax.inset_axes(list(key_box))
         inset.set_axis_off()
-        inset.set_xlim(-0.2, len(values) + 0.1)
+        # Lay the key out in points, so circle sizes never overlap their labels.
+        fig_width = ax.figure.get_size_inches()[0]
+        width = fig_width * ax.get_position().width * key_box[2] * 72
+        inset.set_xlim(0, width)
         inset.set_ylim(-1, 1)
-        inset.text(-0.2, 0, "Change in the\npredicted risk", ha="right", va="center",
+        inset.text(0, 0, "Change in the\npredicted risk", ha="right", va="center",
                    fontsize=6, color=PALETTE["ink_muted"], linespacing=1.1)
-        for i, v in enumerate(values):
-            inset.scatter([i + 0.25], [0], s=20 + 520 * size * v / largest, color="#B9BFC8",
+        cursor = 8.0
+        for v in values:
+            area = 20 + 520 * size * v / largest
+            radius = np.sqrt(area) / 2
+            inset.scatter([cursor + radius], [0], s=area, color="#B9BFC8", linewidths=0,
+                          clip_on=False)
+            inset.text(cursor + 2 * radius + 4, 0, f"{v:.1f}{unit}", va="center",
+                       fontsize=6, color=PALETTE["ink"])
+            cursor += 2 * radius + 40
+        cursor += 6
+        for y, (value, label) in zip((0.45, -0.45), ((0.88, "raises risk"),
+                                                     (0.12, "lowers risk"))):
+            inset.scatter([cursor], [y], s=34, color=RISK_CMAP(value),
                           linewidths=0, clip_on=False)
-            inset.text(i + 0.62, 0, f"{v:.1f}{unit}", va="center", fontsize=6,
+            inset.text(cursor + 7, y, label, va="center", fontsize=6,
                        color=PALETTE["ink"])
     ax.tick_params(axis="y", length=0)
     ax.grid(False)
@@ -417,9 +467,29 @@ def figure_patient_tracks(episodes, *, outcomes=None, scale="logit", mark=None):
     from opera.visualization.paper_figures import watermark
 
     outcomes = outcomes or list(dict.fromkeys(episodes.outcome))
-    fig = plt.figure(figsize=(7.2, 0.55 * len(outcomes) + 1.9))
-    ax = fig.add_axes([0.2, 0.12, 0.66, 0.78])
-    _tracks(ax, episodes, outcomes, scale=scale, label_top=6)
+    if scale == "logit":
+        # Show the same units as the main figure (panel D): percentage points
+        # of predicted risk. Each outcome's log-odds contributions are scaled
+        # by its total risk change over its total log-odds change, the linear
+        # apportioning used to build the risk-scale episode tables.
+        episodes = episodes.copy()
+        for outcome, part in episodes.groupby("outcome"):
+            prediction = float(part.prediction.iloc[0])
+            reference = float(part.reference.iloc[0])
+            p, p0 = _sigmoid(prediction), _sigmoid(reference)
+            delta = prediction - reference
+            factor = (100 * (p - p0) / delta if abs(delta) > 1e-9 else 100 * p * (1 - p))
+            index = episodes.outcome == outcome
+            episodes.loc[index, "contribution"] = part.contribution * factor
+            episodes.loc[index, "prediction"] = p
+            episodes.loc[index, "reference"] = p0
+        scale = "risk"
+    height = 0.55 * len(outcomes) + 2.6
+    fig = plt.figure(figsize=(7.2, height))
+    ax = fig.add_axes([0.2, 1.05 / height, 0.66, 1 - 1.55 / height])
+    axis_height = height - 1.55  # inches
+    _tracks(ax, episodes, outcomes, scale=scale, label_top=6, key=True,
+            key_box=(0.42, -0.78 / axis_height, 0.58, 0.36 / axis_height))
     ax.set_title('Synthetic patient illustration', loc='left', fontsize=TITLE_SIZE, pad=10)
     ax.set_xlabel("Time before the start of treatment", fontsize=7)
     watermark(fig, mark)
@@ -472,6 +542,8 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
              if d in set(variance_sources.outcome.map(domains))]
     names = [SHORT_GROUP.get(d, d) for d in order]
     rows = np.arange(len(order))
+    # Wider than the original 7.2 in: at 7.2 the A/B headings and B column
+    # headers collide once the original's labels are kept legible.
     fig = plt.figure(figsize=(8.8, 10.4))
     outer = fig.add_gridspec(2, 1, height_ratios=[1.0, 0.62], hspace=0.3, left=0.135,
                              right=0.885, top=0.815, bottom=0.085)
@@ -514,10 +586,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
         if np.isfinite(value):
             bx.text(j, i, f"{value:.1f}".replace("-", "−"), ha="center", va="center",
                     fontsize=5.8, color="white" if abs(value) > 0.6 * limit_b else PALETTE["ink"])
-    short = {"Only the timing of care": "Timing\nonly", "Without laboratory results": "No\nlabs",
-             "Without medication": "No\nmeds", "Without diagnoses": "No\ndiagn.",
-             "Without region and specialty": "No\nregion",
-             "Only the last year": "Last\nyear"}
+    short = RESTRICTION_SHORT
     overall = (restrictions.loc[restrictions.group == "All outcomes"]
                .set_index("restriction").mean_delta * 100)
     heads = [f"{short.get(n, textwrap.fill(n, 8))}\n{overall.get(n, np.nan):.1f}"
@@ -534,7 +603,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     labels = (concepts.drop_duplicates("label")
               .assign(rank=lambda d: d.group.map({g: i for i, g in enumerate(group_order)}))
               .sort_values("rank", kind="stable"))
-    findings = list(labels.label)
+    findings, dropped = _estimated_findings(concepts, list(labels.label))
     group_of = dict(zip(labels.label, labels.group))
     grid_c = _by_domain(concepts, domains, "mean_pp", ["label"]).pivot_table(
         index="domain", columns="label", values="mean_pp").reindex(index=order, columns=findings)
@@ -588,12 +657,17 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     bar.ax.yaxis.set_major_formatter(plt.FuncFormatter(
         lambda v, _: f"×{np.exp(v):.2f}"))
     bar.outline.set_visible(False)
-    cx.set_xlabel("Boxes: expected directions from the analysis plan", fontsize=6.6)
+    cx.legend(handles=[Patch(fill=False, edgecolor=PALETTE["ink"], lw=1.0,
+                             label="Expected direction (analysis plan), seen"),
+                       Patch(fill=False, edgecolor=PALETTE["ink"], lw=0.8, ls=(0, (2, 1.5)),
+                             label="Expected direction, not seen")],
+              loc="upper left", bbox_to_anchor=(0.0, -0.01), ncol=2, frameon=False,
+              fontsize=6.4, handlelength=1.2, columnspacing=1.2)
 
-    for x0, text in ((0.012, "A  Sources of the differences"),
-                     (bx.get_position().x0, "B  Inputs removed"),
-                     (cx.get_position().x0, "C  Findings and the risks they raise")):
-        fig.text(x0, title_y, text, fontsize=10.5, va="top")
+    for x0, letter, text in ((0.012, "A", "Sources of the differences"),
+                             (bx.get_position().x0, "B", "Inputs removed"),
+                             (cx.get_position().x0, "C", "Findings and the risks they raise")):
+        _fig_heading(fig, x0, title_y, letter, text)
     fig.legend(handles=[Patch(color=c, label="Timing of care alone" if n == REFERENCE else n)
                         for n, c in colors.items()],
                loc="upper left", bbox_to_anchor=(0.012, title_y - 0.03), ncol=1,
@@ -606,8 +680,9 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     _tracks(dx, episodes, outcomes_d, scale="risk", label_top=6, size=1.2, levels=2,
             key=True)
     dx.set_xlabel("Time before the start of treatment", fontsize=7, loc="left")
-    fig.text(0.012, dx.get_position().y1 + 0.012, "D  Synthetic patient illustration",
-             fontsize=10.5, va="bottom")
+    _fig_heading(fig, 0.012, dx.get_position().y1 + 0.012, "D",
+                 "Synthetic patient illustration", va="bottom")
+    fig.dropped_concepts = dropped
     watermark(fig, mark)
     return fig
 
