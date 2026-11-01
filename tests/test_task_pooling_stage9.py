@@ -188,3 +188,41 @@ def test_tied_outcome_queries_share_a_basis_and_start_at_the_joint_model():
         readout.residual_gates.fill_(1.0)
     readout(hidden, shared, torch.ones(3, 5, dtype=torch.bool)).sum().backward()
     assert float(readout.query_basis.grad.abs().sum()) > 0 and float(readout.query_coefficients.grad.abs().sum()) > 0
+
+
+@pytest.mark.parametrize("groups", [False, True])
+def test_own_corrections_survive_device_and_dtype_moves_and_reloading(groups):
+    """Regression (1 Nov 2026): a helper named ``_apply`` shadowed nn.Module._apply,
+    so every own-correction fit failed when Lightning moved the model to the GPU."""
+    from opera.modules.networks.attention_own_corrections import AttentionOwnCorrections
+
+    module = AttentionOwnCorrections(16, ["A", "B", "C"], ["x", "y"], rank=4,
+                                     disease_groups={"A": "g", "B": "g", "C": "h"} if groups else None)
+    module.to("cpu"); module.cpu(); module.double(); module.float()
+    reloaded = AttentionOwnCorrections(16, ["A", "B", "C"], ["x", "y"], rank=4,
+                                       disease_groups={"A": "g", "B": "g", "C": "h"} if groups else None)
+    reloaded.load_state_dict(module.state_dict())
+    rep, fine = torch.randn(3, 2, 16), torch.tensor([0, 2, -1])
+    torch.testing.assert_close(reloaded(rep, fine), module(rep, fine))
+
+
+@pytest.mark.parametrize("alias", ["J_OA_OWN", "J_OA_LR_OWN", "J_OA_OWN_PH", "J_FPF_OWN", "J_FPF_PH_OWN_PH",
+                                   "J_OA", "J_FPF_PH"])
+def test_every_stage_nine_model_moves_between_devices_and_dtypes(alias):
+    """Every stage-9 config builds a model that survives .to/.cpu/.double, as
+    Lightning does at the start and end of every fit."""
+    _, after = _bundles()
+    config = next(e["config"] for e in after if e["name"].endswith(f"fix_{alias}"))
+    risk = dict(config["competing_risk"])
+    names = list(risk.get("fine_names", [])) or ["A"]
+    torch.manual_seed(0)
+    model = OperaContrastiveModel(
+        encoder=_Encoder(), outcome_names=list(config["outcomes"]), hidden_size=16, projection_hidden_dim=16,
+        projection_dim=8, pooling="cls_last", dapt_anchor_weight=0,
+        outcome_sorted_event_times={o: torch.tensor([10.0]) for o in config["outcomes"]},
+        cohort_names=sorted(config["cohorts"]), competing_risk_config=dict(risk, fine_names=names))
+    model.to("cpu"); model.double(); model.float(); model.cpu()
+    batch = {"input_emb": torch.randn(3, 4, 16), "attention_mask": torch.ones(3, 4, dtype=torch.bool),
+             "cohort_index": torch.tensor([0, 1, 0]) % len(config["cohorts"]),
+             "cohort_fine_index": torch.tensor([0, len(names) - 1, -1]), "subject_id": torch.arange(3)}
+    assert torch.isfinite(model.get_objective_representations(batch)).all()

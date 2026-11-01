@@ -54,8 +54,10 @@ class AttentionOwnCorrections(nn.Module):
                     [self.group_names.index(disease_groups[n]) for n in self.fine_names]))
                 self.group_down, self.group_up = _adapters(len(self.group_names), rank, hidden_size)
 
+    # Not ``_apply``: that name is nn.Module's device/dtype hook (.to/.cuda/.cpu),
+    # and shadowing it made every fit fail when the model moved to the GPU.
     @staticmethod
-    def _apply(representation, down, up):
+    def _adapt(representation, down, up):
         """Per-patient adapters: representation (b, o, h); down (b, r, h); up (b, h, r)."""
         hidden = F.gelu(torch.einsum("boh,brh->bor", representation, down))
         return torch.einsum("bor,bhr->boh", hidden, up)
@@ -70,11 +72,11 @@ class AttentionOwnCorrections(nn.Module):
                                self.outcome_up)
         general = torch.einsum("bor,hr->boh", F.gelu(torch.einsum("boh,rh->bor", representation, self.global_down[0])),
                                self.global_up[0])
-        terms = {"own_disease": known * self._apply(representation, self.disease_down[safe], self.disease_up[safe]),
+        terms = {"own_disease": known * self._adapt(representation, self.disease_down[safe], self.disease_up[safe]),
                  "own_outcome": known * outcome, "global": general}
         if self.group_down is not None:
             group = self.group_index[safe]
-            terms["group"] = known * self._apply(representation, self.group_down[group], self.group_up[group])
+            terms["group"] = known * self._adapt(representation, self.group_down[group], self.group_up[group])
         return terms
 
     def forward(self, representation: torch.Tensor, fine_index: torch.Tensor) -> torch.Tensor:

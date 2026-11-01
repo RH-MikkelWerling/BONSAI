@@ -658,6 +658,20 @@ limit for small diseases appears to be the number of examples rather than their
 biology. This is not an argument for redrawing diagnostic boundaries. It is an
 argument that the boundaries needed for diagnosis and treatment need not also
 bound what a predictive model learns from.
+% NOTE (1 Nov 2026, depends on the stage-9 result): the prognostic indices make
+% the same point from the clinical side. IPI, FLIPI, MIPI and CLL-IPI are built
+% from largely the same ingredients (age, LDH, stage, performance status, blood
+% counts, beta-2-microglobulin), with disease-specific weights and cut-offs; only
+% a few (TP53, IGHV in CLL-IPI) are disease-specific. If outcome-conditioned
+% reading with small disease corrections wins (stage 9), draft:
+%   "Clinicians reached a similar division when constructing the prognostic
+%   indices: IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements,
+%   weighted and cut differently for each disease. In our model, too, what to
+%   read from the record differed between outcomes, while diseases differed
+%   mainly in how shared risk factors were weighted."
+% Molecular markers are in the input (Patobank: TP53 mutation/del(17p), IGHV
+% status, MYC rearrangement) but only where tested, which varies by disease,
+% era and indication; say "recorded where tested", not "absent".
 
 Borrowing could also have harmed. Joint training has frequently degraded
 individual clinical tasks \citep{mcdermott2020mtl}, and with 69 outcomes of very
