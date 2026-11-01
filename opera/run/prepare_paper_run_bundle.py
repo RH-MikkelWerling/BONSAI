@@ -213,6 +213,34 @@ TASK_POOLING = {
 }
 
 
+# Stage 10 (1 November 2026): is the representation the limit? Every readout
+# and borrowing variant in stages 3-9 reached about the same tuning AUC, so the
+# encoder is fine-tuned harder: its learning rate as a multiple of the head's
+# (0.1 in every other fit). Values: (model, encoder learning-rate multiplier).
+ENCODER_LR = {"J_ELR10": ("J", 1.0), "R_AB_ELR10": ("R_AB", 1.0), "R_AB_ELR3": ("R_AB", 0.3)}
+# Stage 11 (1 November 2026): the stage-9 reading models with own corrections
+# at the full encoder rate. Reading attends over token states, so a
+# harder-trained encoder may matter more for them than for J and R_AB.
+ENCODER_LR_READING = {"J_FPF_PH_OWN_PH_ELR10": ("J_FPF_PH_OWN_PH", 1.0),
+                      "J_OA_OWN_ELR10": ("J_OA_OWN", 1.0)}
+
+
+def encoder_lr_entries(entries, *, seed=42, designs=None, first_order=-100):
+    """Copies of existing fits that differ only in the encoder learning rate."""
+    by_name = {e["name"]: e for e in entries}
+    sources = {"J": f"seed{seed}/L/J_all_diseases_all_outcomes"}
+    new = []
+    for order, (alias, (model, multiplier)) in enumerate((designs or ENCODER_LR).items()):
+        source = by_name[sources.get(model, f"seed{seed}/L/fix_{model}")]
+        config = copy.deepcopy(source["config"])
+        config.setdefault("training", {})["encoder_lr_multiplier"] = float(multiplier)
+        new.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+                    "seed": seed, "condition": {}, "config": config,
+                    # claimed before every remaining stage-8 and stage-9 fit
+                    "queue_order": first_order + order})
+    return new
+
+
 def task_pooling_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
     from opera.visualization.paper_taxonomy import fine_cohort_groups
 
@@ -329,6 +357,8 @@ def routed_fix(routed_model):
     if not routed_model or routed_model == "R_L":
         return None
     fix = routed_model.removesuffix("_L")
+    if fix in ENCODER_LR:  # stage 10: the R_AB readout, encoder trained harder
+        return "R_AB"
     if fix not in ROUTER_FIX and fix not in ROUTER_PP and fix not in ROUTER_PT and fix not in ROUTER_PF:
         raise ValueError(f"Unknown primary routed model {routed_model}")
     return fix
@@ -441,6 +471,8 @@ def build_bundle(
     router_pt=False,
     router_pf=False,
     task_pooling=False,
+    encoder_lr=False,
+    encoder_lr_reading=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -724,6 +756,14 @@ def build_bundle(
             raise ValueError("Stage 9 repeats the stage-8 fits")
         entries += task_pooling_entries(base, reference, checkpoints, selected_router,
                                         epochs=epochs, patience=patience, seed=seeds[0])
+    if encoder_lr:
+        if not task_pooling:
+            raise ValueError("Stage 10 repeats the stage-9 fits")
+        entries += encoder_lr_entries(entries, seed=seeds[0])
+    if encoder_lr_reading:
+        if not encoder_lr:
+            raise ValueError("Stage 11 repeats the stage-10 fits")
+        entries += encoder_lr_entries(entries, seed=seeds[0], designs=ENCODER_LR_READING, first_order=-110)
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -882,6 +922,10 @@ def main():
                         help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--router-pt", action="store_true",
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
+    parser.add_argument("--encoder-lr-reading", action="store_true",
+                        help="stage 11: the stage-9 reading models with own corrections at the full encoder rate")
+    parser.add_argument("--encoder-lr", action="store_true",
+                        help="stage 10: J and R_AB with the encoder fine-tuned at a higher learning rate")
     parser.add_argument("--task-pooling", action="store_true",
                         help="stage 9: the joint model with task-conditioned attention pooling")
     parser.add_argument("--router-pf", action="store_true",
@@ -938,6 +982,8 @@ def main():
         router_pt=args.router_pt,
         router_pf=args.router_pf,
         task_pooling=args.task_pooling,
+        encoder_lr=args.encoder_lr,
+        encoder_lr_reading=args.encoder_lr_reading,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

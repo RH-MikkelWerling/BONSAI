@@ -292,6 +292,17 @@ TASK_POOLING = {
     "OALROWN_AB": "gain(J_OA_LR_OWN_L,R_L)",
 }
 
+# Encoder learning rate (stage 10, 1 November 2026), when the fits are present.
+ENCODER_LR = {
+    "ELR_J": "gain(J_ELR10_L,J_L)",          # joint model, encoder at the head's learning rate
+    "ELR_AB": "gain(R_AB_ELR10_L,R_L)",      # primary router, encoder at the head's learning rate
+    "ELR3_AB": "gain(R_AB_ELR3_L,R_L)",      # primary router, encoder at 0.3x
+    "ELR_FPFPHOWN": "gain(J_FPF_PH_OWN_PH_ELR10_L,J_FPF_PH_OWN_PH_L)",  # stage 11
+    "ELR_OAOWN": "gain(J_OA_OWN_ELR10_L,J_OA_OWN_L)",
+    "ELR_FPFPHOWN_AB": "gain(J_FPF_PH_OWN_PH_ELR10_L,R_L)",
+    "ELR_OAOWN_AB": "gain(J_OA_OWN_ELR10_L,R_L)",
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -496,6 +507,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in ENCODER_LR.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_POOLING.items()
                       if models_for({name: expression}) <= set(predictions.model)})

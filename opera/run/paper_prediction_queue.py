@@ -101,6 +101,8 @@ ROUTED_MODELS = {"R_L", "R_E", "R_EA",
                  "R_PF5ED_L", "R_PF5EO_L", "R_PF5E_LR10_L", "R_PF5E_W0_L", "R_PF5E_s43_L",
                  "R_PF5E_LIVE_L", "R_PF5E_F10_L", "R_PH_GE_F10_L", "R_PF5E_LIVE_F10_L",
                  "R_PL8_L", "R_PL8_F10_L",
+                 # encoder learning rate (2026-11-01)
+                 "R_AB_ELR10_L", "R_AB_ELR3_L",
                  "R_PF5E_FROZEN_L", "R_PF_OFF_L", "R_PF_OFF_R32_L", "R_PF_OFF_F10_L"}
 
 

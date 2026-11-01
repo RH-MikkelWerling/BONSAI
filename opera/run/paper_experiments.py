@@ -92,6 +92,7 @@ OWN_REFERENCE = {"R_AB_L": "RBH_AB_L", "R_O_L": "RBH_O_L",
                      "R_PF5EP", "R_PF5EL", "R_PF5ED", "R_PF5EO", "R_PF5E_LR10", "R_PF5E_W0",
                      "R_PF5E_s43", "R_PF5E_LIVE", "R_PL8")},
                  "R_PF5E_R32_L": "R_PF_OFF_R32_L",
+                 "R_AB_ELR10_L": "NO_OWN_ONLY_FIT", "R_AB_ELR3_L": "NO_OWN_ONLY_FIT",
                  **{f"{alias}_L": "R_PF_OFF_F10_L" for alias in (
                      "R_PF5E_F10", "R_PH_GE_F10", "R_PF5E_LIVE_F10", "R_PL8_F10")}}
 
@@ -100,6 +101,8 @@ def removal_bundle(root, routed):
     """The frozen bundle holding the routed model's fit."""
     if routed == "R_L":
         return root / "bundles" / "stage2"  # the original router
+    if routed.startswith("R_AB_ELR"):
+        return root / "bundles" / "stage10"  # encoder learning rate (2026-11-01)
     if routed.startswith(("R_PF", "R_PH", "R_PL")):
         return root / "bundles" / "stage8"  # full own corrections (2026-10-31, evening)
     if routed.startswith("R_PT"):
@@ -216,6 +219,12 @@ def build_commands(args, env):
             if stage >= 9:
                 # Task-conditioned pooling (2026-11-01): J_OA, J_SP, J_FP.
                 command += ["--task-pooling"]
+            if stage >= 10:
+                # Encoder learning rate (2026-11-01): J and R_AB fine-tuned harder.
+                command += ["--encoder-lr"]
+            if stage >= 11:
+                # The stage-9 reading models with own corrections, encoder trained harder.
+                command += ["--encoder-lr-reading"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

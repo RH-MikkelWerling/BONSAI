@@ -830,3 +830,21 @@ J_OA_OWN 0.753, J_OA_OWN_PH 0.776, J_FPF 0.733 (seed SD 0.02-0.05).
 AUC at least R_AB's minus the seed noise floor; the highest chosen). Contrasts:
 each against J (what task-conditioned reading adds), against R_AB, and own and
 lineage terms on top. Only the selected design is evaluated on the test set.
+
+## Amendment of 1 November 2026 (afternoon): encoder learning rate (stage 10; before any test data were opened)
+
+Every readout and borrowing variant in stages 3-9 reached about the same tuning
+AUC (training logs: R_AB 0.7836; routing, hierarchy, learned groups, rank 32 all
+within 0.001; task-conditioned reading without own corrections up to 0.7800,
+with attention gates settled near 0.07 and no optimizer damping). The encoder
+is fine-tuned at 0.1x the head's learning rate in every fit. Stage 10 asks
+whether the representation is the limit: J and R_AB with the encoder at 1.0x
+(J_ELR10, R_AB_ELR10) and R_AB at 0.3x (R_AB_ELR3), otherwise identical.
+Contrasts ELR_J, ELR_AB, ELR3_AB. These are sensitivity fits; R_AB_ELR* are
+eligible as the primary model under the same selection rule.
+
+Stage 11 (same day): J_FPF_PH_OWN_PH and J_OA_OWN with the encoder at 1.0x
+(J_FPF_PH_OWN_PH_ELR10, J_OA_OWN_ELR10). Reading attends over the token states,
+so a harder-trained encoder may matter more for the reading models. Contrasts
+ELR_FPFPHOWN, ELR_OAOWN (against the same design at 0.1x) and against R_AB.
+Eligible under the same selection rule.

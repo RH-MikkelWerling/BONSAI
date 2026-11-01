@@ -25,7 +25,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 FILES = [
-    "test_full_own_router", "test_stage8_integration", "test_router_smoke", "test_task_pooling_stage9",
+    "test_full_own_router", "test_stage8_integration", "test_router_smoke", "test_task_pooling_stage9", "test_encoder_lr_stage10",
     "test_task_routed_router", "test_partial_pooling_router", "test_router_axis_separation",
     "test_paper_run_bundle", "test_paper_worker", "test_supervision_factorial", "test_paper_numbers",
 ]
