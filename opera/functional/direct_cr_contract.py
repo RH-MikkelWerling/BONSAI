@@ -168,6 +168,11 @@ def validate_direct_cr_config(config: Mapping[str, Any]) -> None:
             raise ValueError("prototype_condition_groups applies to prototype_condition=fine")
         if not isinstance(groups, dict) or set(competing.get("fine_names", [])) - set(groups):
             raise ValueError("prototype_condition_groups must give every fine name a group")
+    for key in ("attention_own_disease", "attention_own_outcome"):
+        if not isinstance(competing.get(key, True), bool):
+            raise ValueError(f"{key} must be true or false")
+        if key in competing and not competing.get("attention_own_corrections", False):
+            raise ValueError(f"{key} applies to attention_own_corrections")
     if not isinstance(competing.get("attention_own_corrections", False), bool):
         raise ValueError("attention_own_corrections must be true or false")
     if competing.get("attention_own_corrections", False) and readout_mode not in {

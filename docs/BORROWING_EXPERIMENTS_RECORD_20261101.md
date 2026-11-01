@@ -29,6 +29,45 @@ corrections from other diseases' and outcomes' adapters.
 | 10 | 1 Nov | J and R_AB with the encoder fine-tuned at 1.0× (and R_AB at 0.3×) the head's learning rate, instead of 0.1× | All readouts hit the same ceiling: is the representation the limit? | Pending |
 | 11 | 1 Nov | J_FPF_PH_OWN_PH and J_OA_OWN with the encoder at 1.0× | Reading attends over token states, so a harder-trained encoder may matter more for the reading models than for J and R_AB | Pending |
 
+**Use of stages 10–11 (prespecified):** primary analyses stay at the 0.1×
+encoder rate every arm was trained with; the encoder rate is a sensitivity
+analysis, and 1.0× models are reported only as a secondary result against
+XGBoost and the indices (lock amendment, 1 Nov).
+
+## Where the signal is (provisional, 1 Nov evening; training logs, single seed)
+
+Ordered by size, against the joint model (J 0.7711) unless stated:
+
+| Move | Gain | Evidence |
+|---|---|---|
+| Pool everything into one shared representation | large | J and OPERA ≫ neural specialists (specialists − XGBoost −0.155 vs J − XGBoost −0.037 mean AUC); pooled XGBoost > per-task XGBoost (+0.012) |
+| Small per-task corrections (own diagnosis + own outcome, full weight) | +0.0125 | R_AB 0.7836, own-only 0.7832, R_PF_OFF 0.7827 |
+| + outcome-specific reading of the record (attention over token states) | about +0.005 over R_AB | J_OA_LR_OWN 0.7888, J_OA_OWN_PH 0.7883 (still training) |
+| Outcome-specific reading alone, without corrections | +0.003 to +0.009 | J_OA … J_FPF_PH |
+| Selective borrowing of corrections between tasks (routing, learned groups, live sharing) | ~0 | stage 8, all within 0.001 of R_AB |
+| Known structure in corrections (lineage, endpoint groups) | ~0 at full data; +0.001 to +0.002 at 10% | R_PH_GE, R_PL8, 10% arm |
+| Capacity (rank 32), router knobs (bound, gate, LR, warm-up) | ~0 | stage 8 |
+| Encoder fine-tuned harder | J: ahead of its 0.1x twin by up to +0.007 at the same epoch; reading designs: no gain so far | stages 10–11, running |
+
+The right moves, if the paired analysis agrees: share the representation; specialise
+in two places only, *what each outcome reads* and *a small correction per
+diagnosis and outcome*; do not route corrections between tasks; spend further
+effort on the representation (more data, finer lab-value resolution: the
+national arm) rather than on readouts. The remaining gap to XGBoost sits in
+sparsely measured labs, where value resolution is coarsest.
+
+## How outcome sharing fits the story (provisional)
+
+Tuning (28 Oct, mean AUC over cells): other diseases add +0.120 to a
+one-outcome model (P1); other outcomes add +0.027 within one disease (P2) but
+−0.001 once diseases are pooled (P4). Stage 9 suggests why the last is neutral:
+in the joint model all 69 outcomes predict from one shared summary, so they
+compete for it; letting each outcome read the shared record itself (plus small
+corrections) gains beyond R_AB. Defensible claim: outcome-specific reading over
+the shared representation adds beyond the shared summary, more so together
+with the corrections. Not claimable without the same design trained one
+outcome at a time: that outcome sharing *in the encoder* is what makes it win.
+
 ## What the toys showed (scratchpad `router_toy/`, 3 seeds each)
 
 - **One outcome, 20 diseases in lineages.** Uncapped own corrections beat the
@@ -72,6 +111,32 @@ corrections from other diseases' and outcomes' adapters.
    (IPI, FLIPI, MIPI, CLL-IPI) combine largely the same measurements with
    disease-specific weights and cut-offs. Molecular markers (TP53, del(17p),
    IGHV, MYC) are in the record via Patobank, but only where tested.
+
+## The XGBoost comparison: checks (1 Nov)
+
+- **Same cells and patients.** Every neural–tabular contrast uses identical
+  patients, cases and controls (all 69 outcomes in the mechanism audit; all
+  53,058 matched rows in the 29 Oct parity audit); the evaluator refuses
+  differing patient sets. One outcome-horizon is skipped for every contrast
+  alike (too few cases).
+- **No leakage found.** The primary feature profile (`sequence_matched`, 4,132
+  columns) contains no adverse-event, registry or outcome columns (removed by
+  the preparation step and confirmed in the matrix). Windows are 0–7, 0–30,
+  0–90 and 0–365 days. Logistic regression on the same features trails XGBoost
+  by 0.075 AUC and OPERA by about 0.047; a leaked outcome-defining feature
+  would usually make a linear model strong too. (The builder's date filter was
+  not inspected; the window wording in Methods should follow the builder.)
+- **Where XGBoost's edge sits.** Each lab has ~24 columns (summary statistics
+  of exact values over four windows), against binned tokens in the sequence
+  model. The gap is largest for less frequently measured labs (liver and
+  coagulation −0.08, calcium/magnesium, metabolic markers) and near zero for
+  dense blood counts, consistent with value resolution set by per-code bin
+  counts; national pretraining should help most there.
+- **Pooling helps boosting too.** Pooled XGBoost beats per-task XGBoost by
+  +0.012 mean AUC across cells (T7), so "whether to borrow" holds in both model
+  families.
+- **Registry-augmented XGBoost (XR; T9, T10)** is in the locked plan but had no
+  predictions in the 28 Oct analysis; check whether its fits exist.
 
 ## Failures and their fixes (for the methods supplement and our own practice)
 

@@ -241,37 +241,87 @@ def encoder_lr_entries(entries, *, seed=42, designs=None, first_order=-100):
     return new
 
 
-def task_pooling_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
+# Stage 12 (1 November 2026): what the leading reading design is made of.
+# Sensitivity and ablation fits around J_OA_LR_OWN (and the other leader for
+# capacity); never selected. Values: (source design, changes).
+TASK_ABLATION = {
+    "J_OA_LR_OWN_s43": ("J_OA_LR_OWN", {"seed": 43}),            # seed noise floor of the design
+    "J_OA_LR_OWN_R32": ("J_OA_LR_OWN", {"rank": 32}),            # task-specific capacity
+    "J_OA_OWN_PH_R32": ("J_OA_OWN_PH", {"rank": 32}),
+    "J_OA_LR_OWN_NODIS": ("J_OA_LR_OWN", {"own_disease": False}),  # reading + outcome corrections
+    "J_OA_LR_OWN_NOOUT": ("J_OA_LR_OWN", {"own_outcome": False}),  # reading + diagnosis corrections
+    "J_OA_LR_OWN_F10": ("J_OA_LR_OWN", {"fraction": 0.1}),       # scarce data (the J_L_F10 subset)
+}
+
+
+def task_ablation_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
+    entries = []
+    for order, (alias, (design, change)) in enumerate(TASK_ABLATION.items()):
+        fit_seed = int(change.get("seed", seed))
+        shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                   seed=fit_seed, patience=patience)["J_all_diseases_all_outcomes"]
+        config = task_pooling_config(shared, design, reference, selected_router)
+        risk = config["competing_risk"]
+        if "rank" in change:
+            risk["attention_own_rank"] = int(change["rank"])
+        for key in ("own_disease", "own_outcome"):
+            if key in change:
+                risk[f"attention_{key}"] = bool(change[key])
+        if "fraction" in change:
+            config["training"].update(train_patient_fraction=float(change["fraction"]),
+                                      train_fraction_seed=seed)
+        entries.append({"name": f"seed{fit_seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
+                        "seed": fit_seed, "condition": {}, "config": config,
+                        # claimed before every other remaining fit
+                        "queue_order": order - 130})
+    return entries
+
+
+def task_pooling_design(routed_model):
+    """J_OA_LR_OWN_L -> J_OA_LR_OWN when the primary model is a stage-9 design, else None."""
+    alias = (routed_model or "").removesuffix("_L")
+    return alias if alias in TASK_POOLING else None
+
+
+def task_pooling_config(shared, alias, reference, selected_router):
+    """The joint model's config with one stage-9 readout (a copy)."""
     from opera.visualization.paper_taxonomy import fine_cohort_groups
 
+    mode, by_diagnosis, own, groups, query_rank = TASK_POOLING[alias]
+    config = copy.deepcopy(shared)
+    risk = config["competing_risk"]
+    risk["readout_mode"] = mode
+    if by_diagnosis or own:
+        risk.update(fine_column="cohort_fine", fine_names=[
+            fine for fine in ALL_EVALUATED_FINE if fine_to_grouped(fine) in config["cohorts"]])
+    if by_diagnosis:
+        risk["prototype_condition"] = "fine"
+    if query_rank:
+        risk["outcome_attention_query_rank"] = int(query_rank)
+    if own:
+        risk.update(attention_own_corrections=True, attention_own_rank=int(selected_router["rank"]),
+                    adapter_residual_scale=float(reference["competing_risk"]["adapter_residual_scale"]))
+    if groups:
+        lineage = fine_cohort_groups()
+        tied = {name: lineage[name] for name in risk["fine_names"]}
+        if own:
+            risk["attention_own_disease_groups"] = tied
+        if by_diagnosis:
+            risk["prototype_condition_groups"] = tied
+    config.setdefault("training", {})["enable_validation_probe"] = False
+    return config
+
+
+def task_pooling_entries(base, reference, checkpoints, selected_router, *, epochs, patience, seed=42):
     # Claimed before the remaining stage-8 fits (negative order), the designs the
     # token-level toy favoured first.
     order = ["J_OA_OWN", "J_OA_LR_OWN", "J_OA", "J_OA_LR", "J_OA_OWN_PH", "J_FPF_PH_OWN_PH",
              "J_FPF_PH", "J_FPF", "J_FP", "J_FPF_OWN", "J_SP"]
     entries = []
-    for alias, (mode, by_diagnosis, own, groups, query_rank) in TASK_POOLING.items():
-        config = copy.deepcopy(factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
-                                                 seed=seed, patience=patience)["J_all_diseases_all_outcomes"])
-        risk = config["competing_risk"]
-        risk["readout_mode"] = mode
-        if by_diagnosis or own:
-            risk.update(fine_column="cohort_fine", fine_names=[
-                fine for fine in ALL_EVALUATED_FINE if fine_to_grouped(fine) in config["cohorts"]])
-        if by_diagnosis:
-            risk["prototype_condition"] = "fine"
-        if query_rank:
-            risk["outcome_attention_query_rank"] = int(query_rank)
-        if own:
-            risk.update(attention_own_corrections=True, attention_own_rank=int(selected_router["rank"]),
-                        adapter_residual_scale=float(reference["competing_risk"]["adapter_residual_scale"]))
-        if groups:
-            lineage = fine_cohort_groups()
-            tied = {name: lineage[name] for name in risk["fine_names"]}
-            if own:
-                risk["attention_own_disease_groups"] = tied
-            if by_diagnosis:
-                risk["prototype_condition_groups"] = tied
-        config.setdefault("training", {})["enable_validation_probe"] = False
+    for alias in TASK_POOLING:
+        shared = factorial_configs(base, encoder_checkpoint=checkpoints["L"], epochs=epochs,
+                                   seed=seed, patience=patience)["J_all_diseases_all_outcomes"]
+        config = task_pooling_config(shared, alias, reference, selected_router)
         entries.append({"name": f"seed{seed}/L/fix_{alias}", "phase": "router_fix", "origin": "L",
                         "seed": seed, "condition": {}, "config": config,
                         "queue_order": order.index(alias) - len(order)})
@@ -473,6 +523,8 @@ def build_bundle(
     task_pooling=False,
     encoder_lr=False,
     encoder_lr_reading=False,
+    external_encoder_lr=None,
+    task_ablation=False,
 ):
     """All supervision configs and conditional bounded router candidates."""
     if not checkpoints.get("L") or len(set(seeds)) != len(seeds) or not seeds:
@@ -671,20 +723,27 @@ def build_bundle(
                 external_shared = external_sequences(
                     copy.deepcopy(shared), external_sequence_dir)
                 external_shared["dapt_ckpt"] = checkpoints[origin]
-                for mode, config in (
-                    ("J", external_shared),
-                    (
-                        "R",
-                        external_routed(router_config(
-                            external_shared,
-                            reference,
-                            source_mode=selected_router["source_mode"],
-                            rank=int(selected_router["rank"]),
-                            query_mode=selected_router["query_mode"],
-                            query_width=int(selected_router["query_width"]),
-                        ), routed_model),
-                    ),
-                ):
+                design = task_pooling_design(routed_model)
+                if design:
+                    # Primary OPERA is a stage-9 design (lock closure, Nov 2026): the
+                    # national fit uses its readout on the national encoder.
+                    national_routed = task_pooling_config(
+                        external_shared, design, reference, selected_router)
+                else:
+                    national_routed = external_routed(router_config(
+                        external_shared,
+                        reference,
+                        source_mode=selected_router["source_mode"],
+                        rank=int(selected_router["rank"]),
+                        query_mode=selected_router["query_mode"],
+                        query_width=int(selected_router["query_width"]),
+                    ), routed_model)
+                for mode, config in (("J", external_shared), ("R", national_routed)):
+                    if external_encoder_lr is not None:
+                        # Lock closure: the national arm is fine-tuned at the encoder
+                        # rate that won on tuning data (stage 10).
+                        config = copy.deepcopy(config)
+                        config.setdefault("training", {})["encoder_lr_multiplier"] = float(external_encoder_lr)
                     entries.append(
                         {
                             "name": f"seed{seed}/{origin}/{mode}",
@@ -764,6 +823,11 @@ def build_bundle(
         if not encoder_lr:
             raise ValueError("Stage 11 repeats the stage-10 fits")
         entries += encoder_lr_entries(entries, seed=seeds[0], designs=ENCODER_LR_READING, first_order=-110)
+    if task_ablation:
+        if not encoder_lr_reading:
+            raise ValueError("Stage 12 repeats the stage-11 fits")
+        entries += task_ablation_entries(base, reference, checkpoints, selected_router,
+                                         epochs=epochs, patience=patience, seed=seeds[0])
     if data_efficiency and checkpoints.get("EA") and selected_router is not None:
         seed = seeds[0]
         local = next(e for e in entries if e["name"] == f"seed{seed}/L/J_all_diseases_all_outcomes")
@@ -922,6 +986,10 @@ def main():
                         help="stage 5: J and R_AB with importance-weighted event sampling")
     parser.add_argument("--router-pt", action="store_true",
                         help="stage 7: task-routed candidates R_PT5 and R_PT3V")
+    parser.add_argument("--task-ablation", action="store_true",
+                        help="stage 12: seed repeat, capacity and ablations of the leading reading design")
+    parser.add_argument("--external-encoder-lr", type=float,
+                        help="encoder learning-rate multiplier for the national (E, EA) fits")
     parser.add_argument("--encoder-lr-reading", action="store_true",
                         help="stage 11: the stage-9 reading models with own corrections at the full encoder rate")
     parser.add_argument("--encoder-lr", action="store_true",
@@ -984,6 +1052,8 @@ def main():
         task_pooling=args.task_pooling,
         encoder_lr=args.encoder_lr,
         encoder_lr_reading=args.encoder_lr_reading,
+        external_encoder_lr=args.external_encoder_lr,
+        task_ablation=args.task_ablation,
     )
     paths = [args.base_config, args.release_registry, args.router_reference_config]
     if args.router_lock:

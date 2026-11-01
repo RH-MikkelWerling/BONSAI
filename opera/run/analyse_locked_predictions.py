@@ -303,6 +303,17 @@ ENCODER_LR = {
     "ELR_OAOWN_AB": "gain(J_OA_OWN_ELR10_L,R_L)",
 }
 
+# Stage 12 (1 November 2026): what the leading reading design is made of.
+TASK_ABLATION = {
+    "OALROWN_NF": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_s43_L)",        # seed noise floor of the design
+    "OALROWN_R32": "gain(J_OA_LR_OWN_R32_L,J_OA_LR_OWN_L)",       # rank 32 vs 8 corrections
+    "OAOWNPH_R32": "gain(J_OA_OWN_PH_R32_L,J_OA_OWN_PH_L)",
+    "OALROWN_DIS": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_NODIS_L)",     # what the diagnosis correction adds
+    "OALROWN_OUT": "gain(J_OA_LR_OWN_L,J_OA_LR_OWN_NOOUT_L)",     # what the outcome correction adds
+    "F10_OALROWN_OFF": "gain(J_OA_LR_OWN_F10_L,R_PF_OFF_F10_L)",  # reading at 10% vs corrections only
+    "F10_OALROWN_PHGE": "gain(J_OA_LR_OWN_F10_L,R_PH_GE_F10_L)",
+}
+
 PARTIAL_POOLING = {
     "PP1": "gain(R_PP_L,R_L)",            # selection rule: R_PP against the primary router
     "PP2": "gain(R_PP_L,R_PP_FROZEN_L)",  # gain from learned routing
@@ -507,6 +518,8 @@ def run(config, output_dir):
     contrasts.update({name: expression for name, expression in SAMPLING_SENSITIVITY.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in TASK_ROUTED.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
+    contrasts.update({name: expression for name, expression in TASK_ABLATION.items()
                       if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update({name: expression for name, expression in ENCODER_LR.items()
                       if models_for({name: expression}) <= set(predictions.model)})

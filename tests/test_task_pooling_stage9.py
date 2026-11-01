@@ -226,3 +226,44 @@ def test_every_stage_nine_model_moves_between_devices_and_dtypes(alias):
              "cohort_index": torch.tensor([0, 1, 0]) % len(config["cohorts"]),
              "cohort_fine_index": torch.tensor([0, len(names) - 1, -1]), "subject_id": torch.arange(3)}
     assert torch.isfinite(model.get_objective_representations(batch)).all()
+
+
+@pytest.mark.parametrize("encoder_lr", [None, 1.0])
+def test_national_arm_uses_a_stage_nine_primary_readout(encoder_lr):
+    """Lock closure: with a stage-9 primary, the national R fits carry its readout
+    on the national encoder, and optionally the winning encoder rate."""
+    from opera.functional.direct_cr_contract import validate_direct_cr_config
+    from opera.run.paper_prediction_queue import canonical_models
+    from opera.run.prepare_paper_run_bundle import build_bundle, task_pooling_design
+
+    assert task_pooling_design("J_OA_LR_OWN_L") == "J_OA_LR_OWN" and task_pooling_design("R_AB_L") is None
+    entries = build_bundle(base_config(), reference(), {"L": "/L.ckpt", "E": "/E.ckpt", "EA": "/EA.ckpt"},
+                           seeds=(42,), selected_router=LOCK, routed_model="J_OA_LR_OWN_L",
+                           external_encoder_lr=encoder_lr)
+    external = {e["name"]: e for e in entries if e["phase"] == "external"}
+    assert set(external) == {"seed42/E/J", "seed42/E/R", "seed42/EA/J", "seed42/EA/R"}
+    local = next(e["config"] for e in _bundles()[1] if e["name"].endswith("fix_J_OA_LR_OWN"))
+    for origin in ("E", "EA"):
+        routed = external[f"seed42/{origin}/R"]["config"]
+        risk = routed["competing_risk"]
+        assert risk["readout_mode"] == "outcome_attention" and risk["outcome_attention_query_rank"] == 8
+        assert risk["attention_own_corrections"] is True and routed["dapt_ckpt"] == f"/{origin}.ckpt"
+        # The same readout settings as the local primary.
+        keys = {k for k in local["competing_risk"] if k.startswith(("attention_", "outcome_attention", "readout"))}
+        assert {k: risk[k] for k in keys} == {k: local["competing_risk"][k] for k in keys}
+        assert canonical_models(external[f"seed42/{origin}/R"], routed, {"selected_router": LOCK}) == [f"R_{origin}"]
+        for mode in ("J", "R"):
+            training = external[f"seed42/{origin}/{mode}"]["config"]["training"]
+            assert training.get("encoder_lr_multiplier") == encoder_lr if encoder_lr else \
+                "encoder_lr_multiplier" not in training or training["encoder_lr_multiplier"] != 1.0
+        validate_direct_cr_config(routed)
+
+
+def test_router_only_analyses_refuse_a_stage_nine_primary(tmp_path, monkeypatch):
+    import argparse
+    from opera.run import paper_experiments
+
+    env = {"OPERA_PAPER_ROUTED_MODEL": "J_OA_LR_OWN_L", "OPERA_PAPER_ROOT": str(tmp_path)}
+    args = argparse.Namespace(action="source-removal", split="tuning", execute=False, phase=None, stage=9)
+    with pytest.raises(ValueError, match="has no sources"):
+        paper_experiments.build_commands(args, env)

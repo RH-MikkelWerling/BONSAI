@@ -848,3 +848,17 @@ Stage 11 (same day): J_FPF_PH_OWN_PH and J_OA_OWN with the encoder at 1.0x
 so a harder-trained encoder may matter more for the reading models. Contrasts
 ELR_FPFPHOWN, ELR_OAOWN (against the same design at 0.1x) and against R_AB.
 Eligible under the same selection rule.
+
+**How the encoder learning rate is used (prespecified 1 November 2026, before
+any stage-10 or stage-11 result).** All primary analyses stay within the
+protocol every arm was trained with (encoder at 0.1x): the comparison ladder
+(specialists, disease- and outcome-specific models, J, OPERA), the borrowing
+contrasts and the selection of the primary OPERA design. Nothing is rerun.
+The encoder rate is a sensitivity analysis: J_ELR10 vs J, R_AB_ELR10 and
+R_AB_ELR3 vs R_AB, and each stage-11 model vs its 0.1x counterpart, including
+whether OPERA's gain over J holds within the 1.0x protocol. If 1.0x models are
+better, they are reported against XGBoost and the clinical indices as a
+secondary result (those comparators do not depend on the neural learning
+rate); they do not replace the primary model. The fixed encoder rate across
+arms is stated as a limitation: per-arm tuning would favour no single rate,
+since small-data arms may overfit a harder-trained encoder.

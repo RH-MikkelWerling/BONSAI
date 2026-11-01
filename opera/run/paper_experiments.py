@@ -127,6 +127,10 @@ def stage_bundles(root):
 
 
 def build_commands(args, env):
+    if args.action in {"source-removal", "borrowing-map"} and (
+            env.get("OPERA_PAPER_ROUTED_MODEL") or "").removesuffix("_L").startswith("J_"):
+        raise ValueError("Source removal and the borrowing map analyse routers; the primary "
+                         f"model {env['OPERA_PAPER_ROUTED_MODEL']} has no sources (stage 9).")
     root = path_value(env, "OPERA_PAPER_ROOT")
     estimand = value(env, "OPERA_PAPER_ANALYSIS_ESTIMAND", "binary_known_status_unweighted")
     # Each estimand gets its own immutable analysis tree by default.
@@ -187,6 +191,9 @@ def build_commands(args, env):
             if env.get("OPERA_PAPER_ROUTED_MODEL"):
                 # The national routed fits use the primary router's readout.
                 command += ["--routed-model", env["OPERA_PAPER_ROUTED_MODEL"]]
+            if env.get("OPERA_PAPER_EXTERNAL_ENCODER_LR"):
+                # Lock closure: the national arm's encoder rate (the winner on tuning).
+                command += ["--external-encoder-lr", env["OPERA_PAPER_EXTERNAL_ENCODER_LR"]]
             if args.include_external:
                 command += [
                     "--external-direct-checkpoint",
@@ -225,6 +232,9 @@ def build_commands(args, env):
             if stage >= 11:
                 # The stage-9 reading models with own corrections, encoder trained harder.
                 command += ["--encoder-lr-reading"]
+            if stage >= 12:
+                # Seed repeat, capacity and ablations of the leading reading design.
+                command += ["--task-ablation"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]
