@@ -53,7 +53,11 @@ def cell_table(root: Path, metadata: Path, contrast: str, split: str, patients: 
     cells = cells.merge(level, on=["cohort", "outcome"], how="left").merge(
         cases, on=["cohort", "outcome"], how="left")
     if patients is not None:
-        history = pd.read_csv(patients, low_memory=False)
+        with open(patients, "rb") as handle:
+            magic = handle.read(4)
+        history = (pd.read_parquet(patients) if magic == b"PAR1"
+                   else pd.read_pickle(patients) if magic[:1] == b"\x80"
+                   else pd.read_csv(patients, low_memory=False))  # whatever the suffix says
         disease = "cohort_fine" if "cohort_fine" in history else "cohort"
         per_disease = history.groupby(disease)[["history_event_count", "laboratory_event_count"]].median()
         per_disease.columns = ["median_history_events", "median_lab_results"]

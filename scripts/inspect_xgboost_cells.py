@@ -56,15 +56,31 @@ def auc(values: np.ndarray, labels: np.ndarray) -> float:
     return float(max(value, 1 - value))
 
 
-def tuning_labels(job: dict) -> pd.DataFrame:
-    """The analysis's own tuning labels for the cell (same call as the inventory)."""
+def transformed_names(meta: dict, features: pd.DataFrame | None, train_ids) -> list[str]:
+    """Names of the columns XGBoost saw, in order: the numeric columns, then a
+    missingness indicator for each numeric column with a gap in the training rows
+    (SimpleImputer add_indicator), then the one-hot categories. Value columns
+    map exactly; indicators are recomputed from the training rows."""
+    columns = list(meta.get("feature_columns") or [])
+    categorical = set(meta.get("categorical_columns") or [])
+    numeric = [c for c in columns if c not in categorical]
+    names = list(numeric)
+    if features is not None and train_ids is not None:
+        rows = features.loc[features.subject_id.isin(train_ids), [c for c in numeric if c in features]]
+        names += [f"missing: {c}" for c in numeric if c in rows and rows[c].isna().any()]
+    names += [f"category of {c}" for c in columns if c in categorical]
+    return names
+
+
+def tuning_labels(job: dict, split: str = "tuning") -> pd.DataFrame:
+    """The analysis's own labels for the cell (same call as the inventory)."""
     from opera.evaluation.cohorts import population_subject_ids
     from opera.run.train_tabular_baselines import outcome_labels
 
     allowed = population_subject_ids(job["population"], cohort_fine_col="cohort_fine",
                                       cohort_fine_value=job["cohort"])
     labels = outcome_labels(
-        job["outcome_path"], split="tuning", n_hours_start_include=job["n_hours_start_include"],
+        job["outcome_path"], split=split, n_hours_start_include=job["n_hours_start_include"],
         n_hours_end_include=job["horizon_days"] * 24, require_min_followup=True, known_status_cif=True,
         competing_outcome_path=job["competing_path"], registry_start_date=job["registry_start_date"],
         cohort=job["cohort"], outcome_name=job["outcome"], eligibility_path=job["eligibility"],
@@ -81,12 +97,10 @@ def inspect(directory: Path, features_dir: Path, xgboost_auc: float | None, top:
     column = "gain_importance" if "gain_importance" in table else table.columns[1]
     table["share"] = table[column].abs() / table[column].abs().sum()
     table = table.head(20).copy()
-    table["flags"] = table.feature.map(flags)
     metadata = next(iter(directory.glob("*xgboost*metadata.json")), None)
-    if metadata:
-        meta = json.loads(metadata.read_text())
-        chosen = meta.get("tune_params") or {}
-        print(f"  tuned on the tuning patients: {chosen or 'see ' + metadata.name}")
+    meta = json.loads(metadata.read_text()) if metadata else {}
+    if meta:
+        print(f"  tuned on the tuning patients: {meta.get('tune_params') or {}}")
     intent = directory / "intent.json"
     job = json.loads(intent.read_text())["job"] if intent.is_file() else None
     if job is not None:
@@ -97,13 +111,21 @@ def inspect(directory: Path, features_dir: Path, xgboost_auc: float | None, top:
             name = "all" if job.get("pooled") else job["cohort"]
             features = read_feature_table(features_dir / f"{name}__sequence_matched.parquet")
             features["subject_id"] = features.subject_id.astype(str)
+            if meta and table.feature.str.match(r"feature_\d+$").all():
+                train = set(tuning_labels(job, "train").subject_id)
+                names = transformed_names(meta, features, train)
+                position = table.feature.str.removeprefix("feature_").astype(int)
+                table["feature"] = [names[i] if i < len(names) else f"feature_{i}" for i in position]
             data = labels.merge(features, on="subject_id", how="left")
             print(f"  tuning patients {len(data)}, cases {int(data.label.sum())}")
             single, present = [], []
             for feature in table.feature:
-                raw = feature.split("__", 1)[-1]  # preprocessor prefixes such as num__
+                indicator = feature.startswith("missing: ")
+                raw = feature.removeprefix("missing: ").split("__", 1)[-1]
                 if raw in data:
                     values = pd.to_numeric(data[raw], errors="coerce").to_numpy(float)
+                    if indicator:
+                        values = np.isnan(values).astype(float)
                     single.append(auc(values, data.label.to_numpy()))
                     present.append(float(np.isfinite(values).mean()))
                 else:
@@ -113,6 +135,7 @@ def inspect(directory: Path, features_dir: Path, xgboost_auc: float | None, top:
             table["has_value"] = present
         except Exception as error:  # report, keep the importances
             print(f"  single-feature AUC unavailable: {type(error).__name__}: {error}")
+    table["flags"] = table.feature.map(flags)
     shown = [c for c in ("feature", "share", "alone_auc", "has_value", "flags") if c in table]
     print(table[shown].head(top + 8).round(3).to_string(index=False))
     if xgboost_auc is not None and "alone_auc" in table:
