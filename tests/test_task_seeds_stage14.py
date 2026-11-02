@@ -146,3 +146,20 @@ def test_cross_seed_contrasts_pair_once_seeds_share_a_key():
     both = frame.assign(seed=42)
     both = __import__("pandas").concat([both, both.assign(seed=43)])
     assert collapse_seed_repeats(both, {}).seed.nunique() == 2       # one name, two seeds: untouched
+
+
+def test_stage_sixteen_repeats_the_runner_up_on_new_seeds():
+    from opera.run.paper_prediction_queue import canonical_models
+    from opera.run.prepare_paper_run_bundle import build_bundle
+
+    args = dict(ARGS, task_ablation=True, task_design=True, task_seeds=True, ladder_seeds=True)
+    before = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"}, **args)
+    after = build_bundle(base_config(), reference(), {"L": "/x/best.ckpt"}, **args, selection_seeds=True)
+    assert [e["config"] for e in after[: len(before)]] == [e["config"] for e in before]
+    new = {canonical_models(e, e["config"], {"selected_router": LOCK})[0]: e for e in after[len(before):]}
+    assert set(new) == {"J_OA_OWN_PH_s43_L", "J_OA_OWN_PH_s44_L"}
+    source = next(e for e in before if e["name"] == "seed42/L/fix_J_OA_OWN_PH")
+    for alias, entry in new.items():
+        assert _seedless(entry["config"]) == _seedless(source["config"]), alias
+    order = [e["name"].rsplit("_", 1)[-1] for e in sorted(after[len(before):], key=lambda e: e["queue_order"])]
+    assert order == ["s43", "s44"]

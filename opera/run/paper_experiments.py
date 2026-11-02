@@ -244,6 +244,9 @@ def build_commands(args, env):
             if stage >= 15:
                 # The Table 2 ladder on a second seed: R_PF_OFF_s43.
                 command += ["--ladder-seeds"]
+            if stage >= 16:
+                # Seeds 43 and 44 of the runner-up J_OA_OWN_PH.
+                command += ["--selection-seeds"]
         elif args.include_external:
             raise ValueError("External downstream matrix requires --stage 2")
         return [command]

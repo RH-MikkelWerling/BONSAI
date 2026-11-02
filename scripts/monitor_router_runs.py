@@ -20,7 +20,8 @@ GROUPS = {
                                              "J_OA_OWN_F10", "R_PF_OFF_F10", "R_PH_GE_F10"],
     "Stage 13: design changes": ["J_OA_OWN_SW20", "J_OA_OWN_SW100", "J_OA_OWN_X", "J_OA_OWN_X_SW", "J_OA_OWN_PE",
                                  "J_OA_OWN_PH_X", "J_OA_OWN_PE_X_SW", "J_OA_OWN_MAX"],
-    "Stage 14-15: seed spread": ["J_OA_OWN_s44", "J_OA_OWN_s45", "J_s43", "R_PF_OFF_s43"],
+    "Stage 14-15: seed spread": ["J_OA_OWN_s44", "J_OA_OWN_s45", "J_s43", "R_PF_OFF_s43",
+                                 "J_OA_OWN_PH_s43", "J_OA_OWN_PH_s44"],
     "Encoder rate (sensitivity)": ["J_ELR10", "R_AB_ELR10", "R_AB_ELR3", "J_OA_OWN_ELR10", "J_FPF_PH_OWN_PH_ELR10"],
 }
 SELECTION = "val/cr_horizon_bce_endpoint_group_macro"

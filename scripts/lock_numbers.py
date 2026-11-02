@@ -33,6 +33,10 @@ SECTIONS = {
     "Check: J_OA_OWN beats R_AB on every shared seed": {
         "OAOWN_AB": "seed 42", "OAOWN_J_s43": "(seed 43: OPERA - J)",
         "AB_OFF_s43": "(seed 43: R_AB - own corrections)", "OAOWN_OFF_s43": "(seed 43: OPERA - own corrections)"},
+    "Runner-up J_OA_OWN_PH on more seeds (stage 16)": {
+        "OAOWNPH_OAOWN": "PH - OA_OWN (s42)", "OAOWNPH_OAOWN_s43": "PH - OA_OWN (s43)",
+        "OAOWNPH_OAOWN_s44": "PH - OA_OWN (s44)", "OAOWNPH_AB": "PH - R_AB (s42)",
+        "OAOWNPH_AB_s43": "PH - R_AB (s43)", "OAOWNPH_NF": "PH s42 - s43"},
     "Ladder (Table 2), seed 42 and seed 43": {
         "OFF_J": "own corrections - J", "OAOWN_OFF": "+ own reading", "O2": "OPERA - J (alias)",
         "OAOWN_J": "J_OA_OWN - J", "AB_OFF": "routing instead",

@@ -350,6 +350,12 @@ TASK_SEEDS = {
     "OAOWN4_OFF": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,R_PF_OFF_L|R_PF_OFF_s43_L)",
     "OAOWN4_AB": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,R_AB_L|R_AB_s43_L)",
     "OAOWN4_X": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,X)",
+    # Runner-up on more seeds (stage 16): its seed check against R_AB, its own
+    # seed difference, and the parsimony comparison on seed 43.
+    "OAOWNPH_AB_s43": "gain(J_OA_OWN_PH_s43_L,R_AB_s43_L)",
+    "OAOWNPH_OAOWN_s43": "gain(J_OA_OWN_PH_s43_L,J_OA_OWN_s43_L)",
+    "OAOWNPH_NF": "gain(J_OA_OWN_PH_L,J_OA_OWN_PH_s43_L)",
+    "OAOWNPH_OAOWN_s44": "gain(J_OA_OWN_PH_s44_L,J_OA_OWN_s44_L)",
     "OAOWN4_S42": "gain(J_OA_OWN_L,J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L)",  # s42 vs its seed mean
 }
 
