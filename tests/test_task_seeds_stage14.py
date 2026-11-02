@@ -92,3 +92,32 @@ def test_held_fits_are_parked_and_released(tmp_path):
     (tmp_path / "paper" / HOLD_FITS).write_text("R_AB_ELR3  # cannot change a decision\n")
     gates = {row["name"]: gate for row, _, gate in todo([bundle], {})}
     assert gates == {"seed42/L/fix_R_AB_ELR3": "blocked_held:R_AB_ELR3", "seed42/L/fix_J_OA_OWN_s44": None}
+
+
+def test_seed_averages_weigh_each_seed_equally():
+    from opera.evaluation.secondary_analysis import contrast_coefficients
+    from opera.run.analyse_locked_predictions import TASK_SEEDS
+
+    four = contrast_coefficients(TASK_SEEDS["OAOWN4_AB"])
+    assert four["J_OA_OWN_s44_L"] == 0.25 and four["R_AB_s43_L"] == -0.5
+    assert abs(sum(four.values())) < 1e-12           # a difference, not a level
+    assert contrast_coefficients("gain(A,B)") == {"A": 1, "B": -1}   # unchanged
+    s42 = contrast_coefficients(TASK_SEEDS["OAOWN4_S42"])
+    assert s42["J_OA_OWN_L"] == 0.75 and s42["J_OA_OWN_s43_L"] == -0.25
+    import pytest
+    with pytest.raises(ValueError):
+        contrast_coefficients("gain(A|A,B)")
+
+
+def test_seed_average_contrast_is_the_mean_of_the_paired_gains():
+    import sys
+    sys.path.insert(0, "tests")
+    from test_secondary_analysis import predictions
+    from opera.evaluation.secondary_analysis import normalize_predictions, paired_analysis
+
+    frame, _ = normalize_predictions(predictions())
+    result = paired_analysis(frame, {"one": "gain(R_L,S_L)", "two": "gain(J_L,S_L)",
+                                     "mean": "gain(R_L|J_L,S_L)"}, replicates=20)["contrasts"]
+    gain = result.set_index(["contrast", "metric", "split", "outcome"]).gain.unstack(0).dropna()
+    import numpy as np
+    np.testing.assert_allclose(gain["mean"], (gain["one"] + gain["two"]) / 2)

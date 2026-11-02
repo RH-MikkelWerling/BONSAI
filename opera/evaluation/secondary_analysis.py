@@ -235,23 +235,33 @@ def normalize_predictions(
     ), audit
 
 
-def contrast_coefficients(expression: str) -> dict[str, int]:
-    """Parse only sums/differences of gain(A,B), never execute input text."""
+def contrast_coefficients(expression: str) -> dict[str, int | float]:
+    """Parse only sums/differences of gain(A,B), never execute input text.
+
+    Either side may be a seed average written ``A|B|C``: each model then carries
+    1/n of the term (e.g. ``gain(M_s42|M_s43,J_L)``, the two-seed mean against J).
+    """
+    from fractions import Fraction
+
     compact = re.sub(r"\s+", "", expression)
-    matches = list(
-        re.finditer(r"([+-]?)gain\(([A-Za-z0-9_]+),([A-Za-z0-9_]+)\)", compact)
-    )
+    name = r"[A-Za-z0-9_]+(?:\|[A-Za-z0-9_]+)*"
+    matches = list(re.finditer(rf"([+-]?)gain\(({name}),({name})\)", compact))
     if not matches or "".join(m.group() for m in matches) != compact:
         raise ValueError(f"Invalid contrast expression: {expression}")
-    coefficients = defaultdict(int)
+    coefficients = defaultdict(Fraction)
     for index, match in enumerate(matches):
         sign, candidate, reference = match.groups()
         if index and not sign:
             raise ValueError("Contrast terms require a sign")
         value = -1 if sign == "-" else 1
-        coefficients[candidate] += value
-        coefficients[reference] -= value
-    result = {name: value for name, value in coefficients.items() if value}
+        for side, weight in ((candidate, value), (reference, -value)):
+            members = side.split("|")
+            if len(set(members)) != len(members):
+                raise ValueError(f"Repeated model in a seed average: {side}")
+            for member in members:
+                coefficients[member] += Fraction(weight, len(members))
+    result = {name: (int(value) if value.denominator == 1 else float(value))
+              for name, value in coefficients.items() if value}
     if not result:
         raise ValueError("Contrast expression cancels identically")
     return result

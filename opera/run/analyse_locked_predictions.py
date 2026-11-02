@@ -343,6 +343,14 @@ TASK_SEEDS = {
     "OFF_J_s43": "gain(R_PF_OFF_s43_L,J_s43_L)",              # ladder steps on seed 43 (stage 15)
     "OAOWN_OFF_s43": "gain(J_OA_OWN_s43_L,R_PF_OFF_s43_L)",
     "AB_OFF_s43": "gain(R_AB_s43_L,R_PF_OFF_s43_L)",
+    # Seed averages (lock amendment, 2 November 2026): OPERA over its four
+    # seeds against each reference over its available seeds. The s42 fit stays
+    # primary; these show where it sits among its seeds.
+    "OAOWN4_J": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,J_L|J_s43_L)",
+    "OAOWN4_OFF": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,R_PF_OFF_L|R_PF_OFF_s43_L)",
+    "OAOWN4_AB": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,R_AB_L|R_AB_s43_L)",
+    "OAOWN4_X": "gain(J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L,X)",
+    "OAOWN4_S42": "gain(J_OA_OWN_L,J_OA_OWN_L|J_OA_OWN_s43_L|J_OA_OWN_s44_L|J_OA_OWN_s45_L)",  # s42 vs its seed mean
 }
 
 # The design search (supplementary figure, 1 November 2026): every tuned design

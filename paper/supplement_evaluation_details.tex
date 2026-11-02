@@ -22,6 +22,21 @@ The rule for the sensitivity fit's starting point (Supplementary Methods, model 
 25 October 2026, from training-time diagnostics of unfinished fits, before
 their tuning-panel results or any test result had been seen.
 
+These rules chose among routers. The primary \opera{} design was then chosen in
+a design search over stages 3 to 15 (Supplementary Methods, design search and
+selection), under a rule recorded in the analysis lock and amended on 1 and
+2 November 2026 on tuning data only, with the test set unopened. The
+amendment of 2 November, which restricted the parsimony step to the reading
+designs and added the check against R\textsubscript{AB} on every shared seed,
+was made after seeds 44 and 45 of the selected design had been seen; the same
+amendment kept seed 42 as the test fit and fixed the seed reporting on the test
+set. Every candidate and the joint model are also evaluated on the test set at
+the last checkpoint as well as at the tuning-best one, as a checkpoint-selection
+sensitivity analysis fixed on 1 November, and no selection is made on the test
+set. Router-specific analyses (route weights, source removal, routing health
+and route concentration) are not run for \opera{}. \placeholder{Commit of the
+signed lock closure.}
+
 \operasubsection{Weighting of summaries}
 We report two mean paired summaries of AUC, IPA and Brier differences on the
 same supported disease--outcome--horizon cells. The equal-cell summary gives
@@ -46,60 +61,77 @@ estimates by zero. AUC requires at least five cases and five controls for the
 supported-cell summaries. This restriction does not define whether a model
 can produce a prediction or whether a Brier score can be calculated.
 
-\operasubsection{Borrowing map}
-The routed readout adds to the shared patient representation one routed
-correction per source disease (routing weight times that disease's adapter
-output), and the risk head is linear, so each source's contribution to every
-hazard can be switched off exactly while all other weights stay as trained; no weight
-is renormalised. A switched-off source's term is replaced by its mean over tuning
-patients for the same target disease and outcome (mean ablation); diseases
-without tuning patients use the mean over all tuning patients. Mean replacement retains the average source contribution while removing its
-patient-specific variation. Zero replacement changes both components.
-Zero ablation is reported as a sensitivity analysis. One evaluation of the locked model scored, on the same
-patients, the full model, the model with other-disease corrections mean-replaced, each source alone
-(own disease plus that source) and each source left
-out (all sources but that one). Differences in AUC used one paired patient
-bootstrap shared by all variants: the AUC lost without borrowing (full minus
-none), the source alone (alone minus none; primary) and the source left out (full
-minus left out). The outcome-adapter bank, global correction and shared encoder remain active
-in these disease-bank ablations. The source-alone contrast measures what a
-disease adds beyond that baseline,
-the source left out what it adds with all the others present. The loss without
-borrowing measures what the fitted model uses; it can exceed the gain over a model
-trained without borrowing (the own-disease router), because the encoder was
-trained alongside the borrowed corrections. Per target disease, source and clinical domain, differences were
-averaged over estimable cells (at least five events and five non-events), each
-outcome weighing equally and each horizon equally within an outcome. The map
-shows the source alone with adaptive shrinkage \citep{stephens2017ash}: within
-each clinical domain all pairs share one prior, a mixture of normal
-distributions centred on no borrowing with weights fitted to the data, so that
-the many near-null pairs are pulled towards zero while large, precisely
-estimated ones are kept. Disease groups are not used in the pooling; they
-order the map for reading only. Dots mark pairs whose pooled 95\%
-interval lies above zero. The AUC lost without borrowing (full against no
-borrowing in the fitted router) was estimated per target disease, per outcome
-domain and over all diseases, each disease weighing equally
-(\cref{fig:borrowing-map}B, D), with the same bootstrap, and set beside routing
-(routed against joint model) and borrowing as trained (routed model against the
-router trained with its own disease adapter only), and against disease size
-(\cref{fig:supp-borrowing-detail}A--B). Candidate pairs (a source disease, a
-target disease and a clinical domain) were listed from clinical reasoning and
-the literature and kept only if a single-pair estimate could be informative: at
-least 200 training patients in the source, and at least 50 test patients in the target. These support criteria do not
-guarantee that an individual pair can be estimated precisely. Smaller diseases remain in the
-descriptive map. A confirmatory test of these pairs was planned, with the
-expected pairs and negative controls to be rated by study haematologists
-without our rationale. Before any rating or test-set evaluation, the routed
-model was found on the tuning set to borrow broadly, with similar mixtures of
-sources across diseases (correlation of borrowing profiles 0.83 to 0.89), so a
-test of a few selected pairs would not describe how it borrows. The pairs are
-therefore reported descriptively, each with its unshrunk source-alone gain and
-95\% interval (\cref{tab:borrowing-pairs}, with the excluded candidates and the
-reason for each), and whether borrowing favours related diseases is described
-over all diseases by lineage concentration (main text, Methods). IPA
-differences were computed in the same way as a secondary metric.
+\operasubsection{Task organisation, specialisation and corrections}
+\label{sec:task-organisation}
+These analyses describe how the fitted \opera{} organises its tasks. They
+replace the borrowing map planned for the router, which removed one source
+adapter at a time: \opera{} has no sources to remove. All are descriptive,
+computed once from the selected checkpoint (seed 42), and none enters model
+selection. The first three use only the model's parameters and the training
+events of each task; the correction arrows use patients, but only binned
+aggregates leave the secure environment (code:
+\texttt{opera/run/export\_opera\_task\_structure.py} and
+\texttt{opera/run/export\_opera\_correction\_arrows.py}).
 
-\input{tables/borrowing_pairs}
+\paragraph{Similarity of tasks.} Outcomes were compared by their queries as the
+attention uses them: each outcome's query (for tied queries, the basis
+combination plus its own deviation) was multiplied by the attention's query
+projection $W_q$, with its bias, and the heads concatenated, and the cosine
+similarity was computed between every pair of outcomes
+(\cref{fig:task-organisation}A). Outcomes with similar projected queries attend
+to the record alike. Corrections were compared through their effective map,
+the $256\times256$ matrix $U V$ of each adapter (\cref{eq:opera-corrections}),
+flattened, with the cosine similarity computed between every pair of outcomes
+and every pair of diagnoses (\cref{fig:task-organisation}B--C). The map
+ignores the nonlinearity between $V$ and $U$, so it compares the linear part of
+two corrections; two adapters with similar maps can still act differently on
+the same representation. Whether similarity follows the clinical taxonomy was
+tested by the mean similarity of pairs in the same group (endpoint family for
+outcomes, lineage for diagnoses) minus that of pairs in different groups,
+against 2,000 permutations of the group labels over tasks; the one-sided $P$
+value is the share of permutations, counting the observed labelling, with a
+difference at least as large. Tasks without a group were left out. The test
+concerns the grouping as a whole, not whether any one pair is similar, and
+treats tasks as exchangeable.
+
+\paragraph{Specialisation.} For each outcome we report the size of its gate,
+$|\tanh g_k|$, the weight it gives to its own reading of the record, and the
+size of its own correction, the Frobenius norm of $U_kV_k$; for each diagnosis,
+the size of its own correction in the same way. Each is set against the task's
+training events: for an outcome, its training events summed over diagnoses; for
+a diagnosis, its training events over all outcomes
+(\cref{fig:supp-specialisation}). Spearman correlations with training events are
+descriptive. A gate measures how much weight an outcome gives to its reading,
+not how much the reading changes the representation, which also depends on what
+the attention returns; the arrows below show the change itself.
+
+\paragraph{Correction arrows.} For the patients of the evaluation split we
+computed three representations for each example outcome: the shared summary
+$s_i$, the representation after the outcome's own reading $r_{ik}$
+(\cref{eq:opera-reading}), and the final representation $z_{ik}$ after the
+corrections. The map is that of the calibration maps
+(\cref{fig:supp-calibration-maps}): standardisation, PCA and UMAP fitted on
+tuning patients' shared summaries and applied unchanged. The outcome-specific
+representations were placed on it with the fitted UMAP transform. These
+representations are not shared summaries, and UMAP places a new point by its
+neighbours among the fitted points, so the arrows show local direction and
+relative size; lengths are not comparable between distant regions of the map,
+and a displacement that leaves the region of shared summaries can be
+compressed. Patients were binned on a regular grid over their shared
+positions (between 5 and 11 bins per axis, set by the number of patients), so
+that every component of an outcome uses the same bins, and only bins with at
+least 20 patients were kept. For each bin we report the mean position, the mean
+displacement, the number of patients and the coherence of the shifts, the length
+of the mean shift divided by the mean length of the shifts. The displacement is
+shown in total (shared summary to final), for the reading (shared summary to
+after reading) and for the corrections (after reading to final), and only bins
+with a coherence of at least 0.3 are drawn (\cref{fig:supp-correction-arrows}).
+One arrow magnification, stated in the key, is shared by every panel, so that
+arrow lengths can be compared between outcomes and components. The export checks
+that the decomposed representations reproduce the model's own and that the
+shared summaries match those of the map, so that both come from the same
+checkpoint. The arrows describe the model's representation, not changes in
+patients, and do not establish predictive gains.
 
 \operasubsection{Sample size and precision}
 The cohort was not sized for this study. It comprises every eligible patient in
@@ -207,7 +239,7 @@ target. For each decision point we report the threshold, the confusion matrix,
 sensitivity, specificity, positive and negative predictive values, MCC and the
 share of patients flagged, with 95\% intervals from the shared patient
 bootstrap and paired differences between \opera{} and XGBoost, the joint
-model and the specialist, and the routed and joint models. Disclosure checks are required before exporting confusion counts. The new
+model and the specialist, and \opera{} and the joint model. Disclosure checks are required before exporting confusion counts. The new
 clinical threshold CSVs do not yet enforce small-count suppression automatically. Cells with fewer than five tuning events or non-events have no
 decision point.
 
@@ -240,8 +272,9 @@ Each stage has its own projection, fitted on tuning patients and applied to
 the evaluation split. Coordinates are not comparable across independently
 fitted stages. Updated galleries colour patient points by predicted risk.
 Observed-risk and calibration surfaces, when shown, use local IPCW smoothing
-and are labelled separately. Router arrows require a shared projection of the
-base and corrected representations. Projection geometry and arrows are
+and are labelled separately. Correction arrows require one projection for the
+shared and the outcome-specific representations
+(Supplementary Methods, task organisation). Projection geometry and arrows are
 descriptive and do not establish predictive gains or biological mechanisms.
 
 \operasubsection{Numerical tables}
@@ -251,8 +284,9 @@ comparison and clinical domain, calibration by model and domain, the evaluated
 cells, events and non-events by domain and horizon, threshold metrics at the
 six decision points, and, where available, the comparisons with each index on
 its original endpoint and the computational resources of each model. Intervals condition on the fitted checkpoints and describe patient-sampling
-uncertainty. Limited router seed controls do not provide systematic estimates
-of training-run uncertainty. The
+uncertainty. Four training seeds of \opera{} and second seeds of the reference models
+describe refitting variation, but do not provide systematic estimates of
+training-run uncertainty. The
 complete cell-level results, including every confusion matrix, accompany the
 paper as machine-readable files, after disclosure review, including suppression of small counts where required.
 
@@ -297,8 +331,8 @@ comparable across rare and common outcomes and across low- and high-risk
 patients. For death, serious infection and severe neutropenia the absolute risk
 is also attributed, for the removal checks and the explanations of single
 patients. All targets share one forward pass along the
-integration path, and the attribution passes through the router, so it
-explains the prediction the model actually makes. For death the attributed
+integration path, and the attribution passes through each outcome's reading
+and corrections, so it explains the prediction the model actually makes. For death the attributed
 quantity is the risk of death, so a positive contribution raises predicted
 mortality.
 

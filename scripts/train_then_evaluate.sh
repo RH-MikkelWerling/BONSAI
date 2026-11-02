@@ -89,6 +89,7 @@ runs = json.loads((Path(data) / "bundles" / f"stage{stage}" / "bundle.json").rea
 alias = model.removesuffix("_L")
 row = next(r for r in runs if r["name"].endswith(f"/L/fix_{alias}") and r["seed"] == 42)
 checkpoint = Path(data).resolve() / "neural_runs" / row["run_directory"] / "best.ckpt"
+env.setdefault("OPERA_PAPER_ANALYSIS_ESTIMAND", "cif_ipcw")  # the locked primary estimand
 env.update(OPERA_PAPER_ANALYSIS_ROOT=str(Path(root).resolve()), OPERA_PAPER_PLOT_SPLIT="tuning",
            OPERA_PAPER_INVENTORY_SPLITS="tuning", OPERA_PAPER_OPERA_MODEL=model,
            OPERA_PAPER_TASK_STRUCTURE_CHECKPOINT=str(checkpoint),

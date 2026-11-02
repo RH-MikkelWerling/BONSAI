@@ -106,8 +106,8 @@ calibration, which is evaluated separately. Each training patient has events for
 none for most, so no single weighting of patients could balance all
 disease--outcome--horizon tasks at once; balance between tasks instead comes
 from the loss, averaged so that each endpoint group weighs equally. As a
-sensitivity analysis fixed before the test set was opened, the routed and the
-joint model were refitted with importance-weighted event sampling: batches were
+sensitivity analysis fixed before the test set was opened, the routed model
+R\textsubscript{AB} (Supplementary Methods, learned routing) and the joint model were refitted with importance-weighted event sampling: batches were
 enriched towards patients with events at the six horizons, and each patient's
 loss was divided by their sampling weight, so the likelihood remained that of
 the natural population (\result{IPW_R_auc}{X} and \result{IPW_J_auc}{Y} in AUC
@@ -140,6 +140,7 @@ Encoder & causal transformer; hidden size 256, 4 layers, 4 attention heads of 64
 Input & up to 8,192 tokens; scaled Time2Vec time encoding; laboratory results as test--bin tokens \\
 Pretraining & next-event prediction; events before 1 January 2022; 10 epochs; \placeholder{optimiser, learning rate, batch, tokens} \\
 Prediction head & linear; piecewise-constant hazards for each outcome and for competing death; cumulative incidence at 30, 60, 90, 180, 365 and 730 days \\
+\opera{} readout & one attention query per outcome (8 heads, dropout 0.1), added to the shared summary through a gate starting at zero; low-rank corrections (rank 8, residual scale 0.7) per diagnosis, per outcome and one global \\
 Supervised training & effective batch of 256 patients; up to 30 epochs, stopping after 5 without improvement in tuning loss; tuning-best checkpoint \\
 \bottomrule
 \end{tabular}
@@ -160,7 +161,10 @@ endpoint family (69 separately predicted outcomes, 52 endpoint families).
 Losses were averaged within each family before families received equal weight,
 so that findings represented by several grades or nested definitions did not
 receive disproportionate training weight. This grouping affected loss weighting,
-not the number of outputs or their separate evaluation.
+not the number of outputs or their separate evaluation. In \opera{}, each
+outcome's reading of the record and its corrections lie between the encoder and
+this head (Supplementary Methods, outcome-specific reading); the head and the loss are those of the
+joint model.
 
 \paragraph{Supervision scopes.} The four scopes, described in Methods, differed
 only in which cells of the disease-by-outcome grid provided labels
@@ -173,8 +177,8 @@ as to the final prediction. A disease without tuning patients therefore cannot
 have a model of its own: nodal marginal-zone lymphoma had five training patients
 and none in 2022 (\cref{tab:characteristics}), so its specialists and its
 outcome-pooled model were not estimable by design and were recorded as such,
-not as failures; its predictions come only from the disease-pooled, joint and
-routed models. Because equal epochs do not mean equal computation,
+not as failures; its predictions come only from the disease-pooled and joint
+models and \opera{}. Because equal epochs do not mean equal computation,
 optimisation steps and compute are reported for each scope.
 
 \operasubsection{Outcome panel}
@@ -278,9 +282,13 @@ initialised encoder of the same architecture was trained with the same
 supervised protocol, and the pretrained cohort encoder was kept frozen while
 only the prediction head was trained.
 Patients, tokens and optimisation steps are reported separately, because equal
-epochs do not guarantee equal exposure. \placeholder{National training
-population, observation years, events and tokens, encoder version and PHAIR
-reference.}
+epochs do not guarantee equal exposure. The national encoder was trained on
+7,668,683 people and validated on a further 852,071, a split of people for
+pretraining only and unrelated to the study's tuning and test sets. On
+validation, the next recorded event was its most probable prediction
+\placeholder{50}\% of the time, among its 10 most probable \placeholder{95}\% and
+among its 100 most probable \placeholder{98}\%. \placeholder{Observation years,
+events and tokens, encoder version and PHAIR reference.}
 
 \operasubsection{Data efficiency of national pretraining}
 To test whether population-scale pretraining is most useful when local labels
@@ -344,134 +352,298 @@ shorter-horizon evaluations, not reproductions of the original analyses.
 Discrimination used the index category (or NCCN-IPI points) as an ordinal
 score.
 
-\operasubsection{Routing formulation and selection}
-To test whether a joint model benefits from conditioning its predictions on
-disease beyond ordinary shared learning, we compared it with a routed model
-trained on the same panel. In the routed model, the patient representation $h_i$
-is adjusted for each target outcome $k$ by a weighted combination of small
-residual adapters, one per source $s$:
+\operasubsection{Outcome-specific reading and own corrections}
+\label{sec:opera-formulation}
+\opera{} keeps the joint model's encoder, loss and prediction head, and changes
+only what lies between the encoder and the head. Let $H_i=(h_{i1},\dots,h_{iT})$
+be the encoder's final token states for patient $i$, and $s_i=h_{iT}$ the state
+of the token appended after the record. In the joint model, $s_i$ is the
+summary passed to the head for every outcome. In \opera{}, each outcome $k$
+first reads the record through its own learned query $q_k$, and what it reads
+is added to the shared summary through a learned gate $g_k$:
+\begin{equation}
+ r_{ik}=s_i+\tanh(g_k)\,\mathrm{MHA}\!\left(q_k;H_i\right).
+ \label{eq:opera-reading}
+\end{equation}
+Here MHA is multi-head cross-attention (8 heads, dropout 0.1) with $q_k$ as the
+query and the token states as keys and values. The appended token is excluded
+from the keys, so that a query cannot simply copy the shared summary. The size
+of the gate, $|\tanh g_k|$, is the weight the outcome gives to its own reading.
+Small low-rank adapters \citep{houlsby2019adapters,hu2022lora} then correct
+each outcome's representation:
 \begin{equation}
  \begin{aligned}
- h_{ik}&=h_i+\lambda\left[G(h_i)+\sum_s\pi_{iks}\,c_s\,A_s(h_i)\right],\\
+ z_{ik}&=r_{ik}+\lambda\left[A^{\mathrm{G}}(r_{ik})+A^{\mathrm{D}}_{d(i)}(r_{ik})+A^{\mathrm{O}}_{k}(r_{ik})\right],\\
+ A(r)&=U\,\mathrm{GELU}(V r).
+ \end{aligned}
+ \label{eq:opera-corrections}
+\end{equation}
+$A^{\mathrm{D}}_{d(i)}$ is the adapter of the patient's diagnosis $d(i)$,
+$A^{\mathrm{O}}_{k}$ that of the outcome, and $A^{\mathrm{G}}$ one global adapter
+shared by every task. Each adapter has rank 8 ($V$ maps the 256-dimensional
+representation to 8 dimensions and $U$ back), and $\lambda=0.7$ is a fixed
+residual scale. A diagnosis adapter enters every outcome of the patients with
+that diagnosis and is trained by all of them; an outcome adapter enters, and is
+trained by, every patient eligible for that outcome. A patient whose diagnosis
+has no adapter would receive the global correction only. The corrected
+representation $z_{ik}$ enters the same linear competing-risk head as in the
+joint model, which gives the hazards of outcome $k$ and of competing death.
+Each disease--outcome task therefore keeps the shared encoder, head and global
+adapter, and specialises in two places only: what its outcome reads ($q_k$,
+$g_k$) and the corrections of its diagnosis and its outcome.
+
+Every fit starts at the joint model. The gates start at zero, so that
+$r_{ik}=s_i$ exactly; the queries and the adapters' $V$ start from normal
+distributions with standard deviation 0.02, and $U$ with standard deviation
+0.001, so that the corrections start close to zero. At the first step each
+outcome's representation is therefore the shared summary, and the prediction is
+that of a joint model with the same encoder and head; each task departs from it
+only as far as training moves it. All parameters were trained together with the
+joint model's loss and protocol (\cref{tab:model-spec}), with AdamW. The
+encoder was trained at 0.1 times the learning rate of the other parameters, as
+in every other supervised model; the queries, the attention projections, the
+gates, the adapters and the head were trained at the full rate
+(\placeholder{learning rate}). The smaller optimiser constant used for the
+routing parameters of the router (Supplementary Methods, prespecification) does
+not apply. Fits with the encoder at the full rate are a sensitivity analysis
+(Supplementary Methods, design search and selection). \placeholder{Parameters added to the joint model by
+the reading and by the corrections.}
+
+The designs of the search (\cref{tab:design-search}) change
+\cref{eq:opera-reading,eq:opera-corrections} in a few ways. With tied queries,
+each query is a combination of 8 shared basis queries plus its own deviation,
+$q_k=\sum_m c_{km}b_m+q'_k$, with $q'_k$ starting at zero. With shrinkage, the
+diagnosis and outcome terms of a patient with diagnosis $d$ are multiplied, for
+outcome $k$, by $n_{dk}/(n_{dk}+\tau)$, where $n_{dk}$ is the number of training
+events in that disease--outcome cell and $\tau$ is fixed (20, 50 or 100), not
+learned. With a diagnosis $\times$ outcome term, each outcome rescales the
+diagnosis adapter's bottleneck, $U_d\,[\mathrm{GELU}(V_d r)\odot(1+\sigma_k)]$,
+with $\sigma_k$ starting at zero, so that the diagnosis correction can differ by
+outcome while its adapters stay shared. With lineage or endpoint-family
+corrections, one further adapter per lineage or per endpoint family is added at
+full weight to every member and trained by all of them, without shrinkage.
+
+\operasubsection{Design search and selection}
+\label{sec:design-search}
+Before the test set was opened, designs were fitted on the training data and
+compared on the tuning data in stages, from 26 October to 2 November 2026; each
+stage, its candidates and its controls were recorded in the analysis lock
+before its fits were trained. \Cref{tab:design-search} lists every design, and
+\cref{fig:supp-design-search} shows each against the selected design and against
+R\textsubscript{AB}. All fits used the cohort encoder, seed 42 unless stated,
+and the protocol of \cref{tab:model-spec}. The definitions are in
+\texttt{opera/run/prepare\_paper\_run\_bundle.py}.
+
+\begin{table}[htbp]
+\centering\footnotesize
+\caption{\textbf{Designs fitted in the design search.} Stages 3--15, tuning data
+only. Codes are the analysis identifiers, without the suffix \texttt{\_L}.
+Controls, ablations, scarce-data fits, encoder-rate fits and seed repeats were
+never candidates for selection.}
+\label{tab:design-search}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.15\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.22\textwidth}@{}}
+\toprule
+Family & Design & What changes & Code \\
+\midrule
+Learned routing (3--5) & Router repairs & global adapter outside the routed mix; two epochs of router warm-up; bounded routing scores & \texttt{R\_AB}, \texttt{R\_A}, \texttt{R\_ABT} \\
+ & Own sources outside the mix & own diagnosis and outcome adapters at full weight; the mix holds borrowed sources only & \texttt{R\_O} \\
+ & Controls & own sources only; global adapter only & \texttt{RBH\_AB}, \texttt{RBH\_O}, \texttt{N\_A} \\
+Sampling (5) & Event sampling & importance-weighted event sampling & \texttt{J\_IPW}, \texttt{R\_AB\_IPW} \\
+Learned routing (6--7) & Partial pooling & own weight $n/(n+\tau)$, soft-normalised sources, learned temperature & \texttt{R\_PP} \\
+ & Task-level routing & routing from diagnosis and outcome only, bounded logits; variance-preserving mix; routing frozen & \texttt{R\_PT5}, \texttt{R\_PT3V}, \texttt{R\_PP\_FROZEN} \\
+Learned routing (8) & Full own corrections, routed borrowing & own corrections as in \texttt{R\_O}; borrowed part routed by task, bound $5\times$ cosine, share $\tau/(n+\tau)$ & \texttt{R\_PF5E} \\
+ & Routing settings & raw or capped borrowed values; bound 10; patient gate; learned share; one source bank; routing rate $10\times$; no warm-up; routing frozen & \texttt{R\_PF5}, \texttt{R\_PF5B}, \texttt{R\_PF10E}, \texttt{R\_PF5EP}, \texttt{R\_PF5EL}, \texttt{R\_PF5ED}, \texttt{R\_PF5EO}, \texttt{R\_PF5E\_LR10}, \texttt{R\_PF5E\_W0}, \texttt{R\_PF5E\_FROZEN} \\
+ & Learned sharing & borrowing tasks also train the sources & \texttt{R\_PF5E\_LIVE} \\
+ & No borrowing (control) & own diagnosis, outcome and global corrections on the shared summary & \texttt{R\_PF\_OFF} \\
+Hierarchy (8) & Lineage & one adapter per disease lineage, no routing & \texttt{R\_PH\_G} \\
+ & Lineage and endpoint family & as above, plus one adapter per endpoint group; with routing & \texttt{R\_PH\_GE}, \texttt{R\_PH\_GE\_PF5E} \\
+Learned groups (8) & Latent groups & eight shared group adapters; routing learns which tasks use them & \texttt{R\_PL8} \\
+Capacity (8, 12) & Rank 32 & adapters of rank 32 instead of 8 & \texttt{R\_PF5E\_R32}, \texttt{R\_PF\_OFF\_R32}, \texttt{J\_OA\_OWN\_R32} \\
+Scarce data (8, 12) & 10\% of training patients & the same designs on a nested 10\% subset & \texttt{R\_PF5E\_F10}, \texttt{R\_PH\_GE\_F10}, \texttt{R\_PF5E\_LIVE\_F10}, \texttt{R\_PL8\_F10}, \texttt{R\_PF\_OFF\_F10}, \texttt{J\_OA\_OWN\_F10} \\
+Reading (9) & Outcome attention & one query per outcome (\cref{eq:opera-reading}) & \texttt{J\_OA} \\
+ & Tied queries & queries from 8 shared basis queries plus own deviation & \texttt{J\_OA\_LR} \\
+ & Shared prototypes & 10 shared attention queries, mixed per outcome & \texttt{J\_SP} \\
+ & Prototype mixtures by disease & mixture by disease group $\times$ outcome; by diagnosis $\times$ outcome; diagnosis terms tied to lineage & \texttt{J\_FP}, \texttt{J\_FPF}, \texttt{J\_FPF\_PH} \\
+Reading and own corrections (9) & Own corrections & \cref{eq:opera-corrections} on each reading & \textbf{\texttt{J\_OA\_OWN}}, \texttt{J\_OA\_LR\_OWN}, \texttt{J\_FPF\_OWN} \\
+ & With lineage corrections & plus one adapter per lineage & \texttt{J\_OA\_OWN\_PH}, \texttt{J\_FPF\_PH\_OWN\_PH} \\
+Ablations (12) & One correction removed & no diagnosis correction; no outcome correction & \texttt{J\_OA\_OWN\_NODIS}, \texttt{J\_OA\_OWN\_NOOUT} \\
+Corrections (13) & Shrinkage & $n_{dk}/(n_{dk}+\tau)$, $\tau=20$ or 100 & \texttt{J\_OA\_OWN\_SW20}, \texttt{\_SW100} \\
+ & Diagnosis $\times$ outcome & outcome-specific scaling of the diagnosis adapter; with shrinkage ($\tau=50$) & \texttt{J\_OA\_OWN\_X}, \texttt{\_X\_SW} \\
+ & Endpoint family & one adapter per endpoint family & \texttt{J\_OA\_OWN\_PE} \\
+ & Combinations & lineage and cross term; family, cross term and shrinkage; all of these at rank 32 & \texttt{J\_OA\_OWN\_PH\_X}, \texttt{\_PE\_X\_SW}, \texttt{\_MAX} \\
+Encoder rate (10--11) & $1.0\times$ instead of $0.1\times$ & encoder at the full learning rate ($0.3\times$ for one router fit); sensitivity only & \texttt{J\_ELR10}, \texttt{R\_AB\_ELR10}, \texttt{R\_AB\_ELR3}, \texttt{J\_OA\_OWN\_ELR10}, \texttt{J\_FPF\_PH\_OWN\_PH\_ELR10} \\
+Seeds (3, 12, 14, 15) & Repeats & seeds 43--45 of the selected design; seed 43 of the references & \texttt{J\_OA\_OWN\_s43}, \texttt{\_s44}, \texttt{\_s45}; \texttt{J\_s43}, \texttt{R\_AB\_s43}, \texttt{R\_PF\_OFF\_s43} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The search moved in one direction. Learned routing between tasks' corrections
+added nothing measurable once each task had its own corrections at full weight
+(Supplementary Methods, learned routing); hierarchies over lineages and endpoint groups,
+learned groups and larger adapters changed little at full data
+(\placeholder{range of stage-8 designs against R\textsubscript{AB}}), and
+somewhat more with 10\% of the training patients
+(\placeholder{stage-8 designs against R\_PF\_OFF\_F10}). Every correction in
+stages 3 to 8 acts on the one shared summary, made before the outcome is known,
+so stage 9 let each outcome read the record itself. Reading alone improved on
+the joint model (\placeholder{stage-9 readouts against J}) but not on
+R\textsubscript{AB}; reading with own corrections improved on both
+(\placeholder{J\_OA\_OWN, J\_OA\_LR\_OWN, J\_OA\_OWN\_PH against
+R\textsubscript{AB}}). Stage 13 tested whether the corrections of rare tasks
+should be shrunk, made specific to each disease--outcome pair or shared within
+lineages and endpoint families (\placeholder{stage-13 designs against
+J\_OA\_OWN}). An encoder trained at the full learning rate did worse
+(\placeholder{J\_ELR10 against J; J\_OA\_OWN\_ELR10 against J\_OA\_OWN}).
+
+\paragraph{Selection rule.} The rule for the primary design was fixed in the
+analysis lock and amended as the search progressed, always on tuning data and
+before the test set was opened. Under the base rule, a candidate replaces
+R\textsubscript{AB} if its pooled tuning AUC (paired, primary estimand) is at
+least that of R\textsubscript{AB} minus the seed noise floor, the difference
+between R\textsubscript{AB}'s fits on seeds 42 and 43; among the candidates that
+qualify, the one with the highest pooled tuning AUC is selected, and routed
+candidates must also pass the routing-health criteria
+(Supplementary Methods, learned routing). The candidates were R\textsubscript{AB}, the
+stage-8 designs (\texttt{R\_PF5E} and its variants, \texttt{R\_PH\_G},
+\texttt{R\_PH\_GE}, \texttt{R\_PH\_GE\_PF5E}, \texttt{R\_PL8},
+\texttt{R\_PF5E\_R32}), the stage-9 readouts and the stage-13 designs.
+Encoder-rate fits, scarce-data fits, controls, the stage-12 fits and seed
+repeats were never selected.
+
+On 1 November 2026, before the stage-12 and stage-13 fits had finished, a
+parsimony rule was added, because the reading designs tracked each other within
+about $\pm$0.002 and their seed spread could be larger than
+R\textsubscript{AB}'s: among candidates whose paired tuning AUC lies within the
+design seed spread of the best, the simplest is selected (\texttt{J\_OA\_OWN}),
+and a more complex variant only if it beats \texttt{J\_OA\_OWN} by more than that
+spread. The spread was first the difference between \texttt{J\_OA\_OWN} on seeds
+42 and 43. Later that day, before further seeds were trained, the second seed
+had trailed the first by about 0.005 at almost every epoch, while the two seeds
+of R\textsubscript{AB} agreed to 0.0002, and two seeds cannot show which of them
+is unusual. Seeds 44 and 45 of \texttt{J\_OA\_OWN} and seed 43 of the joint model
+were therefore added, and the design seed spread was redefined as the range of
+tuning AUC over the four seeds. The test fit remained the prespecified seed 42,
+with the four-seed mean and range reported beside it and \opera{} against the
+joint model also reported on the second seed pair.
+
+On 2 November 2026, after seeds 44 and 45 had been seen on tuning data and with
+the test set unopened, the design seed spread was about as large as the gap
+between \texttt{J\_OA\_OWN} and R\textsubscript{AB}. Read literally, the
+parsimony rule would then have reached designs without outcome-specific
+reading, which was not its purpose: it was added to choose among near-identical
+reading designs. Its scope was clarified as two steps, in the order the base
+rule already set. First, the base rule decides between R\textsubscript{AB} and
+the candidates. Second, parsimony chooses among the qualifying designs of the
+winning family (the reading designs of stages 9 and 13) within the design seed
+spread of the best. As an additional check, the selected design must beat
+R\textsubscript{AB} on every seed on which both were trained (42 and 43). We
+state that this clarification was made after seeds 44 and 45 were seen. The same
+amendment kept seed 42 as the fit evaluated on the test set: switching to
+another seed, or to an ensemble of seeds, on the basis of these tuning results
+would have been selection on them, and would have compared a multi-seed \opera{}
+with single-seed references. It also fixed the seed reporting on the test set:
+all four seeds of \texttt{J\_OA\_OWN}, and seed 43 of the joint model,
+R\textsubscript{AB} and \texttt{R\_PF\_OFF}, are scored; \opera{}'s test AUC
+over its four seeds is reported as mean and range; the contrasts with the joint
+model, own corrections, R\textsubscript{AB} and XGBoost are also reported with
+each model averaged over its available seeds, as is seed 42 against its own seed
+mean; and the steps of \cref{tab:panel-effects} are repeated on seed 43. The
+expected size of the reading step on the test set is its seed average, not its
+value on seed 42.
+
+\paragraph{Encoder learning rate.} Primary analyses use the encoder at 0.1
+times the head's learning rate for every arm; the full rate is a sensitivity
+analysis. The national arm was to be fine-tuned at the full rate only if, on
+paired tuning AUC, \texttt{J\_ELR10} beat the joint model and
+\texttt{R\_AB\_ELR10} beat R\textsubscript{AB}, each by more than 0.002
+(\placeholder{J\_ELR10 minus J; R\_AB\_ELR10 minus R\textsubscript{AB}; national
+rate}).
+
+\paragraph{Seed results.} On tuning data, the noise floor of
+R\textsubscript{AB} was \placeholder{R\_AB seed 42 minus seed 43} and that of
+the joint model \placeholder{J seed 42 minus seed 43}. The design seed spread of
+\texttt{J\_OA\_OWN} was \placeholder{range over seeds 42--45}, with a four-seed
+mean tuning AUC of \placeholder{mean} against \placeholder{seed 42}.
+\texttt{J\_OA\_OWN} differed from R\textsubscript{AB} by \placeholder{seed 42}
+and \placeholder{seed 43}, and from the joint model by \placeholder{seed 42} and
+\placeholder{seed 43}. Pooled tuning AUC of every candidate against
+R\textsubscript{AB}: \placeholder{Supplementary Table}. The rule selected
+\texttt{J\_OA\_OWN} (\placeholder{confirm from the signed lock closure}), which
+is \opera{} throughout.
+
+\operasubsection{Learned routing (tested alternative)}
+\label{sec:router-variants}
+\label{sec:learned-routing}
+Learned routing was the original design of \opera{} and is reported here as a
+tested alternative. In the routed model, the shared summary $s_i$ is adjusted
+for each target outcome $k$ by a weighted combination of small residual
+adapters, one per source $s$:
+\begin{equation}
+ \begin{aligned}
+ h_{ik}&=s_i+\lambda\left[G(s_i)+\sum_s\pi_{iks}\,c_s\,A_s(s_i)\right],\\
  A_s(h)&=U_s\,\mathrm{GELU}(V_s h),
  \qquad c_s=\frac{e_s}{e_s+\tau}.
  \end{aligned}
  \label{eq:router}
 \end{equation}
-Here $A_s$ is a low-rank adapter, $\lambda=0.7$ a fixed residual scale and $c_s$ shrinks sources with few training events $e_s$
-($\tau=10$ events). In the primary local model, $G$ is a global adapter
-trained across the panel and applied outside the routed mixture. The weights $\pi_{iks}$ come from a softmax over
-the sources and one further slot that applies no adapter (its logit starting at 0).
-That slot adds no source correction; the base path, global adapter and own-source
-floor remain active. The weights depend on the patient, the
-patient's disease and the target outcome, and the patient's own disease always
-receives at least a floor weight of 0.05. The adapted representation
-enters the same linear head as in the joint model. Each adapter is updated only
-by the supervision of its own source; when another disease borrows it, its
-parameters are used but not updated. The sources can be diseases, outcomes or
-both; the primary local model uses both banks. Its adapters have rank 8,
-the query is interacting with width 512, and the router is held fixed for
-the first two epochs. The primary seed is 42. This is R\textsubscript{AB},
-aliased as \texttt{R\_L} in the analysis inventory (\cref{tab:model-identity}). The approach relates to
-mixtures of experts and parameter-efficient adapters
-\citep{jacobs1991adaptive,ma2018mmoe,houlsby2019adapters,pfeiffer2021adapterfusion,hu2022lora}.
+$A_s$ is a low-rank adapter of rank 8, $\lambda=0.7$ the residual scale, $c_s$
+shrinks sources with few training events $e_s$ ($\tau=10$ events), and $G$ a
+global adapter outside the routed mixture. The sources are the diseases and the
+outcomes. The weights $\pi_{iks}$ come from a softmax over the sources and one
+further slot that applies no adapter; they depend on the patient, the patient's
+disease and the target outcome (an interacting query of width 512), and the
+patient's own disease always receives at least 0.05. Each adapter is updated
+only by the supervision of its own source; when another task borrows it, its
+parameters are used but not updated. The router is held fixed for the first two
+epochs. This is R\textsubscript{AB}. The approach relates to mixtures of
+experts and to combining adapters
+\citep{jacobs1991adaptive,ma2018mmoe,pfeiffer2021adapterfusion}.
 
-The router was configured on the tuning set in three steps, each ordered from
-the simplest option: which sources (disease only, outcome only, both), the
-adapter rank (8, 16, 32), and the routing query (additive with width 128,
-interacting with width 128, interacting with width 512). Each step chose the
-option with the highest panel AUC: the AUC difference averaged over estimable
-cells (at least five cases and five controls), each disease weighing equally,
-each outcome equally within a disease and each of the six horizons equally.
-Options whose panel AUC lay within the noise floor of the best were treated as
-tied and the simplest of them was chosen; an option whose panel IPA was worse
-than the simplest option's by more than the IPA noise floor was not eligible.
-The noise floor is the difference between two fits of the same model: the
-router trained with every source masked, which has the joint
-model's effective architecture but is fitted independently, against the joint model
-(\placeholder{about 0.004} tuning AUC). This comparison estimates variation between these two fits and does not
-prove equivalence of the architectures. The 0.01 margin applies
-only to claims on the test set, not to these choices. These screens describe the original selection procedure, not a new choice
-made independently for each figure. The later amendment fixed the current
-primary local model to the two-bank R\textsubscript{AB} configuration above.
-The original router remains a sensitivity fit. Population-pretrained arms
-are reported separately while their matched downstream comparisons remain
-pending; the current local \opera{} identity is not changed by their availability.
-
-Three controls separate borrowing from simpler explanations. The joint model
-told the patient's disease adds a learned, zero-initialised shift per disease to
-the representation, so it can express disease-specific baseline risks but
-borrows nothing. The own-disease router and the own-outcome router are routed
-models whose router may use only the patient's own disease adapter, or only the
-target outcome's own adapter, so they add the adapters' capacity without
-borrowing. All controls are trained with the same protocol as the routed
-model. A fourth control keeps the selected source banks but lets each patient
-use only their own disease's and own outcome's adapter, so the difference from
-the routed model is the borrowing of the routed model itself. A sensitivity fit,
-added before stage two, starts the slot that applies no adapter with a larger
-share of the routing weight (logit 3.0, the code's default, against 0; about
-15--18\% rather than 1\% with 94 sources) and is otherwise identical, to test
-whether the starting point changes how selectively the router borrows. A rule
-fixed before either fit finished decided between them
-(Supplementary Methods, prespecification): the routed model stays primary unless the
-sensitivity fit is better on the tuning panel by more than the noise floor in
-AUC, passes the IPA guard and stays better in a second seed of each; the other
-is reported as the sensitivity analysis. Route entropy, the effective number of
-sources and the share of weight on a patient's own adapters are reported for
-both (\placeholder{values}). Route weights describe how the model allocates corrections and are not
-interpreted as relationships between diseases; what each source contributes is
-measured by removing it (Supplementary Methods, borrowing map).
-
-\operasubsection{Router variants and the primary routed model}
-\label{sec:router-variants}
-On the tuning set, the routed model fixed by the steps above routed poorly. In
-most patients most of the routing weight sat on one or two sources whose
-corrections were small (the overall-survival adapter carried 40\% of the routed
-contribution), while the disease adapters, which enter every patient's
-prediction at the 0.05 floor of their own disease, had grown corrections about
-20 times larger. Any weight borrowed from another disease's adapter therefore
-injected a large correction learned for that disease, and the router learned to
-park its weight on a source that changed little. The disease adapters pointed in
-unrelated directions (median pairwise cosine about 0), and those of related
-B-cell lymphomas resembled each other, so the adapters had learned
-disease-specific corrections; it was the routing that had collapsed.
-
-Before any variant was trained, we fixed the variants, their controls and the
-rule for choosing among them (analysis lock, addenda of 26 October 2026). Two
-changes address the collapse: a global adapter applied to every prediction
-outside the routed mix (A), so that general corrections no longer have to pass
-through a source, and two epochs in which the router is held fixed while the
-adapters train (B), so that early routing does not lock in before the adapters
-have learned anything. A third bounds the routing scores (T, three times the
-cosine of query and key) and was to be used only if A and B did not route
-healthily; a fourth applies a patient's own disease and outcome adapters at
-full weight outside the mix, which then holds only borrowed sources (O). Each
-was trained with controls on the same protocol: the same model with only the
-patient's own adapters (own-only), the model with the global adapter and no
-sources (global-only), and a second seed of the candidate. Routing was judged
-healthy when, measured by contribution rather than weight (route weight times
-the source's support shrinkage, or its correction size for O), the most
+The first router, configured on the tuning set by sources, rank and query in
+turn, routed poorly. Most routing weight sat on one or two sources whose
+corrections were small, while the own disease adapters, which enter every
+prediction at the 0.05 floor, had grown corrections about 20 times larger; any
+weight borrowed from another disease therefore injected a large correction
+learned for that disease, and the router parked its weight on a source that
+changed little. Two changes, fixed with their controls before they were trained
+(26 October 2026), addressed this: the global adapter outside the mix, and two
+epochs in which the router is held fixed while the adapters train. Routing was
+judged healthy when, measured by contribution rather than weight, the most
 frequent top source led in at most half of the rows, at least three different
 borrowed sources led across diseases, and the median effective number of
-sources exceeded 1.5.
+sources exceeded 1.5. R\textsubscript{AB} routed healthily on both seeds, and an
+amendment made before any test data were opened (27 October 2026) made it the
+reference router; the first router is a sensitivity analysis
+(\texttt{R\_ORIG}). A sensitivity fit of the first router that started the slot
+without an adapter at a larger share (logit 3.0 against 0) is reported in the
+same way.
 
-The routed model with A and B (R\textsubscript{AB}) routed healthily in both
-seeds; A alone, and O, did not. Borrowing within R\textsubscript{AB}, the full
-model against its own-only control, changed tuning AUC by $+0.014$ (95\%
-interval 0.001 to 0.027), above the seed-to-seed difference of 0.002. Against
-the first router, R\textsubscript{AB} differed by $-0.004$ ($-0.011$ to 0.002)
-and O by $-0.009$ ($-0.021$ to 0.002). The prespecified rule kept the first
-router, since R\textsubscript{AB} was below it by more than the seed-to-seed
-difference. We amended the rule before any test data were opened and made
-R\textsubscript{AB} the primary routed model: the first router's routing is
-known to have collapsed, so nothing it appears to borrow could be interpreted;
-R\textsubscript{AB} routes as intended in both seeds; the selection amendment was informed by tuning diagnostics; and the cost on
-tuning was small, with an interval including zero. The first router is
-reported throughout as a sensitivity analysis, and the national routed models
-use the same readout as R\textsubscript{AB}. Equation~\ref{eq:router} describes this primary R\textsubscript{AB} fit,
-including its global adapter; the earlier router omitted $G$ and had no
-router warm-up. The fitted encoder and all adapters are matched to each
-variant's own predictions. They are not interchanged at inference.
+Later stages asked whether routing could add to own corrections by any
+reasonable mechanism. R\textsubscript{O} applied the own disease and outcome
+adapters at full weight outside the mix, which then held only borrowed sources;
+R\textsubscript{PP} weighted the own corrections by $n/(n+\tau)$, with $\tau$
+learned, and soft-normalised every correction; R\textsubscript{PT} routed by
+task rather than by patient, with bounded logits. Both capped the own
+corrections that carried R\textsubscript{AB}'s gain, and both fell below it.
+Stage 8 kept the own corrections exactly as in
+R\textsubscript{O} and pooled only what was borrowed, and every design in it
+contains own corrections alone (\texttt{R\_PF\_OFF}) as the special case of
+borrowing nothing (\cref{tab:design-search}).
+
+Learned routing is reported as a null. The gain of the routed models over the
+joint model came from the own corrections. Against an own-only control that
+kept the own adapters inside the routed mixture, R\textsubscript{AB} gained
+$+0.014$ in tuning AUC (95\% interval 0.001 to 0.027); with the own corrections
+at full weight outside the mix, borrowing added $+0.0016$ ($-0.0006$ to 0.0042;
+R\textsubscript{O} against its own-only control); the stage-8 designs differed
+from R\textsubscript{AB} by \placeholder{range}; and R\textsubscript{AB} against
+own corrections alone was \placeholder{\texttt{AB\_OFF}, tuning}.
+R\textsubscript{AB} is scored
+on the test set as the step in which learned routing replaces each outcome's own
+reading on the same corrections (\cref{tab:panel-effects}). The analyses that
+describe a router's internals (route weights, source removal, routing health and
+route concentration) do not apply to \opera{} and were not run for it.
 
 \operasubsection{Hierarchy for effect heterogeneity}
 Claims rest on the pooled paired-bootstrap differences and their labels
@@ -506,11 +678,16 @@ diagnostics.}
 \FloatBarrier
 
 \operasubsection{Analysis identities and clinical comparison implementation}
-The primary cohort-pretrained OPERA fit uses the amended two-bank router
-R\textsubscript{AB}. In the analysis inventory, \texttt{R\_L} and
-\texttt{R\_AB\_L} refer to this same fit; \texttt{J\_L} identifies the separate
-joint-model reference. The earlier router, \texttt{R\_ORIG\_L}, and
-importance-weighted event-sampling fits are sensitivity analyses. Natural
+The primary cohort-pretrained \opera{} fit is \texttt{J\_OA\_OWN\_L} on seed 42
+(run \texttt{seed42/L/fix\_J\_OA\_OWN}), selected as in Supplementary Methods, design search and selection;
+its seeds 43 to 45 are reported beside it. \texttt{J\_L} identifies the
+joint-model reference and \texttt{R\_PF\_OFF\_L} own corrections without
+outcome-specific reading. In the analysis inventory, \texttt{R\_L} and
+\texttt{R\_AB\_L} refer to the learned-routing alternative
+R\textsubscript{AB}. The earlier router, \texttt{R\_ORIG\_L}, and
+importance-weighted event-sampling fits are sensitivity analyses.
+\placeholder{Update \cref{tab:model-identity}, which still lists
+R\textsubscript{AB} as the primary model.} Natural
 patient sampling defines the primary fits. Population-pretrained and
 cohort-adapted models are separate transfer arms.
 \input{tables/model_identity}
@@ -537,7 +714,8 @@ interval lay within $\pm$0.01; otherwise inconclusive; each with a paired
 bootstrap $P$ value. The headline comparisons form one family, with $P$ values
 adjusted by Holm's method: sharing across diseases, across outcomes and both
 (each against the specialists), the joint model and \opera{} against per-task
-XGBoost, borrowing by the routed model, the national encoder against the cohort
+XGBoost, borrowing by the routed model R\textsubscript{AB} (against its
+no-borrowing control), the national encoder against the cohort
 encoder, and \opera{} against the clinical indices. Everything else, including
 results for individual diseases, outcomes, cells and disease pairs, is reported
 as estimates with intervals and is descriptive. Across disease--outcome cells, effects were also summarised,
@@ -580,9 +758,11 @@ The joint model and the router trained with every source masked implement the
 same shared prediction architecture but were fitted separately. Their AUC
 difference was \result{R0_auc}{X}. This difference supplied the operational
 noise floor for the original screening comparisons. It is a comparison of two
-fits, rather than a general estimate of training variability. The primary
-amended router used matched global-only and own-only controls, as specified
-above.
+fits, rather than a general estimate of training variability. The amended
+router R\textsubscript{AB} used matched global-only and own-only controls and a
+second seed (Supplementary Methods, learned routing). For \opera{}, refitting variability
+is estimated from four training seeds of the same design
+(Supplementary Methods, design search and selection).
 
 Classification at every ordered risk-group boundary was reported for the index
 and model in \texttt{classification\_at\_thresholds.csv}. Higher groups were positive,

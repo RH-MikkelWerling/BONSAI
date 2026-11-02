@@ -19,7 +19,7 @@ R_PH_GE_PF5E, R_PL8, R_PF5E_R32); stage 9 (J_OA, J_OA_LR, J_SP, J_FP, J_FPF,
 J_FPF_PH, J_OA_OWN, J_OA_LR_OWN, J_OA_OWN_PH, J_FPF_OWN, J_FPF_PH_OWN_PH); stage 13
 (J_OA_OWN_SW20, _SW100, _X, _X_SW, _PE, _PH_X, _PE_X_SW, _MAX). Stage 12 fits
 (second seed, rank 32, ablations, 10% data) are sensitivity analyses, never
-selected. Secondary: the average of the selected design's two seeds.
+selected. Secondary: the selected design averaged over its seeds (amendment of 2 Nov).
 
 **Training-log indication (not the decision):** J_OA_OWN 0.7916, J_OA_OWN_PH
 0.7912 and J_OA_LR_OWN 0.7910 at the selected checkpoint against R_AB 0.7836.
@@ -40,6 +40,41 @@ s43. The design seed spread becomes the range (max − min) of tuning AUC over t
 four J_OA_OWN seeds. The fit that goes to the test set stays the prespecified
 seed 42; the tuning section reports the four-seed mean and range beside it, and
 OPERA − J is also reported on the second seed pair (J_OA_OWN_s43 − J_s43).
+
+*Amended 2 November 2026, after s44 and s45 were seen (tuning data only; the
+test set is unopened).* Training-log tuning AUC at the selected checkpoint:
+J_OA_OWN s42 0.7916, s43 0.7865, s44 0.7859, s45 **[fill]** (0.7829 at epoch 10
+while running); R_AB 0.7836 / 0.7834 and R_PF_OFF 0.7827 / 0.7823 on seeds 42 /
+43. The reading designs are seed-sensitive, the others are not, and s42 is the
+highest of the four seeds. Three consequences, recorded here because they
+follow from these results:
+
+1. *Scope of the parsimony rule (clarification).* The design seed spread is now
+   about 0.009, as large as the gap between J_OA_OWN and R_AB. Read literally,
+   "among candidates within the spread of the best, the simplest" would then
+   reach designs without outcome-specific reading. That was not its purpose: it
+   was added to choose among near-identical reading variants, and named
+   J_OA_OWN. The selection is therefore made in two steps, as the rule of
+   section 1 already orders it: (a) the base rule decides between R_AB and the
+   candidates (qualify against R_AB's noise floor; highest pooled tuning AUC);
+   (b) parsimony then chooses among the qualifying designs of the winning
+   family (stages 9 and 13) within the design seed spread of the best. As an
+   additional check, the selected design must beat R_AB on every seed on which
+   both were trained (seeds 42 and 43). We state in the paper that this
+   clarification was made after s44/s45 were seen.
+2. *Primary fit unchanged.* The test-set primary stays J_OA_OWN seed 42 as
+   prespecified. Switching to another seed or to a seed ensemble on the basis of
+   these tuning results would be selection on them, and would compare a
+   multi-seed OPERA with single-seed references.
+3. *Seed reporting on the test set (prespecified now).* All four J_OA_OWN seeds,
+   J_s43, R_AB_s43 and R_PF_OFF_s43 are scored on the test set. Reported beside
+   the s42 results: OPERA's test AUC over its four seeds (mean, range); the
+   seed-averaged contrasts `OAOWN4_J`, `OAOWN4_OFF`, `OAOWN4_AB`, `OAOWN4_X`
+   (each model averaged over its available seeds) and `OAOWN4_S42` (s42 against
+   its seed mean); and the Table 2 ladder on seed 43 (`OFF_J_s43`,
+   `OAOWN_OFF_s43`, `AB_OFF_s43`, `OAOWN_J_s43`). The expected size of the
+   reading step on test is the seed average (about +0.004 over own corrections
+   on tuning), not the s42 value (+0.009).
 
 - Design seed spread (range over J_OA_OWN s42–s45, tuning AUC): **[fill]**
 - J_OA_OWN four-seed mean tuning AUC (vs s42): **[fill]**

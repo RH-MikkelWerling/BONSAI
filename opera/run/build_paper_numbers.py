@@ -58,7 +58,7 @@ CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6",
          "OA_J", "SP_J", "FP_J", "OA_AB", "SP_AB", "FP_AB", "FP_OA", "FPF_J", "FPF_FP", "OAOWN_J", "OFF_J", "OAOWN_OFF", "AB_OFF",
          "OAOWN_AB", "OAOWN_OA", "OAOWNPH_OAOWN", "OAOWNPH_AB", "FPFOWN_AB", "FPFOWN_FPF", "FPFPH_FPF", "FPFPHOWN_AB", "FPFPHOWN_FPFOWN", "OALR_OA", "OALROWN_OAOWN", "OALROWN_AB", "ELR_J", "ELR_AB", "ELR3_AB", "OAOWN_NF", "OAOWN_R32", "OAOWN_DIS", "OAOWN_OUT", "F10_OAOWN_OFF", "F10_OAOWN_PHGE",
          "SW20_OAOWN", "SW100_OAOWN", "X_OAOWN", "XSW_OAOWN", "PE_OAOWN", "PHX_OAOWN", "PEXSW_OAOWN",
-         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "OFF_J_s43", "OAOWN_OFF_s43", "AB_OFF_s43", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
+         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "OFF_J_s43", "OAOWN_OFF_s43", "AB_OFF_s43", "OAOWN4_J", "OAOWN4_OFF", "OAOWN4_AB", "OAOWN4_X", "OAOWN4_S42", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
          *(f"{code}_{suffix}" for code in ("PF5", "PF5B", "PF10E", "PF5EP", "PF5EL", "PF5ED", "PF5EO", "PFLR",
                                            "PFW0", "PFR32", "PHG", "PHGE", "PHGEP", "PF5E43", "PFLIVE", "PL8")
            for suffix in ("AB", "E")), "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",

@@ -264,7 +264,7 @@ best, the simplest was selected (Supplementary Methods).
 \operasubsection{Borrowing from the population}
 To test the limits of borrowing, we pretrained a causal transformer, PHAIR, not
 only on patients with lymphoid cancers but on the nationwide Danish registers,
-covering around \placeholder{8--9 million} people, using records from before
+covering 8,520,754 people (7,668,683 for training and 852,071 for validation), using records from before
 1 January 2022. We fine-tuned the joint model and
 \opera{} from it directly and after continued pretraining on the cohort's records
 \citep{gururangan2020dont}. The encoder used by \opera{} in all other
@@ -505,8 +505,12 @@ improved on \opera{} by more than the variation between training seeds
 (\placeholder{range over four seeds}), whether corrections were shared within
 disease lineages or endpoint families, shrunk towards zero for tasks with few
 events, made specific to each disease--outcome pair or enlarged
-(\cref{fig:supp-design-search}). The two ingredients that helped were the
-patient's own disease correction and each outcome's own reading of the record.
+(\cref{fig:supp-design-search}). Most of the gain came from the corrections,
+above all the patient's own disease correction, and held on every training
+seed. Each outcome's own reading added a smaller amount that varied between
+seeds (\placeholder{seed-averaged step and range; \cref{fig:supp-design-search}}).
+The test fit was the prespecified first seed, and its results over all four
+seeds are reported alongside (Supplementary Table~\placeholder{S}).
 
 Outcomes that read the record alike \placeholder{did / did not} fall into the
 same endpoint families (\placeholder{within- vs between-family similarity,
@@ -702,8 +706,9 @@ model can cover a whole specialty without the price joint training has often
 exacted.
 
 How to borrow turned out to be simpler than expected. Sharing everything and
-letting each prediction specialise a little, through its own reading of the
-record and small corrections for its disease and outcome, gave the gain.
+letting each prediction specialise a little gave the gain: mostly through small
+corrections for the patient's disease and the outcome, and to a lesser,
+seed-dependent extent through each outcome's own reading of the record.
 Learning which other tasks to borrow from gave none, and neither did
 hand-specified sharing within disease lineages or endpoint families, shrinkage
 for rare tasks or larger corrections: among \placeholder{N} designs tuned, none
@@ -716,13 +721,14 @@ how to pool. The tuned designs converged on the same performance, which suggests
 that the limit lies in the representation and the data rather than in how the
 prediction is read out from them.
 
-The two specialisations that helped mirror how clinicians built the prognostic
-indices. IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements, such
+The specialisation that mattered most mirrors how clinicians built the
+prognostic indices. IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements, such
 as age, stage, performance status, lactate dehydrogenase, blood counts and
 $\beta_2$-microglobulin, weighted and cut differently for each disease, with few
 disease-specific markers. \placeholder{If the ablations hold on test:} In our
-model too, outcomes differed in what they read from the record, while diseases
-differed mainly in how shared risk factors were weighted. Molecular markers such
+model too, the largest single adjustment was the patient's disease, a
+reweighting of risk factors shared by all, while outcomes differed in what they
+read from the record by a smaller margin. Molecular markers such
 as TP53 aberrations and IGHV status entered the model only where they had been
 tested and recorded. \placeholder{Integrated gradients: features behind each
 outcome clinically plausible (confirm).} These patterns describe the fitted
