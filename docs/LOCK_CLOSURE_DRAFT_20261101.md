@@ -72,9 +72,18 @@ follow from these results:
    seed-averaged contrasts `OAOWN4_J`, `OAOWN4_OFF`, `OAOWN4_AB`, `OAOWN4_X`
    (each model averaged over its available seeds) and `OAOWN4_S42` (s42 against
    its seed mean); and the Table 2 ladder on seed 43 (`OFF_J_s43`,
-   `OAOWN_OFF_s43`, `AB_OFF_s43`, `OAOWN_J_s43`). The expected size of the
-   reading step on test is the seed average (about +0.004 over own corrections
-   on tuning), not the s42 value (+0.009).
+   `OAOWN_OFF_s43`, `AB_OFF_s43`, `OAOWN_J_s43`).
+
+*Note (2 November, afternoon).* The seed values above are the training-log
+validation metric (macro AUC over outcomes), not the primary estimand. On the
+primary estimand (paired IPCW tuning AUC, pooled over horizons, every cell
+equal) the ladder is similar on seeds 42 and 43: own corrections over J +0.0079
+and +0.0086, each outcome's own reading on top +0.0054 and +0.0072, learned
+routing instead +0.0029 and +0.0035. The seed spread used by the rule is
+computed on the primary estimand (s42 against each other seed, paired), not
+from the training log. Cross-seed contrasts require one cell key across seeds;
+the analysis now pools seed repeats under the primary seed's key (each model is
+one fit under its own name; estimates unchanged).
 
 - Design seed spread (range over J_OA_OWN s42–s45, tuning AUC): **[fill]**
 - J_OA_OWN four-seed mean tuning AUC (vs s42): **[fill]**

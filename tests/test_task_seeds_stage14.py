@@ -121,3 +121,28 @@ def test_seed_average_contrast_is_the_mean_of_the_paired_gains():
     gain = result.set_index(["contrast", "metric", "split", "outcome"]).gain.unstack(0).dropna()
     import numpy as np
     np.testing.assert_allclose(gain["mean"], (gain["one"] + gain["two"]) / 2)
+
+
+def test_cross_seed_contrasts_pair_once_seeds_share_a_key():
+    import sys
+    sys.path.insert(0, "tests")
+    import numpy as np
+    from test_secondary_analysis import predictions
+    from opera.evaluation.secondary_analysis import normalize_predictions, paired_analysis
+    from opera.run.analyse_locked_predictions import collapse_seed_repeats
+
+    frame = predictions()
+    frame.loc[frame.model == "R_L", "seed"] = 43            # a seed repeat under its own name
+    frame, _ = normalize_predictions(frame)
+    contrasts = {"cross": "gain(R_L,J_L)"}
+    import pytest
+    with pytest.raises(ValueError, match="No requested contrast"):  # never pairs across seed keys
+        paired_analysis(frame, contrasts, replicates=10)
+    collapsed = collapse_seed_repeats(frame, {})
+    after = paired_analysis(collapsed, contrasts, replicates=10)["contrasts"]
+    same = paired_analysis(frame.assign(seed=42), contrasts, replicates=10)["contrasts"]
+    np.testing.assert_allclose(after.query("contrast == 'cross'").gain, same.query("contrast == 'cross'").gain)
+    assert not after.query("contrast == 'cross'").gain.dropna().empty
+    both = frame.assign(seed=42)
+    both = __import__("pandas").concat([both, both.assign(seed=43)])
+    assert collapse_seed_repeats(both, {}).seed.nunique() == 2       # one name, two seeds: untouched

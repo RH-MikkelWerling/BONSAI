@@ -13,8 +13,10 @@ Model & Analysis identifier & Role \\
 Specialist & \texttt{S\_L} & One disease and one outcome; reference for supervised pooling. \\
 Disease-pooled & \texttt{D\_L} & One outcome across diseases. \\
 Outcome-pooled & \texttt{O\_L} & All outcomes within one disease. \\
-Joint & \texttt{J\_L} & All diseases and outcomes, shared readout; the fixed pooling and routing reference. \\
-\opera{}, primary local router & \texttt{R\_L} = \texttt{R\_AB\_L} & Both disease and outcome adapter banks, global adapter outside the routed mixture, and two epochs of router warm-up. \\
+Joint & \texttt{J\_L} & All diseases and outcomes, shared readout; the fixed pooling reference. \\
+\opera{} (primary) & \texttt{J\_OA\_OWN\_L} & Shared encoder; each outcome reads the record through its own attention query, gated onto the shared summary; own diagnosis, outcome and global corrections (rank 8). \\
+Own corrections only & \texttt{R\_PF\_OFF\_L} & Own diagnosis, outcome and global corrections on the shared summary, no outcome-specific reading. \\
+Learned routing (alternative) & \texttt{R\_L} = \texttt{R\_AB\_L} & Disease and outcome adapter banks routed per patient and outcome, global adapter outside the mixture, two epochs of router warm-up. \\
 Global-only control & \texttt{N\_A\_L} & Global adapter with no source adapters; reference for own and borrowed corrections. \\
 Own-only control & \texttt{RBH\_AB\_L} & Matched routed architecture restricted to the patient's own disease and target outcome sources. \\
 Original router & \texttt{R\_ORIG\_L} & Earlier router; sensitivity analysis, not the primary model. \\
@@ -22,10 +24,11 @@ Sampling sensitivities & \texttt{J\_IPW\_L}, \texttt{R\_AB\_IPW\_L} & Importance
 \bottomrule
 \end{tabularx}
 \par\smallskip\footnotesize
-The local routed fit uses rank-8 adapters, an interacting query of width 512,
+The learned-routing alternative uses rank-8 adapters, an interacting query of width 512,
 a residual scale of 0.7, source-support shrinkage with $\tau=10$, and an
 own-source floor of 0.05. Seed 42 is the primary local analysis; repeat seeds
 are diagnostics or sensitivities. The cohort encoder has hidden size 256.
-The primary run is \texttt{seed42/L/fix\_R\_AB}; the joint reference is
+The primary run is \texttt{seed42/L/fix\_J\_OA\_OWN} (\opera{} seeds 43--45 are
+sensitivities); the routing alternative is \texttt{seed42/L/fix\_R\_AB}; the joint reference is
 \texttt{seed42/L/J\_all\_diseases\_all\_outcomes}.
 \end{table}

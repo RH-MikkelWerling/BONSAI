@@ -513,6 +513,24 @@ def stage(name):
           file=sys.stderr, flush=True)
 
 
+def collapse_seed_repeats(predictions, config):
+    """Put every model on the primary seed's key when each model has one seed.
+
+    Cells are keyed by training seed, so a contrast between a seed-42 fit and a
+    seed-43 fit (seed spread, noise floors, seed averages) would find no cell.
+    Seed repeats are distinct models by name (``J_OA_OWN_s43_L``), patients and
+    labels do not depend on the seed, and the patient bootstrap is shared across
+    seeds, so one key changes no estimate; it only lets such contrasts pair. A
+    model fitted on several seeds under one name keeps the per-seed keys.
+    """
+    if not config.get("collapse_seed_repeats", True) or predictions.seed.nunique() < 2:
+        return predictions
+    if (predictions.groupby("model").seed.nunique() > 1).any():
+        return predictions
+    primary = int(config.get("primary_seed", 42))
+    return predictions.assign(seed=primary)
+
+
 def models_for(contrasts, extra=()):
     """Models a set of contrasts (and any extra summaries) needs: a restricted
     re-analysis evaluates only these, which gives the same contrasts."""
@@ -585,6 +603,7 @@ def run(config, output_dir):
     predictions, combined_audit = normalize_predictions(
         pd.concat(inputs, ignore_index=True), estimand
     )
+    predictions = collapse_seed_repeats(predictions, config)
     if config.get("analysis_horizons_days"):
         predictions = predictions.loc[
             predictions.horizon_days.isin(config["analysis_horizons_days"])

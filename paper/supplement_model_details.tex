@@ -442,7 +442,8 @@ Controls, ablations, scarce-data fits, encoder-rate fits and seed repeats were
 never candidates for selection.}
 \label{tab:design-search}
 \setlength{\tabcolsep}{3pt}
-\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.15\textwidth}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.22\textwidth}@{}}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.13\textwidth}>{\raggedright\arraybackslash}p{0.17\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.29\textwidth}@{}}
 \toprule
 Family & Design & What changes & Code \\
 \midrule
@@ -686,8 +687,7 @@ outcome-specific reading. In the analysis inventory, \texttt{R\_L} and
 \texttt{R\_AB\_L} refer to the learned-routing alternative
 R\textsubscript{AB}. The earlier router, \texttt{R\_ORIG\_L}, and
 importance-weighted event-sampling fits are sensitivity analyses.
-\placeholder{Update \cref{tab:model-identity}, which still lists
-R\textsubscript{AB} as the primary model.} Natural
+The identities are listed in \cref{tab:model-identity}. Natural
 patient sampling defines the primary fits. Population-pretrained and
 cohort-adapted models are separate transfer arms.
 \input{tables/model_identity}

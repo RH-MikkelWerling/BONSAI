@@ -505,12 +505,11 @@ improved on \opera{} by more than the variation between training seeds
 (\placeholder{range over four seeds}), whether corrections were shared within
 disease lineages or endpoint families, shrunk towards zero for tasks with few
 events, made specific to each disease--outcome pair or enlarged
-(\cref{fig:supp-design-search}). Most of the gain came from the corrections,
-above all the patient's own disease correction, and held on every training
-seed. Each outcome's own reading added a smaller amount that varied between
-seeds (\placeholder{seed-averaged step and range; \cref{fig:supp-design-search}}).
-The test fit was the prespecified first seed, and its results over all four
-seeds are reported alongside (Supplementary Table~\placeholder{S}).
+(\cref{fig:supp-design-search}). The corrections and each outcome's own
+reading each contributed \placeholder{(relative sizes from the test ladder)},
+on both training seeds on which the ladder was fitted. The test fit was the
+prespecified first seed, and its results over all four seeds are reported
+alongside (Supplementary Table~\placeholder{S}).
 
 Outcomes that read the record alike \placeholder{did / did not} fall into the
 same endpoint families (\placeholder{within- vs between-family similarity,
@@ -706,9 +705,9 @@ model can cover a whole specialty without the price joint training has often
 exacted.
 
 How to borrow turned out to be simpler than expected. Sharing everything and
-letting each prediction specialise a little gave the gain: mostly through small
-corrections for the patient's disease and the outcome, and to a lesser,
-seed-dependent extent through each outcome's own reading of the record.
+letting each prediction specialise a little gave the gain, through small
+corrections for the patient's disease and the outcome and through each
+outcome's own reading of the record \placeholder{(relative sizes from test)}.
 Learning which other tasks to borrow from gave none, and neither did
 hand-specified sharing within disease lineages or endpoint families, shrinkage
 for rare tasks or larger corrections: among \placeholder{N} designs tuned, none
@@ -721,14 +720,14 @@ how to pool. The tuned designs converged on the same performance, which suggests
 that the limit lies in the representation and the data rather than in how the
 prediction is read out from them.
 
-The specialisation that mattered most mirrors how clinicians built the
-prognostic indices. IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements, such
+The specialisations that helped mirror how clinicians built the prognostic
+indices. IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements, such
 as age, stage, performance status, lactate dehydrogenase, blood counts and
 $\beta_2$-microglobulin, weighted and cut differently for each disease, with few
 disease-specific markers. \placeholder{If the ablations hold on test:} In our
-model too, the largest single adjustment was the patient's disease, a
-reweighting of risk factors shared by all, while outcomes differed in what they
-read from the record by a smaller margin. Molecular markers such
+model too, diseases were adjusted by a correction applied to shared risk
+factors, and outcomes differed in what they read from the record
+\placeholder{(confirm relative contributions on test)}. Molecular markers such
 as TP53 aberrations and IGHV status entered the model only where they had been
 tested and recorded. \placeholder{Integrated gradients: features behind each
 outcome clinically plausible (confirm).} These patterns describe the fitted

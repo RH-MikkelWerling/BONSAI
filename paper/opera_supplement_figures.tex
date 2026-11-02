@@ -242,7 +242,8 @@ the probability of every outcome by each of six horizons.}
   repeats. The shaded band is the range of the selected design over training
   seeds 42--45; differences inside it are within refitting noise. The selected
   design is in bold; model codes are in grey. These are development comparisons
-  on tuning data; only the selected design was evaluated on the test set.}
+  on tuning data, on which the design was selected. Every design was also scored
+  on the test set as prespecified, but none was selected there.}
   \label{fig:supp-design-search}
 \end{figure}
 
@@ -635,7 +636,7 @@ the probability of every outcome by each of six horizons.}
   the learned parameters of pairs of tasks in the selected checkpoint, ordered
   by clinical taxonomy and clustered (average linkage) within each group; white
   lines separate the groups. \textbf{A}, Outcome attention queries after the
-  key projection (heads concatenated): outcomes with similar queries read the
+  query projection (heads concatenated): outcomes with similar queries read the
   record alike. \textbf{B}, Outcomes' own corrections, in the order of A.
   \textbf{C}, Diagnoses' own corrections, by lineage. Corrections are compared
   through their effective low-rank map (up~$\cdot$~down, without the adapter's
