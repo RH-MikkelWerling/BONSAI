@@ -529,7 +529,7 @@ def build_commands(args, env):
                 "--registry-tabular-dir",
                 root / "tabular_runs_registry",
                 "--tabular-cache",
-                root / "tabular_inventory_cache",
+                path_value(env, "OPERA_PAPER_TABULAR_INVENTORY_CACHE", str(root / "tabular_inventory_cache")),
                 "--workers",
                 value(env, "OPERA_PAPER_INVENTORY_WORKERS", "8"),
                 *(("--splits", *env["OPERA_PAPER_INVENTORY_SPLITS"].split(","))

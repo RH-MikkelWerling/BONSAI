@@ -985,9 +985,34 @@ def claim_label(gain, lower, upper, margin):
     return "inconclusive"
 
 
+def effect_summary_weights(frame, aggregation):
+    """Weights on the fixed evaluable roster, shared by points and draws.
+
+    The declared disease-balanced estimand gives each loss endpoint equal
+    weight within a disease, then each outcome variant and available horizon.
+    Legacy equal-outcome weighting is available under an explicit name only.
+    """
+    if aggregation == "equal_cell":
+        return np.full(len(frame), 1.0 / len(frame))
+    if aggregation not in {"disease_balanced", "disease_outcome_balanced"}:
+        raise ValueError("Unknown effect-summary aggregation")
+    diseases = frame.cohort.nunique()
+    horizons = frame.groupby(["cohort", "outcome"]).horizon_days.transform("nunique")
+    if aggregation == "disease_outcome_balanced":
+        outcomes = frame.groupby("cohort").outcome.transform("nunique")
+        return (1.0 / (diseases * outcomes * horizons)).to_numpy(float)
+    if "loss_endpoint" not in frame or frame.loss_endpoint.isna().any():
+        raise ValueError("Disease-balanced summaries require the approved loss_endpoint map")
+    if frame.groupby("outcome").loss_endpoint.nunique().gt(1).any():
+        raise ValueError("Each outcome must map to exactly one loss_endpoint")
+    families = frame.groupby("cohort").loss_endpoint.transform("nunique")
+    variants = frame.groupby(["cohort", "loss_endpoint"]).outcome.transform("nunique")
+    return (1.0 / (diseases * families * variants * horizons)).to_numpy(float)
+
+
 def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                      stable_cells_only=False, aggregation="equal_cell"):
-    """Paired means with equal-cell or disease/outcome/horizon-balanced weights.
+    """Paired means with equal-cell or explicit hierarchical weights.
 
     No across-seed pooling: bootstrap intervals condition on one training seed.
     Strict fixed finite cell inventory is used in each replicate.
@@ -996,9 +1021,12 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
     cells that resample to one class cannot void the whole interval; the cells
     left out are counted in ``n_cells_unstable``.
     """
-    if aggregation not in {"equal_cell", "disease_balanced"}:
+    if aggregation not in {"equal_cell", "disease_balanced", "disease_outcome_balanced"}:
         raise ValueError("Unknown effect-summary aggregation")
     keys = ["cohort", "outcome", "horizon_days"]
+    if aggregation == "disease_balanced" and ("loss_endpoint" not in cell_metadata
+                                                    or cell_metadata.loss_endpoint.isna().any()):
+        raise ValueError("Disease-balanced summaries require the approved loss_endpoint map")
     if cell_metadata.duplicated(keys).any():
         raise ValueError("Duplicate cell metadata")
     values = contrasts.merge(
@@ -1029,7 +1057,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
             group = group.loc[np.isfinite(group.gain)]
             if group.empty:
                 continue
-            selected = group[CELL]
+            selected = group[CELL + (["loss_endpoint"] if aggregation == "disease_balanced" else [])]
             samples = draws_by_contrast[(group.contrast.iloc[0], group.metric.iloc[0])].merge(
                 selected, on=CELL, validate="many_to_one")
             arrays = np.stack(samples.gain_draws)
@@ -1042,14 +1070,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                 kept = samples.loc[stable, CELL]
                 samples, arrays = samples.loc[stable], arrays[stable]
                 group = group.merge(kept, on=CELL, validate="one_to_one")
-            def weights_for(frame):
-                if aggregation == "equal_cell":
-                    return np.full(len(frame), 1.0 / len(frame))
-                diseases = frame.cohort.nunique()
-                outcomes = frame.groupby("cohort").outcome.transform("nunique")
-                horizons = frame.groupby(["cohort", "outcome"]).horizon_days.transform("nunique")
-                return (1.0 / (diseases * outcomes * horizons)).to_numpy(float)
-            weights = weights_for(samples)
+            weights = effect_summary_weights(samples, aggregation)
             sampled = weights @ arrays
             sampled[~np.isfinite(arrays).all(axis=0)] = np.nan
             if len(samples) != len(group):
@@ -1062,7 +1083,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                     **({} if by_horizon else {"horizon_days": ALL_HORIZONS}),
                     "stratum": stratum or "all_cells",
                     "stratum_value": str(identity[-1]) if stratum else "all",
-                    "gain": float(weights_for(group) @ group.gain.to_numpy(float)),
+                    "gain": float(effect_summary_weights(group, aggregation) @ group.gain.to_numpy(float)),
                     "n_diseases": group.cohort.nunique(),
                     "n_cells": len(group),
                     "n_cells_unstable": unstable,
@@ -1071,7 +1092,9 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                     "minimum_finite_cells_per_draw": int(np.isfinite(arrays).sum(axis=0).min()),
                     "aggregation": ("equal_cell_not_population_or_endpoint_group_macro"
                                     if aggregation == "equal_cell" else
-                                    "equal_disease_then_outcome_then_horizon"),
+                                    ("equal_disease_then_loss_endpoint_then_outcome_then_horizon"
+                                     if aggregation == "disease_balanced" else
+                                     "equal_disease_then_outcome_then_horizon")),
                     "p_value": bootstrap_p_value(sampled),
                     **_interval(sampled),
                 }

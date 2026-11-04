@@ -341,7 +341,16 @@ given exactly the index's group sizes.
 Overall survival was the endpoint for the IPI, NCCN-IPI, CLL-IPI, ISS, R-ISS,
 FLIPI and MIPI. The IPS, built for freedom from progression
 \citep{hasenclever1998ips}, was compared on treatment failure, a proxy that is
-reported separately as endpoint-approximate. The horizon was two years where at
+reported separately as endpoint-approximate. Treatment failure is defined here
+as next treatment or death, rather than directly observed progression. If used
+for FLIPI2 (originally progression-free survival) or MALT-IPI (primarily
+event-free survival), it is likewise an endpoint proxy and is labelled as such
+in the per-index comparison roster. These mappings remain pending until the
+clinical configuration is finalised. The broader composite additionally includes
+a subsequent haematological diagnosis, including D45--D47 conditions. It is
+not a transformation-specific endpoint and is not treated as an exact PFS or
+EFS match. Using overall survival for MALT-IPI would instead evaluate an
+original secondary endpoint, which must be identified separately. The horizon was two years where at
 least a third of the index's test patients could have been followed for two
 years (judged from index dates and the data cutoff alone, without reference to
 outcomes), and one year otherwise; one year is reported alongside. Censoring
@@ -409,6 +418,13 @@ not apply. Fits with the encoder at the full rate are a sensitivity analysis
 (Supplementary Methods, design search and selection). \placeholder{Parameters added to the joint model by
 the reading and by the corrections.}
 
+We describe this architecture as joint training with specialisation. Unlike
+statistical partial pooling, its task-specific adjustments are not weighted by
+an explicit model of between-task variation and estimation uncertainty.
+Initialisation near the shared model and low-rank corrections do not guarantee
+that tasks with fewer events borrow more. Support-dependent shrinkage is a
+separate design tested below.
+
 The designs of the search (\cref{tab:design-search}) change
 \cref{eq:opera-reading,eq:opera-corrections} in a few ways. With tied queries,
 each query is a combination of 8 shared basis queries plus its own deviation,
@@ -419,8 +435,8 @@ events in that disease--outcome cell and $\tau$ is fixed (20, 50 or 100), not
 learned. With a diagnosis $\times$ outcome term, each outcome rescales the
 diagnosis adapter's bottleneck, $U_d\,[\mathrm{GELU}(V_d r)\odot(1+\sigma_k)]$,
 with $\sigma_k$ starting at zero, so that the diagnosis correction can differ by
-outcome while its adapters stay shared. With lineage or endpoint-family
-corrections, one further adapter per lineage or per endpoint family is added at
+outcome while its adapters stay shared. With disease group or endpoint-family
+corrections, one further adapter per disease group or per endpoint family is added at
 full weight to every member and trained by all of them, without shrinkage.
 
 \operasubsection{Design search and selection}
@@ -457,22 +473,22 @@ Learned routing (8) & Full own corrections, routed borrowing & own corrections a
  & Routing settings & raw or capped borrowed values; bound 10; patient gate; learned share; one source bank; routing rate $10\times$; no warm-up; routing frozen & \texttt{R\_PF5}, \texttt{R\_PF5B}, \texttt{R\_PF10E}, \texttt{R\_PF5EP}, \texttt{R\_PF5EL}, \texttt{R\_PF5ED}, \texttt{R\_PF5EO}, \texttt{R\_PF5E\_LR10}, \texttt{R\_PF5E\_W0}, \texttt{R\_PF5E\_FROZEN} \\
  & Learned sharing & borrowing tasks also train the sources & \texttt{R\_PF5E\_LIVE} \\
  & No borrowing (control) & own diagnosis, outcome and global corrections on the shared summary & \texttt{R\_PF\_OFF} \\
-Hierarchy (8) & Lineage & one adapter per disease lineage, no routing & \texttt{R\_PH\_G} \\
- & Lineage and endpoint family & as above, plus one adapter per endpoint group; with routing & \texttt{R\_PH\_GE}, \texttt{R\_PH\_GE\_PF5E} \\
+Hierarchy (8) & Disease group & one adapter per disease group, no routing & \texttt{R\_PH\_G} \\
+ & Disease group and endpoint family & as above, plus one adapter per endpoint group; with routing & \texttt{R\_PH\_GE}, \texttt{R\_PH\_GE\_PF5E} \\
 Learned groups (8) & Latent groups & eight shared group adapters; routing learns which tasks use them & \texttt{R\_PL8} \\
 Capacity (8, 12) & Rank 32 & adapters of rank 32 instead of 8 & \texttt{R\_PF5E\_R32}, \texttt{R\_PF\_OFF\_R32}, \texttt{J\_OA\_OWN\_R32} \\
 Scarce data (8, 12) & 10\% of training patients & the same designs on a nested 10\% subset & \texttt{R\_PF5E\_F10}, \texttt{R\_PH\_GE\_F10}, \texttt{R\_PF5E\_LIVE\_F10}, \texttt{R\_PL8\_F10}, \texttt{R\_PF\_OFF\_F10}, \texttt{J\_OA\_OWN\_F10} \\
 Reading (9) & Outcome attention & one query per outcome (\cref{eq:opera-reading}) & \texttt{J\_OA} \\
  & Tied queries & queries from 8 shared basis queries plus own deviation & \texttt{J\_OA\_LR} \\
  & Shared prototypes & 10 shared attention queries, mixed per outcome & \texttt{J\_SP} \\
- & Prototype mixtures by disease & mixture by disease group $\times$ outcome; by diagnosis $\times$ outcome; diagnosis terms tied to lineage & \texttt{J\_FP}, \texttt{J\_FPF}, \texttt{J\_FPF\_PH} \\
+ & Prototype mixtures by disease & mixture by disease group $\times$ outcome; by diagnosis $\times$ outcome; diagnosis terms tied to disease group & \texttt{J\_FP}, \texttt{J\_FPF}, \texttt{J\_FPF\_PH} \\
 Reading and own corrections (9) & Own corrections & \cref{eq:opera-corrections} on each reading & \textbf{\texttt{J\_OA\_OWN}}, \texttt{J\_OA\_LR\_OWN}, \texttt{J\_FPF\_OWN} \\
- & With lineage corrections & plus one adapter per lineage & \texttt{J\_OA\_OWN\_PH}, \texttt{J\_FPF\_PH\_OWN\_PH} \\
+ & With disease group corrections & plus one adapter per disease group & \texttt{J\_OA\_OWN\_PH}, \texttt{J\_FPF\_PH\_OWN\_PH} \\
 Ablations (12) & One correction removed & no diagnosis correction; no outcome correction & \texttt{J\_OA\_OWN\_NODIS}, \texttt{J\_OA\_OWN\_NOOUT} \\
 Corrections (13) & Shrinkage & $n_{dk}/(n_{dk}+\tau)$, $\tau=20$ or 100 & \texttt{J\_OA\_OWN\_SW20}, \texttt{\_SW100} \\
  & Diagnosis $\times$ outcome & outcome-specific scaling of the diagnosis adapter; with shrinkage ($\tau=50$) & \texttt{J\_OA\_OWN\_X}, \texttt{\_X\_SW} \\
  & Endpoint family & one adapter per endpoint family & \texttt{J\_OA\_OWN\_PE} \\
- & Combinations & lineage and cross term; family, cross term and shrinkage; all of these at rank 32 & \texttt{J\_OA\_OWN\_PH\_X}, \texttt{\_PE\_X\_SW}, \texttt{\_MAX} \\
+ & Combinations & disease group and cross term; family, cross term and shrinkage; all of these at rank 32 & \texttt{J\_OA\_OWN\_PH\_X}, \texttt{\_PE\_X\_SW}, \texttt{\_MAX} \\
 Encoder rate (10--11) & $1.0\times$ instead of $0.1\times$ & encoder at the full learning rate ($0.3\times$ for one router fit); sensitivity only & \texttt{J\_ELR10}, \texttt{R\_AB\_ELR10}, \texttt{R\_AB\_ELR3}, \texttt{J\_OA\_OWN\_ELR10}, \texttt{J\_FPF\_PH\_OWN\_PH\_ELR10} \\
 Seeds (3, 12, 14, 15) & Repeats & seeds 43--45 of the selected design; seed 43 of the references & \texttt{J\_OA\_OWN\_s43}, \texttt{\_s44}, \texttt{\_s45}; \texttt{J\_s43}, \texttt{R\_AB\_s43}, \texttt{R\_PF\_OFF\_s43} \\
 \bottomrule
@@ -481,7 +497,7 @@ Seeds (3, 12, 14, 15) & Repeats & seeds 43--45 of the selected design; seed 43 o
 
 The search moved in one direction. Learned routing between tasks' corrections
 added nothing measurable once each task had its own corrections at full weight
-(Supplementary Methods, learned routing); hierarchies over lineages and endpoint groups,
+(Supplementary Methods, learned routing); hierarchies over disease groups and endpoint groups,
 learned groups and larger adapters changed little at full data
 (\placeholder{range of stage-8 designs against R\textsubscript{AB}}), and
 somewhat more with 10\% of the training patients
@@ -493,7 +509,7 @@ R\textsubscript{AB}; reading with own corrections improved on both
 (\placeholder{J\_OA\_OWN, J\_OA\_LR\_OWN, J\_OA\_OWN\_PH against
 R\textsubscript{AB}}). Stage 13 tested whether the corrections of rare tasks
 should be shrunk, made specific to each disease--outcome pair or shared within
-lineages and endpoint families (\placeholder{stage-13 designs against
+disease groups and endpoint families (\placeholder{stage-13 designs against
 J\_OA\_OWN}). An encoder trained at the full learning rate did worse
 (\placeholder{J\_ELR10 against J; J\_OA\_OWN\_ELR10 against J\_OA\_OWN}).
 
@@ -697,12 +713,35 @@ local OPERA model on patients with the corresponding index recorded, without
 an additional disease-specific inclusion list. The shared benchmark is
 one-year overall survival; native-endpoint analyses are identified separately
 by endpoint and horizon. Comparisons with fewer than 50 evaluated patients are
-reported as insufficient support. Model risk-group thresholds are estimated from training predictions by
-matching the index's low-risk observed risk and highest-category specificity,
-then frozen for tuning and test evaluation. Tuning comparisons remain
+reported as insufficient support. Primary model groups match the index's category
+sizes within the evaluated cohort, using only model risk and baseline index
+categories. Paired bootstrap replicates repeat this allocation. Complementary
+absolute thresholds are estimated from training predictions by matching the
+index's low-risk observed risk and highest-category specificity, then frozen
+for tuning and test evaluation. Achieved survival and specificity are reported
+without assuming these remain matched on test. Tuning comparisons remain
 exploratory because model development used that split. Native categories and numeric totals
 are retained where available; already-coarsened registry categories cannot be
 reconstructed without the original score or labels.
+
+For an additional descriptive comparison, we estimated KM survival in the
+clinical index's lowest and highest categories in the evaluation cohort. We
+then selected the largest lowest-risk model group with survival at least as
+high as the clinical lowest category, and separately the largest highest-risk
+model group with survival no higher than the clinical highest category. All
+tied predictions remained together. We searched every attainable boundary,
+without smoothing or a survival tolerance. Each clinical and model group
+required at least 20 patients and 10 still at risk at the horizon. The two
+selections were separate binary comparisons and could overlap. We reported
+sizes, achieved survival, differences in size and unsmoothed survival--size
+curves, including unsupported boundaries. In 200 paired patient-bootstrap
+samples we re-estimated the clinical KM targets and repeated the entire search.
+Intervals required a valid model match in at least 80\% of samples, with the
+valid proportion reported. These pointwise percentile intervals can be unstable
+at empirical crossings or degenerate in zero-event groups. The selected
+operating points describe the evaluation cohort and are not validated cutoffs
+for future deployment. Competing-risk endpoints were not subjected to KM
+matching.
 
 \operasubsection{Statistical inference and descriptive analyses}
 Time-dependent AUC was the prespecified primary performance metric. Brier score,
@@ -716,7 +755,10 @@ adjusted by Holm's method: sharing across diseases, across outcomes and both
 (each against the specialists), the joint model and \opera{} against per-task
 XGBoost, borrowing by the routed model R\textsubscript{AB} (against its
 no-borrowing control), the national encoder against the cohort
-encoder, and \opera{} against the clinical indices. Everything else, including
+encoder, and final \opera{} against the local joint model. Clinical-index
+comparisons are descriptive, with paired pointwise intervals, and are outside
+this confirmatory family. Positive point estimates do not establish
+non-inferiority or simultaneous superiority across indices. Everything else, including
 results for individual diseases, outcomes, cells and disease pairs, is reported
 as estimates with intervals and is descriptive. Across disease--outcome cells, effects were also summarised,
 descriptively, by hierarchical models that estimate the typical effect, its variation between diseases and outcomes,

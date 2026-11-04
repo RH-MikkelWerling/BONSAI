@@ -19,7 +19,7 @@ aggregate tables:
     ``paired_cells.csv`` (OPERA-X, J-X, OPERA-J by clinical domain).
 
 Heatmaps are ordered by the clinical taxonomy (endpoint family for outcomes,
-lineage for diagnoses), clustered within each group, with the group boundaries
+disease group for diagnoses), clustered within each group, with the group boundaries
 drawn: if the model organises its tasks the way clinicians do, blocks on the
 diagonal stand out. Clustering across groups would hide that comparison.
 """
@@ -46,6 +46,9 @@ from opera.visualization.style import CATEGORICAL, PALETTE, despine
 SIMILARITY_CMAP = LinearSegmentedColormap.from_list(
     "opera_similarity", ["#B18B4D", "#E6D5B5", "#F7F7F5", "#AEB8DA", "#2D3A8C"])
 SIMILARITY_CMAP.set_bad(PALETTE["missing"])
+CORRECTION_SIMILARITY_CMAP = LinearSegmentedColormap.from_list(
+    "opera_correction_similarity", ["#C16A58", "#E4BDB4", "#F7F7F5", "#B4D4D1", "#3E8A87"])
+CORRECTION_SIMILARITY_CMAP.set_bad(PALETTE["missing"])
 
 # Twelve clinical domains: the categorical palette plus five further tones,
 # with a redundant marker shape, assigned by the paper's domain order.
@@ -160,10 +163,9 @@ def _panel_estimate(part, *, draws=1000, seed=0):
 def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
     """Where OPERA's gain over the joint model comes from.
 
-    A: the ladder from the joint model through own corrections to own reading
-    (OPERA), learned routing as a side branch from own corrections, and the
-    stage-12 ablations from OPERA; each step is a paired difference with its
-    95% interval. B: each step against cell training events, with a descriptive
+    A: direct named-model contrasts with cell distributions and paired mean
+    intervals, all on the same zero-centred axis. Hollow diamonds/IQRs are
+    explicitly descriptive when saved paired intervals are absent. B: each step against cell training events, with a descriptive
     smoother. C: each step by clinical domain. Points follow the conventions of
     the gain-by-support figures (>= 10 training events, CI width < 0.4).
     """
@@ -173,63 +175,80 @@ def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None)
         raise ValueError("Gain-source figure needs the corrections or reading step")
     unit = {"auc": "AUC", "brier": "Brier", "log_loss": "Log loss"}.get(metric, metric)
     fig = plt.figure(figsize=(7.2, 7.6))
-    top = fig.add_gridspec(1, 1, left=0.37, right=0.74, top=0.93, bottom=0.66)
+    top = fig.add_gridspec(1, 1, left=0.32, right=0.97, top=0.92, bottom=0.66)
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 0.95], wspace=0.62, left=0.095,
                               right=0.975, top=0.52, bottom=0.075)
 
-    # A: the ladder (waterfall of paired step differences).
+    # A: direct step contrasts, on a common zero-centred axis like the headline.
+    # Never position a step's CI at a sum of separately estimated effects.
     ax = fig.add_subplot(top[0])
     estimates = {s: _panel_estimate(data.loc[data.step == s]) for s in present}
-    levels = {None: 0.0}
-    rows = [("joint", None)] + [(s, src) for s, src in LADDER if s in present]
-    for step, source in LADDER:
-        if step in present:
-            start = levels.get(source, levels.get("corrections", 0.0)) if source else 0.0
-            levels[step] = start + estimates[step][0]
-    labels, fallback = [], False
-    for y, (step, source) in enumerate(rows):
-        if step == "joint":
-            ax.scatter(0, y, marker="o", s=34, color=MODEL_STYLE["J"][0], zorder=4, linewidths=0)
-            labels.append("Joint model (one shared summary)")
-            continue
-        color, label = STEP_STYLE[step]
-        start = levels.get(source, 0.0) if source else 0.0
+    labels = {
+        'corrections': 'Own corrections\nvs joint model',
+        'reading': 'OPERA: outcome-specific reading\nvs own corrections',
+        'routing': 'Learned routing\nvs own corrections',
+        'no_disease': 'Without disease correction\nvs OPERA',
+        'no_outcome': 'Without outcome correction\nvs OPERA',
+    }
+    rng = np.random.default_rng(42)
+    limits = [0.]
+    fallback = False
+    for y, step in enumerate(present):
+        part = data.loc[data.step == step]
+        values = part.gain.dropna().to_numpy(float)
+        values = values[np.isfinite(values)]
+        color = STEP_STYLE[step][0]
+        if len(values):
+            ax.scatter(values, y + rng.uniform(-.18, .18, len(values)), s=3,
+                       color=color, alpha=.22, linewidths=0, rasterized=True, zorder=2)
+            limits.extend(values)
         estimate, low, high, kind = estimates[step]
-        fallback |= kind == "cells"
-        end = start + estimate
-        ax.barh(y, end - start, left=start, height=0.46, color=color, alpha=0.22, linewidth=0,
-                zorder=2)
-        ax.plot([start + low, start + high], [y, y], color=color, lw=1.4, zorder=3,
-                solid_capstyle="butt")
-        for edge in (start + low, start + high):
-            ax.plot([edge, edge], [y - 0.13, y + 0.13], color=color, lw=1.0, zorder=3)
-        ax.scatter(end, y, marker="D", s=30, color=color, zorder=4, linewidths=0)
-        # Connector from the level this step starts at.
-        origin_row = 0 if source is None else [r[0] for r in rows].index(source)
-        ax.plot([start, start], [origin_row, y], color=PALETTE["connector"], lw=0.7,
-                ls=(0, (2, 2)), zorder=1)
-        prefix = "− " if step.startswith("no_") else "+ "
-        labels.append(prefix + label)
-        ax.text(1.03, y, f"{estimate:+.3f}  ({low:+.3f} to {high:+.3f})".replace("-", "−"),
-                transform=ax.get_yaxis_transform(),
-                ha="left", va="center", fontsize=7, color=PALETTE["ink_secondary"])
-    if "reading" in present:
-        y = [r[0] for r in rows].index("reading")
-        ax.annotate("OPERA", (levels["reading"], y), xytext=(0, 7.5), textcoords="offset points",
-                    ha="center", va="bottom", fontsize=7.5, fontweight="bold", color=PALETTE["ink"])
-        ax.axvline(levels["reading"], color=STEP_STYLE["reading"][0], lw=0.6, alpha=0.35,
-                   ls=(0, (1, 2)), zorder=0)
-    ax.axvline(0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
-    ax.set_yticks(range(len(rows)), labels, fontsize=7.6)
-    ax.tick_params(axis="y", length=0, pad=6)
-    ax.set_ylim(len(rows) - 0.45, -0.75)
-    ax.set_xlabel(f"{unit} gain over the joint model"
-                  + (" (mean of cells, 95% CI)" if fallback else " (paired 95% CI)"))
+        if kind == 'paired':
+            ax.plot([low, high], [y, y], color=PALETTE['ink'], lw=1.3, zorder=4)
+            ax.scatter(estimate, y, marker='D', s=31, color=PALETTE['ink'],
+                       edgecolor='white', linewidth=.7, zorder=5)
+        else:
+            fallback = True
+            # No patient-bootstrap interval is invented from between-cell spread.
+            if len(values):
+                low, estimate, high = np.quantile(values, [.25, .5, .75])
+                ax.plot([low, high], [y, y], color=PALETTE['ink_muted'], lw=3, zorder=4)
+                ax.scatter(estimate, y, marker='D', s=31, facecolor='white',
+                           edgecolor=PALETTE['ink'], linewidth=1, zorder=5)
+        limits.extend([low, high])
+    ax.axvline(0, color=PALETTE['zero_line'], lw=.9, zorder=3)
+    ax.set_yticks(range(len(present)), [labels[s] for s in present], fontsize=7.5)
+    ax.tick_params(axis='y', length=0, pad=7)
+    for label, step in zip(ax.get_yticklabels(), present):
+        if step == 'reading':
+            # Native Matplotlib text retains the paper font for both weights.
+            from matplotlib.offsetbox import AnnotationBbox, HPacker, VPacker, TextArea
+            label.set_visible(False)
+            props = dict(size=7.5, color=PALETTE['ink'])
+            first = HPacker(children=[TextArea('OPERA', textprops={**props, 'weight': 'bold'}),
+                                      TextArea(': outcome-specific reading', textprops=props)],
+                            align='baseline', pad=0, sep=0)
+            packed = VPacker(children=[first, TextArea('vs own corrections', textprops=props)],
+                             align='right', pad=0, sep=2)
+            ax.add_artist(AnnotationBbox(packed, (0, present.index(step)),
+                          xycoords=ax.get_yaxis_transform(), xybox=(-7, 0),
+                          boxcoords='offset points', box_alignment=(1, .5),
+                          frameon=False, annotation_clip=False))
+    ax.set_ylim(len(present) - .5, -.6)
+    finite = np.asarray(limits)[np.isfinite(limits)]
+    span = max(float(np.ptp(finite)), .02)
+    ax.set_xlim(float(finite.min()) - .05 * span, float(finite.max()) + .05 * span)
+    ax.set_xlabel(f'{unit} difference between the named models')
     ax.xaxis.set_major_locator(MaxNLocator(5))
-    ax.text(1.03, -0.75, "Step (95% CI)", transform=ax.get_yaxis_transform(), ha="left",
-            va="center", fontsize=6.8, color=PALETTE["ink_muted"])
-    _panel_title(ax, "A", "Where the gain comes from")
-    despine(ax, "x")
+    handles = [Line2D([], [], marker='D', color=PALETTE['ink'], lw=1.2,
+                       markeredgecolor='white', markersize=4, label='Paired mean, 95% CI')]
+    if fallback:
+        handles.append(Line2D([], [], marker='D', color=PALETTE['ink_muted'], lw=3,
+                              markerfacecolor='white', markersize=4, label='Median, IQR when paired CI unavailable'))
+    ax.legend(handles=handles, loc='lower right', bbox_to_anchor=(1, 1.03),
+              frameon=False, fontsize=6.7, handlelength=1.4, borderaxespad=0)
+    _panel_title(ax, 'A', 'What each change adds')
+    despine(ax, 'x')
 
     # B: each step against training support (grey cells, coloured smoothers).
     ax = fig.add_subplot(bottom[0])
@@ -415,12 +434,12 @@ def _within_group_order(similarity: pd.DataFrame, groups: pd.Series, group_order
 
 
 def _taxonomy_heatmap(ax, similarity, groups, *, order, label_fn=None, group_label=str,
-                      limit=1.0, group_names="right", fontsize=6.0):
+                      limit=1.0, group_names="right", fontsize=6.0, cmap=SIMILARITY_CMAP):
     """Similarity matrix in a fixed order with group separators, a group strip
     and group names; row labels only when ``label_fn`` is given."""
     values = similarity.loc[order, order].to_numpy(float).copy()
     np.fill_diagonal(values, np.nan)
-    image = ax.imshow(np.ma.masked_invalid(values), cmap=SIMILARITY_CMAP,
+    image = ax.imshow(np.ma.masked_invalid(values), cmap=cmap,
                       norm=TwoSlopeNorm(0, -limit, limit), interpolation="nearest", aspect="equal")
     labels = [groups.get(n) for n in order]
     edges = [i for i in range(1, len(order)) if labels[i] != labels[i - 1]]
@@ -470,7 +489,7 @@ def figure_task_organisation(outcome_similarity, disease_similarity, outcome_fam
     """A: outcomes by similarity of their attention queries (how they read the
     record), by clinical domain. B: outcomes by similarity of their own
     corrections, in A's order. C: diagnoses by similarity of their own
-    corrections, by lineage. Each panel reports the mean similarity within
+    corrections, by disease group. Each panel reports the mean similarity within
     versus between groups with a label-permutation p (from the export).
 
     ``outcome_family`` / ``disease_lineage``: mappings, or the export's
@@ -516,17 +535,17 @@ def figure_task_organisation(outcome_similarity, disease_similarity, outcome_fam
         fig = plt.figure(figsize=(width, height))
         top = lambda inches: 1 - inches / height  # noqa: E731
         a = fig.add_axes([1.6 / width, top(0.42 + size), size / width, size / height])
-        cax = fig.add_axes([1.6 / width, top(0.42 + size + 0.62), 1.9 / width, 0.07 / height])
+        cax = fig.add_axes([(1.6 + (size - 1.9) / 2) / width, top(0.42 + size + 0.62), 1.9 / width, 0.07 / height])
         lower = 0.42 + size + 1.05 + 0.45 + small
         b = fig.add_axes([0.95 / width, top(lower), small / width, small / height])
         c = fig.add_axes([4.75 / width, top(lower), small / width, small / height])
-        cbx = fig.add_axes([2.6 / width, top(lower + 0.68), 1.9 / width, 0.07 / height])
+        cbx = fig.add_axes([((0.95 + 4.75 + small) / 2 - 1.9 / 2) / width, top(lower + 0.68), 1.9 / width, 0.07 / height])
         image = _taxonomy_heatmap(a, outcomes, family, order=outcome_order, label_fn=outcome_label,
                                   group_label=_short_domain, limit=limit, group_names="right",
                                   fontsize=4.6 if len(outcome_order) > 45 else 6.0)
         corrected = _taxonomy_heatmap(b, corrections.reindex(index=outcome_order, columns=outcome_order),
                                       family, order=outcome_order, group_label=_short_domain,
-                                      limit=correction_limit, group_names="left")
+                                      limit=correction_limit, group_names="left", cmap=CORRECTION_SIMILARITY_CMAP)
         _panel_title(b, "B", "How outcomes are corrected", fontsize=9.5)
         _stat_line(b, summary.get("outcome_correction_similarity"), "domain")
         bars += [(image, cax, "Cosine similarity of outcome queries (A)"),
@@ -534,17 +553,18 @@ def figure_task_organisation(outcome_similarity, disease_similarity, outcome_fam
         c_letter = "C"
     _taxonomy_heatmap(c, diseases, lineage, order=disease_order, label_fn=disease_label,
                       group_label=_lineage_label, limit=correction_limit, group_names="right",
-                      fontsize=5.6 if len(disease_order) > 20 else 6.5)
+                      fontsize=5.6 if len(disease_order) > 20 else 6.5,
+                      cmap=CORRECTION_SIMILARITY_CMAP if corrections is not None else SIMILARITY_CMAP)
     _panel_title(a, "A", "How outcomes read the record", fontsize=9.5)
     _stat_line(a, summary.get("outcome_query_similarity"), "domain")
     _panel_title(c, c_letter, "How diagnoses are corrected", fontsize=9.5)
-    _stat_line(c, summary.get("disease_correction_similarity"), "lineage")
+    _stat_line(c, summary.get("disease_correction_similarity"), "disease group")
     for mappable, axis, label in bars:
         bar = fig.colorbar(mappable, cax=axis, orientation="horizontal")
         bar.set_label(label, fontsize=7.5)
         bar.ax.tick_params(labelsize=6.5)
         bar.outline.set_visible(False)
-        bar.ax.xaxis.set_major_locator(MaxNLocator(5))
+        bar.set_ticks([-mappable.norm.vmax, 0, mappable.norm.vmax])
     if mark:
         watermark(fig, mark)
     return fig
@@ -559,15 +579,38 @@ def _spearman(x, y):
 
 
 def _label_extremes(ax, data, x, y, labels, n=3):
-    """Name the ``n`` largest values, staggering offsets to keep labels apart."""
+    """Number the largest values; full names live in a reserved key below axes."""
     top = data.nlargest(n, y)
-    for rank, (_, row) in enumerate(top.iterrows()):
-        name = textwrap.shorten(str(labels(row)), 24, placeholder="…")
-        ax.annotate(name, (row[x], row[y]), xytext=(-7, -6 - 10 * rank), textcoords="offset points",
-                    fontsize=6, color=PALETTE["ink_secondary"], ha="right", va="center", zorder=6,
-                    bbox=dict(facecolor="white", edgecolor="none", alpha=0.85, pad=0.6),
-                    arrowprops=dict(arrowstyle="-", color=PALETTE["connector"], lw=0.5,
-                                    shrinkA=0, shrinkB=2))
+    ax.figure.canvas.draw()
+    occupied = []
+    renderer = ax.figure.canvas.get_renderer()
+    key = []
+    for rank, (_, row) in enumerate(top.iterrows(), start=1):
+        text = textwrap.fill(str(labels(row)), width=27)
+        key.append(f'{rank}  ' + text.replace('\n', '\n   '))
+        options = [(7, 7), (-7, 7), (7, -9), (-7, -9), (0, 16), (15, 0), (-15, 0), (0, -18)]
+        annotation = None
+        for dx, dy in options:
+            annotation = ax.annotate(str(rank), (row[x], row[y]), xytext=(dx, dy),
+                textcoords='offset points', fontsize=6.5, color=PALETTE['ink'],
+                ha='center', va='center', zorder=6,
+                bbox=dict(facecolor='white', edgecolor=PALETTE['connector'], linewidth=.4,
+                          boxstyle='round,pad=.12'),
+                arrowprops=dict(arrowstyle='-', color=PALETTE['connector'], lw=.5))
+            box = annotation.get_window_extent(renderer).expanded(1.08, 1.08)
+            if ax.bbox.contains(box.x0, box.y0) and ax.bbox.contains(box.x1, box.y1) and not any(box.overlaps(old) for old in occupied):
+                occupied.append(box)
+                break
+            annotation.remove()
+            annotation = None
+        if annotation is None:
+            # The numbered key remains available even for a crowded edge point.
+            ax.annotate(str(rank), (row[x], row[y]), xytext=(.93, .92 - .14 * (rank - 1)),
+                textcoords='axes fraction', fontsize=6.5, ha='center', va='center',
+                bbox=dict(facecolor='white', edgecolor=PALETTE['connector'], linewidth=.4, boxstyle='round,pad=.12'),
+                arrowprops=dict(arrowstyle='-', color=PALETTE['connector'], lw=.5))
+    ax.text(0, -.33, '\n'.join(key), transform=ax.transAxes, ha='left', va='top',
+            fontsize=6.2, linespacing=1.22, color=PALETTE['ink_secondary'])
 
 
 def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None = None, *,
@@ -577,7 +620,7 @@ def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None 
     A: each outcome's attention gate |tanh g| (own reading). B: the size of its
     own correction. C: the size of each diagnosis's own correction against the
     diagnosis's training events. Outcomes are coloured by clinical domain,
-    diagnoses by lineage; Spearman correlations with training events.
+    diagnoses by disease group; Spearman correlations with training events.
     """
     outcome_label = outcome_label or _outcome_label
     disease_label = disease_label or _disease_label
@@ -590,13 +633,13 @@ def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None 
     styles, order = _group_styles(data.endpoint_family, _domain_order())
     has_diseases = (diseases is not None and "size" in diseases
                     and pd.to_numeric(diseases["size"], errors="coerce").gt(0).any())
-    fig = plt.figure(figsize=(7.2, 4.1))
-    grid = fig.add_gridspec(1, 3 if has_diseases else 2, wspace=0.55, left=0.085, right=0.985,
-                            top=0.88, bottom=0.42)
-    xlabel = {"training_events": "Training events (log scale)",
-              "validation_cases": "Validation cases at 1 year (log scale)"}[support]
-    panels = [("gate", "A", "Own reading", "Attention gate |tanh g|"),
-              ("correction_size", "B", "Own outcome correction", "Correction size (norm)")]
+    fig = plt.figure(figsize=(8.8, 4.6))
+    grid = fig.add_gridspec(1, 3 if has_diseases else 2, wspace=0.53, left=0.075, right=0.98,
+                            top=0.88, bottom=0.48)
+    xlabel = {"training_events": "Outcome training events (log scale)",
+              "validation_cases": "Tuning cases at 1 year (log scale)"}[support]
+    panels = [("gate", "A", "Outcome-specific reading", "Reading gate magnitude |tanh(g)|"),
+              ("correction_size", "B", "Outcome correction", r"Outcome matrix norm $\|UD\|_{\mathrm{F}}$")]
     for index, (column, letter, title, ylabel) in enumerate(panels):
         ax = fig.add_subplot(grid[0, index])
         for family in order:
@@ -607,7 +650,6 @@ def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None 
         rho = _spearman(data[support].to_numpy(float), data[column].to_numpy(float))
         ax.text(0.97, 0.03, f"Spearman ρ {rho:+.2f}", transform=ax.transAxes, ha="right", va="bottom",
                 fontsize=6.8, color=PALETTE["ink_secondary"])
-        _label_extremes(ax, data, support, column, lambda r: outcome_label(r.outcome))
         ax.set_xscale("log")
         ax.set_xlabel(xlabel, fontsize=8)
         ax.set_ylabel(ylabel, fontsize=8)
@@ -615,11 +657,12 @@ def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None 
         ax.yaxis.set_major_locator(MaxNLocator(4))
         _panel_title(ax, letter, title, fontsize=9.5)
         despine(ax, "both")
+        _label_extremes(ax, data, support, column, lambda r: outcome_label(r.outcome))
     handles = [Line2D([], [], ls="", marker=styles[f][1], color=styles[f][0], markersize=4.5,
                       label=f"{_short_domain(f)} ({int((data.endpoint_family == f).sum())})")
                for f in order]
-    fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.29), ncol=4 if has_diseases else 3,
-               frameon=False, fontsize=6.6, handletextpad=0.2, columnspacing=0.9,
+    fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.065, 0.23), ncol=4 if has_diseases else 3,
+               frameon=False, fontsize=6.6, handletextpad=0.2, columnspacing=0.65, labelspacing=0.3, borderaxespad=0,
                title="Clinical domain (outcomes)", title_fontsize=6.8, alignment="left")
     if has_diseases:
         part = diseases.copy()
@@ -636,19 +679,21 @@ def figure_specialisation(outcomes: pd.DataFrame, diseases: pd.DataFrame | None 
         rho = _spearman(part["size"].to_numpy(float), part.correction_size.to_numpy(float))
         ax.text(0.97, 0.03, f"Spearman ρ {rho:+.2f}", transform=ax.transAxes, ha="right", va="bottom",
                 fontsize=6.8, color=PALETTE["ink_secondary"])
-        _label_extremes(ax, part, "size", "correction_size", lambda r: disease_label(r.disease))
         ax.set_xscale("log")
-        ax.set_xlabel("Diagnosis training events (log scale)", fontsize=8)
-        ax.set_ylabel("Correction size (norm)", fontsize=8)
+        ax.set_xlabel("Disease training events (log scale)", fontsize=8)
+        ax.set_ylabel(r"Disease matrix norm $\|UD\|_{\mathrm{F}}$", fontsize=8)
         ax.set_ylim(bottom=0)
         ax.yaxis.set_major_locator(MaxNLocator(4))
-        _panel_title(ax, "C", "Own diagnosis correction", fontsize=9.5)
+        _panel_title(ax, "C", "Disease correction", fontsize=9.5)
         despine(ax, "both")
+        _label_extremes(ax, part, "size", "correction_size", lambda r: disease_label(r.disease))
         lineage_handles = [Line2D([], [], ls="", marker=lineage_styles[g][1], color=lineage_styles[g][0],
                                   markersize=4.5, label=_lineage_label(g)) for g in lineage_order]
-        fig.legend(handles=lineage_handles, loc="upper left", bbox_to_anchor=(0.69, 0.29), ncol=2,
-                  frameon=False, fontsize=6.6, handletextpad=0.2, columnspacing=0.8,
-                  title="Lineage (diagnoses)", title_fontsize=6.8, alignment="left")
+        fig.legend(handles=lineage_handles, loc="upper left", bbox_to_anchor=(0.72, 0.23), ncol=2,
+                  frameon=False, fontsize=6.6, handletextpad=0.2, columnspacing=0.6, labelspacing=0.3, borderaxespad=0,
+                  title="Disease group", title_fontsize=6.8, alignment="left")
+    fig.text(.065, .02, 'Learned parameter magnitudes; not prediction or performance effects.',
+             fontsize=6.4, color=PALETTE['ink_muted'], ha='left')
     if mark:
         watermark(fig, mark)
     return fig

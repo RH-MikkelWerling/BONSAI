@@ -18,16 +18,24 @@ PLOT_TABLES = {
     'gate_effects.csv', 'route_summaries.csv', 'calibration_summary.csv',
     'reliability.csv', 'coverage.csv', 'training_support.csv',
     'region_models.csv', 'region_coverage.csv', 'region_effects.csv', 'route_health.csv',
+    'gain_sources_cells.csv', 'design_search.csv', 'outcome_query_similarity.csv',
+    'disease_correction_similarity.csv', 'outcome_correction_similarity.csv',
+    'outcome_specialisation.csv', 'disease_specialisation.csv',
+    'task_structure_summary.json', 'correction_arrows.csv', 'correction_arrow_density.csv', 'correction_arrows.json',
     'rescue_cells.csv', 'paired_domain_summary.csv', 'outcome_support_summary.csv',
     'patient_subgroups_auc.csv', 'national_subgroups.csv', 'selected_strategy.csv',
 }
 REPORT_TABLES = {
     'effect_summaries.csv', 'joint_path_summaries.csv',
+    'figure_checklist.csv', 'results_macros.tex', 'paper_numbers.json',
+    'panel_effects_rows.tex', 'clinical_index_rows.tex', 'clinical_index_summary.csv',
+    'clinical_evaluation_km_matching.csv', 'supplement_tables.tex',
     'common_population_estimates.csv', 'paired_contrasts.csv', 'model_coverage.csv',
     'population_by_disease.csv', 'auc_pair_composition.csv',
     'score_inventory.csv', 'headline_scores.csv', 'classification_at_thresholds.csv',
     'classification_at_anchors.csv', 'cutoff_diagnostics.csv', 'score_population_flow.csv',
     'size_matched_survival_comparisons.csv', 'km_matched_low_groups.csv',
+    'evaluation_km_matched_groups.csv', 'evaluation_km_frontiers.csv',
     'clinical_operating_point_counts.csv',
     'stratification_diagnostics.csv', 'borrowing_map.csv', 'borrowing_levels.csv',
     'borrowing_hypotheses.csv', 'borrowing_hypothesis_test.csv',
@@ -40,7 +48,7 @@ REPORT_TABLES = {
     'attribution_numbers.json', 'summary_manifest.json', 'layout_report.json',
 }
 ANALYSIS_TABLES = {
-    'effect_summaries.csv', 'effect_summaries_disease_balanced.csv',
+    'effect_summaries.csv', 'effect_summaries_disease_balanced.csv', 'headline_holm.csv',
     'contrasts.csv', 'contrasts_all_horizons.csv', 'estimates.csv',
 }
 PATIENT_COLUMNS = {'patient_id', 'subject_id', 'person_id', 'pid', 'cpr', 'pnr'}

@@ -422,6 +422,19 @@ def with_opera_alias(predictions, model):
     present = set(predictions.model) | {"OPERA"}
     contrasts = {name: expression for name, expression in OPERA_CONTRASTS.items()
                  if expression[5:-1].split(",")[1] in present}
+    # Encoder identity follows the frozen selected alias, never test performance.
+    origin = "EA" if model.endswith("_EA") else "E" if model.endswith("_E") else "L" if model.endswith("_L") else None
+    if origin:
+        references = {"O2_MATCHED": f"J_{origin}",
+                      "O_READ_MATCHED": f"R_PF_OFF_{origin}",
+                      "O_ROUTING_MATCHED": f"R_AB_{origin}"}
+        if model == "J_OA_OWN_L":
+            references["O_CORRECTIONS_MATCHED"] = "J_OA_L"
+        for name, reference in references.items():
+            if reference in present and reference != model:
+                contrasts[name] = f"gain(OPERA,{reference})"
+    if {"J_OA_OWN_L", "J_L"} <= present:
+        contrasts["O2_LOCAL"] = "gain(J_OA_OWN_L,J_L)"
     return pd.concat([predictions, alias], ignore_index=True), contrasts
 
 
@@ -437,7 +450,7 @@ def analysed_models_only(predictions, contrasts, config, candidates=()):
     if config.get("keep_all_models"):
         return predictions, set()
     used = set(ALWAYS_ANALYSED) | set(candidates) | models_for(contrasts)
-    for members in config.get("panel_estimate_groups", DEFAULT_PANEL_ESTIMATE_GROUPS).values():
+    for members in panel_groups(config).values():
         used |= set(members)
     for spec in (config.get("stratified_reanalysis") or {}).values():
         used |= set(spec.get("models", []))
@@ -517,6 +530,53 @@ def stage(name):
     _STARTED = _STARTED or time.time()
     print(f"analysis stage: {name} ({(time.time() - _STARTED) / 60:.1f} min)",
           file=sys.stderr, flush=True)
+
+
+# National arm of the secondary model (lock, 3 November): learned routing
+# (R_AB) on the national encoder against its local fit and XGBoost.
+NATIONAL_ROUTING = {
+    "E2_AB": "gain(R_AB_E,R_AB_L)", "E4_AB": "gain(R_AB_EA,R_AB_L)",
+    "A2_AB": "gain(R_AB_EA,R_AB_E)", "T5E_AB": "gain(R_AB_E,X)", "T5_AB": "gain(R_AB_EA,X)",
+    "I1_AB": "gain(R_AB_E,J_E)-gain(R_AB_L,J_L)", "I3_AB": "gain(R_AB_EA,J_EA)-gain(R_AB_L,J_L)",
+    # OPERA against learned routing on the same national encoder.
+    "OAOWN_AB_E": "gain(R_E,R_AB_E)", "OAOWN_AB_EA": "gain(R_EA,R_AB_EA)",
+    # National mechanism ladder (3 Nov): the same steps as Table 2 on each
+    # national encoder, the ablations on the adapted one, and whether each
+    # step grows from the cohort to the adapted national encoder.
+    "OFF_J_E": "gain(R_PF_OFF_E,J_E)", "OAOWN_OFF_E": "gain(R_E,R_PF_OFF_E)",
+    "AB_OFF_E": "gain(R_AB_E,R_PF_OFF_E)",
+    "OFF_J_EA": "gain(R_PF_OFF_EA,J_EA)", "OAOWN_OFF_EA": "gain(R_EA,R_PF_OFF_EA)",
+    "AB_OFF_EA": "gain(R_AB_EA,R_PF_OFF_EA)",
+    "OAOWN_DIS_EA": "gain(R_EA,J_OA_OWN_NODIS_EA)", "OAOWN_OUT_EA": "gain(R_EA,J_OA_OWN_NOOUT_EA)",
+    "OFF_GROWTH_EA": "gain(R_PF_OFF_EA,J_EA)-gain(R_PF_OFF_L,J_L)",
+    "READ_GROWTH_EA": "gain(R_EA,R_PF_OFF_EA)-gain(J_OA_OWN_L,R_PF_OFF_L)",
+}
+# Contrasts of the 14 October manifest whose local reference R_L stands for the
+# primary OPERA: with a reading-design primary, the national OPERA (R_E, R_EA)
+# carries that design, while R_L stays learned routing (lock, section 1).
+NATIONAL_OPERA_CONTRASTS = ("E2", "E4", "I1", "I3")
+
+
+def national_counterparts(contrasts, opera_model):
+    """Point the national-vs-local OPERA contrasts at the local primary design."""
+    local_model = "J_OA_OWN_L" if opera_model in {"R_E", "R_EA"} else opera_model
+    if not local_model or not str(local_model).startswith("J_"):
+        return contrasts
+    return {name: (expression.replace("R_L)", f"{local_model})").replace("(R_L,", f"({local_model},")
+                   if name in NATIONAL_OPERA_CONTRASTS else expression)
+            for name, expression in contrasts.items()}
+
+
+def panel_groups(config):
+    """Encoder-origin panels: the local OPERA is the primary design (as in the
+    national contrasts), and learned routing gets its own row group."""
+    groups = dict(config.get("panel_estimate_groups", DEFAULT_PANEL_ESTIMATE_GROUPS))
+    opera = config.get("opera_model")
+    opera = "J_OA_OWN_L" if opera in {"R_E", "R_EA"} else opera
+    if opera and str(opera).startswith("J_") and "encoder_origin" in groups:
+        groups["encoder_origin"] = [opera if m == "R_L" else m for m in groups["encoder_origin"]]
+        groups.setdefault("encoder_origin_routing", ["R_AB_L", "R_AB_E", "R_AB_EA"])
+    return groups
 
 
 def collapse_seed_repeats(predictions, config):
@@ -622,6 +682,9 @@ def run(config, output_dir):
         for family in contrast_manifest["essential_contrasts"].values()
         for name, value in family.items()
     }
+    contrasts = national_counterparts(contrasts, config.get("opera_model"))
+    contrasts.update({name: expression for name, expression in NATIONAL_ROUTING.items()
+                      if models_for({name: expression}) <= set(predictions.model)})
     contrasts.update(config.get("extra_contrasts", {}))
     contrasts.update(router_decomposition(set(predictions.model)))
     predictions, opera_contrasts = with_opera_alias(predictions, config.get("opera_model"))
@@ -696,7 +759,7 @@ def run(config, output_dir):
     tables["panel_estimates"] = panel_estimates(
         tables["estimates"],
         tables.pop("model_bootstrap_draws"),
-        config.get("panel_estimate_groups", DEFAULT_PANEL_ESTIMATE_GROUPS),
+        panel_groups(config),
     )
     cell_metadata = read_table(config["cell_metadata"])
     for column, definition in config.get("cell_groups", {}).items():
@@ -726,6 +789,8 @@ def run(config, output_dir):
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])),
     )
+    from opera.evaluation.headline_holm import headline_holm
+    tables["headline_holm"] = headline_holm(summaries, bootstrap_method=bootstrap_method)
     stage("disease-balanced effect summaries")
     _, tables["effect_summaries_disease_balanced"] = effect_summaries(
         tables["contrasts"], tables["bootstrap_draws"], cell_metadata,

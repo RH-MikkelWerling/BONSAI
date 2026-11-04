@@ -1,0 +1,45 @@
+% Every clinical prognostic index against OPERA at both ends. Rows are written by
+% opera.run.build_paper_numbers (clinical_index_rows.tex) from the aggregate
+% clinical-scores outputs; the placeholder row is shown until they exist.
+\begin{table}[p]
+\centering
+\caption{\textbf{\opera{} against every clinical prognostic index at both ends.}
+One row per index and the population it applies to (as in
+\cref{fig:clinical-index-summary}), on test patients with the index recorded at
+diagnosis, for the endpoint the index was developed for at the stated horizon.
+Every difference is oriented so that positive values favour \opera{}.
+\textbf{Equal group sizes}: \opera{}'s risk groups take the sizes of the index's
+categories in the same patients; (a) survival of \opera{}'s lowest group minus
+the index's lowest category, and (b) survival of the index's highest category
+minus \opera{}'s highest group, in percentage points, with 95\% paired bootstrap
+intervals that repeat the size matching in each replicate. \textbf{Equal risk}:
+cutoffs fixed on training data; (c) additional patients in \opera{}'s low-risk
+group, selected as the largest group with survival no lower than the index's
+lowest category, as a percentage of patients and as a count ($n$); (d) additional
+events captured per 1,000 patients by \opera{}'s high-risk group at the index's
+specificity (inverse probability of censoring weighting). Intervals are
+conditional on the frozen cutoffs. Bold: interval above zero; in colour:
+interval below zero. n.e., not estimable; reasons are given where a whole
+comparison could not be made. Counts across indices:
+\result{clinical_low_size_atleast}{k of n} indices at least as good at the low
+end and \result{clinical_high_size_atleast}{k of n} at the high end (estimate
+$\geq0$; analysis-lock rule), \result{clinical_low_size_better}{k of n} and
+\result{clinical_high_size_better}{k of n} better (interval above zero).}
+\label{tab:clinical-index-summary}
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.08}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lllrrrrrr@{}}
+\toprule
+& & & & \multicolumn{2}{c}{Equal group sizes} & \multicolumn{3}{c}{Equal risk} \\
+\cmidrule(lr){5-6}\cmidrule(l){7-9}
+Disease & Index & Endpoint & Patients & (a) Lowest group, pp & (b) Highest group, pp
+  & (c) Low risk, \% & $n$ & (d) Events per 1,000 \\
+\midrule
+\IfFileExists{\resultnumbersdir clinical_index_rows.tex}{\input{\resultnumbersdir clinical_index_rows.tex}}{%
+\placeholder{Disease} & \placeholder{Index} & \placeholder{Endpoint} & \placeholder{N}
+  & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{n} & \placeholder{x} \\
+\bottomrule}
+\end{tabular}}
+\end{table}

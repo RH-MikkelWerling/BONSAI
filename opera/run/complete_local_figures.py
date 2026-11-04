@@ -58,9 +58,10 @@ def selected_fit(analysis, paper_root, bundles):
     if len(found) != 1:
         raise ValueError('Primary prediction path does not identify exactly one audited bundle fit')
     row, config_path, config, aliases = next(iter(found.values()))
-    model = next((a for a in aliases if a in OWN_REFERENCE), None)
+    requested = analysis.get('opera_model', 'R_L')
+    model = requested if requested in aliases else next((a for a in aliases if a in OWN_REFERENCE), None)
     if model is None:
-        raise ValueError(f'No supported own-task control for selected fit: {aliases}')
+        raise ValueError(f'Selected model is not a registered fit: {aliases}')
     checkpoint = paper_root / 'neural_runs' / row['run_directory'] / 'best.ckpt'
     selection = verified_training_selection(checkpoint.parent)
     marker = json.loads((artifact.parent / 'evaluation_complete.json').read_text())
@@ -74,7 +75,7 @@ def selected_fit(analysis, paper_root, bundles):
         raise ValueError('Selected checkpoint content changed')
     if marker['prediction_sha256'] != sha(artifact):
         raise ValueError('Primary predictions changed after evaluation')
-    return dict(model=model, own_reference=OWN_REFERENCE[model], checkpoint=str(checkpoint),
+    return dict(model=model, own_reference=OWN_REFERENCE.get(model), checkpoint=str(checkpoint),
                 checkpoint_sha256=selection['best_checkpoint_sha256'], config=str(config_path),
                 config_sha256=sha(config_path), predictions=str(artifact))
 
@@ -123,6 +124,9 @@ def main():
         bundles = [p for p in stage_bundles(paper_root) if (p / 'bundle.json').is_file()]
         analysis = yaml.safe_load((old / 'analysis_inventory/analysis.yaml').read_text())
         fit = selected_fit(analysis, paper_root, bundles)
+        router_model = env.get('OPERA_PAPER_ROUTED_MODEL', 'R_AB_L')
+        router_fit = (fit if fit['own_reference'] else selected_fit(
+            {**analysis, 'opera_model': router_model}, paper_root, bundles))
         clinical_sources = [Path(analysis['patient_metadata']), *args.scores]
         if env.get('OPERA_PAPER_CLINICAL_METADATA'):
             clinical_sources.append(path_value(env, 'OPERA_PAPER_CLINICAL_METADATA'))
@@ -132,9 +136,11 @@ def main():
         scientific_inputs = dict(clinical_only=args.clinical_only, source_code_sha256=source_code,
                                  clinical_source_sha256={str(p.resolve()): sha(p) for p in clinical_sources},
                                  source_analysis_sha256=sha(old / 'analysis_inventory/analysis.yaml'),
-                                 fit=fit, source_env_sha256=sha(old / 'overnight.env'))
+                                 fit=fit, router_fit=router_fit, source_env_sha256=sha(old / 'overnight.env'))
         if args.resume:
             report = json.loads((root / 'completion.json').read_text())
+            if 'router_fit' not in report['inputs'] and router_fit == fit:
+                report['inputs']['router_fit'] = report['inputs']['fit']
             check_resume_inputs(report['inputs'], scientific_inputs,
                                 verify_sources=args.verify_sources)
             report.setdefault('resume_attempts', []).append(dict(
@@ -173,6 +179,16 @@ def main():
                 path=str(root / 'clinical_training/direct_cr_predictions.parquet')), analysis)]
             (root / 'analysis_inventory/analysis.yaml').write_text(yaml.safe_dump(analysis, sort_keys=False))
             embedding, clinical = build(analysis, root / 'configs')
+            if env.get('OPERA_PAPER_CLINICAL_SCORE_CONFIG'):
+                active = path_value(env, 'OPERA_PAPER_CLINICAL_SCORE_CONFIG')
+                if active.is_file():
+                    clinical = yaml.safe_load(active.read_text())
+                    from scripts.set_test_env import set_clinical_model
+                    destination = root / 'configs/clinical_score_panels.tuning.yaml'
+                    destination.write_text(yaml.safe_dump(clinical, sort_keys=False))
+                    set_clinical_model(destination, 'fresh_rehearsal', analysis.get('opera_model', fit['model']))
+                    report['active_clinical_config'] = str(active)
+
             report['recorded_category_audit'] = json.loads((root / 'configs/config_audit.json').read_text())['recorded_category_audit']
             embedding['calibration_maps']['routed_vectors'] = {name: str(root / 'routed_vectors' / name /
                 'routed_patient_vectors_INTERNAL.npz') for name in embedding['calibration_maps']['outcomes']}
@@ -183,6 +199,11 @@ def main():
                 OPERA_PAPER_PLOT_TABLE_ROOT=str(root / 'figure_inputs/plot_tables'),
                 OPERA_PAPER_FIGURE_CONFIG=str(root / 'figure_inputs/figures.yaml'),
                 OPERA_PAPER_PLOT_SPLIT='tuning', OPERA_PAPER_FIGURES_AVAILABLE_ONLY='1',
+                OPERA_PAPER_TASK_STRUCTURE_CHECKPOINT=fit['checkpoint'],
+                OPERA_PAPER_TASK_STRUCTURE_CONFIG_NAME=Path(fit['config']).stem,
+                OPERA_PAPER_ATTRIBUTION_CHECKPOINT=fit['checkpoint'],
+                OPERA_PAPER_ATTRIBUTION_CONFIG_DIR=str(Path(fit['config']).parent),
+                OPERA_PAPER_ATTRIBUTION_CONFIG_NAME=Path(fit['config']).stem,
                 OPERA_PAPER_ATTRIBUTION_SUMMARY_DIR=str(root / 'attributions/summary_365d'),
                 OPERA_PAPER_INPUT_RESTRICTION_DIR=str(root / 'input_restrictions'))
             env_file = root / 'overnight.env'
@@ -210,7 +231,7 @@ def main():
             with (root / 'logs' / f'{name}.log').open('a') as log:
                 result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)
             if name == 'borrowing_inference' and result.returncode == 0:
-                complete_borrowing_export(root / 'borrowing_inference', fit, command)
+                complete_borrowing_export(root / 'borrowing_inference', router_fit, command)
             expected = {'init_figures': [root / 'figure_inputs/figures.yaml'],
                 'clinical_training_predictions': [root / 'clinical_training/direct_cr_predictions.parquet'],
                 'clinical_scores': [root / 'clinical_scores/headline_scores.csv', root / 'clinical_scores/classification_at_thresholds.csv',
@@ -273,8 +294,8 @@ def main():
                 '--export-routed-outcome', outcome, '--batch-size', env.get('OPERA_PAPER_BATCH_SIZE', '1'),
                 '--output-dir', destination))
         removal = root / 'borrowing_inference'
-        run('borrowing_inference', module('evaluate_direct_competing_risk', '--checkpoint', fit['checkpoint'],
-            '--config-dir', Path(fit['config']).parent, '--config-name', Path(fit['config']).stem,
+        run('borrowing_inference', module('evaluate_direct_competing_risk', '--checkpoint', router_fit['checkpoint'],
+            '--config-dir', Path(router_fit['config']).parent, '--config-name', Path(router_fit['config']).stem,
             '--split', 'tuning', '--borrowing-design', '--batch-size', env.get('OPERA_PAPER_BATCH_SIZE', '1'),
             '--output-dir', removal))
         bundle_args = [part for path in bundles for part in ['--bundle-dir', str(path)]]
@@ -282,8 +303,8 @@ def main():
             run('borrowing_analysis' + ('_zero' if ablation == 'zero' else ''), module('source_removal',
                 *bundle_args, '--prediction-dir', paper_root / 'predictions', '--removal-dir', removal,
                 '--membership', path_value(env, 'BONSAI_COHORT_MEMBERSHIP'),
-                '--output-dir', root / 'source_removal', '--split', 'tuning', '--model', fit['model'],
-                '--own-reference', fit['own_reference'], '--ablation', ablation,
+                '--output-dir', root / 'source_removal', '--split', 'tuning', '--model', router_fit['model'],
+                '--own-reference', router_fit['own_reference'], '--ablation', ablation,
                 '--replicates', env.get('OPERA_PAPER_REMOVAL_REPLICATES', '1000')),
                 needs=['borrowing_inference'])
         # Fixed checkpoint, same tuning patients and endpoints, fresh inference.

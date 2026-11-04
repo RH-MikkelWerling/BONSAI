@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from opera.evaluation.secondary_analysis import effect_summaries, normalize_predictions, paired_analysis
+from opera.evaluation.secondary_analysis import effect_summaries, effect_summary_weights, normalize_predictions, paired_analysis
 from opera.run.analyse_locked_predictions import read_artifact, read_table
 from opera.run.run_paper_queue import file_hash
 
@@ -81,11 +81,11 @@ def analyse(frame, cell_metadata, *, replicates=1000, min_cases=5, min_controls=
         if block.empty:
             continue
         keys = block.reset_index()[["cohort", "outcome", "horizon_days"]]
-        counts = keys.groupby("cohort").outcome.transform("nunique")
-        horizons = keys.groupby(["cohort", "outcome"]).horizon_days.transform("nunique")
-        balanced = 1 / (keys.cohort.nunique() * counts * horizons)
+        keys = keys.merge(cell_metadata[["cohort", "outcome", "horizon_days", "loss_endpoint"]],
+                          validate="one_to_one")
+        balanced = effect_summary_weights(keys, "disease_balanced")
         for weighting, weights in (("equal_cell", np.full(len(block), 1 / len(block))),
-                                    ("disease_balanced", balanced.to_numpy())):
+                                    ("disease_balanced", balanced)):
             for model in identities:
                 model_rows.append(dict(model=model, training_seed=identities[model],
                                        horizon_days=int(horizon), weighting=weighting,

@@ -41,20 +41,21 @@ signed lock closure.}
 We report two mean paired summaries of AUC, IPA and Brier differences on the
 same supported disease--outcome--horizon cells. The equal-cell summary gives
 each cell--horizon combination equal weight. The disease-balanced summary
-gives each disease equal weight, each outcome equal weight within a disease,
+gives each disease equal weight, each training-loss endpoint family equal
+weight within a disease, each outcome variant equal weight within a family,
 and each evaluated horizon equal weight within an outcome. Point-estimate
 weights and the included cells are held fixed across the paired patient
 bootstrap draws; unavailable cell estimates are not treated as zero. The
 Brier difference is oriented as reference minus candidate, so positive
 values favour the candidate for all three measures. These means describe
 different task distributions; neither is a patient-population utility measure.
-Endpoint-family or clinical-domain weighting is distinct from this
-disease-balanced definition and is labelled separately when used.
+The family map is the approved training configuration's \texttt{loss\_endpoint}
+map, rather than the broader clinical display groups.
 
 Headline differences and \cref{tab:panel-effects} give each supported
 cell--horizon combination equal weight. Disease-balanced summaries use the
-nested disease, outcome and horizon weighting described above. The 52 endpoint
-families define training-loss weights, not evaluation weights. Clinical-domain
+nested disease, endpoint-family, outcome-variant and horizon weighting described
+above. The 52 endpoint families also define training-loss weights. Clinical-domain
 weighting is a separate sensitivity analysis. Eligibility and finite-bootstrap
 support are recorded for each contrast rather than silently replacing missing
 estimates by zero. AUC requires at least five cases and five controls for the
@@ -87,7 +88,7 @@ ignores the nonlinearity between $V$ and $U$, so it compares the linear part of
 two corrections; two adapters with similar maps can still act differently on
 the same representation. Whether similarity follows the clinical taxonomy was
 tested by the mean similarity of pairs in the same group (endpoint family for
-outcomes, lineage for diagnoses) minus that of pairs in different groups,
+outcomes, disease group for diagnoses) minus that of pairs in different groups,
 against 2,000 permutations of the group labels over tasks; the one-sided $P$
 value is the share of permutations, counting the observed labelling, with a
 difference at least as large. Tasks without a group were left out. The test

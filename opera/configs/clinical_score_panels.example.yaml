@@ -5,7 +5,9 @@
 # disease becomes one comparison (all_indices). There is no numeric score for
 # these, so the category rank serves as the score for discrimination.
 #
-# Model risk groups are developed on training patients. risk_matched_low (default):
+# Complementary absolute cutoffs are developed on training patients. Primary (analysis lock,
+# 'same number of patients'; closure note 3 Nov): cohort_size_matched, the index's
+# category sizes within the same patients. risk_matched_low:
 # low cutoff = largest model low-risk group no riskier than the index's;
 # high cutoff = the index's high-risk specificity; middle groups split in the
 # index's proportions. size_matched: the index's group sizes. Fixed
@@ -25,7 +27,7 @@ all_indices:
   pooled: true                  # also each index across all subtypes recording it
   manuscript: {index: null, cohort: DLBCL}  # exact `index` value of the IPI
   template:
-    model: J_L                  # the configuration selected as OPERA on the tuning set
+    model: J_OA_OWN_L           # OPERA, the design selected on tuning data (lock, 3 Nov)
     seed: 42
     outcome: null  # Exact registry name of death-inclusive treatment failure.
     outcome_label: Treatment failure
@@ -39,7 +41,7 @@ all_indices:
     age_column: age_at_index
     score_date_column: null
     score_timing: recorded at diagnosis in the quality registry, before treatment start
-    cutoff_rule: risk_matched_low
+    cutoff_rule: cohort_size_matched
     minimum_patients: 50         # test patients needed for a full plate (S7 row + own S8 page)
     lock_provenance: null
     applicability_review: null
@@ -49,7 +51,7 @@ scores:  # explicit entries (scores not in the `index` column)
     # IPI computed from registry components (opera.run.compute_prognostic_scores)
     # for every patient with all five components, across all subtypes.
     score_label: IPI (computed)
-    model: J_L
+    model: J_OA_OWN_L
     seed: 42
     cohorts: all
     outcome: null  # Same endpoint as all_indices.template.
@@ -67,7 +69,7 @@ scores:  # explicit entries (scores not in the `index` column)
     age_column: age_at_index
     score_date_column: null
     score_timing: computed from components recorded at diagnosis, before treatment start
-    cutoff_rule: risk_matched_low
+    cutoff_rule: cohort_size_matched
     minimum_patients: 50
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
@@ -79,7 +81,7 @@ scores:  # explicit entries (scores not in the `index` column)
     # its own comparison; same patients for model and score. Cohort list to be
     # confirmed by a haematologist (cohorts without an index in routine use).
     score_label: IPI (computed), lymphomas without an index
-    model: J_L
+    model: J_OA_OWN_L
     seed: 42
     cohorts: [ALCL, TRANSFORMED_FL, LBL, RT, NMZL, BCL, TCL]
     outcome: null  # Same endpoint as all_indices.template.
@@ -97,7 +99,7 @@ scores:  # explicit entries (scores not in the `index` column)
     age_column: age_at_index
     score_date_column: null
     score_timing: computed from components recorded at diagnosis, before treatment start
-    cutoff_rule: risk_matched_low
+    cutoff_rule: cohort_size_matched
     minimum_patients: 50
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
@@ -106,7 +108,7 @@ scores:  # explicit entries (scores not in the `index` column)
     # NCCN-IPI computed from the registry components (comparability with the
     # earlier DLBCL study). Flat columns in the clinical metadata table.
     score_label: NCCN-IPI
-    model: J_L
+    model: J_OA_OWN_L
     seed: 42
     cohorts: [DLBCL]
     outcome: null  # Same endpoint as all_indices.template.
@@ -124,7 +126,7 @@ scores:  # explicit entries (scores not in the `index` column)
     age_column: age_at_index
     score_date_column: null
     score_timing: computed from components recorded at diagnosis, before treatment start
-    cutoff_rule: risk_matched_low
+    cutoff_rule: cohort_size_matched
     minimum_patients: 50
     manuscript_figures: false
     lock_provenance: null       # as in all_indices.template
@@ -146,24 +148,81 @@ index_endpoint: native
 # (default 5% to 40%) must be fixed before the test set is opened.
 native_endpoints:
   IPI:       {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365],
               decision_curve: {action: "closer monitoring and supportive care",
                                outcome_label: death, comparators: [X],
                                labels: {X: XGBoost}}}
   NCCN-IPI:  {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
   CLL-IPI:   {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
   R-ISS:     {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall and progression-free survival, 5 years", horizons_days: [730, 365]}
   FLIPI:     {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 and 10 years", horizons_days: [730, 365]}
   MIPI:      {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
   IPS:       {outcome: null, outcome_label: Treatment failure, death_in_endpoint: true,
+              endpoint_match: proxy_pending_mapping,
+              endpoint_proxy_note: "Next treatment or death does not directly ascertain freedom from progression.",
               original_endpoint: "freedom from progression, 5 years (closest panel outcome: treatment failure)",
               horizons_days: [730, 365]}
   IPI (computed), lymphomas without an index: {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years (IPI applied outside the diseases it was built for)", horizons_days: [730, 365]}
   IPI (computed): {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
               original_endpoint: "overall survival, 5 years", horizons_days: [730, 365]}
+
+  # Verified original targets. Nulls deliberately require an explicit choice of
+  # approved panel outcome; PFS/EFS must not silently become treatment failure.
+  ISS: {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
+        original_endpoint: "overall survival", horizons_days: [730, 365],
+        endpoint_source: "https://pubmed.ncbi.nlm.nih.gov/15809451/"}
+  R-IPI: {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
+          original_endpoint: "overall and progression-free survival, 4 years (DLBCL treated with R-CHOP)",
+          horizons_days: [730, 365], endpoint_source: "https://pubmed.ncbi.nlm.nih.gov/17105812/"}
+  IPSSWM: {outcome: overall_survival, outcome_label: Overall survival, death_in_endpoint: true,
+              endpoint_match: same_endpoint,
+           original_endpoint: "overall survival from treatment initiation", horizons_days: [730, 365],
+           endpoint_source: "https://pubmed.ncbi.nlm.nih.gov/19196866/"}
+  FLIPI2: {endpoint_match: proxy_pending_mapping,
+           endpoint_proxy_note: "If treatment_failure is chosen, next treatment or death proxies progression or death. Progression without another treatment is not directly captured.",
+           outcome: null, outcome_label: "Progression-free survival (panel mapping unresolved)",
+           death_in_endpoint: true, original_endpoint: "progression-free survival (principal endpoint)",
+           horizons_days: [730, 365],
+           endpoint_source: "https://pubmed.ncbi.nlm.nih.gov/19652063/"}
+  MALT-IPI: {endpoint_match: proxy_pending_mapping,
+             endpoint_proxy_note: "Treatment failure is not identical to the original EFS definition. OS can instead be explicitly labelled as an original secondary endpoint.",
+             outcome: null, outcome_label: "Event-free survival (panel mapping unresolved)",
+             death_in_endpoint: true, original_endpoint: "event-free survival (primary); progression-free and overall survival also analysed",
+             horizons_days: [730, 365],
+             endpoint_source: "https://pubmed.ncbi.nlm.nih.gov/28720586/"}
+# Exact registry names/version aliases must be resolved in the active config.
+# For MALT-IPI, OS is an available original secondary endpoint if explicitly
+# chosen and labelled. For FLIPI2/IPS, inspect the approved failure composite
+# against the original endpoint before choosing and documenting a proxy.
+
+# endpoint_match concerns event definition only. Even same_endpoint comparisons
+# use shorter horizons and may have a different time origin from the original
+# study. Population applicability is documented separately. If a pending proxy
+# is selected, set endpoint_match: proxy and retain the explicit discrepancy.
+
+# Descriptive evaluation-cohort KM matching, independent of the frozen anchors.
+# Exact zero-tolerance matching at both extremes; all tied risks stay together.
+# Both native and model groups require the support below. Bootstrap re-estimates
+# the index target and reselects the largest feasible model group in each draw.
+evaluation_km_matching:
+  enabled: true
+  draws: 200
+  seed: 2026
+  minimum_group: 20
+  minimum_at_risk: 10

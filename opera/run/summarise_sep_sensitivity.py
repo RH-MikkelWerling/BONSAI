@@ -36,7 +36,7 @@ def main():
     output.mkdir(exist_ok=False)
     result['contrasts'].to_csv(output / 'paired_cells.csv', index=False)
     summaries = []
-    for aggregation in ('equal_cell', 'disease_balanced'):
+    for aggregation in ('equal_cell', 'disease_outcome_balanced'):
         _, summary = effect_summaries(result['contrasts'], result['bootstrap_draws'], cells,
                                       aggregation=aggregation)
         summary['aggregation'] = aggregation

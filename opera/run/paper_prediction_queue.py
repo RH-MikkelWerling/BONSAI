@@ -66,6 +66,12 @@ def canonical_models(row, config, bundle):
     if row["phase"] == "pretraining_control":
         return [f"J_{origin}"]  # joint model without pretraining: J_RI
     if row["phase"] == "external":
+        if row["name"].endswith("/AB"):
+            return [f"R_AB_{origin}"]  # learned routing on the national encoder (secondary)
+        ladder = {"/OFF": "R_PF_OFF", "/NODIS": "J_OA_OWN_NODIS", "/NOOUT": "J_OA_OWN_NOOUT"}
+        for suffix, model in ladder.items():   # national mechanism ladder (3 Nov)
+            if row["name"].endswith(suffix):
+                return [f"{model}_{origin}"]
         return [
             f"{'J' if config['competing_risk']['readout_mode'] == 'shared' else 'R'}_{origin}"
         ]
@@ -85,7 +91,7 @@ def canonical_models(row, config, bundle):
     return []  # Tuning candidates are never relabelled as the final model.
 
 
-ROUTED_MODELS = {"R_L", "R_E", "R_EA",
+ROUTED_MODELS = {"R_L", "R_E", "R_EA", "R_AB_E", "R_AB_EA",  # national learned routing (3 Nov)
                  # router fix (2026-10-26): every fit with a routing choice
                  "R_AB_L", "RBH_AB_L", "R_A_L", "R_ABT_L", "R_AB_s43_L",
                  "R_O_L", "RBH_O_L", "R_O_s43_L",
@@ -254,7 +260,7 @@ def evaluate_row(row, path, config, args, aliases=(), borrowing_design=False):
                 f"Untracked evaluation directory already exists: {output}"
             )
         intent.write_text(json.dumps(signature, indent=2) + "\n")
-        flags = (export_flags(aliases, args) if not borrowing_design
+        flags = (export_flags(aliases, args, config) if not borrowing_design
                  else {"borrowing_design": True})
         command = evaluation_command(path, checkpoint, output, args, flags)
         with (output / "evaluation.log").open("a") as log:

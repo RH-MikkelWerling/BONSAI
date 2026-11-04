@@ -287,14 +287,14 @@ def render(output_dir: Path) -> dict:
 
 
 NOTES = {
-    "fig_gain_sources": "Main text; replaces fig_hierarchy. Ladder J → own corrections → + own reading "
-                        "(OPERA); routing as a side branch; stage-12 ablations from OPERA.",
+    "fig_gain_sources": "Main-text candidate. Direct paired contrasts on a shared zero axis, "
+                        "with cell-level distributions, headline-style summaries and explicit reference models.",
     "supp_design_search": "Replaces supp_routing. Every tuned design against J_OA_OWN and R_AB "
                           "(tuning data), seed band of the selected design.",
     "supp_task_organisation": "Replaces fig_borrowing_map. Query similarity, outcome-correction and "
                               "diagnosis-correction similarity with within/between permutation tests.",
     "supp_specialisation": "Replaces supp_router_usage. Gate and correction size against training "
-                           "events, by domain; diagnosis corrections by lineage.",
+                           "events, by domain; diagnosis corrections by disease group.",
     "supp_correction_arrows": "Replaces supp_router_arrows. Binned mean displacement on the shared map "
                               "(synthetic: PCA map; server: the paper's UMAP map).",
     "supp_xgboost_gap": "Figure plan C4. Gap to per-task XGBoost and OPERA's gain over J by domain.",

@@ -23,6 +23,16 @@ def resolve_input(source, config):
     return path if path.is_absolute() else (config.resolve().parent / path).resolve()
 
 
+def read_input_table(path):
+    """A registered table; a header-less empty CSV (an output step with nothing
+    to report, e.g. no paired clinical comparisons) is read as an empty table."""
+    import pandas as pd
+    try:
+        return read_table(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -82,7 +92,7 @@ def main():
                 raise ValueError(f"Unresolved environment variable in input path for {name}/{key}")
             hashes[str(path)] = file_hash(path)
             inputs[key] = (json.loads(path.read_text()) if key in plate.get("json_inputs", {})
-                           else read_table(path))
+                           else read_input_table(path))
         if kind in {'figure_borrowing_map','figure_borrowing_detail'}:
             provenance_paths = {Path(source).parent / 'analysis_provenance.json' for source in hashes
                                 if Path(source).name.startswith('borrowing_')}

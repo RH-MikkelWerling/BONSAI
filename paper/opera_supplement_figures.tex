@@ -187,7 +187,38 @@ the probability of every outcome by each of six horizons.}
   \label{fig:score-overview}
 \end{figure}
 
-% One plate like the figure above for every recorded index, written by the
+\begin{figure}[p]
+  \resultfigure{supp_clinical_index_summary}{\opera{} against every clinical index}
+    {Per index: survival in the lowest and highest groups at equal size;
+    additional low-risk patients and events captured at equal risk.}
+  \caption{\textbf{\opera{} against every clinical prognostic index at both
+  ends.} One row per index and the population it applies to, on test patients
+  with the index recorded at diagnosis, for the endpoint the index was developed
+  for at the horizon in \cref{tab:clinical-index-summary}; rows are ordered by
+  disease, with indices pooled across subtypes last. Every value is oriented so
+  that positive values favour \opera{}. \textbf{A--B}, Equal group sizes:
+  \opera{}'s risk groups take the sizes of the index's categories in the same
+  patients. \textbf{A}, Survival of \opera{}'s lowest group minus that of the
+  index's lowest category; \textbf{B}, survival of the index's highest category
+  minus that of \opera{}'s highest group, in percentage points. \textbf{C--D},
+  Equal risk, with cutoffs fixed on training data. \textbf{C}, Additional
+  patients, as a percentage of all patients, in \opera{}'s largest low-risk group
+  with survival no lower than the index's lowest category; \textbf{D}, additional
+  events captured per 1,000 patients by \opera{}'s high-risk group at the index's
+  specificity (inverse probability of censoring weighting). Diamonds with 95\%
+  paired patient-bootstrap intervals (A--B repeat the size matching in each
+  replicate; C--D are conditional on the frozen cutoffs); filled where the
+  interval excludes zero. The bar above each column counts indices by the
+  prespecified rule: \emph{at least as good} when the estimate is at least zero,
+  \emph{better} when its interval lies above zero (applied descriptively to C--D);
+  this is not an equivalence claim. Grey rows could not be estimated, with the
+  reason given. Estimates and counts are in \cref{tab:clinical-index-summary}.}
+  \label{fig:clinical-index-summary}
+\end{figure}
+
+\input{tables/clinical_index_summary}
+
+% One plate like fig:score-overview for every recorded index, written by the
 % clinical-scores step; copy its clinical_scores/ folder into the figure directory.
 \IfFileExists{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}{%
   \input{\resultfiguredir clinical_scores/supplement_clinical_scores.tex}}{}
@@ -291,9 +322,13 @@ the probability of every outcome by each of six horizons.}
   outcome's own correction (Frobenius norm of the effective low-rank map
   up~$\cdot$~down). \textbf{C}, The size of each diagnosis's own correction
   against the diagnosis's training events over all outcomes. Outcomes are
-  coloured by clinical domain and diagnoses by lineage, with the three largest
-  values named; Spearman correlations with training events are descriptive.
-  Values are parameters of the selected checkpoint; no patient data enter.}
+  coloured by clinical domain and diagnoses by disease group, with the three largest
+  values identified by numbered keys below each panel. Spearman correlations
+  with training events are descriptive. Event totals are not unique patient
+  counts and can count the same patient across outcomes. Gate magnitudes and
+  matrix norms describe fitted parameters, not realised changes in patient
+  risk or improvements in performance. Only checkpoint parameters and aggregate
+  support counts enter this figure.}
   \label{fig:supp-specialisation}
 \end{figure}
 
@@ -615,13 +650,13 @@ the probability of every outcome by each of six horizons.}
 %   Comparisons use the same evaluated patients (AUC points).
 %   \textbf{A}, Unshrunk gains when one source disease is retained
 %   alongside the target's own disease. Own-source cells are grey. Colour alone does
-%   not establish an effect for an individual pair. Lineage groups organise the
+%   not establish an effect for an individual pair. Disease groups organise the
 %   display. \textbf{B}, Unshrunk cross-disease
 %   dependence: full-model AUC minus AUC with other-disease terms replaced;
 %   paired patient-bootstrap intervals and a dashed all-disease mean.
 %   \textbf{C}, Unshrunk versus shrunken source-alone estimates on an absolute
 %   AUC-point scale. The diagonal indicates no change under shrinkage.
-%   Near-zero shrunken effects are not normalised into lineage shares.
+%   Near-zero shrunken effects are not normalised into disease group shares.
 %   \textbf{D}, Cross-disease dependence by clinical domain, with all diseases
 %   weighing equally; dashed line, all outcomes. Source-alone gains are not
 %   additive in AUC and need not sum to the total dependence. Further contrasts
@@ -638,7 +673,7 @@ the probability of every outcome by each of six horizons.}
   lines separate the groups. \textbf{A}, Outcome attention queries after the
   query projection (heads concatenated): outcomes with similar queries read the
   record alike. \textbf{B}, Outcomes' own corrections, in the order of A.
-  \textbf{C}, Diagnoses' own corrections, by lineage. Corrections are compared
+  \textbf{C}, Diagnoses' own corrections, by disease group. Corrections are compared
   through their effective low-rank map (up~$\cdot$~down, without the adapter's
   nonlinearity). Below each panel, the mean similarity within versus between
   groups, with a one-sided p from 2,000 permutations of the group labels. Query

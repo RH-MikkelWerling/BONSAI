@@ -26,7 +26,8 @@ def rebuild(analysis_dir, output_dir):
     strata = config.get('cell_summary_strata') or list(dict.fromkeys([
         'support_bin', 'outcome_family', 'endpoint_group', 'cohort',
         *config.get('cell_groups', {})]))
-    columns = [c for c in strata if c in contrasts and c not in keys]
+    columns = list(dict.fromkeys(c for c in [*strata, "loss_endpoint"]
+                                 if c in contrasts and c not in keys))
     metadata = contrasts[keys + columns].drop_duplicates()
     raw = contrasts.drop(columns=columns)
     results = {}
@@ -54,7 +55,7 @@ def rebuild(analysis_dir, output_dir):
         analysis_manifest_sha256=file_hash(manifest_path) if manifest_path.is_file() else None,
         bootstrap_method=manifest.get('bootstrap_method', 'see source analysis manifest'),
         source_code_sha256=file_hash(Path(__file__).parents[1] / 'evaluation/secondary_analysis.py'),
-        note='Existing supported cells and paired draws reused; no scoring, resampling or roster changes. Disease-balanced weights: disease, outcome, horizon; endpoint-family weighting is not applied.'), indent=2))
+        note='Existing supported cells and paired draws reused; no scoring, resampling or roster changes. Disease-balanced weights: disease, approved loss_endpoint, outcome variant, horizon.'), indent=2))
     return results
 
 

@@ -24,10 +24,10 @@ SECTIONS = {
         "XSW_AB": "J_OA_OWN_X_SW - R_AB", "PEXSW_AB": "J_OA_OWN_PE_X_SW - R_AB",
         "MAX_AB": "J_OA_OWN_MAX - R_AB", "PF5E_AB": "R_PF5E - R_AB"},
     "Parsimony: reading variants against J_OA_OWN": {
-        "OAOWNPH_OAOWN": "+ lineage corrections", "OALROWN_OAOWN": "tied queries",
+        "OAOWNPH_OAOWN": "+ disease-group corrections", "OALROWN_OAOWN": "tied queries",
         "SW20_OAOWN": "shrinkage tau 20", "SW100_OAOWN": "shrinkage tau 100",
         "X_OAOWN": "diagnosis x outcome", "XSW_OAOWN": "cross + shrinkage",
-        "PE_OAOWN": "endpoint family", "PHX_OAOWN": "lineage + cross",
+        "PE_OAOWN": "endpoint family", "PHX_OAOWN": "disease group + cross",
         "PEXSW_OAOWN": "family + cross + shrinkage", "MAX_OAOWN": "everything, rank 32",
         "OAOWN_R32": "rank 32 (sensitivity)"},
     "Check: J_OA_OWN beats R_AB on every shared seed": {

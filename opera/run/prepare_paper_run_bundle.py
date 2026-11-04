@@ -380,6 +380,38 @@ def ladder_seed_entries(base, reference, checkpoints, selected_router, *, epochs
     return entries
 
 
+# National mechanism ladder (lock, 3 November, before any national data): the
+# own-corrections rung on both national encoders, and the two ablations of the
+# primary on the adapted one, each the local fit with the national sequences,
+# vocabulary and encoder. Descriptive, never selected. Values: origins.
+NATIONAL_LADDER = {"OFF": ("fix_R_PF_OFF", ("E", "EA")),
+                   "NODIS": ("fix_J_OA_OWN_NODIS", ("EA",)),
+                   "NOOUT": ("fix_J_OA_OWN_NOOUT", ("EA",))}
+
+
+def national_ladder_entries(entries, checkpoints, external_sequence_dir, routed_model,
+                            external_encoder_lr, seed=42):
+    if not task_pooling_design(routed_model):
+        return []
+    local = {e["name"]: e for e in entries if e["origin"] == "L"}
+    new = []
+    for mode, (fit, origins) in NATIONAL_LADDER.items():
+        source = local.get(f"seed{seed}/L/{fit}")
+        if source is None:
+            continue
+        for origin in origins:
+            if not checkpoints.get(origin):
+                continue
+            config = external_sequences(copy.deepcopy(source["config"]), external_sequence_dir)
+            config.pop("paper_run", None)
+            config["dapt_ckpt"] = checkpoints[origin]
+            if external_encoder_lr is not None:
+                config.setdefault("training", {})["encoder_lr_multiplier"] = float(external_encoder_lr)
+            new.append({"name": f"seed{seed}/{origin}/{mode}", "phase": "external", "origin": origin,
+                        "seed": seed, "condition": {}, "config": config})
+    return new
+
+
 def task_pooling_design(routed_model):
     """J_OA_LR_OWN_L -> J_OA_LR_OWN when the primary model is a stage-9 design, else None."""
     alias = (routed_model or "").removesuffix("_L")
@@ -831,21 +863,27 @@ def build_bundle(
                     copy.deepcopy(shared), external_sequence_dir)
                 external_shared["dapt_ckpt"] = checkpoints[origin]
                 design = task_pooling_design(routed_model)
-                if design:
-                    # Primary OPERA is a stage-9 design (lock closure, Nov 2026): the
-                    # national fit uses its readout on the national encoder.
-                    national_routed = task_pooling_config(
-                        external_shared, design, reference, selected_router)
-                else:
-                    national_routed = external_routed(router_config(
+                def national_router(fix):
+                    return external_routed(router_config(
                         external_shared,
                         reference,
                         source_mode=selected_router["source_mode"],
                         rank=int(selected_router["rank"]),
                         query_mode=selected_router["query_mode"],
                         query_width=int(selected_router["query_width"]),
-                    ), routed_model)
-                for mode, config in (("J", external_shared), ("R", national_routed)):
+                    ), fix)
+
+                modes = [("J", external_shared)]
+                if design:
+                    # Primary OPERA is a stage-9 design (lock closure, Nov 2026): the
+                    # national fit uses its readout on the national encoder, and the
+                    # secondary model, learned routing (R_AB), is fitted beside it.
+                    modes += [("R", task_pooling_config(external_shared, design, reference,
+                                                        selected_router)),
+                              ("AB", national_router("R_AB_L"))]
+                else:
+                    modes += [("R", national_router(routed_model))]
+                for mode, config in modes:
                     if external_encoder_lr is not None:
                         # Lock closure: the national arm is fine-tuned at the encoder
                         # rate that won on tuning data (stage 10).
@@ -973,6 +1011,8 @@ def build_bundle(
                     "condition": {},
                     "config": config,
                 })
+    entries += national_ladder_entries(entries, checkpoints, external_sequence_dir,
+                                       routed_model, external_encoder_lr)
     for entry in entries:
         entry["config"]["paper_run"] = {key: entry[key] for key in ("origin", "seed")}
         if entry["origin"] == "EA":

@@ -101,13 +101,12 @@ and their families can expect. For the lymphoid cancers, a group of blood
 cancers including lymphomas, lymphocytic leukaemias and myeloma, prognostic
 tools such as the IPI, NCCN-IPI and CLL-IPI each predict a single outcome in a
 single disease from a few variables
-\citep{IPI1993,zhou2014nccnipi,cllipi2016,palumbo2015riss}. This specificity
-comes at a price: it restricts the signals, patients and outcomes such tools can
-learn from. Learning opportunities are scarce, because many patient groups and
-outcomes are rare in isolation and rarer still in combination
-\citep{Riley2020}. Adding more patients with the same disease is seldom possible
-when the disease itself is rare. To predict better, information must be borrowed
-from elsewhere.
+\citep{IPI1993,zhou2014nccnipi,cllipi2016,palumbo2015riss}. These scores are quick to calculate and familiar in practice, but leave much of
+the patient's recorded history unused. Blood tests, prescriptions and hospital
+visits may distinguish patients given the same score. Learning what those records
+mean is harder when a disease or outcome is rare, and harder still when both
+are rare \citep{Riley2020}. Other patients' records may supply experience that
+one disease cannot provide alone.
 
 Even for a single disease and outcome, other diseases, outcomes and patient
 histories can be informative. Haematological cancers are biologically distinct
@@ -119,14 +118,16 @@ In clinical prediction, training tasks jointly frequently degraded individual
 tasks, even where multi-task pretraining helped \citep{mcdermott2020mtl}. The question is therefore not only whether to borrow,
 but what to borrow and how, without losing clinically important differences.
 
-The simplest way for a model to borrow is to learn the same outcome across
-several diseases, or several outcomes within the same disease, so that each task
-gains examples from the others. Such pooling can cost the idiosyncratic
-differences between subgroups. Ideally, a model relies on borrowed information
-where it must, as for rare diseases and outcomes, and on its own where that is
-sufficient. Statistics strikes this balance by partial pooling
-\citep{EfronMorris1975}, and neural models can learn it from the data
-\citep{cui2024autodp,lee2022residualmoe}.
+A model can learn the same outcome across diseases, or several outcomes from
+the same histories. Recent infections, falling blood counts and repeated
+admissions may matter to several predictions, but their relevance can differ.
+The question is what can be learned together and what needs to remain specific.
+Statistical partial pooling offers one established way to balance shared and
+group-specific estimates \citep{EfronMorris1975}. Neural models can instead
+share a representation while retaining task-specific adjustments
+\citep{cui2024autodp,lee2022residualmoe}. We call this sharing and
+specialisation. Its value has to be tested against both separate training and
+simpler joint models.
 
 A more recent way to borrow is to pretrain on patient histories, so that a model
 learns general patterns of how illness, investigation and treatment unfold
@@ -161,10 +162,10 @@ three questions, answered in the Results sections named
   \emph{Prognostic indices}.)
   \item \emph{What to borrow.} What do other diseases, other outcomes and the
   national population each add? (\emph{What to borrow}.)
-  \item \emph{How to borrow.} Once everything is shared, does letting each
-  prediction specialise, by reading the record its own way and adjusting for
-  its disease and outcome, improve on borrowing uniformly? Does learning which
-  other tasks to borrow from add to that? (\emph{How to borrow}.)
+  \item \emph{How to borrow.} Within a jointly trained model, does letting each
+  outcome read the record its own way, with adjustments for disease and outcome,
+  improve prediction? Does learning which other tasks' corrections to use add
+  to that? (\emph{How to borrow}.)
 \end{enumerate}
 
 \begin{figure}[H]
@@ -232,22 +233,24 @@ pretrained to predict the next recorded event, building on CORE-BEHRT
 \citep{odgaard2024core}, and were fine-tuned to estimate cumulative incidence at
 each horizon, with death as a competing event
 \citep{gensheimer2019nnetsurvival,lee2018deephit}. Every outcome was predicted
-and evaluated separately (Supplementary Methods).
+and evaluated separately (Supplementary Methods). Because specialists also
+started from the pretrained encoder, these comparisons test additional sharing
+during outcome-labelled training, rather than shared experience against none.
 
 \operasubsection{Specialising each prediction}
-Borrowing uniformly can blur differences that matter, by assuming that diseases
-and outcomes are similar when they are not. \placeholder{Name expansion}
-(\opera{}) keeps everything the joint model shares and lets each prediction
-specialise a little (\cref{fig:source-router}). % TODO: C1 schematic replaces the router figure
+Learning from the same histories need not mean using them in the same way.
+\placeholder{Name expansion} (\opera{}) retains the joint model's shared
+encoder and lets each prediction specialise (\cref{fig:source-router}). % TODO: C1 schematic replaces the router figure
 First, each outcome reads the encoded record through its own learned attention
 query, so that, for example, an infection model can weigh other events than an
 anaemia model. This outcome-specific summary is added, through a learned gate,
 to the summary shared by all outcomes \citep{mullenbach2018caml}. Second, small
 low-rank modules, called adapters \citep{houlsby2019adapters}, correct each
 outcome's representation: one for the patient's disease, one for the outcome,
-and one shared by all tasks. The idea is that of partial pooling
-\citep{EfronMorris1975}. Every prediction keeps what all tasks share and departs
-from it only as far as its own data support.
+and one shared by all tasks. The encoder learns from every task, while these
+components adjust what is used for the prediction at hand. This design permits
+shared learning and specific adjustments; it does not impose an
+uncertainty-based shrinkage rule.
 
 An alternative is to let each prediction also borrow the corrections of other
 tasks, weighted by a learned router \citep{ma2018mmoe}. We compared the two on
@@ -255,7 +258,7 @@ the tuning set as a ladder of separately trained models: the joint model; own
 disease and outcome corrections; the same with learned routing between tasks;
 and own corrections with each outcome's own reading (\opera{}). The disease and
 outcome corrections were also removed one at a time. Further variants (routing
-designs, corrections shared within disease lineages or endpoint families,
+designs, corrections shared within disease groups or endpoint families,
 support-dependent shrinkage, corrections for each disease--outcome pair and
 larger adapters) were tuned under the same rule. The rule was fixed before any
 test data were seen: among designs within the seed-to-seed variation of the
@@ -291,7 +294,13 @@ Each clinical index was compared with the model on the same patients. Ordered
 by predicted risk, the model placed patients into as many groups as the index
 has categories, each the size of the corresponding category, and survival was
 compared between the two sets of groups. No outcome information set these
-boundaries. These comparisons evaluate the model as a whole, including its use
+boundaries. We report paired differences with pointwise intervals rather than
+a single clinical superiority test. Comparisons use each index's intended
+endpoint and disease population where possible, with shorter horizons and any
+endpoint proxies stated explicitly. A complementary descriptive comparison estimated how many patients the model
+could identify at the observed survival of each index's lowest and highest
+categories, repeating the KM-target estimation and group selection in paired
+bootstrap samples (Supplementary Methods). These comparisons evaluate the model as a whole, including its use
 of the full record, rather than borrowing alone.
 
 \operasubsection{Evaluation}
@@ -302,7 +311,10 @@ prediction accuracy (IPA), with censoring weights
 assessed at every horizon, without recalibrating any model. Comparisons were
 paired on the same patients and restricted to disease--outcome--horizon cells
 with at least five cases and five controls, the minimum needed to estimate an
-AUC. Cells meeting it can still be imprecise. Because diseases differ greatly in
+AUC. Cells meeting it can still be imprecise. Evaluable cells come mostly from
+the larger diseases and more common outcomes, where borrowing matters least, so
+every summary describes the evaluable cells rather than all 1,656 tasks
+(\cref{fig:supp-coverage}). Because diseases differ greatly in
 size, and larger diseases contribute more cells, every summary is reported two
 ways:
 with each supported cell weighing equally, and with each disease weighing
@@ -418,6 +430,10 @@ Comparison & Cells & $\Delta$AUC (95\% CI) & $\Delta$IPA (95\% CI) & $\Delta$AUC
 \quad \quad + each outcome reading the record its own way & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \quad \quad = all specialisation (\opera{} against the joint model) & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \quad Instead: learning which other tasks to borrow from & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Learned routing (R$_{AB}$) against the joint model & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\rlap{\textit{Pretraining on the cohort's records (joint model)}} & & & & & & \\
+\quad Pretrained encoder, against no pretraining & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
+\quad Fine-tuning the encoder, against training only the readout & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \rlap{\textit{Pretraining on the national population (against the cohort encoder)}} & & & & & & \\
 \quad Joint model, national encoder & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
 \quad Joint model, national encoder adapted to the cohort & \placeholder{N} & \placeholder{x} & \placeholder{x} & \placeholder{x} & \placeholder{x\%} & \placeholder{} \\
@@ -486,7 +502,8 @@ national encoder helped, by training events and disease}
 
 \FloatBarrier
 \operasubsection{How to borrow: share everything, specialise a little}
-Letting each prediction specialise improved on borrowing uniformly. \opera{}
+Outcome-specific reading and own-task corrections improved on the joint model.
+\opera{}
 changed AUC by \result{O2_auc}{X} and IPA by \result{O2_ipa}{Y} relative to the
 joint model, with the higher AUC in \result{O2_better}{N of M} cells
 (\resultpct{O2_better}). Own disease and outcome corrections changed AUC by
@@ -498,12 +515,18 @@ corrections by \result{OAOWN_DIS_auc}{X} and from the model without outcome
 corrections by \result{OAOWN_OUT_auc}{Y}. \placeholder{Where the gain was
 largest, by training events and clinical domain} (\cref{fig:gain-sources}B--C).
 
-Learning whom to borrow from added nothing measurable. Added to own
-corrections, a router that let each prediction draw on the corrections of other
-tasks changed AUC by \result{AB_OFF_auc}{X}. None of the further designs tuned
+A second way to specialise, learning whom to borrow from, did about as well.
+Added to the same own corrections, a router that let each prediction draw on
+the corrections of other tasks changed AUC by \result{AB_OFF_auc}{X}, and this
+learned-routing model differed from the joint model by \result{R1_auc}{Y};
+\opera{} differed from it by \result{OAOWN_AB_auc}{Z}. The routes it learned were the
+task's own correction plus an almost even mix of all others
+(\placeholder{own share and entropy}; Supplementary Methods). This pattern
+suggests that the fitted router combined own-task corrections with broadly
+shared corrections, rather than selecting a few sources. None of the further designs tuned
 improved on \opera{} by more than the variation between training seeds
 (\placeholder{range over four seeds}), whether corrections were shared within
-disease lineages or endpoint families, shrunk towards zero for tasks with few
+disease groups or endpoint families, shrunk towards zero for tasks with few
 events, made specific to each disease--outcome pair or enlarged
 (\cref{fig:supp-design-search}). The corrections and each outcome's own
 reading each contributed \placeholder{(relative sizes from the test ladder)},
@@ -518,7 +541,7 @@ from the shared reading} (\cref{fig:task-organisation,fig:supp-specialisation}).
 
 \begin{figure}[H]
   \resultfigure{fig_gain_sources}{Where the gain over the joint model comes from}
-    {A: the ladder from the joint model to OPERA. B: each step against training
+    {A: paired comparisons of corrections, reading and routing. B: each step against training
     events. C: by clinical domain.}
   \caption{\textbf{Where the gain over the joint model comes from.} Separately
   trained models on the same encoder: the joint model; own disease and outcome
@@ -526,15 +549,17 @@ from the shared reading} (\cref{fig:task-organisation,fig:supp-specialisation}).
   corrections with each outcome's own reading (\opera{}). Steps are differences
   between trained models, not an additive split of one model's AUC, pooled over
   the six horizons within each disease--outcome cell. \textbf{A}, Paired AUC
-  difference of each step (95\% bootstrap interval), drawn from the model
-  above it, so positions add up the step estimates. Learning whom to borrow
-  from (routing between tasks' corrections) branches from own corrections, and
-  removing the disease or the outcome correction starts from \opera{}. \textbf{B}, Each step
+  difference of each step (95\% bootstrap interval), centred on zero, with
+  one point per disease--outcome cell. Each row names its reference model.
+  Filled diamonds show paired mean differences and intervals. If these are
+  unavailable, hollow diamonds and thick bars show the median and interquartile
+  range across cells, rather than a patient-bootstrap interval. \textbf{B}, Each step
   against the target's training events at one year (log scale), with a
   descriptive smoother. Points are cells with at least 10 training events and a
   95\% interval narrower than 0.4 (all cells enter the smoother). \textbf{C},
-  Median and interquartile range across cells by clinical domain. The spread is
-  between cells, not a confidence interval.}
+  Paired mean differences with 95\% intervals by clinical domain where saved
+  summaries are available. Otherwise, the axis identifies descriptive medians
+  and interquartile ranges across cells.}
   \label{fig:gain-sources}
 \end{figure}
 
@@ -610,12 +635,11 @@ most, by training events and disease} (\cref{fig:encoder-transfer}).
 \operasubsection{Comparison with the prognostic indices in clinical use}
 A single model was compared with each of the \placeholder{N} prognostic indices
 in clinical use, on the patients for whom that index was recorded. For
-\placeholder{N of N} indices, its size-matched risk groups stratified at least as
-well as the index's own categories. The model's lowest group had survival as high
-as or higher than the index's lowest category, and its highest group survival as
-low as or lower than the index's highest category. \placeholder{For N of these,
-the difference in the lowest or highest group was beyond chance. The exceptions
-and the comparisons that could not be estimated} (\cref{fig:score-overview}).
+\placeholder{N of N} index--population comparisons, the model's size-matched
+lowest group had an estimated survival at least as high as the index's lowest
+category, and its highest group survival at least as low as the index's highest
+category. \placeholder{Report the paired differences and intervals, exceptions
+and comparisons that could not be estimated.} These are descriptive comparisons (\cref{fig:score-overview}).
 
 In diffuse large B-cell lymphoma, the largest comparison, NCCN-IPI was the main
 comparator. Among \placeholder{N} patients with NCCN-IPI recorded, the model's
@@ -683,11 +707,11 @@ distinctness and predictive separateness are different things. An infection or a
 falling neutrophil count may arise through different mechanisms in different
 diseases, yet the records that precede it, and how it is investigated and
 treated, are similar enough that examples from one disease inform prediction in
-another. The gain was largest where a disease had least data of its own, so the
-limit for small diseases appears to be the number of examples rather than their
-biology. This is not an argument for redrawing diagnostic boundaries. It is an
-argument that the boundaries needed for diagnosis and treatment need not also
-bound what a predictive model learns from.
+another. The gain was largest where a disease had least data of its own, consistent
+with shared learning helping when relevant examples are scarce. It does not
+identify which common relationships supplied that gain. The boundaries needed
+for diagnosis and treatment need not also bound what a predictive model learns
+from.
 
 Borrowing could also have harmed. Joint training has frequently degraded
 individual clinical tasks \citep{mcdermott2020mtl}, and with 69 outcomes of very
@@ -708,17 +732,16 @@ How to borrow turned out to be simpler than expected. Sharing everything and
 letting each prediction specialise a little gave the gain, through small
 corrections for the patient's disease and the outcome and through each
 outcome's own reading of the record \placeholder{(relative sizes from test)}.
-Learning which other tasks to borrow from gave none, and neither did
-hand-specified sharing within disease lineages or endpoint families, shrinkage
-for rare tasks or larger corrections: among \placeholder{N} designs tuned, none
-improved on \opera{} by more than the variation between training seeds. Learned
-sharing has rarely been weighed against such a baseline
-\citep{ma2018mmoe,mcdermott2020mtl}. In clinical records, where much of what
-predicts one complication predicts others, a shared representation appears to
-carry most of what routing would move between tasks, so a model need not be told
-how to pool. The tuned designs converged on the same performance, which suggests
-that the limit lies in the representation and the data rather than in how the
-prediction is read out from them.
+Learning which other tasks' corrections to use did about as well but no better.
+The fitted router gave broadly similar weights to other sources. Neither
+hand-specified disease or endpoint groups, support-dependent shrinkage nor
+larger corrections improved on \opera{} by more than training-seed variation
+among \placeholder{N} tuned designs. Learned sharing has rarely been weighed
+against such a baseline \citep{ma2018mmoe,mcdermott2020mtl}. Learning from other
+tasks and selecting particular other tasks are different ideas: the shared
+encoder already learns from all of them. Here, modest own-task adjustments
+were sufficient to use that shared experience. Similar performance across the
+tested designs does not establish why more elaborate readouts added little.
 
 The specialisations that helped mirror how clinicians built the prognostic
 indices. IPI, FLIPI, MIPI and CLL-IPI combine largely the same measurements, such
@@ -740,11 +763,11 @@ improve on strong conventional models for a specific clinical question has
 rarely been tested \citep{wornow2023shaky}. Here, a model pretrained on the
 nationwide Danish registers was fine-tuned for one specialty and compared, on
 the same patients, with tuned XGBoost and with models pretrained on the cohort
-alone. Because every readout we tuned converged on the same performance,
-further gains were more likely to come from a better representation than from
-a better readout. National pretraining offers one: more people, rarer codes and
-finer laboratory bins, which matter most for the sparsely measured laboratory
-outcomes where XGBoost led. \placeholder{Interpret the transfer and
+alone. The small differences between the tuned readouts motivate a complementary
+question: can broader prior experience improve the representation they use?
+National pretraining changes the population, vocabulary, laboratory bins and
+training exposure together. The comparison therefore evaluates a pretraining
+strategy, rather than isolating the effect of more people alone. \placeholder{Interpret the transfer and
 label-efficiency results, whether positive, null or harmful, and whether the
 gain from specialising each prediction held on the national encoder.} If national pretraining closes the gap to XGBoost or
 reduces the labelled patients needed, it sets a precedent for how national

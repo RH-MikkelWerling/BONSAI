@@ -4,7 +4,7 @@ Inputs are the frozen-checkpoint mechanism audit's outputs, which reconstruct
 the fitted router exactly: ``borrowed_weights_by_task.csv`` (mean gate of every
 borrowed source for each disease x outcome task), ``report.json``
 (``partial_pooling``: tau and per-task training events; ``route_concentration``)
-and the paper cell metadata (lineage, endpoint family and endpoint group).
+and the paper cell metadata (disease group, endpoint family and endpoint group).
 
 Routes are shown relative to an even mix (log2 enrichment), so a group's
 number of sources does not masquerade as routing, and an even router reads as
@@ -23,7 +23,7 @@ from opera.visualization.paper_figures import (
 )
 from opera.visualization.style import PALETTE, despine
 
-LEVELS = (("lineage", "Lineage"), ("endpoint_family", "Endpoint family"),
+LEVELS = (("lineage", "Disease group"), ("endpoint_family", "Endpoint family"),
           ("endpoint_group", "Endpoint group"))
 ENRICHMENT_LIMIT = 2.0  # log2 scale: a quarter to four times an even mix
 

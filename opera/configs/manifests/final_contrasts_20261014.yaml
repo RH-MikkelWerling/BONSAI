@@ -28,7 +28,16 @@ evaluation:
     contrast: R0
     gates: [R2, R3, R4, R5, R6, R7]
     tolerance: {auc: null, brier: null, log_loss: null}
-  multiplicity_specification: pending_analysis_lock
+  multiplicity_specification:
+    method: holm
+    contrasts: [P1, P2, P5, T2, O1, router_borrow_AB, E1, O2]
+    metric: auc
+    seed: 42
+    horizons: pooled_all
+    aggregation: equal_cell
+    alpha: 0.05
+    clinical_comparisons: descriptive_outside_family
+    missing_members: retain_family_slots_and_label_provisional
 essential_contrasts:
   pooling:
     P1: gain(D_L,S_L)

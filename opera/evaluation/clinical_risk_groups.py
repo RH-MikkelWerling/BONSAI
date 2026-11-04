@@ -4,7 +4,8 @@ The cohort size/KM rules are available through an explicit renderer mode;
 the existing recipe remains unchanged unless that mode is selected. The
 low-anchored full-partition candidate remains optional. Outcome-based cutoffs
 use declared development data, never evaluation outcomes. Cohort size matching
-uses baseline categories and predictions only.
+uses baseline categories and predictions only. Evaluation-cohort outcome-adaptive
+KM matching is implemented separately in clinical_km_matching.
 """
 
 from __future__ import annotations

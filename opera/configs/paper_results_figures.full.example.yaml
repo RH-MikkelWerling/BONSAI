@@ -52,6 +52,7 @@ required_figures:
 - supp_specialisation
 - supp_correction_arrows
 - supp_xgboost_gap
+- supp_clinical_index_summary
 figures:
 - id: fig_atlas
   function: figure_atlas
@@ -333,3 +334,15 @@ figures:
   function: figure_xgboost_gap
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
+- id: supp_clinical_index_summary
+  # Every clinical index at both ends (equal size; equal risk). Run
+  # `clinical-scores` first: all inputs are its aggregate outputs.
+  function: figure_clinical_index_summary
+  options:
+    estimand: cif_ipcw
+  tables:
+    inventory: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/score_inventory.csv
+    size_matched: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/size_matched_survival_comparisons.csv
+    km_low: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/km_matched_low_groups.csv
+    detection: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/clinical_operating_point_counts.csv
+    headline: ${OPERA_PAPER_ANALYSIS_ROOT}/clinical_scores/headline_scores.csv

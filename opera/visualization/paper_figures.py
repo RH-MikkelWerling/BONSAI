@@ -1339,7 +1339,7 @@ def _short_disease(code):
 
 
 def _borrowing_order(pooled):
-    """Target diseases ordered by lineage; group inventory covers both axes."""
+    """Target diseases ordered by disease group; group inventory covers both axes."""
     groups = sorted(set(pooled.target_group) | set(pooled.source_group))
     order = (pooled[["target", "target_group"]].drop_duplicates()
              .assign(g=lambda d: d.target_group.map({g: i for i, g in enumerate(groups)}))
@@ -1400,8 +1400,8 @@ def _pair_labels(data):
 def lineage_concentration(pooled):
     """Per target disease, from the single-source gains (``effect``, all outcomes):
     the share of its positive borrowing gain that comes from diseases of its own
-    lineage (``observed``) against that lineage's share of the other sources
-    (``expected``, what borrowing blind to lineage would give), and the effective
+    disease group (``observed``) against that group's share of the other sources
+    (``expected``, what borrowing blind to disease group would give), and the effective
     number of sources it gains from (exp of the entropy of the gain shares)."""
     rows = []
     for target, part in pooled.loc[pooled.target != pooled.source].groupby("target"):
@@ -1559,7 +1559,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
 
     cx = fig.add_axes([1.85 / width, 0.1, 2.15 / width, 0.275])
     if lineage_panel:
-        # C: does a disease borrow from its own lineage more than chance would give?
+        # C: does a disease borrow from its own disease group more than chance would give?
         conc = lineage_concentration(pooled.loc[~pooled.target.isin(sparse)])
         if len(conc):
             x_top = float(max(conc.expected.max(), 0.1)) * 1.35
@@ -1581,11 +1581,11 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
             bar.ax.tick_params(labelsize=6)
             bar.outline.set_visible(False)
             cx.text(0.97, 0.03, f"Effective sources: median {conc.effective_sources.median():.1f}"
-                    f" of {int(conc.n_sources.max())}\nAbove the line: own lineage favoured",
+                    f" of {int(conc.n_sources.max())}\nAbove the line: own disease group favoured",
                     transform=cx.transAxes, ha="right", va="bottom", fontsize=6.3,
                     color=PALETTE["ink_secondary"])
-        cx.set_xlabel("Share of sources in the own lineage\n(expected if lineage did not matter)")
-        cx.set_ylabel(f"Share of positive {estimate_label.lower()} estimates\nfrom the own lineage")
+        cx.set_xlabel("Share of sources in the own disease group\n(expected if disease group did not matter)")
+        cx.set_ylabel(f"Share of positive {estimate_label.lower()} estimates\nfrom the own disease group")
         cx.tick_params(labelsize=6.6)
         despine(cx, "both")
         _panel_title(cx, "C", "Related or broad?")
@@ -3829,6 +3829,201 @@ def figure_clinical_operating_points(low_groups, detection, *, estimand='cif_ipc
     return _finish_clinical(fig, notes, mark)
 
 
+# Verdict colours of the across-index summary: the model's (indigo) and the
+# index's (sienna) arms of GAIN_CMAP, grey for not estimable (never zero).
+CLINICAL_VERDICT_STYLE = {
+    "better": ("#2D3A8C", "Better (95% CI above 0)"),
+    "at_least_as_good": ("#AEB8DA", "At least as good (estimate ≥ 0)"),
+    "not_at_least_as_good": ("#E7B9A5", "Estimate below 0"),
+    "not_estimable": (PALETTE["missing"], "Not estimable"),
+}
+CLINICAL_SUMMARY_PANELS = (
+    ("low_size", "A", "Lowest group", "OPERA − index\n(percentage points)"),
+    ("high_size", "B", "Highest group", "Index − OPERA\n(percentage points)"),
+    ("low_risk", "C", "Low-risk group", "Additional patients\n(% of patients)"),
+    ("high_risk", "D", "High-risk group", "Additional events\n(per 1,000 patients)"),
+)
+
+
+def figure_clinical_index_summary(inventory, size_matched=None, km_low=None, detection=None,
+                                  headline=None, *, estimand="cif_ipcw", mark=None):
+    """OPERA against every clinical prognostic index, at both ends, in one plate.
+
+    Reads the clinical-scores outputs (``score_inventory.csv``,
+    ``size_matched_survival_comparisons.csv``, ``km_matched_low_groups.csv``,
+    ``clinical_operating_point_counts.csv`` and optionally
+    ``headline_scores.csv``); the derivation is
+    :func:`opera.evaluation.clinical_index_summary.summarise_clinical_indices`.
+    One row per index and population, ordered by disease group, subtype and index,
+    with pooled populations last. Columns: **A**/**B**, equal group sizes, the
+    survival difference in the lowest/highest group; **C**/**D**, frozen
+    equal-risk cutoffs, additional low-risk patients and additional events
+    captured. Every value is oriented so that positive favours the model. The
+    strip above each column counts indices by the analysis-lock rule. Rows that
+    are not estimable stay, greyed, with their reason. No index is highlighted.
+    """
+    from matplotlib.transforms import blended_transform_factory, offset_copy
+    from matplotlib.text import Text
+    from opera.visualization.style import LABEL_SIZE, TICK_SIZE
+    from opera.evaluation.clinical_index_summary import (
+        across_index_counts, summarise_clinical_indices)
+
+    summary = summarise_clinical_indices(inventory, size_matched, km_low, detection,
+                                         headline, estimand=estimand)
+    if not len(summary):
+        raise ValueError("No clinical index comparisons in score_inventory.csv")
+    counts = across_index_counts(summary)
+    n = len(summary)
+    row_height, strip, header, bottom = 0.30, 0.22, 0.70, 1.35
+    forest = row_height * n + 0.42
+    height = header + strip + 0.16 + forest + bottom
+    fig = plt.figure(figsize=(9.2, height))
+    grid = fig.add_gridspec(2, 4, height_ratios=[strip, forest], hspace=0.16 / ((strip + forest) / 2),
+                            wspace=0.22, left=0.30, right=0.985,
+                            top=1 - header / height, bottom=bottom / height)
+    color, against = MODEL_STYLE["OPERA"][0], "#B5451B"
+    muted = PALETTE["ink_muted"]
+    unavailable = summary.status.ne("rendered") | summary.status.eq("not_estimable")
+    breaks = [i for i in range(1, n) if summary.disease.iloc[i] != summary.disease.iloc[i - 1]]
+    forests = []
+    for column, (measure, letter, title, xlabel) in enumerate(CLINICAL_SUMMARY_PANELS):
+        top = fig.add_subplot(grid[0, column])
+        ax = fig.add_subplot(grid[1, column], sharey=forests[0] if forests else None)
+        forests.append(ax)
+        # Across-index summary: one stacked bar of the lock's verdicts.
+        tally = counts[measure]
+        left = 0
+        for key, (shade, _) in CLINICAL_VERDICT_STYLE.items():
+            value = (tally["better"] if key == "better" else
+                     tally["at_least_as_good"] - tally["better"] if key == "at_least_as_good"
+                     else tally[key])
+            if not value:
+                continue
+            top.barh(0, value, left=left, height=0.60, color=shade, edgecolor="white",
+                     linewidth=0.6)
+            top.text(left + value / 2, 0, str(value), ha="center", va="center", fontsize=7,
+                     color="white" if key == "better" else PALETTE["ink"])
+            left += value
+        top.set_xlim(0, tally["total"])
+        top.set_ylim(-0.45, 0.45)
+        top.set_xticks([])
+        top.set_yticks([])
+        for spine in top.spines.values():
+            spine.set_visible(False)
+        top.grid(False)
+        _panel_title(top, letter, title, pad=5)
+        # Per-index estimates.
+        values = summary[[measure, f"{measure}_lower", f"{measure}_upper"]].to_numpy(float)
+        finite = values[np.isfinite(values)]
+        lo, hi = (min(0.0, finite.min()), max(0.0, finite.max())) if len(finite) else (-1.0, 1.0)
+        span = max(hi - lo, 1e-9)
+        ax.set_xlim(lo - 0.08 * span, hi + 0.08 * span)
+        ax.axvline(0, color=PALETTE["zero_line"], lw=0.8, zorder=1)
+        for y, row in enumerate(summary.itertuples(index=False)):
+            point, low, high = values[y]
+            if unavailable.iloc[y]:
+                ax.axhspan(y - 0.5, y + 0.5, color="#F1F3F6", lw=0, zorder=0)
+                continue
+            if not np.isfinite(point):
+                ax.text(0.5, y, "Not estimable", transform=ax.get_yaxis_transform(),
+                        ha="center", va="center", fontsize=7, color=muted, zorder=5,
+                        bbox=dict(facecolor="white", edgecolor="none", pad=2))
+                continue
+            kind = getattr(row, f"{measure}_verdict")
+            shade = against if (np.isfinite(high) and high < 0) or kind == "not_at_least_as_good" \
+                else color
+            if np.isfinite(low) and np.isfinite(high):
+                ax.plot([low, high], [y, y], color=shade, lw=1.3, alpha=0.45, zorder=2,
+                        solid_capstyle="round")
+            filled = kind == "better" or (np.isfinite(high) and high < 0)
+            ax.scatter(point, y, marker="D", s=24, zorder=3, linewidths=1, edgecolors=shade,
+                       facecolors=shade if filled else "white")
+        for b in breaks:
+            ax.axhline(b - 0.5, color=PALETTE["grid"], lw=0.6, zorder=0)
+        ax.annotate("OPERA better →", xy=(0.5, 1), xycoords="axes fraction",
+                    xytext=(0, 3), textcoords="offset points", ha="center", va="bottom",
+                    fontsize=7, color=muted, annotation_clip=False)
+        ax.set_ylim(n - 0.5, -1.15)
+        ax.xaxis.set_major_locator(MaxNLocator(4))
+        ax.set_xlabel(xlabel, fontsize=LABEL_SIZE)
+        ax.tick_params(axis="x", labelsize=TICK_SIZE)
+        ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.6)
+        ax.grid(axis="y", visible=False)
+        despine(ax, "x")
+        if column:
+            ax.tick_params(axis="y", left=False, labelleft=False)
+    ax0 = forests[0]
+    labels = [f"{r.index} (n={_count_text(int(r.n_patients))})" if np.isfinite(r.n_patients)
+              else r.index for r in summary.itertuples(index=False)]
+    ax0.set_yticks(range(n), labels, fontsize=8)
+    for tick, grey in zip(ax0.get_yticklabels(), unavailable):
+        tick.set_color(muted if grey else PALETTE["ink"])
+    # Reasons for rows that are not estimable span the four columns.
+    span = blended_transform_factory(fig.transFigure, ax0.transData)
+    x0, x1 = forests[0].get_position().x0, forests[-1].get_position().x1
+    for y, row in enumerate(summary.itertuples(index=False)):
+        if unavailable.iloc[y]:
+            reason = row.reason or "not estimable"
+            # One continuous unavailable-row band masks grid and zero lines
+            # across all four panels, keeping the explanation unobstructed.
+            fig.add_artist(Rectangle((x0, y - .48), x1 - x0, .96, transform=span,
+                                     facecolor="#F1F3F6", edgecolor="none", zorder=4))
+            fig.text(x0 + .012, y, f"Not estimable: {reason}", transform=span,
+                     ha="left", va="center", fontsize=7, color=muted,
+                     zorder=5)
+    # Disease column, left of the longest index label; one name per block.
+    # This cross-index forest belongs to the manuscript comparison figures.
+    # Use their shared typography, not the older per-index font override.
+    fig.canvas.draw()
+    for text in fig.findobj(Text):
+        text.set_fontfamily("sans-serif")
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    widths = [t.get_window_extent(renderer).width for t in ax0.get_yticklabels()]
+    offset = (max(widths) if widths else 0) * 72 / fig.dpi + 18
+    disease = offset_copy(ax0.get_yaxis_transform(), fig=fig, x=-offset, units="points")
+    for y, row in enumerate(summary.itertuples(index=False)):
+        if y == 0 or summary.disease.iloc[y] != summary.disease.iloc[y - 1]:
+            ax0.text(0, y, textwrap.fill(row.disease, 18), transform=disease, ha="right",
+                     va="center", fontsize=8,
+                     color=PALETTE["ink_secondary"], linespacing=1.0)
+    # Column groups and the shared legend.
+    both = counts["both_ends_size"]
+    groups = (
+        (forests[0], forests[1], "Equal group sizes",
+         f"both ends at least as good in {both['at_least_as_good']} of {both['total']}"),
+        (forests[2], forests[3], "Equal risk", "cutoffs fixed on training data"),
+    )
+    y_group = 1 - 0.16 / height
+    for first, last, name, detail in groups:
+        a, b = first.get_position().x0, last.get_position().x1
+        fig.text((a + b) / 2, y_group, name, ha="center", va="bottom", fontsize=LABEL_SIZE,
+                 color=PALETTE["ink_secondary"])
+        fig.add_artist(Line2D([a, b], [y_group - 0.06 / height] * 2,
+                              color=PALETTE["panel_border"], lw=0.6,
+                              transform=fig.transFigure))
+    handles = [Rectangle((0, 0), 1, 1, color=shade) for shade, _ in CLINICAL_VERDICT_STYLE.values()]
+    fig.legend(handles, [label for _, label in CLINICAL_VERDICT_STYLE.values()], ncol=2,
+               loc="lower center", bbox_to_anchor=(0.6, 0.13 / height), frameon=False,
+               fontsize=7.5, handlelength=1.1, handleheight=0.9, columnspacing=1.6,
+               borderaxespad=0)
+    notes = ["Positive values favour the model in every column.",
+             *(f"{name}: {detail}." for _, _, name, detail in groups),
+             "Strips: indices by the analysis-lock rule (estimate ≥ 0; 95% CI above 0).",
+             "Filled diamonds: interval excludes zero; open: it does not.",
+             "D: events with IPCW on the full risk set." if estimand == "cif_ipcw"
+             else "D: events among patients with known horizon status."]
+    fig.opera_caption_notes = list(notes)
+    watermark(fig, mark)
+    fig.canvas.draw()
+    for text in fig.findobj(Text):
+        text.set_fontfamily("sans-serif")
+    fig.opera_clinical_summary = summary
+    from opera.visualization.style import align_panel_titles
+    align_panel_titles(fig)
+    return fig
+
+
 def figure_score_overview(scores, *, mark=None, seed=0):
     """Model risk groups against every recorded prognostic index.
 
@@ -5311,4 +5506,43 @@ def figure_recent_record_gap_horizons(restrictions, *, mark=None):
                ncol=2, frameon=False, fontsize=8)
     despine(ax, 'both')
     watermark(fig, mark)
+    return fig
+
+
+
+def figure_evaluation_km_matching(frontier, matching):
+    """Descriptive survival/size curves; empirical points, no spline or smoothing."""
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.9))
+    fig.subplots_adjust(left=.08, right=.98, bottom=.28, top=.85, wspace=.28)
+    color = MODEL_STYLE['OPERA'][0]
+    for ax, end, letter in zip(axes, ['low', 'high'], 'AB'):
+        curve = frontier.loc[frontier.end.eq(end)]
+        row = matching.loc[matching.end.eq(end)].iloc[0]
+        ax.plot(100 * curve.selected_fraction, curve.model_survival,
+                color=color, lw=1.25, label='OPERA ranked groups')
+        ax.scatter(100 * curve.loc[~curve.supported, 'selected_fraction'],
+                   curve.loc[~curve.supported, 'model_survival'], s=4,
+                   color=PALETTE['ink_muted'], alpha=.35)
+        if np.isfinite(row.index_survival):
+            ax.axhline(row.index_survival, color=PALETTE['ink_muted'], ls='--', lw=.8)
+            ax.scatter(100 * row.index_n / row.n_patients, row.index_survival,
+                       marker='D', s=32, color=PALETTE['ink_muted'], zorder=4, label='Clinical category')
+        if row.status == 'estimable':
+            ax.scatter(100 * row.model_n / row.n_patients, row.model_survival,
+                       s=38, facecolor='white', edgecolor=color, zorder=5, label='Largest supported match')
+        else:
+            ax.text(.98, .05, 'No supported match', transform=ax.transAxes,
+                    ha='right', fontsize=8, color=PALETTE['ink_muted'])
+        _clinical_title(ax, letter, 'Lowest-risk patients' if end == 'low' else 'Highest-risk patients')
+        ax.set(xlabel='Patients selected (%)', ylabel='Event-free probability', xlim=(0, 100), ylim=(0, 1.02))
+        despine(ax, 'x')
+    handles, labels = axes[0].get_legend_handles_labels()
+    h2, l2 = axes[1].get_legend_handles_labels()
+    unique = dict(zip(labels + l2, handles + h2))
+    fig.legend(unique.values(), unique.keys(), loc='lower center', bbox_to_anchor=(.5, .08),
+               frameon=False, ncol=3, fontsize=8)
+    fig.text(.5, .02, 'Descriptive evaluation-cohort matching; each end selected separately. Grey points: insufficient support.',
+             ha='center', fontsize=7, color=PALETTE['ink_muted'])
+    fig.opera_caption_notes = ('Clinical KM target and largest model group re-estimated within paired bootstrap draws. '
+                              'No smoothing, no deployment-cutoff claim; low and high selections may overlap.')
     return fig

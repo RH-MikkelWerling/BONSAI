@@ -180,6 +180,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+
+def patient_vector_pair(model, batch, outcome_index, representations):
+    """Use one checkpoint's shared and final outcome-specific representations."""
+    if getattr(model, 'outcome_attention_readout', None) is not None:
+        from opera.run.export_opera_correction_arrows import representation_parts
+        parts = representation_parts(model, batch, [outcome_index])
+        return parts['shared'], parts['final'][:, 0]
+    if getattr(model, 'source_adapter_readout', None) is not None and representations.ndim == 2:
+        adapted, _ = model.source_adapter_readout(
+            representations, batch['cohort_fine_index'], return_weights=True)
+        return representations, adapted[:, outcome_index]
+    raise ValueError('Patient vector export needs a source-adapter or outcome-attention checkpoint')
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.export_routed_outcome and args.split not in {"tuning", "held_out"}:
@@ -327,8 +340,8 @@ def main() -> None:
             *("outcome:" + name for name in model.source_adapter_readout.outcome_names),
         ]
     design_labels, design_cif = None, []
-    if (args.export_routes or args.remove_source or args.export_routed_outcome
-            or args.borrowing_design) and not source_names:
+    if (args.export_routes or args.remove_source or args.borrowing_design
+            or (args.export_routed_outcome and getattr(model, "outcome_attention_readout", None) is None)) and not source_names:
         raise ValueError("Route export and removal require a source-adapter checkpoint")
     borrowing_means = None
     if args.borrowing_design:
@@ -366,15 +379,11 @@ def main() -> None:
                         model.encoder, batch, reference, fixed_ids)
                 representations = model.get_objective_representations(batch)
                 if args.export_routed_outcome:
-                    if representations.ndim != 2:
-                        raise ValueError("Routed vector export requires a shared pooled representation")
-                    adapted, _ = model.source_adapter_readout(
-                        representations, batch["cohort_fine_index"], return_weights=True
-                    )
                     target_index = objective.outcome_index[args.export_routed_outcome]
-                    routed_ids.append(batch["subject_id"].detach().cpu().numpy())
-                    routed_pre.append(representations.detach().float().cpu().numpy())
-                    routed_post.append(adapted[:, target_index].detach().float().cpu().numpy())
+                    shared, final = patient_vector_pair(model, batch, target_index, representations)
+                    routed_ids.append(batch['subject_id'].detach().cpu().numpy())
+                    routed_pre.append(shared.detach().float().cpu().numpy())
+                    routed_post.append(final.detach().float().cpu().numpy())
                 if args.export_embeddings:
                     pooled = representations if representations.ndim == 2 else model.get_embeddings(batch, return_pre_projection=True)
                     if pooled.ndim != 2:
@@ -555,7 +564,7 @@ def main() -> None:
         (output_dir / "routed_patient_vectors_INTERNAL.json").write_text(
             json.dumps({"checkpoint": str(args.checkpoint.resolve()),
                         "split": args.split, "target_outcome": args.export_routed_outcome,
-                        "representation": "shared pooled encoder and target-specific post-router readout",
+                        "representation": "shared pooled summary and target-specific final readout",
                         "n_patients": len(ids)}, indent=2) + "\n", encoding="utf-8"
         )
     if route_rows:

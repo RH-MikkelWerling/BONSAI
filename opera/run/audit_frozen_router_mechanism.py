@@ -406,7 +406,7 @@ def compare_joint_paths(analysis, baseline, predictions, row_index, draws, metad
         patient_gain_contrasts=set(), min_cases=analysis.get('performance_min_cases', 5),
         min_controls=analysis.get('performance_min_controls', 5))
     summaries = []
-    for aggregation in ('equal_cell', 'disease_balanced'):
+    for aggregation in ('equal_cell', 'disease_balanced' if 'loss_endpoint' in metadata else 'disease_outcome_balanced'):
         _, summary = effect_summaries(tables['contrasts'], tables['bootstrap_draws'], metadata,
                                      aggregation=aggregation)
         summaries.append(summary.assign(weighting=aggregation))
@@ -749,7 +749,7 @@ def main():
                 patient_gain_contrasts=set(),
                 min_cases=analysis.get('performance_min_cases', 5),
                 min_controls=analysis.get('performance_min_controls', 5))
-            for aggregation in ('equal_cell', 'disease_balanced'):
+            for aggregation in ('equal_cell', 'disease_balanced' if 'loss_endpoint' in metadata else 'disease_outcome_balanced'):
                 _, summary = effect_summaries(tables['contrasts'], tables['bootstrap_draws'],
                     metadata, aggregation=aggregation)
                 all_summary.append(summary.assign(variant=variant, weighting=aggregation))

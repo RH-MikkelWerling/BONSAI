@@ -795,11 +795,20 @@ def main():
     overview = []
     paired_group_rows = []
     km_matching_rows = []
+    evaluation_km_rows, evaluation_km_curves = [], []
     detection_counts = []
     decision_tables = []
     for spec in specs:
         record = {"score_id": spec["id"], 'model': spec['model'],
-                  'cohorts': json.dumps(spec['cohorts']), 'group_order': json.dumps(spec['group_order'])}
+                  'cohorts': json.dumps(spec['cohorts']), 'group_order': json.dumps(spec['group_order']),
+                  # Labels for the across-index summary (descriptive only).
+                  'score_label': spec['score_label'],
+                  'population_label': spec.get('population_label'),
+                  'outcome_label': spec['outcome_label'],
+                  'death_in_endpoint': spec.get('death_in_endpoint'),
+                  'horizon_days': spec['horizon_days'],
+                  **{key: spec.get(key) for key in ("outcome", "original_endpoint",
+                      "endpoint_match", "endpoint_proxy_note", "endpoint_source")}}
         diagnostic = dict(score_id=spec['id'], threshold_split=spec.get('threshold_split', 'train'))
         print(f"Clinical score {spec['id']}: preparing groups and independent operating points", flush=True)
         try:
@@ -835,6 +844,23 @@ def main():
                 record["status"] = "insufficient_support"
                 records.append(record)
                 continue
+            km_settings = {"enabled": True, "draws": 200, "minimum_group": 20,
+                           "minimum_at_risk": 10, **config.get("evaluation_km_matching", {}),
+                           **spec.get("evaluation_km_matching", {})}
+            if km_settings["enabled"] and spec.get("death_in_endpoint"):
+                from opera.evaluation.clinical_km_matching import cohort_km_matching
+                matched, frontier = cohort_km_matching(held, spec,
+                    draws=int(km_settings["draws"]),
+                    seed=int(km_settings.get("seed", 2026)),
+                    minimum_group=int(km_settings["minimum_group"]),
+                    minimum_at_risk=int(km_settings["minimum_at_risk"]),
+                    progress=lambda message: print(f"{spec['id']}: {message}", flush=True))
+                for key in ("outcome", "outcome_label", "original_endpoint", "endpoint_match",
+                            "endpoint_proxy_note", "score_label"):
+                    matched[key] = spec.get(key)
+                matched["split"] = args.split
+                evaluation_km_rows.extend(matched.to_dict("records"))
+                evaluation_km_curves.extend(frontier.to_dict("records"))
             cohort_matching = spec.get('cutoff_rule') == 'cohort_size_matched'
             if spec.get('cutoff_rule'):
                 try:
@@ -1065,6 +1091,18 @@ def main():
             suffix = "" if page == 1 else f"_{page}"
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)
+    pd.DataFrame(evaluation_km_rows).to_csv(args.output_dir / "evaluation_km_matched_groups.csv", index=False)
+    pd.DataFrame(evaluation_km_curves).to_csv(args.output_dir / "evaluation_km_frontiers.csv", index=False)
+    for spec in specs:
+        matching = pd.DataFrame([r for r in evaluation_km_rows if r["score_id"] == spec["id"]])
+        if matching.empty:
+            continue
+        frontier = pd.DataFrame([r for r in evaluation_km_curves if r["score_id"] == spec["id"]])
+        directory = args.output_dir / spec["id"]
+        directory.mkdir(exist_ok=True)
+        fig = figures.figure_evaluation_km_matching(frontier, matching)
+        save_fig(fig, str(directory / "evaluation_km_matching.png"))
+        plt.close(fig)
     pd.DataFrame(classification).to_csv(args.output_dir / "classification_at_thresholds.csv", index=False)
     pd.DataFrame(paired_group_rows).to_csv(args.output_dir / 'size_matched_survival_comparisons.csv', index=False)
     pd.DataFrame(km_matching_rows).to_csv(args.output_dir / 'km_matched_low_groups.csv', index=False)
@@ -1131,6 +1169,8 @@ def main():
                   - high.loc["index", "sensitivity_at_or_above"])
         headline.append({
             "score_id": spec["id"],
+            **{key: record.get(key) for key in ("outcome", "original_endpoint",
+                "endpoint_match", "endpoint_proxy_note", "endpoint_source")},
             "model": spec["model"], "split": args.split,
             "threshold_split": spec.get("threshold_split", "train"),
             "group_order": json.dumps(spec['group_order']),

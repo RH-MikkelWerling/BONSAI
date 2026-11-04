@@ -31,6 +31,14 @@ Keys (``<code>`` is a contrast code such as P5, T2 or E3):
   ipi_low_risk_model / _index, ipi_high_risk_index, top5_risk_model
                            observed two-year risks with 95% Wilson intervals
   followup_ipi             median follow-up (IQR) of the IPI population, years
+  clinical_<m>_atleast, clinical_<m>_better, clinical_<m>_notestimable, clinical_<m>_median
+                           every clinical index (``opera.evaluation.clinical_index_summary``),
+                           <m> = low_size, high_size (equal group sizes), low_risk,
+                           high_risk (equal risk) and both_size (both ends, equal size);
+                           "k of n" over every index compared (clinical_indices_total)
+
+Also writes ``clinical_index_rows.tex`` (body of the supplementary table
+``paper/tables/clinical_index_summary.tex``) and ``clinical_index_summary.csv``.
 """
 
 from __future__ import annotations
@@ -51,14 +59,14 @@ HORIZON = 365
 CODES = ("P5", "P1", "P2", "P3", "P4", "P6", "P0", "P7", "T2", "T3", "T4", "T6", "T7", "T9",
          "T10", "R0", "R1", "E1", "E2", "E3", "E4", "N10", "N25", "N50",
          "LS10", "LS25", "LS50", "LSE10", "LSE25", "LSE50", "FD10", "FD25", "FD50", "RS1",
-         "J_vs_best_tuning", "O1", "O2", "O3", "T5_router", "T5_shared", "T5E_router", "T5E_shared", "PP0", "PP1", "PP2", "PP3", "PP4", "PT5_AB", "PT3V_AB", "PT5_J", "PT3V_J", "PT5_FZ", "FZ_AB", "PT3V_PT5", "NF_AB", "PF5E_AB", "PF5E_J", "PF5E_FZ", "PF5E_OWN", "PFOFF_RBHO", "PFOFF_AB",
+         "J_vs_best_tuning", "O1", "O2", "O2_MATCHED", "O2_LOCAL", "O_ROUTING_MATCHED", "O_READ_MATCHED", "O_CORRECTIONS_MATCHED", "O3", "T5_router", "T5_shared", "T5E_router", "T5E_shared", "PP0", "PP1", "PP2", "PP3", "PP4", "PT5_AB", "PT3V_AB", "PT5_J", "PT3V_J", "PT5_FZ", "FZ_AB", "PT3V_PT5", "NF_AB", "PF5E_AB", "PF5E_J", "PF5E_FZ", "PF5E_OWN", "PFOFF_RBHO", "PFOFF_AB",
          "PFR32_OWN", "PFOFF32_OFF", "PHG_OFF", "PHGE_OFF", "PHGEP_PHGE", "PFLIVE_OFF",
          "F10_OFF_J", "F10_PF5E_OFF", "F10_PHGE_OFF", "F10_LIVE_OFF", "F10_PF5E_J",
          "PL8_OFF", "PL8_PHGE", "F10_PL8_OFF", "F10_PL8_PHGE",
          "OA_J", "SP_J", "FP_J", "OA_AB", "SP_AB", "FP_AB", "FP_OA", "FPF_J", "FPF_FP", "OAOWN_J", "OFF_J", "OAOWN_OFF", "AB_OFF",
          "OAOWN_AB", "OAOWN_OA", "OAOWNPH_OAOWN", "OAOWNPH_AB", "FPFOWN_AB", "FPFOWN_FPF", "FPFPH_FPF", "FPFPHOWN_AB", "FPFPHOWN_FPFOWN", "OALR_OA", "OALROWN_OAOWN", "OALROWN_AB", "ELR_J", "ELR_AB", "ELR3_AB", "OAOWN_NF", "OAOWN_R32", "OAOWN_DIS", "OAOWN_OUT", "F10_OAOWN_OFF", "F10_OAOWN_PHGE",
          "SW20_OAOWN", "SW100_OAOWN", "X_OAOWN", "XSW_OAOWN", "PE_OAOWN", "PHX_OAOWN", "PEXSW_OAOWN",
-         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "OFF_J_s43", "OAOWN_OFF_s43", "AB_OFF_s43", "OAOWN4_J", "OAOWN4_OFF", "OAOWN4_AB", "OAOWN4_X", "OAOWN4_S42", "OAOWNPH_AB_s43", "OAOWNPH_OAOWN_s43", "OAOWNPH_NF", "OAOWNPH_OAOWN_s44", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
+         "XSW_AB", "PEXSW_AB", "MAX_OAOWN", "MAX_AB", "OAOWN_NF44", "OAOWN_NF45", "OAOWN_NF4345", "J_NF", "OAOWN_J_s43", "OFF_J_s43", "OAOWN_OFF_s43", "AB_OFF_s43", "OAOWN4_J", "OAOWN4_OFF", "OAOWN4_AB", "OAOWN4_X", "OAOWN4_S42", "E2_AB", "E4_AB", "A2_AB", "T5E_AB", "T5_AB", "I1_AB", "I3_AB", "OAOWN_AB_E", "OAOWN_AB_EA", "OFF_J_E", "OAOWN_OFF_E", "AB_OFF_E", "OFF_J_EA", "OAOWN_OFF_EA", "AB_OFF_EA", "OAOWN_DIS_EA", "OAOWN_OUT_EA", "OFF_GROWTH_EA", "READ_GROWTH_EA", "OAOWNPH_AB_s43", "OAOWNPH_OAOWN_s43", "OAOWNPH_NF", "OAOWNPH_OAOWN_s44", "ELR_FPFPHOWN", "ELR_OAOWN", "ELR_FPFPHOWN_AB", "ELR_OAOWN_AB",
          *(f"{code}_{suffix}" for code in ("PF5", "PF5B", "PF10E", "PF5EP", "PF5EL", "PF5ED", "PF5EO", "PFLR",
                                            "PFW0", "PFR32", "PHG", "PHGE", "PHGEP", "PF5E43", "PFLIVE", "PL8")
            for suffix in ("AB", "E")), "R1_orig", "T1_orig", "R_orig", "IPW_R", "IPW_J",
@@ -73,8 +81,15 @@ TABLE_ROWS = (
     (None, "Specialising each prediction (each step added to the one above)"),
     ("OFF_J", "Corrections for the patient's disease and the outcome"),
     ("OAOWN_OFF", "\\quad + each outcome reading the record its own way"),
-    ("O2", "\\quad = all specialisation (OPERA against the joint model)"),
+    ("O2_MATCHED", "\\quad = all specialisation (same encoder)"),
+    ("O2", "Final OPERA against the local joint model (total system)"),
+    ("O2_LOCAL", "Selected local design against the local joint model"),
+    ("O_ROUTING_MATCHED", "Final OPERA against learned routing (same encoder)"),
     ("AB_OFF", "Instead: learning which other tasks to borrow from"),
+    ("R1", "Learned routing (R$_{AB}$) against the joint model"),
+    (None, "Pretraining on the cohort's records (joint model)"),
+    ("P0", "Pretrained encoder, against no pretraining"),
+    ("P7", "Fine-tuning the encoder, against training only the readout"),
     (None, "Pretraining on the national population (against the cohort encoder)"),
     ("E1", "Joint model, national encoder"),
     ("E3", "Joint model, national encoder adapted to the cohort"),
@@ -271,6 +286,97 @@ def clinical_numbers(headline, strata, inventory, *, size_matched=None, km_match
     return numbers
 
 
+CLINICAL_INDEX_DIGITS = {"low_size": 1, "high_size": 1, "low_risk": 1, "high_risk": 0}
+
+
+def _tex(text):
+    """Plain registry text for a LaTeX cell."""
+    return (str(text).replace("\\", "").replace("&", "\\&").replace("%", "\\%")
+            .replace("_", "\\_").replace("#", "\\#").replace("≥", "$\\geq$")
+            .replace("–", "--").replace("…", "\\dots{}"))
+
+
+def clinical_index_cell(row, measure):
+    """Estimate (95% CI) for one comparison: bold when the interval lies above
+    zero (favouring the model), in the warning colour when below, as Table 2."""
+    digits = CLINICAL_INDEX_DIGITS[measure]
+    point, low, high = (row.get(measure), row.get(f"{measure}_lower"),
+                        row.get(f"{measure}_upper"))
+    if point is None or not np.isfinite(point):
+        return "n.e."
+    if low is None or high is None or not np.isfinite([low, high]).all():
+        return fmt(point, digits)
+    text = f"{fmt(point, digits)} ({fmt(low, digits)} to {fmt(high, digits)})"
+    if low > 0:
+        return f"\\textbf{{{text}}}"
+    if high < 0:
+        return f"\\textcolor{{OperaSienna}}{{{text}}}"
+    return text
+
+
+def clinical_index_rows(summary):
+    """Body rows of the supplementary table of every clinical index (a–d)."""
+    if summary is None or not len(summary):
+        return None
+    lines, previous = [], None
+    for row in summary.to_dict("records"):
+        disease = _tex(row["disease"]) if row["disease"] != previous else ""
+        if previous is not None and row["disease"] != previous:
+            lines.append("\\addlinespace[2pt]")
+        previous = row["disease"]
+        horizon = row.get("horizon_days")
+        endpoint = _tex(row.get("endpoint") or "--")
+        if horizon is not None and np.isfinite(horizon):
+            years = horizon / 365
+            endpoint += f", {years:g} y" if horizon % 365 == 0 else f", {horizon:g} d"
+        n = row.get("n_patients")
+        patients = f"{int(n):,}" if n is not None and np.isfinite(n) else "--"
+        lead = [disease, _tex(row["index"]), endpoint, patients]
+        if row["status"] != "rendered":
+            reason = _tex(row.get("reason") or "not estimable")
+            lines.append(" & ".join(lead) + f" & \\multicolumn{{5}}{{l}}{{\\textit{{Not estimable: {reason}}}}} \\\\")
+            continue
+        count = row.get("low_risk_count")
+        count = (f"{int(count):+,}".replace("-", "$-$") if count is not None and np.isfinite(count)
+                 else "--")
+        cells = [clinical_index_cell(row, "low_size"), clinical_index_cell(row, "high_size"),
+                 clinical_index_cell(row, "low_risk"), count, clinical_index_cell(row, "high_risk")]
+        lines.append(" & ".join(lead + cells) + " \\\\")
+    # The closing rule travels with the rows: a table cannot end with \IfFileExists.
+    return "\n".join(lines) + "\n\\bottomrule\n"
+
+
+def clinical_index_numbers(summary):
+    """Across-index macros: how many indices are at least as good at each end.
+
+    Denominators are every index compared, including those not estimable (the
+    lock reports every index); ``*_notestimable`` gives those separately.
+    """
+    from opera.evaluation.clinical_index_summary import MEASURES, across_index_counts
+    numbers = {}
+    if summary is None or not len(summary):
+        return numbers
+    counts = across_index_counts(summary)
+    total = len(summary)
+    numbers["clinical_indices_total"] = f"{total:,}"
+    numbers["clinical_indices_not_estimable"] = f"{int(summary.status.ne('rendered').sum()):,}"
+    keys = {"low_size": "low_size", "high_size": "high_size", "low_risk": "low_risk",
+            "high_risk": "high_risk", "both_ends_size": "both_size"}
+    for measure, key in keys.items():
+        tally = counts[measure]
+        numbers[f"clinical_{key}_atleast"] = f"{tally['at_least_as_good']:,} of {total:,}"
+        numbers[f"clinical_{key}_better"] = f"{tally['better']:,} of {total:,}"
+        numbers[f"clinical_{key}_notestimable"] = f"{tally['not_estimable']:,}"
+    for measure in MEASURES:
+        values = summary[measure].dropna()
+        if len(values):
+            digits = CLINICAL_INDEX_DIGITS[measure]
+            numbers[f"clinical_{measure}_median"] = (
+                f"{fmt(values.median(), digits)} (range {fmt(values.min(), digits)} "
+                f"to {fmt(values.max(), digits)})")
+    return numbers
+
+
 def attribution_numbers(path, sources):
     """Integrated-gradients scalars from ``attribution_numbers.json`` (optional)."""
     path = Path(path)
@@ -394,6 +500,28 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
                                     _read(clinical / "score_inventory.csv", sources),
                                     size_matched=_read(clinical / 'size_matched_survival_comparisons.csv', sources),
                                     km_matched=_read(clinical / 'km_matched_low_groups.csv', sources)))
+    evaluation_km = _read(clinical / "evaluation_km_matched_groups.csv", sources)
+    if evaluation_km is not None:
+        for row in evaluation_km.to_dict("records"):
+            if row.get("split", SPLIT) != SPLIT:
+                continue
+            key = "clinical_evaluation_km_" + str(row["score_id"]) + "_" + row["end"]
+            numbers[key + "_index_n"] = fmt(row["index_n"], 0)
+            if row["status"] == "estimable":
+                numbers[key + "_model_n"] = fmt(row["model_n"], 0)
+                numbers[key + "_additional_per_1000"] = with_ci(
+                    row["additional_per_1000"], row["lower"], row["upper"], digits=1)
+    # Every clinical index at both ends (supplementary table and its macros).
+    clinical_summary = None
+    inventory = _read(clinical / "score_inventory.csv", sources)
+    if inventory is not None:
+        from opera.evaluation.clinical_index_summary import summarise_clinical_indices
+        clinical_summary = summarise_clinical_indices(
+            inventory, _read(clinical / "size_matched_survival_comparisons.csv", sources),
+            _read(clinical / "km_matched_low_groups.csv", sources),
+            _read(clinical / "clinical_operating_point_counts.csv", sources),
+            _read(clinical / "headline_scores.csv", sources))
+        numbers.update(clinical_index_numbers(clinical_summary))
     numbers.update(restriction_numbers(
         analysis_root / "input_restrictions" / "input_restriction_summary.csv", sources))
     numbers.update(attribution_numbers(
@@ -409,6 +537,12 @@ def build(analysis_root, cell_metadata, output_dir, *, plot_tables=None, clinica
     rows = table_rows(_read(plot_tables / "panel_effects.csv", sources))
     if rows:
         (output_dir / "panel_effects_rows.tex").write_text(rows)
+    if evaluation_km is not None:
+        evaluation_km.to_csv(output_dir / "clinical_evaluation_km_matching.csv", index=False)
+    clinical_rows = clinical_index_rows(clinical_summary)
+    if clinical_rows:
+        (output_dir / "clinical_index_rows.tex").write_text(clinical_rows)
+        clinical_summary.to_csv(output_dir / "clinical_index_summary.csv", index=False)
     (output_dir / "paper_numbers.json").write_text(json.dumps(
         {"split": SPLIT, "horizon_days": HORIZON, "numbers": numbers, "sources": sources},
         indent=2, ensure_ascii=False) + "\n")

@@ -85,15 +85,33 @@ def tuning_inventory(analysis):
     return {**analysis, "artifacts": artifacts}
 
 
+
+def figure_checklist(review):
+    """One auditable row per renderer-registered figure, including missing ones."""
+    rows = []
+    for path in sorted(Path(review).rglob('figure_manifest.json')):
+        manifest = json.loads(path.read_text())
+        family = str(path.parent.relative_to(review))
+        for figure in manifest.get('figures', []):
+            rows.append(dict(family=family, figure_id=figure['id'], status='rendered',
+                             reason='', pdf=str(path.parent / (figure['id'] + '.pdf'))))
+        for name, reason in manifest.get('skipped', {}).items():
+            rows.append(dict(family=family, figure_id=name, status='missing', reason=reason, pdf=''))
+    return rows
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--analysis-root",
         type=Path,
         required=True,
-        help="Existing completed tuning workspace with completion.json",
+        help="Tuning input workspace with overnight.env and analysis_inventory/analysis.yaml",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--defer-national", action="store_true",
+                        help="Keep missing national-only figures explicitly pending; do not block the local release")
+    parser.add_argument("--clinical-config", type=Path,
+                        help="Explicit approved clinical config; overrides the source workspace recipe")
     parser.add_argument(
         "--verify-sources",
         action="store_true",
@@ -126,9 +144,25 @@ def main():
         )
     if analysis.get("bootstrap_method", "multiplier") != "multiplier":
         raise ValueError("Expected the current multiplier-bootstrap analysis recipe")
+    analysis["bootstrap_method"] = "multiplier"
     # Require the selected-fit receipt used by fresh attribution inference.
-    json.loads((source / "completion.json").read_text())["inputs"]["fit"]
+    receipt = source / "completion.json"
+    primary_fit = json.loads(receipt.read_text())["inputs"]["fit"] if receipt.is_file() else {}
     env = load_environment(source / "overnight.env")
+    if primary_fit.get('checkpoint'):
+        env['OPERA_PAPER_TASK_STRUCTURE_CHECKPOINT'] = primary_fit['checkpoint']
+        env['OPERA_PAPER_ATTRIBUTION_CHECKPOINT'] = primary_fit['checkpoint']
+    if primary_fit.get('config'):
+        config_path = Path(primary_fit['config'])
+        env['OPERA_PAPER_ATTRIBUTION_CONFIG_DIR'] = str(config_path.parent)
+        env['OPERA_PAPER_ATTRIBUTION_CONFIG_NAME'] = config_path.stem
+        env['OPERA_PAPER_TASK_STRUCTURE_CONFIG_NAME'] = config_path.stem
+    if analysis.get('opera_model'):
+        env['OPERA_PAPER_OPERA_MODEL'] = analysis['opera_model']
+    if args.clinical_config:
+        if not args.clinical_config.is_file():
+            raise FileNotFoundError(args.clinical_config)
+        env["OPERA_PAPER_CLINICAL_SCORE_CONFIG"] = str(args.clinical_config.resolve())
     root = args.output_dir.resolve()
     if root == source or source in root.parents:
         raise ValueError("Use a fresh sibling output directory")
@@ -168,6 +202,7 @@ def main():
         prepared_inventory_sha256=digest(prepared_inventory),
         legacy_split_declarations_resolved=resolved_splits,
         source_verification_enabled=args.verify_sources,
+        national_arm="deferred" if args.defer_national else "included",
         code_manifest_sha256=(
             digest(repo / "code_manifest.sha256") if args.verify_sources else None
         ),
@@ -176,6 +211,7 @@ def main():
         ),
         frozen_inputs="Fitted checkpoints, original tuning predictions, metadata and outcome definitions",
         reused_prior_analysis_outputs=False,
+        cache_policy="New output tree; no prior estimates, explanatory exports, plot tables or images copied. Registered base predictions and checkpoints are fixed inputs.",
         steps={},
     )
 
@@ -283,11 +319,12 @@ def main():
         module(
             "prepare_attribution_refresh",
             "--analysis-root",
-            source,
+            complete,
             "--output-dir",
             ig,
             "--execute",
         ),
+        needs=["complete_figures"],
     )
     run(
         "input_restrictions",
@@ -340,6 +377,10 @@ def main():
                 "--execute",
             ),
         )
+        for name in ("task_structure", "correction_arrows"):
+            run(name, module("paper_experiments", name.replace("_", "-"),
+                "--env-file", complete / "overnight.env", "--execute"),
+                needs=["plot_tables"])
         current_env = load_environment(complete / "overnight.env")
         run(
             "paper_numbers",
@@ -380,11 +421,28 @@ def main():
                 ig / "attributions",
                 "--restriction-dir",
                 ig / "input_restrictions",
+                "--whole-cohort-dir",
+                root / "whole_cohort",
                 "--output-dir",
                 review,
             ),
             needs=["plot_tables"],
         )
+        if report['steps'].get('assemble', {}).get('status') == 'complete':
+            # Only aggregate products created in this new run are added here.
+            for name in ('paper_numbers', 'supplement_tables'):
+                destination = review / 'reports' / name
+                destination.mkdir(parents=True, exist_ok=True)
+                for path in (root / name).glob('*'):
+                    if path.is_file() and path.suffix in {'.tex', '.json', '.csv'}:
+                        shutil.copy2(path, destination / path.name)
+            checklist = figure_checklist(review)
+            if checklist:
+                import csv
+                with (review / 'reports/figure_checklist.csv').open('w', newline='') as handle:
+                    writer = csv.DictWriter(handle, fieldnames=['family', 'figure_id', 'status', 'reason', 'pdf'])
+                    writer.writeheader()
+                    writer.writerows(checklist)
         run(
             "package",
             module(
@@ -400,9 +458,29 @@ def main():
         )
     else:
         report["missing_analysis_workspace"] = True
+    completion_manifest = complete / 'completion.json'
+    report['nested_completion_status'] = (json.loads(completion_manifest.read_text()).get('status')
+                                          if completion_manifest.is_file() else 'missing')
     review_manifest = review / "review_manifest.json"
     if review_manifest.is_file():
-        report["review_status"] = json.loads(review_manifest.read_text()).get("status")
+        review_report = json.loads(review_manifest.read_text())
+        report["review_status"] = review_report.get("status")
+        report["review_missing_inputs"] = review_report.get("missing", [])
+    report['figure_checklist'] = figure_checklist(review)
+    if report['figure_checklist']:
+        import csv
+        with (root / 'figure_checklist.csv').open('w', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=['family', 'figure_id', 'status', 'reason', 'pdf'])
+            writer.writeheader()
+            writer.writerows(report['figure_checklist'])
+    report['missing_figure_count'] = sum(r['status'] != 'rendered' for r in report['figure_checklist'])
+    national_ids = {'fig_external', 'supp_national_where', 'supp_embedding_comparison'}
+    report['deferred_national_figures'] = [r for r in report['figure_checklist']
+        if args.defer_national and r['status'] == 'missing' and r['figure_id'] in national_ids
+        and r['reason'].startswith('missing inputs:')]
+    deferred = {(r['family'], r['figure_id']) for r in report['deferred_national_figures']}
+    report['blocking_missing_figures'] = [r for r in report['figure_checklist']
+        if r['status'] != 'rendered' and (r['family'], r['figure_id']) not in deferred]
     report["source_changed_during_run"] = None
     if args.verify_sources:
         try:
@@ -416,17 +494,30 @@ def main():
         "complete"
         if (
             all(s["status"] == "complete" for s in report["steps"].values())
+            and report.get("nested_completion_status") == "complete"
             and report.get("review_status") == "review_ready"
+            and not report["missing_figure_count"]
             and not report["source_changed_during_run"]
             and not report.get("source_verification_error")
         )
         else "finished_with_gaps"
     )
+    if (args.defer_national and report['deferred_national_figures']
+            and report.get('nested_completion_status') == 'complete'
+            and not report['blocking_missing_figures']
+            and not report.get('review_missing_inputs')
+            and report.get('review_status') in {'review_ready', 'partial_review'}
+            and all(s['status'] == 'complete' for s in report['steps'].values())
+            and not report.get('source_verification_error')
+            and not report['source_changed_during_run']):
+        report['status'] = 'complete_local_national_pending'
     save()
     print(
         f"{report['status']}: {report_path}\nFinal figures: {review}\nReview ZIP: {root / 'paper_review.zip'}",
         flush=True,
     )
+    if report["status"] not in {"complete", "complete_local_national_pending"}:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
