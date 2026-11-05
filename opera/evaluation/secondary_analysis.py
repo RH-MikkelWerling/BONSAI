@@ -750,6 +750,42 @@ def _paired_cells(batch, parsed, patient_gain_contrasts, min_cases=0, min_contro
     return estimates, differences, draw_rows, contributions, coverage, model_draw_rows
 
 
+def disk_backed_draw_matrix(rows, column):
+    """Copy bootstrap vectors to temporary disk storage without a full RAM stack.
+
+    The mapping owns its storage after the temporary file handle closes. NumPy
+    views keep it alive until the final consumer releases them. TMPDIR chooses
+    the scratch filesystem; OPERA_ANALYSIS_SCRATCH can override it.
+    """
+    import os
+    import tempfile
+
+    if not len(rows):
+        return np.empty((0, 0), dtype=float)
+    vectors = rows[column] if isinstance(rows, pd.DataFrame) else [r[column] for r in rows]
+    size = len(vectors.iloc[0] if isinstance(vectors, pd.Series) else vectors[0])
+    with tempfile.TemporaryFile(dir=os.environ.get("OPERA_ANALYSIS_SCRATCH")) as handle:
+        handle.truncate(len(vectors) * size * np.dtype(float).itemsize)
+        matrix = np.memmap(handle, dtype=float, mode="r+", shape=(len(vectors), size))
+        for index, vector in enumerate(vectors):
+            matrix[index] = vector
+        matrix.flush()
+    return matrix
+
+
+def _spill_batch_draws(part):
+    # Two large outputs contain the same 1000 draws for every model/contrast,
+    # metric and cell. Keep their values in float64, but off the Python heap.
+    for index, column in ((2, "gain_draws"), (5, "estimate_draws")):
+        rows = part[index]
+        if not rows or sum(row[column].nbytes for row in rows) < 1024 * 1024:
+            continue
+        matrix = disk_backed_draw_matrix(rows, column)
+        for position, row in enumerate(rows):
+            row[column] = matrix[position]
+    return part
+
+
 def paired_analysis(
     frame,
     contrasts,
@@ -776,6 +812,13 @@ def paired_analysis(
             batch = []
     if batch:
         batches.append(batch)
+    def collect(parts):
+        for part in parts:  # consume and spill each batch before asking for another
+            part = _spill_batch_draws(part)
+            for target, rows in zip((estimates, differences, draw_rows, contributions, coverage,
+                                     model_draw_rows), part):
+                target.extend(rows)
+
     workers = analysis_workers()
     if workers > 1 and len(batches) > 1:
         from concurrent.futures import ProcessPoolExecutor
@@ -792,14 +835,10 @@ def paired_analysis(
                 yield pending.popleft().result()
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            parts = list(_with_progress(ordered_results(pool), len(batches)))
+            collect(_with_progress(ordered_results(pool), len(batches)))
     else:
-        parts = list(_with_progress(
+        collect(_with_progress(
             (_paired_cells(b, parsed, patient_gain_contrasts, min_cases, min_controls) for b in batches), len(batches)))
-    for part in parts:  # in cell order, exactly as a serial run
-        for target, rows in zip((estimates, differences, draw_rows, contributions, coverage,
-                                 model_draw_rows), part):
-            target.extend(rows)
     if not differences:
         raise ValueError("No requested contrast has all required model predictions")
     return {

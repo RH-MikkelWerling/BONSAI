@@ -26,6 +26,7 @@ from opera.evaluation.secondary_analysis import (
     calibration_summary,
     coverage_inventory,
     effect_summaries,
+    disk_backed_draw_matrix,
     pool_cells_over_horizons,
     negative_transfer_strata,
     normalize_predictions,
@@ -1170,7 +1171,7 @@ def run(config, output_dir):
         if name == "bootstrap_draws":
             np.savez_compressed(
                 output_dir / "paired_bootstrap_draws_INTERNAL.npz",
-                gains=np.stack(table.gain_draws),
+                gains=disk_backed_draw_matrix(table, "gain_draws"),
             )
             table.drop(columns="gain_draws").to_csv(
                 output_dir / "paired_bootstrap_index.csv", index=False
