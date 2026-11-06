@@ -492,9 +492,9 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
                                                 metric=metric, horizon=horizon))
     if order == "support":
         rows = _axis_order(cells, "cohort", "cohort_group", order=order, horizon=horizon)[0]
-        _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(rows),
-                       axis="y", labels=rows, label=_support_label(cells, "cohort"))
-    _panel_title(ax, "A", "Joint vs specialist")
+        support = _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(rows),
+                                 axis="y", labels=rows)
+    _panel_title(ax, "A", "Gain by disease and domain")
     # B: each disease's gain split by pooling axis, on the same rows.
     bx = fig.add_subplot(top[1], sharey=ax)
     diseases, _ = _axis_order(cells, "cohort", "cohort_group", order=order, horizon=horizon)
@@ -526,17 +526,18 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
                               markersize=4.5, label=name)
                        for c, name in (("D-S", "Disease pooling"), ("O-S", "Outcome pooling"),
                                        ("J-S", "Both (joint)"))],
-              loc="upper left", bbox_to_anchor=(-.08, -0.16), ncol=1, frameon=False,
+              loc="upper left", bbox_to_anchor=(0, -0.16), ncol=1, frameon=False,
               fontsize=7, handletextpad=0.3, columnspacing=0.8, borderaxespad=0)
     _panel_title(bx, "B", "Gain by pooling axis")
     despine(bx, "x")
-    cax = fig.add_axes([0.885, 0.62, 0.012, 0.25])
-    colorbar = fig.colorbar(image, cax=cax)
-    colorbar.set_label(f"{_horizon_phrase(horizon)} {METRIC_LABEL[metric]}\n(median within domain)",
+    box = ax.get_position()
+    cax = fig.add_axes([box.x0, 0.38, box.width, 0.012])
+    colorbar = fig.colorbar(image, cax=cax, orientation="horizontal")
+    colorbar.set_label(f"{_horizon_phrase(horizon)} {METRIC_LABEL[metric]} (median within domain)",
                        fontsize=7.2)
     colorbar.ax.tick_params(labelsize=6.5)
     colorbar.outline.set_visible(False)
-    colorbar.ax.yaxis.set_major_locator(MaxNLocator(5))
+    colorbar.ax.xaxis.set_major_locator(MaxNLocator(5))
 
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.62, left=0.1,
                               right=0.98, top=0.25, bottom=0.065)
@@ -544,10 +545,6 @@ def figure_pooling(cells, curve=None, *, metric="auc", horizon=ALL_HORIZONS, ord
     data = cells.loc[(cells.metric == metric) & _horizon_mask(cells, horizon)
                      & cells.contrast.isin(["D-S", "O-S", "J-S"])]
     joint = estimable_cells(data.loc[data.contrast == "J-S"])
-    gains = data.loc[data.contrast.eq('J-S'), 'gain'].dropna()
-    fig.text(.29, .985, f'Joint vs specialist: {(gains > 0).sum():,} higher, '
-             f'{(gains < 0).sum():,} lower, {(gains == 0).sum():,} tied / {len(gains):,} paired cells',
-             ha='left', va='top', fontsize=7, color=PALETTE['ink_secondary'])
     ax.scatter(joint.n_events_train.clip(lower=1), joint.gain, s=6, alpha=0.25,
                color=PALETTE["ink_muted"], linewidths=0, zorder=2, rasterized=True)
     handles = []
@@ -673,15 +670,15 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     references = [r for r in reference_spec if r[0] in set(data.contrast)]
     if not references:
         raise ValueError(f"No direct headline contrasts for {focus_model}")
-    fig = plt.figure(figsize=(8.8 if model_overview else 7.2,
-                              10.4 if model_overview else 8.9 + .3 * max(0, len(references)-4)))
+    fig = plt.figure(figsize=(7.2,
+                              8.0 if model_overview else 8.9 + .3 * max(0, len(references)-4)))
     outer = fig.add_gridspec(3, 1, height_ratios=[1.6 if model_overview else 1.0, 1.35, 1.0], hspace=0.55,
-                             left=0.03, right=0.985, top=0.965, bottom=0.13)
+                             left=0.09, right=0.985, top=0.965, bottom=0.13)
     rng = np.random.default_rng(0)
 
     # A: reference ladder.
     ax = fig.add_subplot(outer[0])
-    ax.set_position([0.27, ax.get_position().y0, 0.5, ax.get_position().height])
+    ax.set_position([0.26, ax.get_position().y0, 0.67, ax.get_position().height])
     year = data.loc[_horizon_mask(data, horizon)]
     summaries_used = set()
     for row, (contrast, label, color) in enumerate(references):
@@ -743,8 +740,13 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.clear()
         _headline_model_overview(ax, models, estimates=overview_estimates,
                                  horizon=_single(horizon))
+        fig.canvas.draw()
+        bounds = ax.get_tightbbox(fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+        position = ax.get_position()
+        ax.set_position([position.x0 + .5 - (bounds.x0 + bounds.x1) / 2,
+                         position.y0, position.width, position.height])
 
-    middle = outer[1].subgridspec(1, 2, width_ratios=[1.25, 1], wspace=0.55)
+    middle = outer[1].subgridspec(1, 2, width_ratios=[1, 1], wspace=0.42)
     # B: every cell.
     ax = fig.add_subplot(middle[0])
     if models is not None and focus_model not in models:
@@ -771,8 +773,8 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.xaxis.set_major_locator(MaxNLocator(4))
         ax.yaxis.set_major_locator(MaxNLocator(4))
     ax.set_xlabel("XGBoost AUC (one year)")
-    ax.set_ylabel(f"{focus_label} AUC (one year)")
-    _panel_title(ax, "B", f"{focus_label} vs XGBoost per cell")
+    ax.set_ylabel("OPERA ROC AUC" if focus_model == "OPERA" else "Joint ROC AUC")
+    _panel_title(ax, "B", "OPERA vs XGBoost" if focus_model == "OPERA" else "Joint vs XGBoost")
     despine(ax, "both")
 
     # C: clinical indices.
@@ -814,7 +816,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     _panel_title(ax, "C", "Clinical indices")
     despine(ax, "x")
 
-    lower = outer[2].subgridspec(1, 2, width_ratios=[1.25, 1], wspace=0.45)
+    lower = outer[2].subgridspec(1, 2, width_ratios=[1, 1], wspace=0.42)
     # D: every model against XGBoost, every horizon.
     ax = fig.add_subplot(lower[0])
     horizon_models = HEADLINE_MODELS if focus_model == "J" else (
@@ -849,11 +851,11 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax.set_xticklabels([str(d) for d in horizons], fontsize=6.5)
     ax.minorticks_off()
     ax.set_xlabel("Horizon (days)")
-    ax.set_ylabel("Mean AUC gain over XGBoost")
+    ax.set_ylabel("AUC gain over XGBoost")
     # The key sits directly under this panel's axis label, not at the page foot.
-    ax.legend(frameon=False, fontsize=6.6, ncol=3, loc="upper left",
-              bbox_to_anchor=(0.0, -0.3), borderaxespad=0.0,
-              handlelength=1.4, columnspacing=1)
+    ax.legend(frameon=False, fontsize=7, ncol=2, loc="upper left",
+              bbox_to_anchor=(0.0, -0.25), borderaxespad=0.0,
+              handlelength=1.4, columnspacing=0.65)
     _panel_title(ax, "D", "Gain by horizon")
     despine(ax, "y")
 
@@ -886,9 +888,13 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.text(.5, .5, "Matched subgroup estimates unavailable", transform=ax.transAxes,
                 ha="center", va="center", fontsize=7, color=PALETTE["ink_muted"])
     ax.set_xlabel("Recorded events before treatment")
-    ax.set_ylabel("Brier improvement (×100, 95% CI)")
+    ax.set_ylabel("Brier gain (×100)")
     _panel_title(ax, "E", "Gain by recorded history")
     despine(ax, "y")
+    for panel in fig.axes:
+        panel.tick_params(axis="both", labelsize=7.5)
+        panel.xaxis.label.set_fontsize(8.5)
+        panel.yaxis.label.set_fontsize(8.5)
     watermark(fig, mark)
     return fig
 
@@ -931,7 +937,7 @@ def _headline_model_overview(ax, models, *, estimates=None, horizon=365):
     ax.set_yticks(range(len(spec)),[s[1] for s in spec],fontsize=7.4)
     ax.set_ylim(len(spec)-.5,-.5)
     ax.set_xlim(max(0,float(year[[s[0] for s in spec]].min().min())-.02),1.01)
-    ax.set_xlabel(f'One-year AUC · {len(year):,} matched tasks\nPoints: task AUC; diamonds: descriptive means')
+    ax.set_xlabel('One-year ROC AUC')
     _panel_title(ax,'A','Performance across model variants')
     despine(ax,'x')
 

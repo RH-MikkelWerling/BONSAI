@@ -104,7 +104,7 @@ def _interval(draws):
 
 
 def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
-                     minimum_events=5):
+                     minimum_events=5, evaluation_split="held_out"):
     """Per-model metrics and paired model differences at tuning-fixed thresholds.
 
     ``predictions`` is the normalised long table of the locked analysis (both
@@ -114,13 +114,17 @@ def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
     with the paired difference ``a - b`` of every metric.
     """
     _check_rule(rule)
+    if evaluation_split not in {"tuning", "held_out"}:
+        raise ValueError("Operating points require tuning or held_out evaluation")
     known = predictions.loc[predictions.known.astype(bool)] if "known" in predictions else predictions
     rows, replicate_metrics, estimated = [], {}, {}
     for (seed, cohort, outcome, horizon, model), task in known.groupby([*TASK, "model"], sort=True):
         tuning = task.loc[task.split == "tuning"]
-        test = task.loc[task.split == "held_out"].sort_values("subject_id")
+        test = task.loc[task.split == evaluation_split].sort_values("subject_id")
         record = {"seed": seed, "cohort": cohort, "outcome": outcome,
-                  "horizon_days": horizon, "model": model, "rule": rule}
+                  "horizon_days": horizon, "model": model, "rule": rule,
+                  "evaluation_split": evaluation_split,
+                  "evaluation_role": "apparent_tuning_rehearsal" if evaluation_split == "tuning" else "held_out"}
         events = int(tuning.label.sum())
         if test.empty:
             continue
@@ -134,7 +138,7 @@ def operating_points(predictions, draws, *, rule="tuning_event_rate", pairs=(),
         point = {name: float(value[0]) for name, value in threshold_metrics(*counts).items()}
         record |= {"status": "estimated", "threshold": threshold, "n": len(test),
                    **{name: int(value[0]) for name, value in zip(COUNTS, counts)}, **point}
-        key = ("held_out", seed, cohort)
+        key = (evaluation_split, seed, cohort)
         if key in draws:
             index, weights = draws[key]
             weights = weights[:, [index[str(subject)] for subject in test.subject_id]]
