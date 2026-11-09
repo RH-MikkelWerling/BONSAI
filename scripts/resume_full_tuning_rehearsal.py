@@ -223,8 +223,12 @@ def recover(root):
     run("assemble", module("assemble_figure_review", "--analysis-root", complete,
         "--attribution-dir", ig / "attributions", "--restriction-dir", ig / "input_restrictions",
         "--output-dir", review), needs=["plot_tables"], fresh_output=review)
+    run("offline_inputs", module("prepare_offline_figure_bundle", "--review-dir", review,
+        "--analysis-root", complete, "--output-dir", root / "offline_export", "--prepare-only"),
+        needs=["assemble"], fresh_output=root / "offline_export")
     run("package", module("package_figure_review", "--review-dir", review, "--analysis-root", complete,
-        "--output", root / "paper_review.zip"), needs=["assemble"], fresh_output=root / "paper_review.zip")
+        "--output", root / "paper_review.zip", "--offline-dir", root / "offline_export/offline", "--plotting-only"),
+        needs=["assemble", "offline_inputs"], fresh_output=root / "paper_review.zip")
     manifest = review / "review_manifest.json"
     report["review_status"] = json.loads(manifest.read_text()).get("status") if manifest.is_file() else None
     report["status"] = "complete" if (all(s["status"] == "complete" for s in report["steps"].values())
