@@ -1049,8 +1049,14 @@ def effect_summary_weights(frame, aggregation):
     return (1.0 / (diseases * families * variants * horizons)).to_numpy(float)
 
 
+def _effect_summary_task(payload):
+    contrasts, draws, metadata, strata, stable, aggregation = payload
+    return effect_summaries(contrasts, draws, metadata, strata=strata,
+        stable_cells_only=stable, aggregation=aggregation, _summary_workers=1)[1]
+
+
 def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
-                     stable_cells_only=False, aggregation="equal_cell"):
+                     stable_cells_only=False, aggregation="equal_cell", _summary_workers=None):
     """Paired means with equal-cell or explicit hierarchical weights.
 
     No across-seed pooling: bootstrap intervals condition on one training seed.
@@ -1081,6 +1087,45 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
         )
         if key in values
     ]
+    # Independent contrasts reuse the already generated, aligned patient draws.
+    # Spawn avoids forking a very large prediction frame or a live BLAS pool.
+    # Bound in-flight payloads to one per worker to limit additional memory.
+    import os
+    workers = int(os.environ.get('OPERA_SUMMARY_WORKERS', '1')) if _summary_workers is None else _summary_workers
+    if workers > 1 and contrasts.contrast.nunique() > 1:
+        import multiprocessing
+        import sys
+        import time
+        from collections import deque
+        from concurrent.futures import ProcessPoolExecutor
+        indices = bootstrap_draws.groupby('contrast', sort=False).indices
+        parts, pending = [], deque()
+        total, done, started = contrasts.contrast.nunique(), 0, time.monotonic()
+        def consume():
+            nonlocal done
+            parts.append(pending.popleft().result())
+            done += 1
+            if done % 5 == 0 or done == total:
+                print(f'{aggregation} summaries: {done}/{total} contrasts, '
+                      f'{(time.monotonic()-started)/60:.1f} min', file=sys.stderr, flush=True)
+        with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context('spawn')) as pool:
+            for code, part in contrasts.groupby('contrast', sort=True):
+                pending.append(pool.submit(_effect_summary_task, (part,
+                    bootstrap_draws.iloc[indices[code]], cell_metadata, strata,
+                    stable_cells_only, aggregation)))
+                if len(pending) >= workers:
+                    consume()
+            while pending:
+                consume()
+        summary = pd.concat(parts, ignore_index=True)
+        if summary.empty:
+            return values, summary
+        # Deterministic presentation order; draw values and weights are unchanged.
+        summary['_stratum_order'] = summary.stratum.map({s:i for i,s in enumerate(['all_cells', *strata])})
+        summary['_pooled'] = summary.horizon_days.eq(ALL_HORIZONS)
+        summary = summary.sort_values(['_stratum_order','_pooled','split','seed',
+            'contrast','metric','horizon_days','stratum_value'], kind='stable')
+        return values, summary.drop(columns=['_stratum_order','_pooled']).reset_index(drop=True)
     rows = []
     # Per horizon, and pooled over all horizons (horizon_days == ALL_HORIZONS),
     # every disease-outcome-horizon cell weighing equally.
