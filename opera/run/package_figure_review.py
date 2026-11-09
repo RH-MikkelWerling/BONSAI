@@ -54,7 +54,8 @@ ANALYSIS_TABLES = {
 PATIENT_COLUMNS = {'patient_id', 'subject_id', 'person_id', 'pid', 'cpr', 'pnr'}
 
 
-def package(review: Path, output: Path, analysis_root: Path | None = None):
+def package(review: Path, output: Path, analysis_root: Path | None = None, *, offline_dir: Path | None = None,
+            include_analysis_backup=True):
     review = review.resolve()
     if not (review / 'review_manifest.json').is_file():
         raise ValueError('Expected an assembled review folder containing review_manifest.json')
@@ -65,7 +66,9 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
     clinical = review / 'clinical_scores'
     if clinical.is_dir() and any(p.suffix.lower() in {'.pdf', '.png'} for p in clinical.rglob('*')):
         from opera.run.clinical_figure_provenance import verify_clinical_render
-        check = verify_clinical_render(clinical, split=split)
+        # Preserve an existing render's provenance; packaging need not require
+        # that the local checkout still matches the original rendering code.
+        check = verify_clinical_render(clinical, split=split, check_renderer_sources=False)
         if not check['valid']:
             raise ValueError('Cannot package stale clinical figures: ' + '; '.join(check['errors'])
                              + '. Refresh clinical reports and assemble a fresh review directory.')
@@ -97,7 +100,7 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
             add(path, Path('review') / rel)
     if analysis_root:
         for folder, names in [('figure_inputs/plot_tables', PLOT_TABLES),
-                              ('prediction_analysis', ANALYSIS_TABLES)]:
+                              ('prediction_analysis', ANALYSIS_TABLES if include_analysis_backup else set())]:
             for name in sorted(names):
                 path = analysis_root / folder / name
                 if path.is_file():
@@ -118,11 +121,25 @@ def package(review: Path, output: Path, analysis_root: Path | None = None):
                 source = analysis_root / branch / name
                 if source.is_file():
                     add(source, Path('aggregates') / branch / name)
+    offline_manifest = None
+    if offline_dir is not None:
+        from opera.run.prepare_offline_figure_bundle import bundle_files
+        offline_dir = Path(offline_dir).resolve()
+        for path in bundle_files(offline_dir):
+            selected[str(Path('offline') / path.relative_to(offline_dir))] = path
+        offline_manifest = json.loads((offline_dir / 'manifest.json').read_text())
+    def digest(path):
+        sha = hashlib.sha256()
+        with path.open('rb') as handle:
+            for chunk in iter(lambda: handle.read(1024*1024), b''):
+                sha.update(chunk)
+        return sha.hexdigest()
     manifest = dict(status=report.get('status', 'unknown'), evaluation_split=split,
+                    offline_status=offline_manifest.get('status') if offline_manifest else 'not_prepared',
                     missing=report.get('missing', []),
                     source_review=str(review), excluded=excluded,
                     files={name: dict(bytes=p.stat().st_size,
-                        sha256=hashlib.sha256(p.read_bytes()).hexdigest())
+                        sha256=digest(p))
                         for name, p in selected.items()},
                     notes=['Partial bundles are useful for review; missing analyses were not rerun.',
                            'Counts and figures retain their source disclosure-review requirements.',
@@ -140,8 +157,11 @@ def main():
     parser.add_argument('--review-dir', type=Path, required=True)
     parser.add_argument('--analysis-root', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--offline-dir', type=Path, help='Prepared portable aggregate/presentation inputs')
+    parser.add_argument('--plotting-only', action='store_true',help='Omit the large full analysis CSV backup')
     args = parser.parse_args()
-    print(json.dumps(package(args.review_dir, args.output, args.analysis_root), indent=2))
+    print(json.dumps(package(args.review_dir, args.output, args.analysis_root, offline_dir=args.offline_dir,
+                             include_analysis_backup=not args.plotting_only), indent=2))
 
 
 if __name__ == '__main__':

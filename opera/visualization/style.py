@@ -368,6 +368,10 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
                 pad_inches=0.12,
                 facecolor="white",
             )
+        import os
+        if os.environ.get('OPERA_PAPER_EXPORT_PLOT_STATE') == '1':
+            from opera.visualization.plot_state import export_plot_state
+            export_plot_state(fig, path.with_suffix('.plot.json'))
 
 
 def model_color(name: str) -> str:

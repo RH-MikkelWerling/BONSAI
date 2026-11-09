@@ -929,6 +929,9 @@ def main():
                     else {}
                 )
                 fig = fn(held, **common, **extra)
+                # These lines are cohort-level PR/survival curves; patient
+                # scatter stays in image layers, never numeric point exports.
+                fig.opera_export_aggregate_curves = True
                 save_fig(fig, str(directory / (name + ".png")))
                 if spec.get("manuscript_figures"):
                     # The score shown in the main text, under its manuscript key.
@@ -1088,6 +1091,7 @@ def main():
         # Four indices per page leave room for native four-category labels.
         for page, start in enumerate(range(0, len(overview), 4), start=1):
             fig = figures.figure_score_overview(overview[start:start + 4])
+            fig.opera_export_aggregate_curves = True
             suffix = "" if page == 1 else f"_{page}"
             save_fig(fig, str(args.output_dir / f"supp_score_overview{suffix}.png"))
             plt.close(fig)

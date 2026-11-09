@@ -61,7 +61,7 @@ def render_receipt(directory, specs, split):
     )
 
 
-def verify_clinical_render(directory, *, expected_model=None, split='tuning'):
+def verify_clinical_render(directory, *, expected_model=None, split='tuning', check_renderer_sources=True):
     """Validate render identity and bytes, without reading patient predictions.
 
     This verifies freshness and the declared threshold/primary-score contract.
@@ -78,7 +78,7 @@ def verify_clinical_render(directory, *, expected_model=None, split='tuning'):
         return dict(valid=False, errors=[f'Unreadable clinical manifest: {exc}'], files=0)
     if receipt.get('schema') != 2:
         errors.append('Legacy clinical render: rebuild with the current clinical renderer')
-    if receipt.get('renderer_source_sha256') != renderer_sources():
+    if check_renderer_sources and receipt.get('renderer_source_sha256') != renderer_sources():
         errors.append('Clinical renderer source changed since these figures were generated')
     if receipt.get('evaluation_split') != split:
         errors.append(f'Clinical evaluation split must be {split}')

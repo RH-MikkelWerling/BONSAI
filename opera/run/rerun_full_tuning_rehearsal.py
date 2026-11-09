@@ -443,6 +443,10 @@ def main():
                     writer = csv.DictWriter(handle, fieldnames=['family', 'figure_id', 'status', 'reason', 'pdf'])
                     writer.writeheader()
                     writer.writerows(checklist)
+        run("offline_inputs", module("prepare_offline_figure_bundle",
+            "--review-dir", review, "--analysis-root", complete,
+            "--output-dir", root / "offline_export", "--prepare-only"),
+            needs=["assemble"])
         run(
             "package",
             module(
@@ -453,8 +457,11 @@ def main():
                 complete,
                 "--output",
                 root / "paper_review.zip",
+                "--offline-dir",
+                root / "offline_export/offline",
+                "--plotting-only",
             ),
-            needs=["assemble"],
+            needs=["assemble", "offline_inputs"],
         )
     else:
         report["missing_analysis_workspace"] = True
