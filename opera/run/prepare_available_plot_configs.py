@@ -22,7 +22,8 @@ GROUP_MAP = {
 NATIVE_ORDER = ['Low', 'Low-intermediate', 'Intermediate', 'High-intermediate', 'High', 'Very high']
 NATIVE_GROUP_MAP = dict(GROUP_MAP)
 for label in NATIVE_ORDER:
-    for spelling in (label.lower(), label.lower().replace('-', ' ')):
+    for spelling in (label.lower(), label.lower().replace('-', ' '),
+                     label.lower().replace(' ', '-')):
         for suffix in ('', ' risk'):
             NATIVE_GROUP_MAP[spelling + suffix] = label
 FOUR_GROUP_ORDER = ['Low', 'Low-intermediate', 'High-intermediate', 'High']

@@ -28,6 +28,15 @@ opera_model="${OPERA_MODEL:-J_OA_OWN_L}"
 D=data/paper_256_v3
 PY="${OPERA_PYTHON:-.venv-v100/bin/python}"
 export OPERA_PYTHON="$PY"
+# Explicit fit-name list freezes the local release scope; no automatic skipping
+# of incomplete fits. Omitting this option preserves the original queue scope.
+evaluation_scope=()
+if [ -n "${EVALUATION_FIT_NAMES:-}" ]; then
+  [ -s "$EVALUATION_FIT_NAMES" ] || { echo "Missing/empty fit list: $EVALUATION_FIT_NAMES"; exit 1; }
+  while IFS= read -r fit || [ -n "$fit" ]; do
+    [ -z "$fit" ] || evaluation_scope+=(--fit-name "$fit")
+  done < "$EVALUATION_FIT_NAMES"
+fi
 marks="$D/predictions/.overnight/$tag"
 logs="logs/overnight/$tag"
 mkdir -p "$marks" "$logs"
@@ -68,6 +77,7 @@ if [ -z "${ANALYSE_ONLY:-}" ]; then
     fi
     CUDA_VISIBLE_DEVICES="$gpu" bash scripts/run_paper_experiments.sh evaluate \
       --stage "$stage" --split "$split" --shard-count "$shards" --shard-index "$shard" \
+      ${evaluation_scope[@]+"${evaluation_scope[@]}"} \
       --execute >> "$logs/evaluate_${shard}.log" 2>&1
     # The pass above started after the count, so it saw every fit counted done.
     if [ "${left:-1}" = "0" ]; then
@@ -115,6 +125,8 @@ rm -f "$root/pipeline_actions_complete"
 # The server .env plus the tuning overrides, in a fresh analysis root.
 "$PY" - "$env_file" "$root" "$opera_model" "$D" "$stage" "$split" <<'EOF' || exit 1
 import json, sys
+import hashlib, os, shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import dotenv_values
 out, root, model, data, stage, split = sys.argv[1:]
@@ -137,6 +149,28 @@ env.update(OPERA_PAPER_ANALYSIS_ROOT=str(Path(root).resolve()), OPERA_PAPER_PLOT
            OPERA_PAPER_ATTRIBUTION_CONFIG_NAME=config_path.stem,
            OPERA_PAPER_FIGURES_AVAILABLE_ONLY="1")
 Path(out).write_text("".join(f"{k}={v}\n" for k, v in env.items()))
+release = dict(created_utc=datetime.now(timezone.utc).isoformat(), split=split,
+               stage=stage, primary_model=model, checkpoint=str(checkpoint),
+               estimand='cif_ipcw', horizons=[30,60,90,180,365,730],
+               bootstrap_method='multiplier', bootstrap_replicates=1000,
+               bootstrap_seed=2026, files={})
+for label, source in [('fit_names', os.environ.get('EVALUATION_FIT_NAMES')),
+                      ('clinical_recipe', env.get('OPERA_PAPER_CLINICAL_SCORE_CONFIG'))]:
+    if source:
+        path = Path(source)
+        destination = Path(root) / ('release_' + path.name)
+        shutil.copy2(path, destination)
+        release['files'][label] = dict(path=str(destination.resolve()),
+                                       sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+(Path(root) / 'release_record.json').write_text(json.dumps(release, indent=2) + '\n')
+# Record the synced source, including uncommitted/new files, without a freshness
+# gate or another checkpoint scan.
+source_hashes = {}
+for directory in ('opera', 'bonsai', 'scripts'):
+    for path in Path(directory).rglob('*'):
+        if path.is_file() and path.suffix in {'.py', '.sh', '.yaml', '.json', '.txt'}:
+            source_hashes[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+(Path(root) / 'release_source_hashes.json').write_text(json.dumps(source_hashes, indent=2) + '\n')
 clinical = env.get("OPERA_PAPER_CLINICAL_SCORE_CONFIG")
 if clinical and Path(clinical).is_file():
     from scripts.set_test_env import set_clinical_model
@@ -145,7 +179,7 @@ if clinical and Path(clinical).is_file():
 print("checkpoint for task structure:", checkpoint)
 EOF
 status=()
-for action in inventory analyse plot-tables task-structure paper-numbers figure-readiness init-figures figures; do
+for action in inventory analyse clinical-scores plot-tables task-structure paper-numbers figure-readiness init-figures figures; do
   echo "$(stamp) $action"
   if "$PY" -m opera.run.paper_experiments "$action" --stage "$stage" --env-file "$env_file" \
        --execute > "$logs/$action.log" 2>&1; then
@@ -158,8 +192,39 @@ path = Path(sys.argv[1])
 config = yaml.safe_load(path.read_text())
 config['bootstrap_method'] = 'multiplier'
 config['bootstrap_replicates'] = 1000
+config['bootstrap_seed'] = 2026
+# Retain the completed clinical workspace's baseline metadata and training
+# thresholds while the new inventory supplies tuning + held-out predictions.
+from dotenv import dotenv_values
+env = dotenv_values(path.parent.parent / 'overnight.env')
+clinical_source = env.get('OPERA_PAPER_CLINICAL_SOURCE_ANALYSIS')
+if clinical_source:
+    source = yaml.safe_load(Path(clinical_source).read_text())
+    if not source.get('clinical_threshold_artifacts'):
+        raise ValueError('Clinical source lacks registered training threshold artifacts')
+    config['clinical_threshold_artifacts'] = source['clinical_threshold_artifacts']
+    config['patient_metadata_column_map'] = source.get('patient_metadata_column_map', {})
 path.write_text(yaml.safe_dump(config, sort_keys=False))
 PIN
+    fi
+    if [ "$action" = "analyse" ] && [ "$split" = "held_out" ]; then
+      "$PY" - "$root/prediction_analysis/effect_summaries.csv" <<'COVERAGE'
+import csv, math, sys
+required = {'P1', 'P2', 'P5', 'T2', 'O1', 'O2', 'router_borrow_AB',
+            'O2_MATCHED', 'OFF_J', 'OAOWN_OFF', 'O_CORRECTIONS_MATCHED'}
+found = set()
+with open(sys.argv[1]) as handle:
+    for row in csv.DictReader(handle):
+        if (row['split'] == 'held_out' and float(row['seed']) == 42
+                and row['metric'] == 'auc' and float(row['horizon_days']) == 0
+                and row['stratum'] == 'all_cells'
+                and row['aggregation'] == 'equal_cell_not_population_or_endpoint_group_macro'
+                and row.get('gain') and math.isfinite(float(row['gain']))):
+            found.add(row['contrast'])
+if required - found:
+    raise SystemExit('Required local test contrasts missing/not estimable: ' + ', '.join(sorted(required - found)))
+print('Required local test contrasts present; national E1 remains staged separately.')
+COVERAGE
     fi
   else
     echo "$action FAILED (see $logs/$action.log)"; exit 1

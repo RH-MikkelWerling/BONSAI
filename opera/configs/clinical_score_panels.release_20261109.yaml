@@ -1,0 +1,508 @@
+# Closest available endpoints, not exact replications of original scores.
+# Diagnosis-time scoring confirmed by the author, 2026-11-09; individual dates unavailable.
+availability:
+  cohort_column: cohort_fine
+  index_column: index
+  group_column: IPI
+all_indices:
+  index_column: index
+  cohort_column: cohort_fine
+  minimum_patients: 1
+  pooled: true
+  per_cohort: false
+  manuscript: {}
+  template:
+    model: J_OA_OWN_L
+    seed: 42
+    outcome: overall_survival
+    outcome_label: Overall survival
+    horizon_days: 365
+    death_in_endpoint: true
+    group_column: IPI
+    group_map: &id001
+      low: Low
+      low risk: Low
+      low-risk: Low
+      medium: Intermediate
+      medium risk: Intermediate
+      intermediate: Intermediate
+      intermediate risk: Intermediate
+      intermediate-risk: Intermediate
+      moderate: Intermediate
+      low intermediate: Low-intermediate
+      low-intermediate: Low-intermediate
+      low intermediate risk: Low-intermediate
+      low-intermediate risk: Low-intermediate
+      high intermediate: High-intermediate
+      high-intermediate: High-intermediate
+      high intermediate risk: High-intermediate
+      high-intermediate risk: High-intermediate
+      high: High
+      high risk: High
+      high-risk: High
+      very high: Very high
+      very high risk: Very high
+      very-high: Very high
+    group_order:
+    - Low
+    - Intermediate
+    - High
+    score_high_group: High
+    age_column: age_at_index
+    score_date_column: null
+    score_timing: Scored at diagnosis (confirmed by the study author, 2026-11-09);
+      evaluated as diagnostic information at first-line treatment start. Individual
+      score dates are not supplied for a per-patient timing audit.
+    cutoff_rule: cohort_size_matched
+    comparison_bootstrap: 1000
+    threshold_split: train
+    minimum_patients: 50
+    lock_provenance: Endpoint and time-horizon choices specified before held-out clinical
+      comparisons, 2026-11-09. Equal-size grouping is outcome-blind; evaluation-KM
+      matching is separately descriptive with paired boundary reselection.
+    applicability_review: Descriptive comparison restricted to patients with this
+      recorded index; not a claim of validated use in other diseases
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time: diagnosis
+    assessment_time_confirmed: true
+  overrides:
+    CLL-IPI:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+      - Very high
+      score_high_group: Very high
+    FLIPI2:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+    IPS:
+      group_map: *id001
+      group_order:
+      - Low
+      - High
+    IPSSWM:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+    MALT-IPI:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+    MIPI:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+    R-IPI:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+    R-ISS:
+      group_map: *id001
+      group_order:
+      - Low
+      - Intermediate
+      - High
+scores:
+- model: J_OA_OWN_L
+  seed: 42
+  outcome: overall_survival
+  outcome_label: Overall survival
+  horizon_days: 365
+  death_in_endpoint: true
+  group_column: ipi_computed_group
+  group_map: *id001
+  group_order: &id002
+  - Low
+  - Low-intermediate
+  - High-intermediate
+  - High
+  score_high_group: High
+  age_column: age_at_index
+  score_date_column: null
+  score_timing: Scored at diagnosis (confirmed by the study author, 2026-11-09); evaluated
+    as diagnostic information at first-line treatment start. Individual score dates
+    are not supplied for a per-patient timing audit.
+  cutoff_rule: cohort_size_matched
+  comparison_bootstrap: 1000
+  threshold_split: train
+  minimum_patients: 50
+  lock_provenance: Endpoint and time-horizon choices specified before held-out clinical
+    comparisons, 2026-11-09. Equal-size grouping is outcome-blind; evaluation-KM matching
+    is separately descriptive with paired boundary reselection.
+  applicability_review: Descriptive comparison restricted to patients with this recorded
+    index; not a claim of validated use in other diseases
+  id: ipi_computed
+  score_label: IPI (computed)
+  cohorts: all
+  score_column: ipi_computed_score
+  score_high_threshold: 4
+  manuscript_figures: false
+  evaluation_time_origin: First-line treatment start in the frozen OPERA cohort, not
+    necessarily the original index development time origin.
+  original_horizon_note: One-year primary evaluation; original studies commonly evaluated
+    longer horizons. The separate NCCN treatment-failure comparison remains two-year.
+  time_origin_match: not_assumed_identical
+  score_timing_verified: false
+  score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+    2026-11-09.
+  assessment_time: diagnosis
+  assessment_time_confirmed: true
+- model: J_OA_OWN_L
+  seed: 42
+  outcome: overall_survival
+  outcome_label: Overall survival
+  horizon_days: 365
+  death_in_endpoint: true
+  group_column: nccn_ipi_group
+  group_map: *id001
+  group_order: *id002
+  score_high_group: High
+  age_column: age_at_index
+  score_date_column: null
+  score_timing: Scored at diagnosis (confirmed by the study author, 2026-11-09); evaluated
+    as diagnostic information at first-line treatment start. Individual score dates
+    are not supplied for a per-patient timing audit.
+  cutoff_rule: cohort_size_matched
+  comparison_bootstrap: 1000
+  threshold_split: train
+  minimum_patients: 50
+  lock_provenance: Endpoint and time-horizon choices specified before held-out clinical
+    comparisons, 2026-11-09. Equal-size grouping is outcome-blind; evaluation-KM matching
+    is separately descriptive with paired boundary reselection.
+  applicability_review: Descriptive comparison restricted to patients with this recorded
+    index; not a claim of validated use in other diseases
+  id: nccn_ipi
+  score_label: NCCN-IPI
+  cohorts: &id003
+  - DLBCL
+  score_column: nccn_ipi_score
+  score_high_threshold: 6
+  manuscript_figures: true
+  evaluation_time_origin: First-line treatment start in the frozen OPERA cohort, not
+    necessarily the original index development time origin.
+  original_horizon_note: One-year primary evaluation; original studies commonly evaluated
+    longer horizons. The separate NCCN treatment-failure comparison remains two-year.
+  time_origin_match: not_assumed_identical
+  score_timing_verified: false
+  score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+    2026-11-09.
+  assessment_time: diagnosis
+  assessment_time_confirmed: true
+- model: J_OA_OWN_L
+  seed: 42
+  outcome: treatment_failure
+  outcome_label: Second-line treatment or death
+  horizon_days: 730
+  death_in_endpoint: true
+  group_column: nccn_ipi_group
+  group_map: *id001
+  group_order: *id002
+  score_high_group: High
+  age_column: age_at_index
+  score_date_column: null
+  score_timing: Scored at diagnosis (confirmed by the study author, 2026-11-09); evaluated
+    as diagnostic information at first-line treatment start. Individual score dates
+    are not supplied for a per-patient timing audit.
+  cutoff_rule: cohort_size_matched
+  comparison_bootstrap: 1000
+  threshold_split: train
+  minimum_patients: 50
+  lock_provenance: Endpoint and time-horizon choices specified before held-out clinical
+    comparisons, 2026-11-09. Equal-size grouping is outcome-blind; evaluation-KM matching
+    is separately descriptive with paired boundary reselection.
+  applicability_review: Descriptive comparison restricted to patients with this recorded
+    index; not a claim of validated use in other diseases
+  id: nccn_ipi_treatment_failure_2y
+  score_label: NCCN-IPI
+  cohorts: *id003
+  score_column: nccn_ipi_score
+  score_high_threshold: 6
+  manuscript_figures: false
+  include_in_headline: false
+  endpoint_definition_note: Frozen composite differs from the HemaSphere relapse-inclusive
+    endpoint
+  evaluation_time_origin: First-line treatment start in the frozen OPERA cohort, not
+    necessarily the original index development time origin.
+  original_horizon_note: One-year primary evaluation; original studies commonly evaluated
+    longer horizons. The separate NCCN treatment-failure comparison remains two-year.
+  time_origin_match: not_assumed_identical
+  score_timing_verified: false
+  score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+    2026-11-09.
+  assessment_time: diagnosis
+  assessment_time_confirmed: true
+index_endpoint: native
+evaluation_km_matching:
+  enabled: true
+  seed: 2026
+  minimum_group: 20
+  minimum_at_risk: 10
+  draws: 200
+native_endpoints:
+  CLL-IPI:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall survival, 5 years
+    horizons_days:
+    - 365
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  IPSSWM:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall survival from treatment initiation
+    horizons_days:
+    - 365
+    endpoint_source: https://pubmed.ncbi.nlm.nih.gov/19196866/
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  MIPI:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall survival, 5 years
+    horizons_days:
+    - 365
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  R-IPI:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall and progression-free survival, 4 years (DLBCL treated
+      with R-CHOP)
+    horizons_days:
+    - 365
+    endpoint_source: https://pubmed.ncbi.nlm.nih.gov/17105812/
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  R-ISS:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall and progression-free survival, 5 years
+    horizons_days:
+    - 365
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  IPI (computed):
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall survival, 5 years
+    horizons_days:
+    - 365
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  NCCN-IPI:
+    outcome: overall_survival
+    outcome_label: Overall survival
+    death_in_endpoint: true
+    endpoint_match: same_endpoint
+    original_endpoint: overall survival, 5 years
+    horizons_days:
+    - 365
+    endpoint_proxy_note: Same event definition; shorter horizon and potentially different
+      index date/population from the original study.
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  FLIPI2:
+    endpoint_match: proxy
+    endpoint_proxy_note: Frozen next-treatment-or-death endpoint is a progression-related
+      proxy, not directly observed progression/PFS/FFP. Progression without another
+      treatment is not directly ascertained. Horizon and first-line treatment time
+      origin may differ from the original study.
+    outcome: treatment_failure
+    outcome_label: Second-line treatment or death (progression-related proxy)
+    death_in_endpoint: true
+    original_endpoint: progression-free survival (principal endpoint)
+    horizons_days:
+    - 365
+    endpoint_source: https://pubmed.ncbi.nlm.nih.gov/19652063/
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  IPS:
+    outcome: treatment_failure
+    outcome_label: Second-line treatment or death (progression-related proxy)
+    death_in_endpoint: true
+    endpoint_match: proxy
+    endpoint_proxy_note: Frozen next-treatment-or-death endpoint is a progression-related
+      proxy, not directly observed progression/PFS/FFP. Progression without another
+      treatment is not directly ascertained. Horizon and first-line treatment time
+      origin may differ from the original study.
+    original_endpoint: 'freedom from progression, 5 years (closest panel outcome:
+      treatment failure)'
+    horizons_days:
+    - 365
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  MALT-IPI:
+    endpoint_match: original_secondary_endpoint
+    endpoint_proxy_note: OS was examined in the original study; this is not a reproduction
+      of its primary EFS endpoint. Shorter horizon and potentially different time
+      origin/population.
+    outcome: overall_survival
+    outcome_label: Overall survival (original secondary endpoint)
+    death_in_endpoint: true
+    original_endpoint: event-free survival (primary); progression-free and overall
+      survival also analysed
+    horizons_days:
+    - 365
+    endpoint_source: https://pubmed.ncbi.nlm.nih.gov/28720586/
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: One-year primary evaluation; original studies commonly
+      evaluated longer horizons. The separate NCCN treatment-failure comparison remains
+      two-year.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true
+  nccn_ipi_treatment_failure_2y:
+    outcome: treatment_failure
+    outcome_label: Second-line treatment or death (additional endpoint)
+    death_in_endpoint: true
+    horizons_days:
+    - 730
+    original_endpoint: Overall survival; progression-free survival also examined in
+      NCCN-IPI development.
+    endpoint_match: proxy
+    endpoint_proxy_note: Additional treatment-failure comparison, not exact PFS or
+      the relapse-inclusive HemaSphere definition. Next treatment/death, evaluated
+      two years after first-line treatment.
+    include_in_headline: false
+    endpoint_source: https://pubmed.ncbi.nlm.nih.gov/24264230/
+    evaluation_time_origin: First-line treatment start in the frozen OPERA cohort,
+      not necessarily the original index development time origin.
+    original_horizon_note: Additional two-year evaluation from first-line treatment;
+      original endpoints/time origin are not reproduced exactly.
+    time_origin_match: not_assumed_identical
+    score_timing_verified: false
+    assessment_time: diagnosis
+    score_timing_confirmation: Study-author confirmation of diagnosis-time scoring,
+      2026-11-09.
+    assessment_time_confirmed: true

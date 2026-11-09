@@ -120,6 +120,10 @@ def main() -> None:
     parser.add_argument("--stage", type=int, default=16)
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--model", default="J_OA_OWN_L", help="Tuning-selected primary alias, e.g. R_E or R_EA")
+    parser.add_argument("--clinical-config", type=Path,
+                        help="Explicit clinical release recipe to wire into the environment")
+    parser.add_argument("--clinical-source-analysis", type=Path,
+                        help="Completed clinical workspace analysis.yaml, with prepared metadata and training threshold artifacts")
     parser.add_argument("--split", choices=["tuning", "held_out"], default="tuning",
                         help="Configure tuning rehearsal by default; held_out only after lock")
     args = parser.parse_args()
@@ -128,10 +132,28 @@ def main() -> None:
     checkpoint = (ROOT / "neural_runs" / row["run_directory"] / "best.ckpt").resolve()
     if not checkpoint.is_file():
         raise SystemExit(f"Missing {checkpoint}")
+    clinical_settings = {}
+    if args.clinical_config:
+        if not args.clinical_config.is_file():
+            raise SystemExit(f"Missing clinical recipe: {args.clinical_config}")
+        clinical_settings['OPERA_PAPER_CLINICAL_SCORE_CONFIG'] = str(args.clinical_config.resolve())
+    if args.clinical_source_analysis:
+        import yaml
+        source = yaml.safe_load(args.clinical_source_analysis.read_text())
+        metadata = Path(source['patient_metadata'])
+        thresholds = source.get('clinical_threshold_artifacts') or []
+        if not metadata.is_file() or not any(
+                a.get('model') == args.model and a.get('split') == 'train'
+                and int(a.get('seed', 42)) == 42 and Path(a['path']).is_file()
+                for a in thresholds):
+            raise SystemExit('Clinical source needs existing prepared metadata and registered training threshold artifacts')
+        clinical_settings.update(OPERA_PAPER_PATIENT_METADATA=str(metadata.resolve()),
+            OPERA_PAPER_CLINICAL_SOURCE_ANALYSIS=str(args.clinical_source_analysis.resolve()))
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     shutil.copy(args.env_file, args.env_file.with_name(f"{args.env_file.name}.bak_{stamp}"))
     print(f"{args.model} seed 42: {row['name']} -> {checkpoint}")
     set_keys(args.env_file, {
+        **clinical_settings,
         "OPERA_PAPER_ANALYSIS_ESTIMAND": "cif_ipcw",
         "OPERA_PAPER_OPERA_MODEL": args.model,
         "OPERA_PAPER_ANALYSIS_HORIZONS": "30,60,90,180,365,730",

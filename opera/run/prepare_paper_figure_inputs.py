@@ -1,6 +1,7 @@
 """Create a dedicated server-local figure workspace without inventing data."""
 import argparse
 import json
+import os
 from pathlib import Path
 import yaml
 
@@ -18,6 +19,9 @@ def main():
     # clinical_scores/headline_scores.csv) stay where their own step writes them,
     # one level up in the analysis root.
     for plate in recipe["figures"]:
+        if 'clinical_model' in plate.get('options', {}):
+            plate['options']['clinical_model'] = os.environ.get(
+                'OPERA_PAPER_OPERA_MODEL', 'J_OA_OWN_L')
         for section in ("tables", "json_inputs"):
             for key, source in plate.get(section, {}).items():
                 if source.startswith("${OPERA_PAPER_ANALYSIS_ROOT}/"):

@@ -16,6 +16,13 @@ import yaml
 from opera.run.analyse_locked_predictions import file_hash, read_artifact, read_table
 from opera.run.clinical_figure_provenance import render_receipt, training_artifact_with_contract
 
+ENDPOINT_DISCLOSURE_FIELDS = (
+    "outcome", "original_endpoint", "endpoint_match", "endpoint_proxy_note",
+    "endpoint_source", "evaluation_time_origin", "original_horizon_note",
+    "time_origin_match", "score_timing_verified", "score_timing",
+    "assessment_time", "assessment_time_confirmed", "score_timing_confirmation",
+)
+
 
 def _score_rank(spec):
     """Ordinal score from the category order when no numeric score exists."""
@@ -527,7 +534,9 @@ def native_entries(specs, native):
     """
     entries = []
     for spec in specs:
-        keys = [str(v) for v in spec.get("index_values") or []] + [str(spec.get("score_label"))]
+        # A named secondary endpoint may differ from the main comparison of
+        # the same index (e.g. NCCN-IPI treatment failure versus survival).
+        keys = [str(spec.get("id"))] + [str(v) for v in spec.get("index_values") or []] + [str(spec.get("score_label"))]
         mapping = next((native[key] for key in keys if key in native), None)
         if mapping is None:
             continue
@@ -807,8 +816,7 @@ def main():
                   'outcome_label': spec['outcome_label'],
                   'death_in_endpoint': spec.get('death_in_endpoint'),
                   'horizon_days': spec['horizon_days'],
-                  **{key: spec.get(key) for key in ("outcome", "original_endpoint",
-                      "endpoint_match", "endpoint_proxy_note", "endpoint_source")}}
+                  **{key: spec.get(key) for key in ENDPOINT_DISCLOSURE_FIELDS}}
         diagnostic = dict(score_id=spec['id'], threshold_split=spec.get('threshold_split', 'train'))
         print(f"Clinical score {spec['id']}: preparing groups and independent operating points", flush=True)
         try:
@@ -855,8 +863,7 @@ def main():
                     minimum_group=int(km_settings["minimum_group"]),
                     minimum_at_risk=int(km_settings["minimum_at_risk"]),
                     progress=lambda message: print(f"{spec['id']}: {message}", flush=True))
-                for key in ("outcome", "outcome_label", "original_endpoint", "endpoint_match",
-                            "endpoint_proxy_note", "score_label"):
+                for key in (*ENDPOINT_DISCLOSURE_FIELDS, "outcome_label", "score_label"):
                     matched[key] = spec.get(key)
                 matched["split"] = args.split
                 evaluation_km_rows.extend(matched.to_dict("records"))
@@ -1173,8 +1180,7 @@ def main():
                   - high.loc["index", "sensitivity_at_or_above"])
         headline.append({
             "score_id": spec["id"],
-            **{key: record.get(key) for key in ("outcome", "original_endpoint",
-                "endpoint_match", "endpoint_proxy_note", "endpoint_source")},
+            **{key: record.get(key) for key in ENDPOINT_DISCLOSURE_FIELDS},
             "model": spec["model"], "split": args.split,
             "threshold_split": spec.get("threshold_split", "train"),
             "group_order": json.dumps(spec['group_order']),

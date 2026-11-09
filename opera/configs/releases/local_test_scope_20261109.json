@@ -1,0 +1,28 @@
+{
+  "basis": "Author-supplied tuning preflight 2026-11-09; scope frozen before held-out scoring.",
+  "fits_including_not_estimable": 1820,
+  "deferred": [
+    {
+      "name": "seed42/L/fix_J_FPF_OWN",
+      "status": "training_incomplete"
+    },
+    {
+      "name": "seed42/L/fix_R_AB_ELR10",
+      "status": "training_incomplete"
+    },
+    {
+      "name": "seed42/L/fix_R_AB_ELR3",
+      "status": "training_incomplete"
+    },
+    {
+      "name": "seed42/L/fix_R_PP",
+      "status": "training_incomplete"
+    },
+    {
+      "name": "seed43/L/fix_R_PP_s43",
+      "status": "training_incomplete"
+    }
+  ],
+  "national": "Deferred; no E/EA entries in supplied stage16 roster.",
+  "selection": "J_OA_OWN_L seed42; best checkpoint by registered tuning selection; other designs descriptive."
+}
