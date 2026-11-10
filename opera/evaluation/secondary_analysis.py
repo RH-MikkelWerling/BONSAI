@@ -443,7 +443,9 @@ def patient_bootstrap(frame: pd.DataFrame, replicates: int, seed: int, *, method
     if method not in {'multinomial', 'multiplier', 'bayesian'}:
         raise ValueError('Unknown patient bootstrap method')
     draws = {}
-    for key, group in frame.groupby(["split", "cohort"], sort=True):
+    # Bootstrap identities do not require the full model/task prediction table.
+    identities = frame[["split", "cohort", "subject_id", "seed"]].drop_duplicates()
+    for key, group in identities.groupby(["split", "cohort"], sort=True):
         ids = sorted(group.subject_id.unique())
         digest = hashlib.sha256(repr((seed, key)).encode()).digest()
         rng = np.random.default_rng(int.from_bytes(digest[:8], "little"))
@@ -813,14 +815,18 @@ def paired_analysis(
     estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
     model_draw_rows = []
     parsed = {name: contrast_coefficients(expr) for name, expr in contrasts.items()}
-    batches, batch = [], []
-    for key, cell in frame.groupby(CELL, sort=True):
-        batch.append((key, cell, {key[:3]: draws[key[:3]]}))
-        if len(batch) == CELL_BATCH:
-            batches.append(batch)
-            batch = []
-    if batch:
-        batches.append(batch)
+    cells = frame.groupby(CELL, sort=True)
+    total_batches = (cells.ngroups + CELL_BATCH - 1) // CELL_BATCH
+    def batches():
+        # Do not retain all grouped prediction tables before starting work.
+        batch = []
+        for key, cell in cells:
+            batch.append((key, cell, {key[:3]: draws[key[:3]]}))
+            if len(batch) == CELL_BATCH:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
     def collect(parts):
         for part in parts:  # consume and spill each batch before asking for another
             part = _spill_batch_draws(part)
@@ -829,14 +835,14 @@ def paired_analysis(
                 target.extend(rows)
 
     workers = analysis_workers()
-    if workers > 1 and len(batches) > 1:
+    if workers > 1 and total_batches > 1:
         from concurrent.futures import ProcessPoolExecutor
         from collections import deque
 
         def ordered_results(pool):
             # At most two batches per worker in flight, results in submission order.
             pending = deque()
-            for batch in batches:
+            for batch in batches():
                 pending.append(pool.submit(_paired_cells, batch, parsed, patient_gain_contrasts, min_cases, min_controls))
                 if len(pending) >= 2 * workers:
                     yield pending.popleft().result()
@@ -844,10 +850,10 @@ def paired_analysis(
                 yield pending.popleft().result()
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            collect(_with_progress(ordered_results(pool), len(batches)))
+            collect(_with_progress(ordered_results(pool), total_batches))
     else:
         collect(_with_progress(
-            (_paired_cells(b, parsed, patient_gain_contrasts, min_cases, min_controls) for b in batches), len(batches)))
+            (_paired_cells(b, parsed, patient_gain_contrasts, min_cases, min_controls) for b in batches()), total_batches))
     if not differences:
         raise ValueError("No requested contrast has all required model predictions")
     return {

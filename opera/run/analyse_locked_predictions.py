@@ -463,7 +463,9 @@ def analysed_models_only(predictions, contrasts, config, candidates=()):
     if unused:
         print(f"models not analysed (no contrast or summary uses them): {sorted(unused)}",
               flush=True)
-        predictions = predictions.loc[predictions.model.isin(used)].copy()
+        # Boolean selection already creates the selected table. A subsequent
+        # deep copy consolidates all object columns and doubles peak memory.
+        predictions = predictions.loc[predictions.model.isin(used)]
     return predictions, unused
 
 
