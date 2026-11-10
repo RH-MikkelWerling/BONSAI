@@ -659,7 +659,10 @@ def run(config, output_dir):
     # Validate configured strata before any expensive bootstrap work. Only the
     # evaluated patients determine category counts, never unrelated registry rows.
     if metadata is not None:
-        evaluated_ids = pd.concat(inputs, ignore_index=True)[["subject_id"]].drop_duplicates()
+        evaluated_ids = pd.concat(
+            [part[["subject_id"]].drop_duplicates() for part in inputs],
+            ignore_index=True,
+        ).drop_duplicates()
         specifications = dict(config.get("patient_groups") or {})
         for column in config.get("stratified_reanalysis") or {}:
             specifications.setdefault(column, {"provenance": "pre_index"})
@@ -667,9 +670,12 @@ def run(config, output_dir):
         for _ in subgroup_labels(evaluated_ids, metadata, available):
             pass
     stage("censoring weights")
-    predictions, combined_audit = normalize_predictions(
-        pd.concat(inputs, ignore_index=True), estimand
-    )
+    predictions = pd.concat(inputs, ignore_index=True)
+    # The concatenated table now owns these rows. Retaining every input table
+    # throughout normalization doubles the prediction payload at cohort scale.
+    inputs.clear()
+    del data
+    predictions, combined_audit = normalize_predictions(predictions, estimand, copy=False)
     predictions = collapse_seed_repeats(predictions, config)
     if config.get("analysis_horizons_days"):
         predictions = predictions.loc[

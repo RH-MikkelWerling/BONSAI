@@ -66,9 +66,15 @@ def attach_ipcw_weights(frame):
         raise ValueError("cif_ipcw requires follow-up time_days and event for every model and row")
     keys = ["model", "split", "seed", "cohort", "outcome", "horizon_days"]
     group = frame.groupby(keys, sort=False).ngroup().to_numpy()
-    frame = frame.loc[group >= 0].copy()  # rows with a missing key, as groupby drops them
-    group = group[group >= 0]
-    if frame.assign(_group=group).duplicated(["_group", "subject_id"]).any():
+    valid_group = group >= 0
+    if not valid_group.all():
+        frame = frame.loc[valid_group].copy()  # groupby drops missing keys
+        group = group[valid_group]
+    else:
+        frame = frame.copy(deep=False)
+    # Duplicate validation needs only these two columns, not a copy of every
+    # prediction/metadata column in the full cohort.
+    if pd.DataFrame({'_group': group, 'subject_id': frame.subject_id.to_numpy()}).duplicated().any():
         raise ValueError("A patient appears twice in one model, cell and horizon")
     t = frame.time_days.to_numpy(float)
     e = frame.event.to_numpy(int)
@@ -117,12 +123,12 @@ def attach_ipcw_weights(frame):
         placeholder = frame.prediction_absent_zero_weight.eq(True)  # NaN counts as False
         if (placeholder & frame.known).any():
             raise ValueError("A status-known patient lacks a real prediction")
-    return frame.sort_index()
+    return frame if frame.index.is_monotonic_increasing else frame.sort_index()
 
 
 def normalize_predictions(
     frame: pd.DataFrame, estimand: str = "binary_known_status_unweighted", *,
-    allow_training: bool = False,
+    allow_training: bool = False, copy: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
     """Validate before casting, then apply the requested estimand.
 
@@ -134,7 +140,7 @@ def normalize_predictions(
     """
     if estimand not in ESTIMANDS:
         raise ValueError(f"estimand must be one of {ESTIMANDS}")
-    frame = frame.copy()
+    frame = frame.copy() if copy else frame
     if estimand == "cif_ipcw" and "label" not in frame and {"time_days", "event"} <= set(frame):
         # Full-risk-set rows: status follows from follow-up, not a stored label.
         horizon = pd.to_numeric(frame.horizon_days, errors="raise")
@@ -198,7 +204,7 @@ def normalize_predictions(
         observed = frame.time_days.notna() & frame.event.notna()
         if not frame.time_days.notna().equals(frame.event.notna()):
             raise ValueError("Follow-up time and event must be provided together")
-        records = frame.loc[observed]
+        records = frame if observed.all() else frame.loc[observed]
         if (
             not np.isfinite(records.time_days).all()
             or (records.time_days < 0).any()

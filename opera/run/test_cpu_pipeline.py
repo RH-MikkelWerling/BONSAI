@@ -129,6 +129,8 @@ def main():
     parser.add_argument('--analysis-workers', type=int, default=1)
     parser.add_argument('--summary-workers', type=int, default=2)
     parser.add_argument('--wait-hours', type=float, default=48)
+    parser.add_argument('--resume-analysis', action='store_true',
+        help='Numerical recovery only: reuse the completed inventory and clinical results.')
     args = parser.parse_args()
     if Path(args.tag).name != args.tag or args.shards < 1 or min(args.analysis_workers, args.summary_workers) < 1:
         raise ValueError('Invalid tag or shard count')
@@ -139,7 +141,16 @@ def main():
     with (marks / f'cpu_{args.role}.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         failed = marks / f'cpu_{args.role}.failed'
-        if failed.exists():
+        if args.resume_analysis:
+            if args.role != 'numerical':
+                raise ValueError('--resume-analysis requires the numerical role')
+            if not (marks / 'cpu_inventory_ready').exists() or not (root / 'analysis_inventory/analysis.yaml').is_file():
+                raise RuntimeError('No completed inventory to resume')
+            if (marks / 'cpu_numerical_done').exists():
+                raise RuntimeError('Numerical analysis already completed; inspect downstream failure instead')
+            if failed.exists():
+                failed.rename(failed.with_name(failed.name + f'.previous_{time.time_ns()}'))
+        elif failed.exists():
             raise RuntimeError(f'Previous role failed; inspect {failed} before retrying')
         env = {**os.environ, 'CUDA_VISIBLE_DEVICES': '',
                'OPERA_ANALYSIS_WORKERS': str(args.analysis_workers),
@@ -153,44 +164,45 @@ def main():
                     env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         try:
             if args.role == 'numerical':
-                handoff = marks / 'cpu_handoff.json'
-                if not handoff.exists():
-                    raise RuntimeError('Pause shard-zero coordinator first with pause_test_coordinator.py')
-                names = args.fit_names.read_text().splitlines()
-                shard_zero = args.paper_root / 'predictions/queue_held_out_shard0.json'
-                def scoring_done():
-                    if not shard_zero.exists():
-                        return False
-                    try:
-                        rows = json.loads(shard_zero.read_text())
-                    except json.JSONDecodeError:
-                        return False
-                    # Stale reports with a different scope cannot unlock analysis.
-                    if {r['name'] for r in rows} != set(names[::args.shards]):
-                        return False
-                    validate_scoring(rows, names[::args.shards])
-                    return all((marks / f'shard_{i}_of_{args.shards}.done').is_file()
-                               for i in range(1, args.shards))
-                print('Waiting for all scoring shards; the paused shell does not pause GPU children.', flush=True)
-                wait_for(scoring_done, deadline=deadline,
-                    failed=[marks / f'shard_{i}_of_{args.shards}.failed' for i in range(args.shards)])
-                for i in range(args.shards):
-                    validate_scoring(json.loads((args.paper_root / f'predictions/queue_held_out_shard{i}.json').read_text()),
-                                     names[i::args.shards])
-                record = json.loads(handoff.read_text()); record['scoring_complete'] = True
-                atomic_json(handoff, record)
-                (marks / f'shard_0_of_{args.shards}.done').touch()
-                root.mkdir(parents=True, exist_ok=False)
-                (root / 'cpu_logs').mkdir()
-                source = prepare(args, root)
-                action('inventory')
-                path = root / 'analysis_inventory/analysis.yaml'
-                config = yaml.safe_load(path.read_text())
-                config.update(bootstrap_method='multiplier', bootstrap_replicates=1000, bootstrap_seed=2026,
-                    clinical_threshold_artifacts=source['clinical_threshold_artifacts'],
-                    patient_metadata_column_map=source.get('patient_metadata_column_map', {}))
-                path.write_text(yaml.safe_dump(config, sort_keys=False))
-                (marks / 'cpu_inventory_ready').touch()
+                if not args.resume_analysis:
+                    handoff = marks / 'cpu_handoff.json'
+                    if not handoff.exists():
+                        raise RuntimeError('Pause shard-zero coordinator first with pause_test_coordinator.py')
+                    names = args.fit_names.read_text().splitlines()
+                    shard_zero = args.paper_root / 'predictions/queue_held_out_shard0.json'
+                    def scoring_done():
+                        if not shard_zero.exists():
+                            return False
+                        try:
+                            rows = json.loads(shard_zero.read_text())
+                        except json.JSONDecodeError:
+                            return False
+                        # Stale reports with a different scope cannot unlock analysis.
+                        if {r['name'] for r in rows} != set(names[::args.shards]):
+                            return False
+                        validate_scoring(rows, names[::args.shards])
+                        return all((marks / f'shard_{i}_of_{args.shards}.done').is_file()
+                                   for i in range(1, args.shards))
+                    print('Waiting for all scoring shards; the paused shell does not pause GPU children.', flush=True)
+                    wait_for(scoring_done, deadline=deadline,
+                        failed=[marks / f'shard_{i}_of_{args.shards}.failed' for i in range(args.shards)])
+                    for i in range(args.shards):
+                        validate_scoring(json.loads((args.paper_root / f'predictions/queue_held_out_shard{i}.json').read_text()),
+                                         names[i::args.shards])
+                    record = json.loads(handoff.read_text()); record['scoring_complete'] = True
+                    atomic_json(handoff, record)
+                    (marks / f'shard_0_of_{args.shards}.done').touch()
+                    root.mkdir(parents=True, exist_ok=False)
+                    (root / 'cpu_logs').mkdir()
+                    source = prepare(args, root)
+                    action('inventory')
+                    path = root / 'analysis_inventory/analysis.yaml'
+                    config = yaml.safe_load(path.read_text())
+                    config.update(bootstrap_method='multiplier', bootstrap_replicates=1000, bootstrap_seed=2026,
+                        clinical_threshold_artifacts=source['clinical_threshold_artifacts'],
+                        patient_metadata_column_map=source.get('patient_metadata_column_map', {}))
+                    path.write_text(yaml.safe_dump(config, sort_keys=False))
+                    (marks / 'cpu_inventory_ready').touch()
                 action('analyse')
                 check_local_contrasts(root / 'prediction_analysis/effect_summaries.csv')
                 (marks / 'cpu_numerical_done').touch()
