@@ -229,15 +229,18 @@ def normalize_predictions(
             "zero_weight_censored_rows": int((~frame.known).sum()),
             "estimand": estimand,
         }
-        return frame.sort_values(["model", *PATIENT]).reset_index(drop=True), audit
+        # Build the final RangeIndex during sorting. reset_index afterwards
+        # deep-copies and consolidates the entire sorted prediction table on
+        # pandas versions without copy-on-write (tens of GiB at test scale).
+        return frame.sort_values(["model", *PATIENT], ignore_index=True), audit
     audit = {
         "input_rows": len(frame),
         "known_rows": int(frame.known.sum()),
         "excluded_unknown_rows": int((~frame.known).sum()),
         "estimand": estimand,
     }
-    return frame.loc[frame.known].sort_values(["model", *PATIENT]).reset_index(
-        drop=True
+    return frame.loc[frame.known].sort_values(
+        ["model", *PATIENT], ignore_index=True
     ), audit
 
 

@@ -595,7 +595,9 @@ def collapse_seed_repeats(predictions, config):
     if (predictions.groupby("model").seed.nunique() > 1).any():
         return predictions
     primary = int(config.get("primary_seed", 42))
-    return predictions.assign(seed=primary)
+    result = predictions.copy(deep=False)
+    result["seed"] = primary
+    return result
 
 
 def models_for(contrasts, extra=()):
@@ -678,9 +680,9 @@ def run(config, output_dir):
     predictions, combined_audit = normalize_predictions(predictions, estimand, copy=False)
     predictions = collapse_seed_repeats(predictions, config)
     if config.get("analysis_horizons_days"):
-        predictions = predictions.loc[
-            predictions.horizon_days.isin(config["analysis_horizons_days"])
-        ].copy()
+        keep_horizons = predictions.horizon_days.isin(config["analysis_horizons_days"])
+        if not keep_horizons.all():
+            predictions = predictions.loc[keep_horizons]
         if predictions.empty:
             raise ValueError("No predictions at the requested analysis horizons")
     contrast_manifest = yaml.safe_load(Path(config["contrast_manifest"]).read_text())
