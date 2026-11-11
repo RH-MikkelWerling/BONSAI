@@ -20,3 +20,11 @@ paths:
 # The source architecture is imported explicitly, except that the local SDPA
 # backend is retained for V100 compatibility. A mismatched causal/data objective
 # or inadequate local vocabulary overlap fails before training.
+
+# Adaptation uses only pre-2022 records, even though the sequence release also
+# contains later history needed for supervised temporal evaluation.
+training:
+  cutoff_date:
+    year: 2022
+    month: 1
+    day: 1
