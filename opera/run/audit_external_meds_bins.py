@@ -29,7 +29,7 @@ def summarize(root):
     return files, labs.groupby('base_code')[['events', 'binned_events']].sum()
 
 
-def replay(files, metadata, per_shard, diagnostics=None):
+def replay(files, metadata, per_shard, diagnostics=None, *, check_suffix=True):
     if metadata.code.duplicated().any():
         raise ValueError('External numeric metadata has duplicate codes')
     transforms = metadata.set_index('code').to_dict('index')
@@ -70,7 +70,8 @@ def replay(files, metadata, per_shard, diagnostics=None):
                     close = edge_distance is not None and edge_distance <= 1e-6
                     near_edge += int(close)
                     mismatch_counts[(code, str(expected), str(actual), close)] += 1
-                suffix_mismatches += (int(match.group(1)) if match else None) != actual
+                if check_suffix:
+                    suffix_mismatches += (int(match.group(1)) if match else None) != actual
                 checked += 1
                 used += 1
             if used >= per_shard:
@@ -82,10 +83,32 @@ def replay(files, metadata, per_shard, diagnostics=None):
                 bin_suffix_mismatches=int(suffix_mismatches), sampled_without_external_transform=unknown)
 
 
+def intermediate_replays(root, metadata, per_shard):
+    results = {}
+    for stage in ('annotate_numeric_values', 'join_numeric_bins', 'join_lab_text_values', 'finalize_MEDS_data'):
+        directory = Path(root) / stage
+        files = sorted(p for p in directory.rglob('*.parquet')
+                       if {'code', 'numeric_value', 'numeric_value_bin'} <=
+                       set(pq.ParquetFile(p).schema_arrow.names)) if directory.exists() else []
+        if not files:
+            results[stage] = {'status': 'intermediate_not_available'}
+            continue
+        diagnostics = []
+        result = replay(files, metadata, per_shard, diagnostics,
+                        check_suffix=stage != 'annotate_numeric_values')
+        result['numeric_value_dtypes'] = sorted({str(pq.ParquetFile(p).schema_arrow.field('numeric_value').type) for p in files})
+        result['shards'] = len(files)
+        result['status'] = 'sample_replayed'
+        results[stage] = result
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--national-meds', type=Path, required=True)
-    parser.add_argument('--local-meds', type=Path, required=True)
+    parser.add_argument('--local-meds', type=Path)
+    parser.add_argument('--intermediate-only', action='store_true',
+                        help='Replay retained conversion stages and final data, without rescanning local coverage')
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--sample-per-shard', type=int, default=10000)
@@ -94,6 +117,24 @@ def main():
         parser.error('sample-per-shard must be positive')
     if args.output_dir.exists():
         raise FileExistsError(args.output_dir)
+    if args.intermediate_only:
+        metadata = pl.read_json(args.bundle/'preprocessing/numeric_metadata.json').to_pandas()
+        results = intermediate_replays(args.national_meds, metadata, args.sample_per_shard)
+        final_files = sorted((args.national_meds/'data').rglob('*.parquet'))
+        if not final_files:
+            raise ValueError('Final data shards are absent')
+        results['final_data'] = replay(final_files, metadata, args.sample_per_shard)
+        results['final_data']['numeric_value_dtypes'] = sorted({str(pq.ParquetFile(p).schema_arrow.field('numeric_value').type) for p in final_files})
+        results['scope'] = 'Bounded first numeric lab rows per shard; stage samples are not event-matched. Tests supplied transforms, not national training implementation equivalence.'
+        args.output_dir.mkdir(parents=True)
+        (args.output_dir/'intermediate_report.json').write_text(json.dumps(results, indent=2))
+        print(json.dumps(results, indent=2))
+        annotated = results['annotate_numeric_values']
+        if annotated.get('sampled_numeric_labs', 0) == 0 or annotated.get('external_transform_mismatches', 0):
+            raise SystemExit('Pre-finalization replay absent or mismatched; do not approve yet')
+        return
+    if args.local_meds is None:
+        parser.error('--local-meds is required unless --intermediate-only is used')
     files, national = summarize(args.national_meds)
     _, local = summarize(args.local_meds)
     comparison = national.add_suffix('_national').join(local.add_suffix('_local'), how='outer').fillna(0)
