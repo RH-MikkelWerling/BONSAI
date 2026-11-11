@@ -260,6 +260,23 @@ def cached_call(directory, name, function):
     return result
 
 
+def _columnwise_groups(frame, keys, columns):
+    """Group only key columns; never reorder the full prediction payload.
+
+    pandas group iteration sorts/copies all selected payload rows at once.
+    Group indices on the narrow key table and take each payload column only
+    for the current group, preserving original within-group row/index order.
+    """
+    import pandas as pd
+    groups = frame[list(keys)].groupby(list(keys), sort=True).indices
+    def parts():
+        for key in sorted(groups):
+            positions = groups[key]
+            yield key, pd.DataFrame({column: frame[column].iloc[positions]
+                                     for column in columns})
+    return len(groups), parts()
+
+
 def distributed_calibration(frame, directory):
     """Group-complete calibration jobs, with exactly the serial model order."""
     import pandas as pd
@@ -267,9 +284,9 @@ def distributed_calibration(frame, directory):
     columns = ['model', *CELL, 'label', 'probability']
     if 'ipcw_weight' in frame:
         columns.append('ipcw_weight')
-    groups = frame[columns].groupby('model', sort=True)
+    total, groups = _columnwise_groups(frame, ['model'], columns)
     results = list(distributed_parts(directory, (part for _, part in groups),
-                                    groups.ngroups, dict(kind='calibration')))
+                                    total, dict(kind='calibration')))
     return tuple(pd.concat([part[i] for part in results], ignore_index=True) for i in (0, 1))
 
 
@@ -282,7 +299,7 @@ def distributed_operating_points(frame, draws, directory, *, rules, pairs, minim
         columns.append('known')
     # A task includes all models and both tuning/evaluation patients. Hence
     # thresholds and paired uncertainty are identical to the serial call.
-    groups = frame[columns].groupby(TASK, sort=True)
+    total, groups = _columnwise_groups(frame, TASK, columns)
     def payloads():
         for key, part in groups:
             relevant = {k:v for k,v in draws.items() if k[1:] == key[:2]}
@@ -291,7 +308,7 @@ def distributed_operating_points(frame, draws, directory, *, rules, pairs, minim
                    minimum_events=minimum_events)
     # Accumulate only the small resulting tables, not all submitted inputs.
     collected = [[] for _ in rules]
-    for results in distributed_parts(directory, payloads(), groups.ngroups, options):
+    for results in distributed_parts(directory, payloads(), total, options):
         for target, result in zip(collected, results):
             target.append(result)
     combined = []
