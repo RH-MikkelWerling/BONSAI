@@ -118,7 +118,8 @@ def prepare(analysis_path, lyfo_path, indices_path, recipe_path, output, table1_
         from opera.run.export_table1 import build_tables
         previous = pd.read_csv(table1_values)
         population_rows = previous.loc[previous.variable.eq('patients') & previous.cohort_level.eq('all')]
-        expected = {'Overall': len(refreshed), **refreshed.split.value_counts().to_dict()}
+        table_population = refreshed.loc[refreshed.split.isin(['train', 'tuning', 'held_out'])]
+        expected = {'Overall': len(table_population), **table_population.split.value_counts().to_dict()}
         for _, row in population_rows.iterrows():
             if int(row['count']) != expected[row['split']]:
                 raise ValueError('Table 1 population differs from refreshed metadata; refusing replacement')
@@ -127,7 +128,7 @@ def prepare(analysis_path, lyfo_path, indices_path, recipe_path, output, table1_
         clinical_variables = {'index', 'IPI', 'ipi', 'ipi_computed_score', 'ipi_computed_group',
             'nccn_ipi_score', 'nccn_ipi_group', 'nccn_ipi_risk', 'risk_category',
             'performance_status', 'prognostic_score_by_system'}
-        fresh = build_tables(refreshed)
+        fresh = build_tables(table_population)
         updated_table1 = pd.concat([previous.loc[~previous.variable.isin(clinical_variables)],
             fresh.loc[fresh.variable.isin(clinical_variables)]], ignore_index=True)
     output.mkdir(parents=True)
