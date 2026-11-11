@@ -613,21 +613,8 @@ def models_for(contrasts, extra=()):
     return needed
 
 
-def run(config, output_dir):
-    """Produce reviewable tables with explicit missing-input/coverage statuses."""
-    output_dir = Path(output_dir)
-    if output_dir.exists():
-        raise FileExistsError(
-            "Use a new analysis directory; existing results are immutable"
-        )
-    if not config.get("artifacts"):
-        raise ValueError("Provide explicit artifact paths and run identities")
-    estimand = config.get("estimand")
-    if estimand not in ESTIMANDS:
-        raise ValueError(
-            f"Declare the analysis estimand explicitly: one of {ESTIMANDS}. "
-            "Known-status and full-risk-set IPCW results are separate analyses."
-        )
+def prepare_analysis_predictions(config, estimand):
+    """Validate/normalize once; context is restartable inside the secure workspace."""
     metadata = (
         read_table(config["patient_metadata"])
         if config.get("patient_metadata")
@@ -756,6 +743,73 @@ def run(config, output_dir):
     draws = patient_bootstrap(
         predictions, replicates, int(config.get("bootstrap_seed", 2026)), method=bootstrap_method
     )
+    context = dict(
+        metadata=metadata,
+        audit=audit,
+        hashes=hashes,
+        combined_audit=combined_audit,
+        contrasts=contrasts,
+        selection=selection,
+        inclusive_selection=inclusive_selection,
+        unused_models=unused_models,
+        replicates=replicates,
+        bootstrap_method=bootstrap_method,
+        performance_support=performance_support,
+        draws=draws,
+        contrast_manifest=contrast_manifest,
+        selected_present=not selected.empty,
+    )
+    return predictions, context
+
+
+def run(config, output_dir):
+    """Produce reviewable tables with explicit missing-input/coverage statuses."""
+    output_dir = Path(output_dir)
+    if output_dir.exists():
+        raise FileExistsError(
+            "Use a new analysis directory; existing results are immutable"
+        )
+    if not config.get("artifacts"):
+        raise ValueError("Provide explicit artifact paths and run identities")
+    estimand = config.get("estimand")
+    if estimand not in ESTIMANDS:
+        raise ValueError(
+            f"Declare the analysis estimand explicitly: one of {ESTIMANDS}. "
+            "Known-status and full-risk-set IPCW results are separate analyses."
+        )
+    import os
+    checkpoint_root = None
+    if os.environ.get('OPERA_ANALYSIS_CHECKPOINT_DIR'):
+        from opera.evaluation.distributed_analysis import signature, load_prepared, save_prepared
+        checkpoint_root = Path(os.environ['OPERA_ANALYSIS_CHECKPOINT_DIR']) / signature(config)
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        # The coordinator publishes the active immutable generation for workers.
+        from opera.evaluation.distributed_analysis import save_json
+        save_json(checkpoint_root.parent / 'active.json', {'generation': checkpoint_root.name})
+    if checkpoint_root is not None and (checkpoint_root / 'prepared/prepared.json').exists():
+        stage('loading prepared analysis snapshot (no raw prediction reread)')
+        predictions, context = load_prepared(checkpoint_root / 'prepared')
+    else:
+        predictions, context = prepare_analysis_predictions(config, estimand)
+        if checkpoint_root is not None:
+            stage('saving prepared analysis snapshot')
+            save_prepared(checkpoint_root / 'prepared', predictions, context)
+    metadata = context['metadata']
+    audit = context['audit']
+    hashes = context['hashes']
+    combined_audit = context['combined_audit']
+    contrasts = context['contrasts']
+    selection = context['selection']
+    inclusive_selection = context['inclusive_selection']
+    unused_models = context['unused_models']
+    replicates = context['replicates']
+    bootstrap_method = context['bootstrap_method']
+    performance_support = context['performance_support']
+    draws = context['draws']
+    contrast_manifest = context['contrast_manifest']
+    selected_present = context['selected_present']
+    del context
+    from opera.evaluation.distributed_analysis import cached_call
     stage("paired analysis")
     tables = paired_analysis(
         predictions,
@@ -763,15 +817,15 @@ def run(config, output_dir):
         replicates=replicates,
         draws=draws,
         patient_gain_contrasts=config.get("patient_gain_contrasts"),
+        checkpoint_dir=checkpoint_root / 'paired/primary' if checkpoint_root is not None else None,
         **performance_support,
     )
     # Absolute metrics on a common panel, e.g. joint/routed under each encoder origin.
     stage("panel estimates")
-    tables["panel_estimates"] = panel_estimates(
-        tables["estimates"],
-        tables.pop("model_bootstrap_draws"),
-        panel_groups(config),
-    )
+    model_bootstrap_draws = tables.pop("model_bootstrap_draws")
+    tables["panel_estimates"] = cached_call(checkpoint_root, 'panel_estimates', lambda: panel_estimates(
+        tables["estimates"], model_bootstrap_draws, panel_groups(config)))
+    del model_bootstrap_draws
     cell_metadata = read_table(config["cell_metadata"])
     for column, definition in config.get("cell_groups", {}).items():
         if definition.get("provenance") != "train_only":
@@ -789,31 +843,40 @@ def run(config, output_dir):
             include_lowest=True,
         ).astype(str)
     stage("cells pooled over horizons")
-    tables["contrasts_all_horizons"] = pool_cells_over_horizons(
-        tables["contrasts"], tables["bootstrap_draws"])
+    tables["contrasts_all_horizons"] = cached_call(checkpoint_root, 'pooled_horizons',
+        lambda: pool_cells_over_horizons(tables["contrasts"], tables["bootstrap_draws"]))
     stage("effect summaries")
-    annotated, summaries = effect_summaries(
+    annotated, summaries = cached_call(checkpoint_root, 'effect_summaries', lambda: effect_summaries(
         tables["contrasts"],
         tables["bootstrap_draws"],
         cell_metadata,
         strata=config.get("cell_summary_strata") or list(dict.fromkeys(
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])),
-    )
+        checkpoint_dir=checkpoint_root / 'tasks/equal_cell' if checkpoint_root is not None else None,
+    ))
     from opera.evaluation.headline_holm import headline_holm
     tables["headline_holm"] = headline_holm(summaries, bootstrap_method=bootstrap_method)
     stage("disease-balanced effect summaries")
-    _, tables["effect_summaries_disease_balanced"] = effect_summaries(
+    _, tables["effect_summaries_disease_balanced"] = cached_call(
+        checkpoint_root, 'disease_balanced', lambda: effect_summaries(
         tables["contrasts"], tables["bootstrap_draws"], cell_metadata,
         strata=config.get("cell_summary_strata") or list(dict.fromkeys(
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
-             *config.get("cell_groups", {})])), aggregation="disease_balanced")
+             *config.get("cell_groups", {})])), aggregation="disease_balanced",
+        checkpoint_dir=checkpoint_root / 'tasks/disease_balanced' if checkpoint_root is not None else None))
     stage("calibration, strategies, negative transfer")
+    if checkpoint_root is not None:
+        from opera.evaluation.distributed_analysis import distributed_calibration
+        calibration, calibration_metrics = cached_call(checkpoint_root, 'calibration_combined',
+            lambda: distributed_calibration(predictions, checkpoint_root / 'tasks/calibration'))
+    else:
+        calibration, calibration_metrics = reliability_tables(predictions), calibration_summary(predictions)
     tables.update(
         contrasts=annotated,
         effect_summaries=summaries,
-        calibration=reliability_tables(predictions),
-        calibration_summary=calibration_summary(predictions),
+        calibration=calibration,
+        calibration_summary=calibration_metrics,
         strategy_selection=selection,
         strategy_selection_inclusive=inclusive_selection,
         negative_transfer=negative_transfer_strata(
@@ -825,15 +888,20 @@ def run(config, output_dir):
     stage("operating points")
     point_settings = config.get("operating_points", {})
     point_tables, difference_tables = [], []
-    for rule in point_settings.get("rules", DEFAULT_RULES):
-        points, differences = operating_points(
-            predictions,
-            draws,
-            rule=rule,
-            pairs=[tuple(pair) for pair in point_settings.get(
-                "pairs", [["J_L", "X"], ["J_L", "S_L"], ["R_L", "J_L"]])],
-            minimum_events=int(point_settings.get("minimum_tuning_events", 5)),
-        )
+    rules = list(point_settings.get("rules", DEFAULT_RULES))
+    pairs = [tuple(pair) for pair in point_settings.get(
+        "pairs", [["J_L", "X"], ["J_L", "S_L"], ["R_L", "J_L"]])]
+    minimum_events = int(point_settings.get("minimum_tuning_events", 5))
+    if checkpoint_root is not None:
+        from opera.evaluation.distributed_analysis import distributed_operating_points
+        operating_results = cached_call(checkpoint_root, 'operating_all',
+            lambda: distributed_operating_points(predictions, draws,
+                checkpoint_root / 'tasks/operating_points', rules=rules, pairs=pairs,
+                minimum_events=minimum_events))
+    else:
+        operating_results = [operating_points(predictions, draws, rule=rule,
+            pairs=pairs, minimum_events=minimum_events) for rule in rules]
+    for points, differences in operating_results:
         point_tables.append(points)
         difference_tables.append(differences)
     points = pd.concat(point_tables, ignore_index=True)
@@ -886,6 +954,7 @@ def run(config, output_dir):
             tables["bootstrap_draws"],
             cell_metadata[["cohort", "outcome", "horizon_days"]],
             strata=["stratum"],
+            checkpoint_dir=checkpoint_root / 'tasks/negative_transfer' if checkpoint_root is not None else None,
         )
     stage("identity and subgroup sensitivity analyses")
     statuses = [{"analysis": "models_not_analysed", "status": "dropped",
@@ -963,7 +1032,9 @@ def run(config, output_dir):
                 contrasts,
                 replicates=replicates,
                 draws=draws,
-                patient_gain_contrasts=[], **performance_support,
+                patient_gain_contrasts=[],
+                checkpoint_dir=checkpoint_root / 'paired/identity' if checkpoint_root is not None else None,
+                **performance_support,
             )
             tables["late_diagnosis_exclusion_sensitivity"] = sensitivity["contrasts"]
             statuses.append(
@@ -997,12 +1068,19 @@ def run(config, output_dir):
             subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:
                 result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
-                                         patient_gain_contrasts=[], **performance_support)
+                                         patient_gain_contrasts=[],
+                                         checkpoint_dir=(checkpoint_root / 'paired' /
+                                             ('stratum_' + hashlib.sha256(repr((column, value)).encode()).hexdigest()[:24]))
+                                             if checkpoint_root is not None else None,
+                                         **performance_support)
             except ValueError:
                 continue
             _, summary = effect_summaries(result["contrasts"], result["bootstrap_draws"],
                                           cell_metadata, strata=["no_strata"],
-                                          stable_cells_only=True)
+                                          stable_cells_only=True,
+                                          checkpoint_dir=(checkpoint_root / 'tasks' /
+                                              ('stratum_summary_' + hashlib.sha256(repr((column, value)).encode()).hexdigest()[:24]))
+                                              if checkpoint_root is not None else None)
             effects.append(summary.assign(covariate=column, stratum_value=str(value),
                                           n_subjects=len(set(ids))))
             absolute.append(panel_estimates(
@@ -1029,12 +1107,17 @@ def run(config, output_dir):
         and patient_groups
         and not tables["patient_gains"].empty
     ):
-        tables["patient_subgroups"] = subgroup_patient_gains(
-            tables["patient_gains"], metadata, patient_groups, draws=draws
-        )
-        tables["patient_subgroup_panels"] = panel_subgroup_gains(
-            tables["patient_gains"], metadata, patient_groups, draws=draws
-        )
+        if checkpoint_root is not None:
+            from opera.evaluation.distributed_analysis import distributed_patient_subgroups
+            subgroup_tables = cached_call(checkpoint_root, 'patient_subgroups',
+                lambda: distributed_patient_subgroups(tables["patient_gains"], metadata,
+                    patient_groups, draws, checkpoint_root / 'tasks/patient_subgroups'))
+            tables["patient_subgroups"], tables["patient_subgroup_panels"] = subgroup_tables
+        else:
+            tables["patient_subgroups"] = subgroup_patient_gains(
+                tables["patient_gains"], metadata, patient_groups, draws=draws)
+            tables["patient_subgroup_panels"] = panel_subgroup_gains(
+                tables["patient_gains"], metadata, patient_groups, draws=draws)
         statuses.append({"analysis": "patient_characteristics", "status": "computed"})
     else:
         statuses.append(
@@ -1110,7 +1193,7 @@ def run(config, output_dir):
     statuses.append(
         {
             "analysis": "tuning_selected_cell_strategies",
-            "status": "computed" if not selected.empty else "missing_strategy_inputs",
+            "status": "computed" if selected_present else "missing_strategy_inputs",
         }
     )
     statuses.append(
@@ -1175,16 +1258,20 @@ def run(config, output_dir):
         if config.get(key):
             hashes[config[key]] = file_hash(config[key])
     stage("writing outputs")
-    # All validation/analysis precedes the first output mutation.
-    output_dir.mkdir(parents=True)
+    # Publish the complete output directory atomically. If writing is killed,
+    # its unpublished staging directory cannot block a checkpointed restart.
+    import uuid
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    write_dir = output_dir.with_name(output_dir.name + '.writing_' + uuid.uuid4().hex)
+    write_dir.mkdir()
     for name, table in tables.items():
         if name == "bootstrap_draws":
             np.savez_compressed(
-                output_dir / "paired_bootstrap_draws_INTERNAL.npz",
+                write_dir / "paired_bootstrap_draws_INTERNAL.npz",
                 gains=disk_backed_draw_matrix(table, "gain_draws"),
             )
             table.drop(columns="gain_draws").to_csv(
-                output_dir / "paired_bootstrap_index.csv", index=False
+                write_dir / "paired_bootstrap_index.csv", index=False
             )
             continue
         suffix = (
@@ -1192,7 +1279,7 @@ def run(config, output_dir):
             if name in {"patient_gains", "bootstrap_draws", "operating_points_counts"}
             else ""
         )
-        table.to_csv(output_dir / f"{name}{suffix}.csv", index=False)
+        table.to_csv(write_dir / f"{name}{suffix}.csv", index=False)
     summary = {
         "estimand": config["estimand"],
         "bootstrap_replicates": replicates,
@@ -1215,9 +1302,10 @@ def run(config, output_dir):
         "aggregation": "equal_cell_descriptive; endpoint/disease weighting must be locked separately",
         "tables": {name: len(table) for name, table in tables.items()},
     }
-    (output_dir / "analysis_manifest.json").write_text(
+    (write_dir / "analysis_manifest.json").write_text(
         json.dumps(summary, indent=2, allow_nan=False) + "\n"
     )
+    write_dir.replace(output_dir)
     return summary
 
 

@@ -807,6 +807,7 @@ def paired_analysis(
     patient_gain_contrasts=None,
     min_cases=0,
     min_controls=0,
+    checkpoint_dir=None,
 ):
     """Cell estimates, paired contrasts, joint draws and patient loss contributions."""
     if min_cases < 0 or min_controls < 0:
@@ -816,13 +817,14 @@ def paired_analysis(
     model_draw_rows = []
     parsed = {name: contrast_coefficients(expr) for name, expr in contrasts.items()}
     cells = frame.groupby(CELL, sort=True)
-    total_batches = (cells.ngroups + CELL_BATCH - 1) // CELL_BATCH
+    batch_size = 20 if checkpoint_dir is not None else CELL_BATCH
+    total_batches = (cells.ngroups + batch_size - 1) // batch_size
     def batches():
         # Do not retain all grouped prediction tables before starting work.
         batch = []
         for key, cell in cells:
             batch.append((key, cell, {key[:3]: draws[key[:3]]}))
-            if len(batch) == CELL_BATCH:
+            if len(batch) == batch_size:
                 yield batch
                 batch = []
         if batch:
@@ -835,7 +837,13 @@ def paired_analysis(
                 target.extend(rows)
 
     workers = analysis_workers()
-    if workers > 1 and total_batches > 1:
+    if checkpoint_dir is not None:
+        from opera.evaluation.distributed_analysis import distributed_parts
+        options = dict(parsed=parsed, patient_gain_contrasts=patient_gain_contrasts,
+                       min_cases=min_cases, min_controls=min_controls)
+        collect(_with_progress(distributed_parts(checkpoint_dir, batches(), total_batches, options),
+                               total_batches))
+    elif workers > 1 and total_batches > 1:
         from concurrent.futures import ProcessPoolExecutor
         from collections import deque
 
@@ -1071,7 +1079,8 @@ def _effect_summary_task(payload):
 
 
 def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
-                     stable_cells_only=False, aggregation="equal_cell", _summary_workers=None):
+                     stable_cells_only=False, aggregation="equal_cell", _summary_workers=None,
+                     checkpoint_dir=None):
     """Paired means with equal-cell or explicit hierarchical weights.
 
     No across-seed pooling: bootstrap intervals condition on one training seed.
@@ -1107,6 +1116,17 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
     # Bound in-flight payloads to one per worker to limit additional memory.
     import os
     workers = int(os.environ.get('OPERA_SUMMARY_WORKERS', '1')) if _summary_workers is None else _summary_workers
+    if checkpoint_dir is not None:
+        from opera.evaluation.distributed_analysis import distributed_parts
+        indices = bootstrap_draws.groupby('contrast', sort=False).indices
+        tasks = ((part, bootstrap_draws.iloc[indices[code]], cell_metadata, strata,
+                  stable_cells_only, aggregation)
+                 for code, part in contrasts.groupby('contrast', sort=True))
+        parts = list(distributed_parts(checkpoint_dir, tasks, contrasts.contrast.nunique(),
+                     dict(kind='effect_summary', aggregation=aggregation,
+                          strata=strata, stable_cells_only=stable_cells_only)))
+        summary = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        return values, _ordered_effect_summaries(summary, strata)
     if workers > 1 and contrasts.contrast.nunique() > 1:
         import multiprocessing
         import sys
@@ -1133,14 +1153,7 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
             while pending:
                 consume()
         summary = pd.concat(parts, ignore_index=True)
-        if summary.empty:
-            return values, summary
-        # Deterministic presentation order; draw values and weights are unchanged.
-        summary['_stratum_order'] = summary.stratum.map({s:i for i,s in enumerate(['all_cells', *strata])})
-        summary['_pooled'] = summary.horizon_days.eq(ALL_HORIZONS)
-        summary = summary.sort_values(['_stratum_order','_pooled','split','seed',
-            'contrast','metric','horizon_days','stratum_value'], kind='stable')
-        return values, summary.drop(columns=['_stratum_order','_pooled']).reset_index(drop=True)
+        return values, _ordered_effect_summaries(summary, strata)
     rows = []
     # Per horizon, and pooled over all horizons (horizon_days == ALL_HORIZONS),
     # every disease-outcome-horizon cell weighing equally.
@@ -1199,6 +1212,16 @@ def effect_summaries(contrasts, bootstrap_draws, cell_metadata, *, strata=None,
                 }
             )
     return values, pd.DataFrame(rows)
+
+
+def _ordered_effect_summaries(summary, strata):
+    if summary.empty:
+        return summary
+    summary['_stratum_order'] = summary.stratum.map({s:i for i,s in enumerate(['all_cells', *strata])})
+    summary['_pooled'] = summary.horizon_days.eq(ALL_HORIZONS)
+    summary = summary.sort_values(['_stratum_order','_pooled','split','seed',
+        'contrast','metric','horizon_days','stratum_value'], kind='stable')
+    return summary.drop(columns=['_stratum_order','_pooled']).reset_index(drop=True)
 
 
 def tuning_selected_strategies(frame, candidates=("S_L", "D_L", "O_L")):

@@ -131,6 +131,8 @@ def main():
     parser.add_argument('--wait-hours', type=float, default=48)
     parser.add_argument('--resume-analysis', action='store_true',
         help='Numerical recovery only: reuse the completed inventory and clinical results.')
+    parser.add_argument('--distributed', action='store_true',
+        help='Save prepared inputs and delegate paired batches to analysis_cpu_worker nodes.')
     args = parser.parse_args()
     if Path(args.tag).name != args.tag or args.shards < 1 or min(args.analysis_workers, args.summary_workers) < 1:
         raise ValueError('Invalid tag or shard count')
@@ -156,6 +158,10 @@ def main():
                'OPERA_ANALYSIS_WORKERS': str(args.analysis_workers),
                'OPERA_SUMMARY_WORKERS': str(args.summary_workers),
                'OMP_NUM_THREADS':'1', 'OPENBLAS_NUM_THREADS':'1', 'MKL_NUM_THREADS':'1'}
+        if args.distributed:
+            if args.role != 'numerical':
+                raise ValueError('--distributed requires the numerical role')
+            env['OPERA_ANALYSIS_CHECKPOINT_DIR'] = str((root / '_cpu_checkpoints_INTERNAL').resolve())
         def action(name):
             print(f'{args.role}: {name}', flush=True)
             with (root / 'cpu_logs' / f'{name}.log').open('w') as log:
