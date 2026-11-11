@@ -76,8 +76,14 @@ def main():
     lr=env.get('OPERA_PAPER_EXTERNAL_ENCODER_LR')
     if not lr:
         raise ValueError('Set OPERA_PAPER_EXTERNAL_ENCODER_LR to the tuning-locked multiplier first')
-    if local_env.get('OPERA_PAPER_ROUTED_MODEL') != 'J_OA_OWN_L':
-        raise ValueError('This handoff requires the locked J_OA_OWN_L primary model')
+    # OPERA and learned routing have separate aliases in the locked release.
+    # ROUTED_MODEL=R_AB_L is the secondary comparator, not the primary OPERA.
+    saved = Path('data/paper_256_v3/analysis/local_test_20261109_four_allocations/overnight.env')
+    study_env = dotenv_values(saved) if saved.is_file() else local_env
+    primary = study_env.get('OPERA_PAPER_OPERA_MODEL')
+    if primary != 'J_OA_OWN_L':
+        raise ValueError(f'This handoff requires OPERA_PAPER_OPERA_MODEL=J_OA_OWN_L; '
+                         f'found {primary!r} in {saved if saved.is_file() else ".env"}')
     prepare(bundle, root, Path(env['OPERA_PAPER_EXTERNAL_SEQUENCE_DIR']),
             root/'external_direct/encoder.ckpt', root/'external_dapt/version_0/best.ckpt', float(lr))
 
