@@ -3,6 +3,7 @@
 All outputs are aggregate; no patient IDs or individual measurements are written.
 """
 import argparse
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -28,11 +29,12 @@ def summarize(root):
     return files, labs.groupby('base_code')[['events', 'binned_events']].sum()
 
 
-def replay(files, metadata, per_shard):
+def replay(files, metadata, per_shard, diagnostics=None):
     if metadata.code.duplicated().any():
         raise ValueError('External numeric metadata has duplicate codes')
     transforms = metadata.set_index('code').to_dict('index')
-    checked = mismatches = suffix_mismatches = unknown = 0
+    checked = mismatches = suffix_mismatches = unknown = near_edge = 0
+    mismatch_counts = Counter()
     for path in files:
         used = 0
         schema = pq.ParquetFile(path).schema_arrow.names
@@ -47,6 +49,7 @@ def replay(files, metadata, per_shard):
                 code = BIN.sub('', row.code)
                 transform = transforms.get(code)
                 expected = None
+                edge_distance = None
                 if transform is None:
                     unknown += 1
                 else:
@@ -54,19 +57,28 @@ def replay(files, metadata, per_shard):
                     high = transform.get('numeric/bin_99')
                     hard_low = transform.get('numeric/hard_minimum')
                     hard_high = transform.get('numeric/hard_maximum')
-                    valid = pd.notna(low) and (pd.isna(hard_low) or row.numeric_value >= hard_low) and (pd.isna(hard_high) or row.numeric_value <= hard_high)
+                    valid = np.isfinite(row.numeric_value) and pd.notna(low) and (pd.isna(hard_low) or row.numeric_value >= hard_low) and (pd.isna(hard_high) or row.numeric_value <= hard_high)
                     edges = transform.get('numeric/bin_edges')
                     if valid and edges is not None:
                         normalized = 0.0 if high <= low else (np.clip(row.numeric_value, low, high)-low)/(high-low)
-                        expected = int(np.searchsorted(np.asarray(edges), normalized, side='right'))
+                        edge_array = np.asarray(edges, dtype=float)
+                        expected = int(np.count_nonzero(edge_array <= normalized))
+                        edge_distance = float(np.min(np.abs(edge_array-normalized))) if len(edge_array) else None
                 actual = None if pd.isna(row.numeric_value_bin) else int(row.numeric_value_bin)
                 mismatches += actual != expected
+                if actual != expected:
+                    close = edge_distance is not None and edge_distance <= 1e-6
+                    near_edge += int(close)
+                    mismatch_counts[(code, str(expected), str(actual), close)] += 1
                 suffix_mismatches += (int(match.group(1)) if match else None) != actual
                 checked += 1
                 used += 1
             if used >= per_shard:
                 break
-    return dict(sampled_numeric_labs=checked, external_transform_mismatches=int(mismatches),
+    if diagnostics is not None:
+        diagnostics.extend(dict(code=k[0], expected_bin=k[1], actual_bin=k[2],
+            near_normalized_edge=k[3], rows=n) for k, n in mismatch_counts.most_common())
+    return dict(mismatches_near_bin_edge=near_edge, sampled_numeric_labs=checked, external_transform_mismatches=int(mismatches),
                 bin_suffix_mismatches=int(suffix_mismatches), sampled_without_external_transform=unknown)
 
 
@@ -88,7 +100,8 @@ def main():
     comparison['newly_binned_concept'] = (comparison.binned_events_national > 0) & (comparison.binned_events_local == 0)
     metadata_path = args.bundle/'preprocessing/numeric_metadata.json'
     metadata = pl.read_json(metadata_path).to_pandas()
-    report = replay(files, metadata, args.sample_per_shard)
+    diagnostics = []
+    report = replay(files, metadata, args.sample_per_shard, diagnostics)
     report.update(national_lab_events=int(national.events.sum()),
         national_binned_lab_events=int(national.binned_events.sum()),
         local_lab_events=int(local.events.sum()), local_binned_lab_events=int(local.binned_events.sum()),
@@ -97,6 +110,7 @@ def main():
         sampling='First numeric laboratory rows per shard, bounded deterministic sample; not a complete replay or matched-event comparison')
     args.output_dir.mkdir(parents=True)
     comparison.to_csv(args.output_dir/'lab_binning_comparison.csv')
+    pd.DataFrame(diagnostics, columns=['code','expected_bin','actual_bin','near_normalized_edge','rows']).to_csv(args.output_dir/'bin_mismatch_summary.csv', index=False)
     (args.output_dir/'report.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
     if not report['sampled_numeric_labs'] or report['external_transform_mismatches'] or report['bin_suffix_mismatches']:
