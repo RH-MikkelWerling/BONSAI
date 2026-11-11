@@ -1,0 +1,107 @@
+"""Compare local/national laboratory bin coverage and replay a bounded national sample.
+
+All outputs are aggregate; no patient IDs or individual measurements are written.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+
+import numpy as np
+import pandas as pd
+import polars as pl
+import pyarrow.parquet as pq
+
+BIN = re.compile(r'//BIN_(\d+)$')
+
+
+def summarize(root):
+    files = sorted((Path(root) / 'data').rglob('*.parquet'))
+    if not files:
+        raise ValueError(f'No data shards under {root}/data')
+    codes = pl.scan_parquet([str(p) for p in files]).group_by('code').agg(pl.len().alias('events')).collect().to_pandas()
+    labs = codes.loc[codes.code.str.startswith('LABTEST//')].copy()
+    labs['binned'] = labs.code.str.contains(r'//BIN_\d+$')
+    labs['base_code'] = labs.code.str.replace(r'//BIN_\d+$', '', regex=True)
+    labs['binned_events'] = labs.events.where(labs.binned, 0)
+    return files, labs.groupby('base_code')[['events', 'binned_events']].sum()
+
+
+def replay(files, metadata, per_shard):
+    if metadata.code.duplicated().any():
+        raise ValueError('External numeric metadata has duplicate codes')
+    transforms = metadata.set_index('code').to_dict('index')
+    checked = mismatches = suffix_mismatches = unknown = 0
+    for path in files:
+        used = 0
+        schema = pq.ParquetFile(path).schema_arrow.names
+        required = ['code', 'numeric_value', 'numeric_value_bin']
+        if not set(required) <= set(schema):
+            raise ValueError(f'Cannot replay numeric annotation: missing columns in {path.name}')
+        for batch in pq.ParquetFile(path).iter_batches(batch_size=65536, columns=required):
+            frame = batch.to_pandas()
+            frame = frame.loc[frame.code.str.startswith('LABTEST//') & frame.numeric_value.notna()]
+            for row in frame.head(per_shard-used).itertuples(index=False):
+                match = BIN.search(row.code)
+                code = BIN.sub('', row.code)
+                transform = transforms.get(code)
+                expected = None
+                if transform is None:
+                    unknown += 1
+                else:
+                    low = transform.get('numeric/bin_1')
+                    high = transform.get('numeric/bin_99')
+                    hard_low = transform.get('numeric/hard_minimum')
+                    hard_high = transform.get('numeric/hard_maximum')
+                    valid = pd.notna(low) and (pd.isna(hard_low) or row.numeric_value >= hard_low) and (pd.isna(hard_high) or row.numeric_value <= hard_high)
+                    edges = transform.get('numeric/bin_edges')
+                    if valid and edges is not None:
+                        normalized = 0.0 if high <= low else (np.clip(row.numeric_value, low, high)-low)/(high-low)
+                        expected = int(np.searchsorted(np.asarray(edges), normalized, side='right'))
+                actual = None if pd.isna(row.numeric_value_bin) else int(row.numeric_value_bin)
+                mismatches += actual != expected
+                suffix_mismatches += (int(match.group(1)) if match else None) != actual
+                checked += 1
+                used += 1
+            if used >= per_shard:
+                break
+    return dict(sampled_numeric_labs=checked, external_transform_mismatches=int(mismatches),
+                bin_suffix_mismatches=int(suffix_mismatches), sampled_without_external_transform=unknown)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--national-meds', type=Path, required=True)
+    parser.add_argument('--local-meds', type=Path, required=True)
+    parser.add_argument('--bundle', type=Path, required=True)
+    parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--sample-per-shard', type=int, default=10000)
+    args = parser.parse_args()
+    if args.sample_per_shard <= 0:
+        parser.error('sample-per-shard must be positive')
+    if args.output_dir.exists():
+        raise FileExistsError(args.output_dir)
+    files, national = summarize(args.national_meds)
+    _, local = summarize(args.local_meds)
+    comparison = national.add_suffix('_national').join(local.add_suffix('_local'), how='outer').fillna(0)
+    comparison['newly_binned_concept'] = (comparison.binned_events_national > 0) & (comparison.binned_events_local == 0)
+    metadata_path = args.bundle/'preprocessing/numeric_metadata.json'
+    metadata = pl.read_json(metadata_path).to_pandas()
+    report = replay(files, metadata, args.sample_per_shard)
+    report.update(national_lab_events=int(national.events.sum()),
+        national_binned_lab_events=int(national.binned_events.sum()),
+        local_lab_events=int(local.events.sum()), local_binned_lab_events=int(local.binned_events.sum()),
+        newly_binned_concepts=int(comparison.newly_binned_concept.sum()),
+        numeric_metadata_sha256=hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
+        sampling='First numeric laboratory rows per shard, bounded deterministic sample; not a complete replay or matched-event comparison')
+    args.output_dir.mkdir(parents=True)
+    comparison.to_csv(args.output_dir/'lab_binning_comparison.csv')
+    (args.output_dir/'report.json').write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2))
+    if not report['sampled_numeric_labs'] or report['external_transform_mismatches'] or report['bin_suffix_mismatches']:
+        raise SystemExit('Numeric replay failed; inspect before tokenization')
+
+
+if __name__ == '__main__':
+    main()
