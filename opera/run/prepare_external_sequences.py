@@ -106,7 +106,7 @@ def tokenize_command(output_dir, external_vocab, data_config):
 
 
 def audit_sequences(output_dir, membership, *, external_vocab=None, required_latest=None,
-                    allow_missing=False):
+                    allow_missing=False, sequence_dir=None):
     """Coverage of the paper population and [UNK] share in the national tokens.
 
     Fails (non-zero exit) when paper patients have no national sequence (they
@@ -119,7 +119,7 @@ def audit_sequences(output_dir, membership, *, external_vocab=None, required_lat
     import pandas as pd
     import torch
 
-    sequences = Path(output_dir) / "sequences"
+    sequences = Path(sequence_dir) if sequence_dir is not None else Path(output_dir) / "sequences"
     vocabulary = torch.load(sequences / "vocabulary.pt", weights_only=False)
     problems = []
     source_sha = None
@@ -132,12 +132,12 @@ def audit_sequences(output_dir, membership, *, external_vocab=None, required_lat
     unknown = vocabulary["[UNK]"]
     population = pd.read_parquet(membership) if str(membership).endswith(".parquet") \
         else pd.read_csv(membership)
-    wanted = set(population.subject_id)
+    wanted = set(population.subject_id.astype(str))
     covered, tokens, unknown_tokens = set(), 0, 0
     for split in SPLITS:
         for subject in torch.load(sequences / f"subject_data_{split}.pt", weights_only=False):
-            if subject["subject_id"] in wanted:
-                covered.add(subject["subject_id"])
+            if str(subject["subject_id"]) in wanted:
+                covered.add(str(subject["subject_id"]))
                 codes = torch.as_tensor(subject["code"])
                 tokens += int(codes.numel())
                 unknown_tokens += int((codes == unknown).sum())
@@ -157,6 +157,7 @@ def audit_sequences(output_dir, membership, *, external_vocab=None, required_lat
         problems.append(f"the national extract ends at {latest}, before {required_latest}: "
                         "recent history would be missing")
     report["problems"] = problems
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     (Path(output_dir) / "audit_report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
     if problems:
@@ -175,6 +176,7 @@ def main():
     parser.add_argument("--data-config", default="daly_care_joined_bins_data",
                         help="create_data config with the national tokenisation settings")
     parser.add_argument("--membership", type=Path)
+    parser.add_argument("--sequence-dir", type=Path, help="audit: explicit tokenized sequence directory")
     parser.add_argument("--required-latest",
                         help="audit: date the national extract must reach (end of test period)")
     parser.add_argument("--allow-missing", action="store_true",
@@ -190,7 +192,7 @@ def main():
     else:
         audit_sequences(args.output_dir, args.membership, external_vocab=args.external_vocab,
                         required_latest=args.required_latest,
-                        allow_missing=args.allow_missing)
+                        allow_missing=args.allow_missing, sequence_dir=args.sequence_dir)
 
 
 if __name__ == "__main__":
