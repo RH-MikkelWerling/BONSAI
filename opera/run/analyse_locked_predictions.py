@@ -1003,23 +1003,17 @@ def run(config, output_dir):
                     "subject_id",
                 ]
             )
-        subset = predictions.loc[predictions.subject_id.isin(retained_ids)]
-        before = (
-            predictions.drop_duplicates([*CELL, "subject_id"])
-            .groupby(CELL)
-            .size()
-            .rename("n_known_original")
-        )
-        after = (
-            subset.drop_duplicates([*CELL, "subject_id"])
-            .groupby(CELL)
-            .size()
-            .rename("n_known_retained")
-        )
+        # Count only deduplicated identity keys; never copy the full payload.
+        identities = predictions[[*CELL, "subject_id"]].drop_duplicates()
+        before = identities.groupby(CELL).size().rename("n_known_original")
+        after = (identities.loc[identities.subject_id.isin(retained_ids)]
+                 .groupby(CELL).size().rename("n_known_retained"))
+        has_retained = bool(len(after))
+        del identities
         tables["identity_sensitivity_counts"] = (
             before.to_frame().join(after).fillna({"n_known_retained": 0}).reset_index()
         )
-        if subset.empty:
+        if not has_retained:
             statuses.append(
                 {
                     "analysis": "late_diagnosis_exclusion_sensitivity",
@@ -1028,8 +1022,9 @@ def run(config, output_dir):
             )
         else:
             sensitivity = paired_analysis(
-                subset.loc[subset.model.isin(models_for(contrasts))],
+                predictions,
                 contrasts,
+                subject_ids=retained_ids, model_names=models_for(contrasts),
                 replicates=replicates,
                 draws=draws,
                 patient_gain_contrasts=[],
@@ -1058,16 +1053,16 @@ def run(config, output_dir):
         summary_models = [m for m in spec.get("models", ["J_L", "X"])
                           if m in set(predictions.model)]
         needed = models_for(wanted, summary_models)
-        relevant = predictions.loc[predictions.model.isin(needed)]
+        relevant_ids = predictions.loc[predictions.model.isin(needed), "subject_id"].drop_duplicates()
         # Use exactly the bins and missing-value labels of the Brier subgroups.
         group_spec = (config.get("patient_groups") or {}).get(
             column, {"provenance": "pre_index"})
         _, labelled = next(subgroup_labels(
-            relevant[["subject_id"]].drop_duplicates(), metadata, {column: group_spec}))
+            relevant_ids.to_frame(), metadata, {column: group_spec}))
         for value, ids in labelled.groupby("subgroup").subject_id:
-            subset = relevant.loc[relevant.subject_id.isin(set(ids))]
             try:
-                result = paired_analysis(subset, wanted, replicates=replicates, draws=draws,
+                result = paired_analysis(predictions, wanted, replicates=replicates, draws=draws,
+                                         subject_ids=set(ids), model_names=needed,
                                          patient_gain_contrasts=[],
                                          checkpoint_dir=(checkpoint_root / 'paired' /
                                              ('stratum_' + hashlib.sha256(repr((column, value)).encode()).hexdigest()[:24]))

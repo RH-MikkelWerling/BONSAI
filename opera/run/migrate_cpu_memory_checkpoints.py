@@ -18,7 +18,10 @@ from opera.evaluation import distributed_analysis as da
 OLD_HASH = '39f75fe2b67a2e7b38d77d25699f30028dfe620b63282a497ac856297b058abf'
 
 
-def previous_signature(config, identity):
+IDENTITY_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883fa7fe16f6f616c2162316e8e8c335ffe50d6dd373a20bada09da30eff3', 'opera/evaluation/secondary_analysis.py': 'cdccdd71f10b35649dc0e822226268631e20c39dbf6008a5271a515ff36f29ec', 'opera/run/analyse_locked_predictions.py': '771947ebab5c2be152c39482528c5af9f126282f10d95ce7c03a98e753a60403'}
+
+
+def previous_signature(config, identity, overrides=None):
     paths = {str(a['path']) for a in config.get('artifacts', [])}
     for key in ('patient_metadata','cell_metadata','contrast_manifest','coverage_roster','route_weights','compute_inventory'):
         if config.get(key):
@@ -27,13 +30,13 @@ def previous_signature(config, identity):
     code={relative:hashlib.sha256((repo/relative).read_bytes()).hexdigest()
           for relative in ('opera/evaluation/secondary_analysis.py','opera/evaluation/distributed_analysis.py',
                            'opera/run/analyse_locked_predictions.py','opera/evaluation/operating_points.py')}
-    code['opera/evaluation/distributed_analysis.py']=OLD_HASH
+    code.update(overrides or {'opera/evaluation/distributed_analysis.py': OLD_HASH})
     inputs={str(Path(p).resolve()):[Path(p).stat().st_size,Path(p).stat().st_mtime_ns] for p in sorted(paths)}
     payload=dict(config=config,inputs=inputs,implementation=code,environment=identity,version=1)
     return hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest()
 
 
-def migrate(config, base, execute=False):
+def migrate(config, base, execute=False, fix="columnwise"):
     base=Path(base)
     active=json.loads((base/'active.json').read_text())['generation']
     if Path(active).name != active:
@@ -41,8 +44,12 @@ def migrate(config, base, execute=False):
     old=base/active
     identity=da.worker_identity()
     previous=copy.deepcopy(identity)
-    previous['implementation']['distributed_analysis.py']=OLD_HASH
-    if previous_signature(config,previous) != active:
+    overrides = IDENTITY_PREVIOUS_HASHES if fix == 'identity-sensitivity' else {'opera/evaluation/distributed_analysis.py': OLD_HASH}
+    for path, digest in overrides.items():
+        name = Path(path).name
+        if name in previous['implementation']:
+            previous['implementation'][name] = digest
+    if previous_signature(config,previous,overrides) != active:
         raise ValueError('Old generation does not match this exact recipe, inputs, environment and reviewed implementation; refusing reuse')
     if not (old/'prepared/prepared.json').is_file():
         raise ValueError('Prepared snapshot missing')
@@ -79,7 +86,7 @@ def migrate(config, base, execute=False):
             descriptor['implementation']=identity
             da.save_json(queue,descriptor)
         da.save_json(temporary/'memory_fix_migration.json',dict(source_generation=active,
-            new_generation=target.name,change='Columnwise group extraction; completed numerical outputs reused unchanged',
+            new_generation=target.name,change=fix + '; bounded payload extraction; completed numerical outputs reused unchanged',
             old_distributed_hash=OLD_HASH,new_identity=identity,retain_source_generation=True))
         temporary.rename(target)
     finally:
@@ -95,8 +102,9 @@ def main():
     parser.add_argument('--config',type=Path,required=True)
     parser.add_argument('--checkpoint-dir',type=Path,required=True)
     parser.add_argument('--execute',action='store_true')
+    parser.add_argument('--fix', choices=['columnwise', 'identity-sensitivity'], default='columnwise')
     args=parser.parse_args()
-    migrate(yaml.safe_load(args.config.read_text()),args.checkpoint_dir,args.execute)
+    migrate(yaml.safe_load(args.config.read_text()),args.checkpoint_dir,args.execute,args.fix)
 
 
 if __name__=='__main__':

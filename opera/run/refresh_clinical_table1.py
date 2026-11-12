@@ -10,7 +10,7 @@ from opera.run.export_table1 import build_tables
 
 CLINICAL = {'index','IPI','ipi','ipi_computed_score','ipi_computed_group',
             'nccn_ipi_score','nccn_ipi_group','nccn_ipi_risk','risk_category',
-            'performance_status','prognostic_score_by_system'}
+            'prognostic_score_by_system'}
 
 
 def refresh(original, prepared, lyfo_path, source_analysis, output):
@@ -51,6 +51,7 @@ def refresh(original, prepared, lyfo_path, source_analysis, output):
         'excluded_without_registered_split':len(metadata)-len(selected),
         'split_counts':selected.split.value_counts().to_dict(),
         'all_table1_cohort_split_counts_match':True,
+        'performance_status':'Original Table 1 rows retained pending all refreshed registry sources',
         'ipi_complete_for_component_audit':len(paired),
         'ipi_changed_scores_in_audit':int(changed.sum()),
         'ipi_changed_scores_explained_by_count_substitution':int((changed & explained).sum()),

@@ -67,6 +67,12 @@ def prepare(analysis_path, lyfo_path, indices_path, recipe_path, output, table1_
     use = refreshed.nccn_ipi_risk.notna() & refreshed.nccn_ipi_risk.ne('Not recorded')
     refreshed.loc[use, 'risk_category'] = refreshed.loc[use, 'nccn_ipi_risk']
     refreshed.loc[use, 'risk_source'] = 'NCCN-IPI (computed)'
+    # LYFO PS is used for IPI/NCCN calculation, not the multi-registry Table 1 PS.
+    for field in ('PS', 'performance_status'):
+        if field in base:
+            refreshed[field] = base[field].to_numpy()
+        else:
+            refreshed = refreshed.drop(columns=field, errors='ignore')
     recipe = yaml.safe_load(Path(recipe_path).read_text())
     # Generate the existing registered/native endpoint specs from all records,
     # then substitute independent per-index columns in one-row metadata.
@@ -127,7 +133,7 @@ def prepare(analysis_path, lyfo_path, indices_path, recipe_path, output, table1_
             raise ValueError('Table 1 lacks population counts for reconciliation')
         clinical_variables = {'index', 'IPI', 'ipi', 'ipi_computed_score', 'ipi_computed_group',
             'nccn_ipi_score', 'nccn_ipi_group', 'nccn_ipi_risk', 'risk_category',
-            'performance_status', 'prognostic_score_by_system'}
+            'prognostic_score_by_system'}
         fresh = build_tables(table_population)
         updated_table1 = pd.concat([previous.loc[~previous.variable.isin(clinical_variables)],
             fresh.loc[fresh.variable.isin(clinical_variables)]], ignore_index=True)

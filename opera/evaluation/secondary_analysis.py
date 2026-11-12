@@ -808,6 +808,8 @@ def paired_analysis(
     min_cases=0,
     min_controls=0,
     checkpoint_dir=None,
+    subject_ids=None,
+    model_names=None,
 ):
     """Cell estimates, paired contrasts, joint draws and patient loss contributions."""
     if min_cases < 0 or min_controls < 0:
@@ -816,13 +818,28 @@ def paired_analysis(
     estimates, differences, draw_rows, contributions, coverage = [], [], [], [], []
     model_draw_rows = []
     parsed = {name: contrast_coefficients(expr) for name, expr in contrasts.items()}
-    cells = frame.groupby(CELL, sort=True)
+    # Group indices only: DataFrame group iteration sorts/copies every payload
+    # column across all rows. Apply sensitivity restrictions to indices before
+    # materialising one small cell at a time.
+    groups = frame.groupby(CELL, sort=True).indices
+    mask = None
+    if subject_ids is not None:
+        mask = frame.subject_id.isin(subject_ids).to_numpy()
+    if model_names is not None:
+        model_mask = frame.model.isin(model_names).to_numpy()
+        mask = model_mask if mask is None else mask & model_mask
+    if mask is not None:
+        groups = {key: selected for key, positions in groups.items()
+                  if len(selected := positions[mask[positions]])}
+        del mask
     batch_size = 20 if checkpoint_dir is not None else CELL_BATCH
-    total_batches = (cells.ngroups + batch_size - 1) // batch_size
+    total_batches = (len(groups) + batch_size - 1) // batch_size
     def batches():
         # Do not retain all grouped prediction tables before starting work.
         batch = []
-        for key, cell in cells:
+        for key in sorted(groups):
+            positions = groups[key]
+            cell = pd.DataFrame({column: frame[column].iloc[positions] for column in frame})
             batch.append((key, cell, {key[:3]: draws[key[:3]]}))
             if len(batch) == batch_size:
                 yield batch
