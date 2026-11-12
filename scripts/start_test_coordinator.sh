@@ -29,6 +29,8 @@ fi
 exec 9> "$root/.coordinator_launcher.lock"
 flock -n 9 || { echo 'A coordinator launcher is already active'; exit 1; }
 export PYTHONPATH="$repo_dir${PYTHONPATH:+:$PYTHONPATH}"
+export OPERA_ANALYSIS_SCRATCH="${OPERA_ANALYSIS_SCRATCH:-$root/.analysis_scratch}"
+mkdir -p "$OPERA_ANALYSIS_SCRATCH"
 exec "$python_bin" -u -m opera.run.test_cpu_pipeline \
   --tag "$tag" --role numerical --shards 4 \
-  --analysis-workers 1 --summary-workers 2 --resume-analysis --distributed
+  --analysis-workers 1 --summary-workers 1 --resume-analysis --distributed

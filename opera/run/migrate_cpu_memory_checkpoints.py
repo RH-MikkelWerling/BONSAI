@@ -27,6 +27,10 @@ BOUNDED_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883fa
 RARITY_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883fa7fe16f6f616c2162316e8e8c335ffe50d6dd373a20bada09da30eff3', 'opera/evaluation/secondary_analysis.py': '5992c83b663763392c73fd5c1866a287012172b24a6efa56a5febbdcdb65eb24', 'opera/run/analyse_locked_predictions.py': '1270c52e04f902971cffff5ef248ede69a9e1e9cadf0f4b1973d7ee0d3bfa257'}
 
 
+IDENTITY_COLLECTION_PREVIOUS_HASHES = {**RARITY_PREVIOUS_HASHES, 'opera/run/analyse_locked_predictions.py': '924679f3058e18a0ccd9a28ffcfc301792215cd05d1025c4c586b6a02d87f164'}
+IDENTITY_COLLECTION_EARLY_HASH = '69b0d9171bfaf0c7d26d23fb86f64196cf9fe0bbf210e8f9703282d26473136e'
+
+
 def previous_signature(config, identity, overrides=None):
     paths = {str(a['path']) for a in config.get('artifacts', [])}
     for key in ('patient_metadata','cell_metadata','contrast_manifest','coverage_roster','route_weights','compute_inventory'):
@@ -50,7 +54,8 @@ def migrate(config, base, execute=False, fix="columnwise"):
     old=base/active
     identity=da.worker_identity()
     previous=copy.deepcopy(identity)
-    overrides = (RARITY_PREVIOUS_HASHES if fix == 'rarity-copy' else
+    overrides = (IDENTITY_COLLECTION_PREVIOUS_HASHES if fix == 'identity-collection' else
+                 RARITY_PREVIOUS_HASHES if fix == 'rarity-copy' else
                  BOUNDED_PREVIOUS_HASHES if fix == 'bounded-factorization' else
                  IDENTITY_PREVIOUS_HASHES if fix == 'identity-sensitivity' else
                  {'opera/evaluation/distributed_analysis.py': OLD_HASH})
@@ -58,6 +63,14 @@ def migrate(config, base, execute=False, fix="columnwise"):
         name = Path(path).name
         if name in previous['implementation']:
             previous['implementation'][name] = digest
+    if fix == 'identity-collection':
+        for digest in [IDENTITY_COLLECTION_PREVIOUS_HASHES['opera/run/analyse_locked_predictions.py'],
+                       IDENTITY_COLLECTION_EARLY_HASH,
+                       '6b65d228c0789bd77260cdf02ccb0de76932420479bc80841c254f840782168b']:
+            candidate={**overrides,'opera/run/analyse_locked_predictions.py':digest}
+            if previous_signature(config,previous,candidate)==active:
+                overrides=candidate
+                break
     if previous_signature(config,previous,overrides) != active:
         raise ValueError('Old generation does not match this exact recipe, inputs, environment and reviewed implementation; refusing reuse')
     if not (old/'prepared/prepared.json').is_file():
@@ -75,7 +88,9 @@ def migrate(config, base, execute=False, fix="columnwise"):
             raise ValueError(f'Failed queue requires inspection: {queue}')
         if done==0 and ready==0:
             empty.append(queue.parent.relative_to(old))
-        elif done != total or not (queue.parent/'collected.json').is_file():
+        elif done != total or (not (queue.parent/'collected.json').is_file()
+                               and not (fix == 'identity-collection' and queue.parent == old/'paired/identity'
+                                        and (queue.parent/'published.json').is_file())):
             raise ValueError(f'Only fully collected or completely unpublished queues are eligible: {queue}')
     target=base/da.signature(config)
     if target.exists():
@@ -111,7 +126,7 @@ def main():
     parser.add_argument('--config',type=Path,required=True)
     parser.add_argument('--checkpoint-dir',type=Path,required=True)
     parser.add_argument('--execute',action='store_true')
-    parser.add_argument('--fix', choices=['columnwise', 'identity-sensitivity', 'bounded-factorization', 'rarity-copy'], default='columnwise')
+    parser.add_argument('--fix', choices=['columnwise', 'identity-sensitivity', 'bounded-factorization', 'rarity-copy', 'identity-collection'], default='columnwise')
     args=parser.parse_args()
     migrate(yaml.safe_load(args.config.read_text()),args.checkpoint_dir,args.execute,args.fix)
 

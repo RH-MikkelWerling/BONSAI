@@ -44,6 +44,9 @@ from opera.evaluation.secondary_analysis import (
 )
 
 
+REPORTING_IMPLEMENTATION_HASHES = {'coordinator_reporting.py': '131c01ed9de80ab05b1c58c580b2c88ac8cada8878d8f868144e7c4b2ccd11a7', 'identity_result_recovery.py': 'a5c93fd50035776dbaa4612f3c9d44dc8567ab507218e9f3648a4578441c6039'}
+
+
 def publish_main_effects(output_dir, summaries):
     """Publish an atomic early table separately from complete final outputs."""
     import uuid
@@ -802,6 +805,10 @@ def prepare_analysis_predictions(config, estimand):
 def run(config, output_dir):
     """Produce reviewable tables with explicit missing-input/coverage statuses."""
     output_dir = Path(output_dir)
+    for name, expected_hash in REPORTING_IMPLEMENTATION_HASHES.items():
+        implementation = Path(__file__).resolve().parents[1] / 'evaluation' / name
+        if hashlib.sha256(implementation.read_bytes()).hexdigest() != expected_hash:
+            raise ValueError(f'Reporting implementation changed: {name}; update the reviewed coordinator version')
     if output_dir.exists():
         raise FileExistsError(
             "Use a new analysis directory; existing results are immutable"
@@ -823,6 +830,18 @@ def run(config, output_dir):
         # The coordinator publishes the active immutable generation for workers.
         from opera.evaluation.distributed_analysis import save_json
         save_json(checkpoint_root.parent / 'active.json', {'generation': checkpoint_root.name})
+    recovered_identity = None
+    if checkpoint_root is not None:
+        from opera.evaluation.identity_result_recovery import completed_identity_sources, recover
+        identity_directory = checkpoint_root / 'paired/identity'
+        if completed_identity_sources(identity_directory) is not None:
+            # The child exits before the large prepared prediction table is loaded.
+            import subprocess
+            import sys
+            subprocess.run([sys.executable, '-u', '-m',
+                            'opera.evaluation.identity_result_recovery',
+                            '--directory', str(identity_directory)], check=True)
+            recovered_identity = recover(identity_directory)  # Validates marker; no batch loads.
     if checkpoint_root is not None and (checkpoint_root / 'prepared/prepared.json').exists():
         stage('loading prepared analysis snapshot (no raw prediction reread)')
         predictions, context = load_prepared(checkpoint_root / 'prepared')
@@ -892,7 +911,7 @@ def run(config, output_dir):
              *config.get("cell_groups", {})])),
         checkpoint_dir=checkpoint_root / 'tasks/equal_cell' if checkpoint_root is not None else None,
     ))
-    if config.get("publish_main_effects", False):
+    if checkpoint_root is not None or config.get("publish_main_effects", False):
         publish_main_effects(output_dir, summaries)
     from opera.evaluation.headline_holm import headline_holm
     tables["headline_holm"] = headline_holm(summaries, bootstrap_method=bootstrap_method)
@@ -953,6 +972,10 @@ def run(config, output_dir):
     tables["seed_averaged_effects"] = seed_averaged_effects(
         tables["contrasts"], tables["bootstrap_draws"]
     )
+    if checkpoint_root is not None:
+        from opera.evaluation.coordinator_reporting import spool_table
+        tables["seed_averaged_effects"] = spool_table(
+            tables["seed_averaged_effects"], checkpoint_root / 'reporting/seed_averaged_effects.csv')
     stage("router gate")
     gate_settings = {
         **contrast_manifest.get("evaluation", {}).get("router_null_equivalence", {}),
@@ -966,15 +989,26 @@ def run(config, output_dir):
         contrast=gate_contrast,
         gated=gated,
     )
-    tables["contrasts"] = annotate_router_gate(
+    from opera.evaluation.coordinator_reporting import annotate_gate
+    tables["contrasts"] = annotate_gate(
         tables["contrasts"], tables["router_null_equivalence"], gated=gated
     )
     tables["effect_summaries"] = annotate_router_gate(
         tables["effect_summaries"], tables["router_null_equivalence"], gated=gated
     )
     if "n_events_train" in annotated:
-        rarity = rarity_inputs(annotated)
-        tables["rarity_inputs"] = rarity
+        if checkpoint_root is not None:
+            from opera.evaluation.coordinator_reporting import spool_rarity
+            stage("streaming rarity inputs to disk")
+            tables["rarity_inputs"] = spool_rarity(
+                annotated, checkpoint_root / 'reporting/rarity_inputs.csv', rarity_inputs)
+        else:
+            tables["rarity_inputs"] = rarity_inputs(annotated)
+    # These reporting temporaries are no longer needed during sensitivities.
+    annotated = None
+    points = point_tables = difference_tables = operating_results = None
+    import gc
+    gc.collect()
     if not tables["negative_transfer"].empty:
         _, tables["negative_transfer_summary"] = effect_summaries(
             tables["negative_transfer"],
@@ -1041,17 +1075,22 @@ def run(config, output_dir):
                 }
             )
         else:
-            sensitivity = paired_analysis(
-                predictions,
-                contrasts,
-                subject_ids=retained_ids, model_names=models_for(contrasts),
-                replicates=replicates,
-                draws=draws,
-                patient_gain_contrasts=[],
-                checkpoint_dir=checkpoint_root / 'paired/identity' if checkpoint_root is not None else None,
-                **performance_support,
-            )
-            tables["late_diagnosis_exclusion_sensitivity"] = sensitivity["contrasts"]
+            if recovered_identity is not None:
+                tables["late_diagnosis_exclusion_sensitivity"] = recovered_identity
+            else:
+                sensitivity = paired_analysis(
+                    predictions,
+                    contrasts,
+                    subject_ids=retained_ids, model_names=models_for(contrasts),
+                    replicates=replicates,
+                    draws=draws,
+                    patient_gain_contrasts=[],
+                    checkpoint_dir=checkpoint_root / 'paired/identity' if checkpoint_root is not None else None,
+                    **performance_support,
+                )
+                tables["late_diagnosis_exclusion_sensitivity"] = sensitivity["contrasts"]
+                # Retain only the table consumed below, not bootstrap outputs.
+                del sensitivity
             statuses.append(
                 {
                     "analysis": "late_diagnosis_exclusion_sensitivity",
@@ -1123,9 +1162,9 @@ def run(config, output_dir):
         and not tables["patient_gains"].empty
     ):
         if checkpoint_root is not None:
-            from opera.evaluation.distributed_analysis import distributed_patient_subgroups
+            from opera.evaluation.coordinator_reporting import patient_subgroups_bounded
             subgroup_tables = cached_call(checkpoint_root, 'patient_subgroups',
-                lambda: distributed_patient_subgroups(tables["patient_gains"], metadata,
+                lambda: patient_subgroups_bounded(tables["patient_gains"], metadata,
                     patient_groups, draws, checkpoint_root / 'tasks/patient_subgroups'))
             tables["patient_subgroups"], tables["patient_subgroup_panels"] = subgroup_tables
         else:
@@ -1142,7 +1181,8 @@ def run(config, output_dir):
             }
         )
     if config.get("coverage_roster"):
-        tables["model_coverage"] = coverage_inventory(
+        from opera.evaluation.coordinator_reporting import coverage_bounded
+        tables["model_coverage"] = coverage_bounded(
             predictions, read_table(config["coverage_roster"])
         )
         statuses.append({"analysis": "specialist_coverage", "status": "computed"})
@@ -1241,9 +1281,11 @@ def run(config, output_dir):
             }
         )
     removal_names = set(config.get("source_removal_contrasts", []))
-    tables["source_removal_sensitivity"] = tables["contrasts"].loc[
-        tables["contrasts"].contrast.isin(removal_names)
-    ]
+    removal_mask = tables["contrasts"].contrast.isin(removal_names)
+    tables["source_removal_sensitivity"] = pd.DataFrame({
+        column: tables["contrasts"][column].loc[removal_mask].array
+        for column in tables["contrasts"]},
+        index=tables["contrasts"].index[removal_mask], copy=False)
     statuses.append(
         {
             "analysis": "source_removal_sensitivity",
@@ -1279,22 +1321,28 @@ def run(config, output_dir):
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     write_dir = output_dir.with_name(output_dir.name + '.writing_' + uuid.uuid4().hex)
     write_dir.mkdir()
-    for name, table in tables.items():
+    # Small headline tables are readable even if a later bulk export fails.
+    priority = {"effect_summaries": 0, "headline_holm": 1,
+                "effect_summaries_disease_balanced": 2, "panel_estimates": 3}
+    for name in sorted(tables, key=lambda key: (key == "bootstrap_draws",
+                                              priority.get(key, 4), len(tables[key]))):
+        table = tables[name]
+        stage(f"writing table: {name} ({len(table)} rows)")
         if name == "bootstrap_draws":
             np.savez_compressed(
                 write_dir / "paired_bootstrap_draws_INTERNAL.npz",
                 gains=disk_backed_draw_matrix(table, "gain_draws"),
             )
-            table.drop(columns="gain_draws").to_csv(
-                write_dir / "paired_bootstrap_index.csv", index=False
-            )
+            pd.DataFrame({column: table[column] for column in table if column != "gain_draws"},
+                         copy=False).to_csv(write_dir / "paired_bootstrap_index.csv",
+                                            index=False, chunksize=100_000)
             continue
         suffix = (
             "_INTERNAL"
             if name in {"patient_gains", "bootstrap_draws", "operating_points_counts"}
             else ""
         )
-        table.to_csv(write_dir / f"{name}{suffix}.csv", index=False)
+        table.to_csv(write_dir / f"{name}{suffix}.csv", index=False, chunksize=100_000)
     summary = {
         "estimand": config["estimand"],
         "bootstrap_replicates": replicates,
