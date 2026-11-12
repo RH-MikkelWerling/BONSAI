@@ -797,6 +797,35 @@ def _spill_batch_draws(part):
     return part
 
 
+def bounded_cell_indices(frame, chunk_rows=500_000):
+    """Build positional cell groups without factorising the entire cohort at once."""
+    from collections import defaultdict
+    parts = defaultdict(list)
+    for start in range(0, len(frame), chunk_rows):
+        keys = frame.iloc[start:start + chunk_rows][CELL]
+        for key, positions in keys.groupby(CELL, sort=True).indices.items():
+            parts[key].append(positions + start)
+    for key in list(parts):
+        pieces = parts[key]
+        parts[key] = np.concatenate(pieces) if len(pieces) > 1 else pieces[0]
+    return dict(parts)
+
+
+def bounded_identity_counts(frame, retained_ids, chunk_rows=500_000):
+    """Exact distinct-patient counts per cell using bounded string hash tables."""
+    from collections import defaultdict
+    subjects = defaultdict(set)
+    columns = [*CELL, 'subject_id']
+    for start in range(0, len(frame), chunk_rows):
+        part = frame.iloc[start:start + chunk_rows][columns].drop_duplicates()
+        for key, group in part.groupby(CELL, sort=True):
+            subjects[key].update(group.subject_id)
+    rows = [dict(zip(CELL, key), n_known_original=len(ids),
+                 n_known_retained=len(ids.intersection(retained_ids)))
+            for key, ids in sorted(subjects.items())]
+    return pd.DataFrame(rows, columns=[*CELL, 'n_known_original', 'n_known_retained'])
+
+
 def paired_analysis(
     frame,
     contrasts,
@@ -821,7 +850,7 @@ def paired_analysis(
     # Group indices only: DataFrame group iteration sorts/copies every payload
     # column across all rows. Apply sensitivity restrictions to indices before
     # materialising one small cell at a time.
-    groups = frame.groupby(CELL, sort=True).indices
+    groups = bounded_cell_indices(frame)
     mask = None
     if subject_ids is not None:
         mask = frame.subject_id.isin(subject_ids).to_numpy()

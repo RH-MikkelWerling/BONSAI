@@ -1003,16 +1003,9 @@ def run(config, output_dir):
                     "subject_id",
                 ]
             )
-        # Count only deduplicated identity keys; never copy the full payload.
-        identities = predictions[[*CELL, "subject_id"]].drop_duplicates()
-        before = identities.groupby(CELL).size().rename("n_known_original")
-        after = (identities.loc[identities.subject_id.isin(retained_ids)]
-                 .groupby(CELL).size().rename("n_known_retained"))
-        has_retained = bool(len(after))
-        del identities
-        tables["identity_sensitivity_counts"] = (
-            before.to_frame().join(after).fillna({"n_known_retained": 0}).reset_index()
-        )
+        from opera.evaluation.secondary_analysis import bounded_identity_counts
+        tables["identity_sensitivity_counts"] = bounded_identity_counts(predictions, retained_ids)
+        has_retained = bool(tables["identity_sensitivity_counts"].n_known_retained.gt(0).any())
         if not has_retained:
             statuses.append(
                 {
