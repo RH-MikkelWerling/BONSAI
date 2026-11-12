@@ -1,7 +1,7 @@
 """Prepare separate national comparisons, reusing frozen baseline predictions.
 
 Does not select an encoder, alter the primary OPERA alias, or modify a running
-analysis. Missing predictions are reported rather than silently omitted.
+analysis. Pending optional predictions are reported; selection candidates are required.
 """
 import argparse
 import hashlib
@@ -40,7 +40,8 @@ def prepare(source, root, output, split):
             directory = root / 'predictions' / row['run_directory'] / split
             prediction = directory / 'direct_cr_predictions.parquet'
             if not (directory / 'evaluation_complete.json').is_file() or not prediction.is_file():
-                missing.append(str(directory))
+                missing.append(dict(models=canonical_models(row, resolved, bundle),
+                                    prediction_directory=str(directory)))
                 continue
             for model in canonical_models(row, resolved, bundle):
                 if model in national:
@@ -50,8 +51,9 @@ def prepare(source, root, output, split):
                     model=model, seed=42, split=split,
                     data_contract=next(iter(contracts)), cohort_from_metadata=True,
                     include_horizons_days=config.get('analysis_horizons_days', [30,60,90,180,365,730])))
-    if missing:
-        raise ValueError('Incomplete evaluations; run the prediction queues first:\n' + '\n'.join(missing))
+    missing_candidates = {'R_E', 'R_EA'} - national
+    if missing_candidates:
+        raise ValueError(f'Missing selection candidate evaluations: {sorted(missing_candidates)}')
     comparisons = dict(config.get('extra_contrasts') or {})
     for model in sorted(national | {'J_OA_OWN_L'}):
         for reference in sorted(present & {'X', 'XP', 'XR', 'J_L', 'J_OA_OWN_L'}):
@@ -60,9 +62,12 @@ def prepare(source, root, output, split):
     comparisons['EXT_ADAPTATION'] = 'gain(R_EA,R_E)'
     comparisons['EXT_ARCH_L'] = 'gain(J_OA_OWN_L,J_L)'
     for origin in ('E', 'EA'):
-        comparisons[f'EXT_ARCH_{origin}'] = f'gain(R_{origin},J_{origin})'
-        comparisons[f'EXT_READING_{origin}'] = f'gain(R_{origin},R_PF_OFF_{origin})'
-        comparisons[f'EXT_ROUTING_{origin}'] = f'gain(R_AB_{origin},R_PF_OFF_{origin})'
+        if f'J_{origin}' in national:
+            comparisons[f'EXT_ARCH_{origin}'] = f'gain(R_{origin},J_{origin})'
+        if f'R_PF_OFF_{origin}' in national:
+            comparisons[f'EXT_READING_{origin}'] = f'gain(R_{origin},R_PF_OFF_{origin})'
+            if f'R_AB_{origin}' in national:
+                comparisons[f'EXT_ROUTING_{origin}'] = f'gain(R_AB_{origin},R_PF_OFF_{origin})'
     config.update(artifacts=artifacts, extra_contrasts=comparisons,
                   patient_gain_contrasts=list(comparisons), design_search=False,
                   route_weights=None, clinical_threshold_artifacts=[],
@@ -72,6 +77,7 @@ def prepare(source, root, output, split):
     (output / 'analysis.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
     report = dict(split=split, models=sorted(present | national),
                   registry_augmented_present='XR' in present,
+                  pending_evaluations=missing,
                   source_analysis=str(source), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
                   primary_alias=config.get('opera_model'),
                   scope='Fixed-arm comparisons; no primary encoder selection; clinical refresh remains separate')
