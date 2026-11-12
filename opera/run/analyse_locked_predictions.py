@@ -44,6 +44,28 @@ from opera.evaluation.secondary_analysis import (
 )
 
 
+def rarity_inputs(annotated, chunk_rows=100_000):
+    """Build plot inputs columnwise; avoid consolidating millions of object rows."""
+    positions = np.flatnonzero(annotated.metric.isin(["auc", "ipa", "brier", "log_loss"]).to_numpy())
+    rarity = pd.DataFrame({column: annotated[column].iloc[positions].to_numpy(copy=True)
+                           for column in annotated.columns},
+                          index=annotated.index.take(positions), copy=False)
+    rarity["metric"] = rarity.metric.replace({"auc": "auroc", "brier": "brier_score"})
+    rarity["difference"] = rarity.gain
+    rarity["minority_class"] = np.fmin(rarity["n_cases"].to_numpy(),
+                                        rarity["n_controls"].to_numpy())
+    identifiers = np.empty(len(rarity), dtype=object)
+    keys = ["cohort", "outcome", "horizon_days", "contrast"]
+    for start in range(0, len(rarity), chunk_rows):
+        stop = min(start + chunk_rows, len(rarity))
+        # Select columns before rows to avoid pandas consolidating the full frame.
+        chunk = pd.DataFrame({key: rarity[key].iloc[start:stop].to_numpy()
+                              for key in keys})
+        identifiers[start:stop] = chunk.astype(str).agg("::".join, axis=1).to_numpy()
+    rarity["cell_id"] = identifiers
+    return rarity
+
+
 DEFAULT_PANEL_ESTIMATE_GROUPS = {
     "encoder_origin": ["J_L", "R_L", "J_E", "R_E", "J_EA", "R_EA"],
 }
@@ -934,19 +956,7 @@ def run(config, output_dir):
         tables["effect_summaries"], tables["router_null_equivalence"], gated=gated
     )
     if "n_events_train" in annotated:
-        rarity = annotated.loc[
-            annotated.metric.isin(["auc", "ipa", "brier", "log_loss"])
-        ].copy()
-        rarity["metric"] = rarity.metric.replace(
-            {"auc": "auroc", "brier": "brier_score"}
-        )
-        rarity["difference"] = rarity.gain
-        rarity["minority_class"] = rarity[["n_cases", "n_controls"]].min(axis=1)
-        rarity["cell_id"] = (
-            rarity[["cohort", "outcome", "horizon_days", "contrast"]]
-            .astype(str)
-            .agg("::".join, axis=1)
-        )
+        rarity = rarity_inputs(annotated)
         tables["rarity_inputs"] = rarity
     if not tables["negative_transfer"].empty:
         _, tables["negative_transfer_summary"] = effect_summaries(

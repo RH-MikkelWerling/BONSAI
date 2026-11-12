@@ -24,6 +24,9 @@ IDENTITY_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883f
 BOUNDED_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883fa7fe16f6f616c2162316e8e8c335ffe50d6dd373a20bada09da30eff3', 'opera/evaluation/secondary_analysis.py': 'dca92517a2232c869be159127646dc35c7ea7de0095ece6e4e7bf389e5fa55a4', 'opera/run/analyse_locked_predictions.py': 'bf36f9dd5c3ed29591a69679b473539ec0f2d6e04de1284278bb0701ff8e7c52'}
 
 
+RARITY_PREVIOUS_HASHES = {'opera/evaluation/distributed_analysis.py': 'f8c883fa7fe16f6f616c2162316e8e8c335ffe50d6dd373a20bada09da30eff3', 'opera/evaluation/secondary_analysis.py': '5992c83b663763392c73fd5c1866a287012172b24a6efa56a5febbdcdb65eb24', 'opera/run/analyse_locked_predictions.py': '1270c52e04f902971cffff5ef248ede69a9e1e9cadf0f4b1973d7ee0d3bfa257'}
+
+
 def previous_signature(config, identity, overrides=None):
     paths = {str(a['path']) for a in config.get('artifacts', [])}
     for key in ('patient_metadata','cell_metadata','contrast_manifest','coverage_roster','route_weights','compute_inventory'):
@@ -47,7 +50,8 @@ def migrate(config, base, execute=False, fix="columnwise"):
     old=base/active
     identity=da.worker_identity()
     previous=copy.deepcopy(identity)
-    overrides = (BOUNDED_PREVIOUS_HASHES if fix == 'bounded-factorization' else
+    overrides = (RARITY_PREVIOUS_HASHES if fix == 'rarity-copy' else
+                 BOUNDED_PREVIOUS_HASHES if fix == 'bounded-factorization' else
                  IDENTITY_PREVIOUS_HASHES if fix == 'identity-sensitivity' else
                  {'opera/evaluation/distributed_analysis.py': OLD_HASH})
     for path, digest in overrides.items():
@@ -107,7 +111,7 @@ def main():
     parser.add_argument('--config',type=Path,required=True)
     parser.add_argument('--checkpoint-dir',type=Path,required=True)
     parser.add_argument('--execute',action='store_true')
-    parser.add_argument('--fix', choices=['columnwise', 'identity-sensitivity', 'bounded-factorization'], default='columnwise')
+    parser.add_argument('--fix', choices=['columnwise', 'identity-sensitivity', 'bounded-factorization', 'rarity-copy'], default='columnwise')
     args=parser.parse_args()
     migrate(yaml.safe_load(args.config.read_text()),args.checkpoint_dir,args.execute,args.fix)
 
