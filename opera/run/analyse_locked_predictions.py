@@ -44,6 +44,21 @@ from opera.evaluation.secondary_analysis import (
 )
 
 
+def publish_main_effects(output_dir, summaries):
+    """Publish an atomic early table separately from complete final outputs."""
+    import uuid
+    directory = Path(output_dir).with_name(Path(output_dir).name + '.progress')
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / ('.effects_' + uuid.uuid4().hex + '.csv')
+    try:
+        summaries.to_csv(temporary, index=False)
+        temporary.replace(directory / 'effect_summaries.csv')
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(f'Main effects available: {directory / "effect_summaries.csv"} '
+          '(provisional; later annotations and sensitivity analyses pending)', flush=True)
+
+
 def rarity_inputs(annotated, chunk_rows=100_000):
     """Build plot inputs columnwise; avoid consolidating millions of object rows."""
     positions = np.flatnonzero(annotated.metric.isin(["auc", "ipa", "brier", "log_loss"]).to_numpy())
@@ -877,6 +892,8 @@ def run(config, output_dir):
              *config.get("cell_groups", {})])),
         checkpoint_dir=checkpoint_root / 'tasks/equal_cell' if checkpoint_root is not None else None,
     ))
+    if config.get("publish_main_effects", False):
+        publish_main_effects(output_dir, summaries)
     from opera.evaluation.headline_holm import headline_holm
     tables["headline_holm"] = headline_holm(summaries, bootstrap_method=bootstrap_method)
     stage("disease-balanced effect summaries")
@@ -1316,8 +1333,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument('--publish-main-effects', action='store_true',
+                        help='Save provisional main effects before later reporting stages')
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())
+    if args.publish_main_effects:
+        config['publish_main_effects'] = True
     summary = run(config, args.output_dir)
     print(
         json.dumps(
