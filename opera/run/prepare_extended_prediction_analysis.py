@@ -56,7 +56,7 @@ def prepare(source, root, output, split):
         raise ValueError(f'Missing selection candidate evaluations: {sorted(missing_candidates)}')
     comparisons = dict(config.get('extra_contrasts') or {})
     for model in sorted(national | {'J_OA_OWN_L'}):
-        for reference in sorted(present & {'X', 'XP', 'XR', 'J_L', 'J_OA_OWN_L'}):
+        for reference in sorted(present & {'X', 'XP', 'XR', 'S_L', 'J_L', 'J_OA_OWN_L'}):
             if model != reference:
                 comparisons[f'EXT_{model}_VS_{reference}'] = f'gain({model},{reference})'
     comparisons['EXT_ADAPTATION'] = 'gain(R_EA,R_E)'

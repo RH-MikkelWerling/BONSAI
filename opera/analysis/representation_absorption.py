@@ -148,11 +148,12 @@ def quantities(values, origin):
                 repgain=difference(j, local_j), level=values[j])
 
 
-def bucket_predictions(prepared, output, split, buckets=64):
+def bucket_predictions(prepared, output, split, buckets=64, wanted=None):
     import pyarrow.parquet as pq
     manifest = json.loads((prepared/'prepared.json').read_text())
-    wanted = {m for pair in ARMS.values() for m in pair} | {'XP'}
-    wanted |= {m for arms in SCARCE_ARMS.values() for pair in arms.values() for m in pair}
+    if wanted is None:
+        wanted = {m for pair in ARMS.values() for m in pair} | {'XP'}
+        wanted |= {m for arms in SCARCE_ARMS.values() for pair in arms.values() for m in pair}
     directory = output/'buckets_INTERNAL'
     directory.mkdir()
     columns = CELL + ['subject_id', 'model', 'label', 'probability', 'ipcw_weight']

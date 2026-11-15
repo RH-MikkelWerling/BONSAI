@@ -20,6 +20,10 @@ def main():
     p.add_argument('--label',required=True,help='Explicitly name tuning or held-out')
     args=p.parse_args()
     frame=headline_rows(args.effects)
+    aggregations=frame.aggregation.dropna().unique()
+    if len(aggregations)!=1:
+        raise ValueError('Expected one aggregation in the selected effects')
+    aggregation=str(aggregations[0])
     args.output_dir.mkdir(parents=True,exist_ok=False)
     import matplotlib
     matplotlib.use('Agg')
@@ -52,7 +56,7 @@ def main():
     fig.savefig(args.output_dir/'encoder_architecture.png',dpi=200,bbox_inches='tight')
     pd.DataFrame(exported).to_csv(args.output_dir/'figure_data.csv',index=False)
     (args.output_dir/'README.md').write_text(
-        'Aggregate paired differences, seed 42, equal-cell all-horizon AUC. '
+        f'Aggregate paired differences, seed 42, aggregation={aggregation}, all-horizon AUC. '
         'Report tuning separately from held-out; provisional early effects lack later annotations. '
         'Panel A uses each architecture’s own local baseline; it is not absolute AUC. '
         'Intervals spanning zero do not establish equivalence.\n')
