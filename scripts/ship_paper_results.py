@@ -61,11 +61,15 @@ def ship(repo, output):
                 archive.write(discrimination, 'clinical_discrimination.csv')
         copy(source.parent / 'launch_manifest.json', f'clinical/{model}_launch_manifest.json')
         report['included'][f'clinical_{model}'] = str(target.relative_to(output))
-    table1 = repo / 'data/clinical_registry_refresh/20261111/table1_refresh_20261116/table1_review.zip'
+    table1_base = repo / 'data/clinical_registry_refresh/20261111'
+    table1 = table1_base / 'table1_quality_refresh_20261116/table1_review.zip'
+    if not table1.is_file():
+        table1 = table1_base / 'table1_refresh_20261116/table1_review.zip'
     if copy(table1, 'table1/table1_review.zip'):
         report['included']['table1'] = 'table1/table1_review.zip'
     else:
         report['missing'].append('Table 1 refresh due 16 November: run scripts/refresh_table1_today.sh')
+    report['missing'].append('Full Table 1 quality-registry refresh: score-row wrapper preserves existing multi-registry performance status')
     for family, source in [('embeddings', national / 'encoder_embedding_review_20261115/embedding_figures.zip')]:
         if copy(source, f'{family}/{source.name}'):
             report['included'][family] = f'{family}/{source.name}'
