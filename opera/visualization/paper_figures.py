@@ -34,7 +34,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
 
-from opera.visualization.style import PALETTE, TITLE_PAD, TITLE_SIZE, despine
+from opera.visualization.style import PALETTE, TITLE_PAD, TITLE_SIZE, FONT_FAMILY, despine
 
 ALL_HORIZONS = 0  # the panel pooled over every horizon (secondary_analysis.ALL_HORIZONS)
 
@@ -3186,6 +3186,8 @@ def _mean_with_ci(values, *, draws=1000, seed=0):
 def _survival_label(outcome_label):
     """Axis label for a death-inclusive endpoint shown as survival."""
     label = str(outcome_label)
+    if 'second-line treatment or death' in label.lower():
+        return 'Treatment-failure-free survival'
     if "survival" in label.lower():
         return label[0].upper() + label[1:]
     return f"{label}-free survival".capitalize()
@@ -3279,7 +3281,7 @@ CLINICAL_LINESTYLES = ("-", "--", "-.", ":")
 # One age scheme for the score and age plates: <60 (the IPI age criterion),
 # 60–69, 70–79 and ≥80 years.
 CLINICAL_AGE_BINS = (0, 60, 70, 80, np.inf)
-CLINICAL_FONT = "DejaVu Sans"  # docs/FIGURE_STYLE.md
+CLINICAL_FONT = FONT_FAMILY  # same typography as the other paper plates
 
 
 def _ordinal_slots(n):

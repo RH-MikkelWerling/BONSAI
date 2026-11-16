@@ -32,8 +32,12 @@ def package_clinical(directory, destination):
     'clinical_operating_point_counts.csv',
         'report_manifest.json', 'layout_report.json', 'supplement_clinical_scores.tex'}
     selected = []
+    presentations = []
     for path in sorted(directory.rglob('*')):
         if not path.is_file() or path.is_symlink() or 'INTERNAL' in path.name.upper():
+            continue
+        if path.name.endswith('.plot.json'):
+            presentations.append(path)
             continue
         if path.name not in allowed and path.suffix.lower() not in {'.pdf', '.png'}:
             continue
@@ -46,6 +50,16 @@ def package_clinical(directory, destination):
     with zipfile.ZipFile(destination, 'x', zipfile.ZIP_DEFLATED) as archive:
         for path in selected:
             archive.write(path, path.relative_to(directory))
+        # The old allowlist copied raster layers but omitted the editable state.
+        # Reuse the existing validation boundary; never include arbitrary JSON.
+        import tempfile
+        from opera.run.prepare_offline_figure_bundle import copy_presentation
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for source in presentations:
+                target = root / source.relative_to(directory)
+                copy_presentation(source, target)
+                archive.write(target, target.relative_to(root))
 
 
 def main():
