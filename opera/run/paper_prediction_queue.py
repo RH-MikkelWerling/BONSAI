@@ -323,6 +323,8 @@ def main():
                         help="--source-removal: the locked routed model")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument('--report-path', type=Path,
+                        help='Separate queue-summary JSON path; leaves the default coordinator summary untouched')
     args = parser.parse_args()
     if (
         args.shard_count < 1
@@ -373,7 +375,7 @@ def main():
     else:
         print(json.dumps(report, indent=2))
     if args.execute:
-        destination = (
+        destination = args.report_path or (
             Path(args.output_dir)
             / f"queue_{'removal_' if args.source_removal else ''}{args.split}"
               f"_shard{args.shard_index}.json"

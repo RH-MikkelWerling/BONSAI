@@ -28,6 +28,7 @@ def package_clinical(directory, destination):
         'classification_at_anchors.csv', 'cutoff_diagnostics.csv', 'score_population_flow.csv',
         'stratification_diagnostics.csv', 'risk_group_point_estimates.csv', 'score_availability.csv',
         'size_matched_survival_comparisons.csv', 'km_matched_low_groups.csv',
+        'evaluation_km_matched_groups.csv', 'evaluation_km_frontiers.csv',
     'clinical_operating_point_counts.csv',
         'report_manifest.json', 'layout_report.json', 'supplement_clinical_scores.tex'}
     selected = []
