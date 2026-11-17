@@ -33,6 +33,7 @@ Typical use, from the server repository root:
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import json
 import os
@@ -96,6 +97,42 @@ def _clinical_analysis(workspace):
         if path.is_file():
             return path
     raise FileNotFoundError(f'No clinical analysis.yaml in {workspace}')
+
+
+def flipi2_os_config(config):
+    """Patch either a template or an already expanded frozen clinical recipe.
+
+    prepare_clinical_registry_refresh expands native endpoints into scores and
+    deliberately clears native_endpoints. Do not regenerate other index jobs.
+    """
+    result = copy.deepcopy(config)
+    patch = dict(
+        outcome='overall_survival', outcome_label='Overall survival (original secondary endpoint)',
+        endpoint_match='original_secondary_endpoint', death_in_endpoint=True,
+        original_endpoint='overall survival (secondary endpoint; principal endpoint was progression-free survival)',
+        horizons_days=[365], horizon_days=365,
+        endpoint_proxy_note=('OS was examined in the original FLIPI2 study; its principal endpoint, '
+                             'PFS, could not be approximated: the next-treatment-or-death proxy was '
+                             'not interpretable in follicular lymphoma. Endpoint changed after the '
+                             'held-out results, 17 Nov 2026.'))
+    def is_flipi2(value):
+        return ''.join(c for c in str(value).casefold() if c.isalnum()) == 'flipi2'
+    matched = 0
+    for key, entry in (result.get('native_endpoints') or {}).items():
+        if is_flipi2(key):
+            entry.update(patch)
+            matched += 1
+    for entry in result.get('scores', []):
+        values = entry.get('index_values') or []
+        if isinstance(values, str):
+            values = [values]
+        if any(is_flipi2(v) for v in [*values, entry.get('score_label', '')]):
+            entry.update(patch)
+            matched += 1
+    if not matched:
+        raise ValueError('No explicitly identified FLIPI2 entry in scores or native_endpoints; '
+                         'check the frozen clinical_scores.yaml')
+    return result
 
 
 def refresh_discrimination(analysis_path, score_path, output):
@@ -250,17 +287,7 @@ def main():
                 shutil.rmtree(target)
             score_config = Path(plan["score_config"])
             if a.flipi2_endpoint == "overall_survival":
-                config = yaml.safe_load(score_config.read_text())
-                native = config.get("native_endpoints", {})
-                if "FLIPI2" not in native:
-                    raise ValueError("FLIPI2 not in native_endpoints; cannot switch its endpoint")
-                native["FLIPI2"].update(
-                    outcome="overall_survival", outcome_label="Overall survival (original secondary endpoint)",
-                    endpoint_match="original_secondary_endpoint", death_in_endpoint=True,
-                    endpoint_proxy_note=("OS was examined in the original FLIPI2 study; its principal endpoint, "
-                                         "PFS, could not be approximated: the next-treatment-or-death proxy was "
-                                         "not interpretable in follicular lymphoma. Endpoint changed after the "
-                                         "held-out results, 17 Nov 2026."))
+                config = flipi2_os_config(yaml.safe_load(score_config.read_text()))
                 score_config = run.private / "score_config_flipi2_os.yaml"
                 score_config.write_text(yaml.safe_dump(config, sort_keys=False))
             subprocess.run([sys.executable, "-m", "opera.run.render_clinical_score_panels",
