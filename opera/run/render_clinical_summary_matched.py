@@ -82,7 +82,7 @@ def panel_values(figures: Path, review: Path) -> dict[str, pd.DataFrame]:
                 out[key].append((np.nan,) * 3)
                 continue
             if degenerate(m, side, population):
-                out[key].append((np.inf, np.nan, np.nan))  # drawn as "index not beyond average"
+                out[key].append((np.inf, np.nan, np.nan))  # drawn as "index finds no such group"
                 continue
             out[key].append(tuple(100 * m[f"{side}_additional_n{s}"] / n for s in ("", "_lower", "_upper")))
     frames = {k: pd.DataFrame(v, columns=["point", "lower", "upper"]) for k, v in out.items()}
@@ -107,7 +107,7 @@ def render(figures: Path, review: Path, out: Path) -> None:
         ax.axvline(0, color=ZERO, lw=0.8, zorder=1)
         for y, row in f.iterrows():
             if not np.isfinite(row.point):
-                ax.text(0.5, y, "Index not beyond average" if row.point == np.inf else "Not estimable",
+                ax.text(0.5, y, "Index finds no such group" if row.point == np.inf else "Not estimable",
                         transform=ax.get_yaxis_transform(), ha="center", va="center", fontsize=7, color=MUTED)
                 continue
             has_ci = np.isfinite(row.lower) and np.isfinite(row.upper)
@@ -161,6 +161,13 @@ def _ci(point, lo, hi, digits=1):
     return rf"\textbf{{{text}}}" if lo > 0 else text
 
 
+def _auc(point, lo, hi):
+    """AUC with its own 95% interval, on two lines to keep the column narrow."""
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return f"{point:.3f}"
+    return rf"\shortstack{{{point:.3f}\\[-1pt]{{\scriptsize ({lo:.3f}--{hi:.3f})}}}}"
+
+
 def _wrap_table(label, caption, colspec, header, rows, note=""):
     body = "\n".join(rows)
     return rf"""\begin{{table}}[htbp]
@@ -198,7 +205,8 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
             sizes.append(r"\addlinespace")
             matched.append(r"\addlinespace")
         disc.append(f"{name} & {end} & {int(r.n_patients):,} & {int(r.n_cases):,} "
-                    f"& {r.index_auc:.3f} & {r.model_auc:.3f} & {_ci(r.gain, r.lower, r.upper, 3)} \\\\")
+                    f"& {_auc(r.index_auc, r.index_lower, r.index_upper)} & {_auc(r.model_auc, r.model_lower, r.model_upper)} "
+                    f"& {_ci(r.gain, r.lower, r.upper, 3)} \\\\")
         sizes.append(f"{lead} & {_ci(*v['A'].iloc[i])} & {_ci(*v['B'].iloc[i])} \\\\")
         cells = []
         for side in ("low", "high"):
@@ -206,7 +214,7 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
                 cells += [r"\multicolumn{3}{c}{n.e.}"]
                 continue
             if degenerate(r, side, population):
-                cells += [r"\multicolumn{3}{c}{index not beyond average}"]
+                cells += [r"\multicolumn{3}{c}{index finds no %s-risk group}" % side]
                 continue
             add, lo, hi = r[f"{side}_additional_n"], r[f"{side}_additional_n_lower"], r[f"{side}_additional_n_upper"]
             ci = (f"+{add:,.0f} ({lo:,.0f} to {hi:,.0f})".replace("-", "$-$")
@@ -216,7 +224,7 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
             cells += [f"{r[f'{side}_index_n']:,.0f}", f"{r[f'{side}_model_n']:,.0f}", ci]
         matched.append(f"{lead} & " + " & ".join(cells) + r" \\")
 
-    shared = (r"OS, overall survival; TF, treatment failure (next treatment or death). "
+    shared = (r"OS, overall survival; TF, treatment failure (second-line treatment or death). "
               r"Intervals are paired patient-bootstrap 95\% intervals; bold intervals exclude zero. "
               r"Each index is evaluated in the held-out patients with it recorded (the computed IPI: "
               r"with its components).")
@@ -225,7 +233,8 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
         r"\textbf{Discrimination of adapted \opera{} and each clinical prognostic index on the "
         r"held-out patients.} AUC of the index (its ordinal categories, or its points for the "
         r"computed IPI and NCCN-IPI) and of \opera{} on the same patients, at the endpoint and "
-        r"horizon given, with the paired difference. " + shared,
+        r"horizon given, each with its 95\% interval, and the paired difference. Separate AUC intervals can "
+        r"overlap even where the paired difference excludes zero; the paired difference is the comparison. " + shared,
         "@{}llrrccl@{}",
         r"Index & Endpoint & Patients & Events & \multicolumn{2}{c}{AUC} & Difference (95\% CI) \\"
         "\n" r"\cmidrule(lr){5-6}" "\n"
@@ -248,8 +257,8 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
         r"as high (no higher): patients in the index category, patients in the \opera{} group, and "
         r"the additional patients. The low- and high-risk selections are separate and can overlap. "
         r"These operating points use held-out outcomes and describe achievable ranking, not "
-        r"validated thresholds. Index not beyond average: the index's category was no more extreme "
-        r"than all patients with the index, so any group, up to all patients, would match it. "
+        r"validated thresholds. Index finds no low- (high-) risk group: the index's category was no safer "
+        r"(riskier) than all patients with the index, so any group, up to all patients, would match it. "
         r"n.e., not estimable (insufficient follow-up in the index's categories, or no supported "
         r"match). " + shared,
         "@{}llrrlrrl@{}",
@@ -290,7 +299,7 @@ def tails_table(figures: Path, matched: pd.DataFrame, shared: str) -> str:
         r"highest categories and their observed risk at the horizon, the observed risk in adapted \opera{}'s "
         r"groups of the same sizes, and in \opera{}'s 10\% and 5\% of patients at highest predicted risk. "
         r"Observed risk is the proportion with the event among patients with known status at the horizon, "
-        r"in per cent. Equal-size groups inherit the index's categories, which are often wide, so they show "
+        r"in per cent (not Kaplan--Meier, so values can differ from \\cref{tab:clinical-index-sizes}). Equal-size groups inherit the index's categories, which are often wide, so they show "
         r"only part of the model's ranking; the top 10\% and 5\% show where the rest of it lies. " + shared,
         "@{}llrrrrrrrr@{}",
         r"& & \multicolumn{3}{c}{Lowest category} & \multicolumn{3}{c}{Highest category} & \multicolumn{2}{c}{\opera{} top} \\"

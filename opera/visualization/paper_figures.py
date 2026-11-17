@@ -92,10 +92,10 @@ SHORT_GROUP = {
     "Acute care and other events": "Acute care",
 }
 METRIC_LABEL = {
-    "auc": "AUC gain",
+    "auc": "Δ time-dependent AUC",
     "brier": "Brier score improvement",
     "log_loss": "Log-loss improvement",
-    "ipa": "IPA gain",
+    "ipa": "Δ IPA",
 }
 
 
@@ -718,7 +718,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.8)
     ax.set_yticks(range(len(references)), [label for _, label, _ in references], fontsize=7)
     ax.invert_yaxis()
-    ax.set_xlabel(f"{_horizon_phrase(horizon)} AUC gain of {focus_label}, "
+    ax.set_xlabel(f"{_horizon_phrase(horizon)} Δ time-dependent AUC, {focus_label}, "
                   "one point per disease–outcome cell")
     ax.xaxis.set_major_locator(MaxNLocator(5))
     key = []
@@ -763,7 +763,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
                         lw=0, zorder=0)
         ax.scatter(part.X, part[focus_model], s=size, alpha=0.45, linewidths=0, rasterized=True,
                    color=np.where(above, focus_color, "#B5451B"), zorder=2)
-        ax.text(0.04, 0.96, f"{focus_label} higher AUC in\n{above.sum():,} of {len(part):,} cells",
+        ax.text(0.04, 0.96, f"{focus_label} higher time-dependent AUC in\n{above.sum():,} of {len(part):,} cells",
                 transform=ax.transAxes, va="top", fontsize=7.4, color=focus_color,
                 fontweight="bold")
         ax.text(0.96, 0.04, "XGBoost better", transform=ax.transAxes, ha="right",
@@ -773,8 +773,8 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
         ax.set_aspect("equal", anchor="W")
         ax.xaxis.set_major_locator(MaxNLocator(4))
         ax.yaxis.set_major_locator(MaxNLocator(4))
-    ax.set_xlabel("XGBoost AUC (one year)")
-    ax.set_ylabel("OPERA ROC AUC" if focus_model == "OPERA" else "Joint ROC AUC")
+    ax.set_xlabel("XGBoost, one-year time-dependent AUC")
+    ax.set_ylabel("OPERA, time-dependent AUC" if focus_model == "OPERA" else "Joint model, time-dependent AUC")
     _panel_title(ax, "B", "OPERA vs XGBoost" if focus_model == "OPERA" else "Joint vs XGBoost")
     despine(ax, "both")
 
@@ -852,7 +852,7 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     ax.set_xticklabels([str(d) for d in horizons], fontsize=6.5)
     ax.minorticks_off()
     ax.set_xlabel("Horizon (days)")
-    ax.set_ylabel("AUC gain over XGBoost")
+    ax.set_ylabel("Δ time-dependent AUC vs XGBoost")
     # The key sits directly under this panel's axis label, not at the page foot.
     ax.legend(frameon=False, fontsize=7, ncol=2, loc="upper left",
               bbox_to_anchor=(0.0, -0.25), borderaxespad=0.0,
@@ -938,7 +938,7 @@ def _headline_model_overview(ax, models, *, estimates=None, horizon=365):
     ax.set_yticks(range(len(spec)),[s[1] for s in spec],fontsize=7.4)
     ax.set_ylim(len(spec)-.5,-.5)
     ax.set_xlim(max(0,float(year[[s[0] for s in spec]].min().min())-.02),1.01)
-    ax.set_xlabel('One-year ROC AUC')
+    ax.set_xlabel('One-year time-dependent AUC')
     _panel_title(ax,'A','Performance across model variants')
     despine(ax,'x')
 
@@ -1000,7 +1000,7 @@ def figure_tabular(cells, curve=None, *, horizon=ALL_HORIZONS, mark=None):
     ax.axhline(0, color=PALETTE["zero_line"], lw=0.7)
     ax.set_xscale("log")
     ax.set_xlabel("Target training events (log scale)")
-    ax.set_ylabel("AUC gain, joint vs XGBoost")
+    ax.set_ylabel("Δ time-dependent AUC, joint vs XGBoost")
     _panel_title(ax, "C", "Joint vs XGBoost by training support")
     despine(ax, "y")
 
@@ -1024,7 +1024,7 @@ def figure_tabular(cells, curve=None, *, horizon=ALL_HORIZONS, mark=None):
     ax.set_xticks([30, 60, 90, 180, 365, 730], ["30", "60", "90", "180", "365", "730"])
     ax.minorticks_off()
     ax.set_xlabel("Horizon (days)")
-    ax.set_ylabel("Median AUC gain")
+    ax.set_ylabel("Median Δ time-dependent AUC")
     _panel_title(ax, "D", "Across horizons")
     ax.legend(loc="upper left", bbox_to_anchor=(-.08,-.32), frameon=False,
               fontsize=6.8, ncol=1, borderaxespad=0)
@@ -1143,7 +1143,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
         ax.minorticks_off()
         ax.set_xlim(EFFICIENCY_FRACTIONS[0] * 0.85, EFFICIENCY_FRACTIONS[-1] * 1.6)
         ax.set_xlabel("Share of training patients")
-        ax.set_ylabel("One-year AUC (median over cells)")
+        ax.set_ylabel("One-year time-dependent AUC (median over cells)")
         low, high = min(ql[:, 1].min(), qn[:, 1].min()), max(ql[:, 1].max(), qn[:, 1].max())
         spread = max(high - low, .01)
         ax.set_ylim(low - 0.12 * spread, high + 0.25 * spread)
@@ -1206,7 +1206,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     ax.set_yticks(range(len(stages)), [label for _, label in stages], fontsize=7)
     ax.set_ylim(len(stages) - 0.4, -0.95)
     ax.tick_params(axis="y", length=0)
-    ax.set_xlabel("Panel one-year AUC (95% CI)")
+    ax.set_xlabel("One-year time-dependent AUC (95% CI)")
     ax.xaxis.set_major_locator(MaxNLocator(4))
     despine(ax, "x")
     ax.legend(handles=[Line2D([], [], ls="none", marker="D", color=national, label="Joint"),
@@ -1540,7 +1540,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     beyond = np.isfinite(matrix) & (np.abs(matrix) > vmax)
     colorbar = fig.colorbar(image, cax=cax, orientation="horizontal",
                            extend='both' if beyond.any() else 'neither')
-    colorbar.set_label(f"{estimate_label} AUC gain, source alone (points)",
+    colorbar.set_label(f"{estimate_label} Δ time-dependent AUC ×100, source alone",
                        fontsize=7.2)
     colorbar.ax.tick_params(labelsize=6.5)
     colorbar.outline.set_visible(False)
@@ -1562,7 +1562,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     bx.tick_params(axis="y", labelleft=False, length=0)
     bx.tick_params(axis="x", labelsize=6.6)
     bx.xaxis.set_major_locator(MaxNLocator(3))
-    bx.set_xlabel("Full − all other diseases replaced\n(AUC points; dashed: overall)")
+    bx.set_xlabel("Full − all other diseases replaced\n(Δ time-dependent AUC ×100; dashed: overall)")
     bx.grid(axis="y", visible=False)
     _panel_title(bx, "B", "All disease sources together")
     despine(bx, "x")
@@ -1615,7 +1615,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
                     color=PALETTE['ink_secondary'])
         cx.set_ylim(0, 1.04)
         cx.set_xlim(left=0)
-        cx.set_xlabel('Absolute single-source AUC gain (points)')
+        cx.set_xlabel('Absolute single-source Δ time-dependent AUC ×100')
         cx.set_ylabel('Fraction of source–target pairs')
         cx.tick_params(labelsize=6.6)
         despine(cx, "both")
@@ -1643,7 +1643,7 @@ def figure_borrowing_map(table, hypotheses=None, levels=None, test=None, *, min_
     dx.tick_params(axis="y", length=0, labelsize=6.8)
     dx.tick_params(axis="x", labelsize=6.6)
     dx.xaxis.set_major_locator(MaxNLocator(3))
-    dx.set_xlabel("Full − all other diseases replaced\n(AUC points, 95% CI)")
+    dx.set_xlabel("Full − all other diseases replaced\n(Δ time-dependent AUC ×100, 95% CI)")
     dx.grid(axis="y", visible=False)
     despine(dx, "x")
     _panel_title(dx, "D", "Combined effect by outcome")
@@ -1700,7 +1700,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
             label.set_color(PALETTE["ink_muted"])
     ax.set_ylim(len(order) - 0.5, -0.5)
     ax.axvline(0, color=PALETTE["zero_line"], lw=0.7)
-    ax.set_xlabel("AUC gain (points, 95% CI)")
+    ax.set_xlabel("Δ time-dependent AUC ×100 (95% CI)")
     ax.xaxis.set_major_locator(MaxNLocator(4))
     ax.grid(axis="y", visible=False)
     if present:
@@ -1729,7 +1729,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
     ax.axhline(0, color=PALETTE["zero_line"], lw=0.7, zorder=1)
     ax.tick_params(labelsize=6.6)
     ax.set_xlabel("Registry population size (log scale)", fontsize=8)
-    ax.set_ylabel("AUC gain (points)", fontsize=8)
+    ax.set_ylabel("Δ time-dependent AUC ×100", fontsize=8)
     ax.yaxis.set_major_locator(MaxNLocator(4))
     if handles:
         ax.legend(handles=handles[::-1], loc="upper right", frameon=False, fontsize=6.3,
@@ -1756,7 +1756,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
     ax.tick_params(axis="x", labelsize=6.6)
     ax.set_ylim(len(data) - 0.5, -0.5)
     ax.xaxis.set_major_locator(MaxNLocator(3))
-    ax.set_xlabel("AUC gain (points, 95% CI)", fontsize=8)
+    ax.set_xlabel("Δ time-dependent AUC ×100 (95% CI)", fontsize=8)
     ax.grid(axis="y", visible=False)
     despine(ax, "x")
     _key_legend(ax, [Line2D([], [], marker="D", ls="", color=colours["hypothesis"],
@@ -1799,7 +1799,7 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
         cax = fig.add_axes([0.885, 0.17, 0.012, 0.16])
         clipped = scale.notna().any() and np.abs(scale.dropna()).max() > vmax
         colorbar = fig.colorbar(image, cax=cax, extend='both' if clipped else 'neither')
-        colorbar.set_label(f"{estimate_label} AUC gain from a source\ngroup alone (points;\nrows: target,"
+        colorbar.set_label(f"{estimate_label} Δ time-dependent AUC ×100\nfrom a source group alone (\nrows: target,"
                            " columns:\nsource)", fontsize=7.2)
         colorbar.ax.tick_params(labelsize=6.5)
         colorbar.outline.set_visible(False)
@@ -1839,7 +1839,7 @@ def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "OPE
             row_order=[SHORT_GROUP.get(g, g) for g in order],
             series_key="horizon_days",
             series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
-            xlabel=f"{METRIC_LABEL[metric]} " + ("(mean, 95% CI)" if paired_means else "(median, IQR)"), show_counts=False)
+            xlabel=f"{METRIC_LABEL[metric]}\n" + ("(mean, 95% CI)" if paired_means else "(median, IQR)"), show_counts=False)
         if index:
             ax.tick_params(axis="y", labelleft=False)
         title = {"R1": "Routed vs joint", "OPERA-J": "OPERA vs joint"}.get(contrast)
@@ -1869,7 +1869,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
                    color=HORIZON_COLORS[horizon], linewidths=0, rasterized=True)
     ax.set_xscale("log")
     ax.set_xlabel("Training events through horizon (log scale)")
-    ax.set_ylabel(f"{_split_word()} AUC")
+    ax.set_ylabel(f"{_split_word()} time-dependent AUC")
     ax.set_ylim(max(0.4, atlas.cif_auc.min() - 0.03), 1.0)
     _panel_title(ax, "A", "Outcomes")
     despine(ax, "y")
@@ -1882,7 +1882,7 @@ def figure_atlas(atlas, models=None, *, mark=None):
         group_ax, summary, row_key="endpoint_group", row_order=order,
         series_key="horizon_days",
         series_style={h: (c, f"{h} days") for h, c in HORIZON_COLORS.items()},
-        xlabel=f"{_split_word()} AUC (median, IQR)", show_counts=True, zero_line=False)
+        xlabel=f"{_split_word()} time-dependent AUC (median, IQR)", show_counts=True, zero_line=False)
     group_ax.set_xlim(0.5, 1.0)
     _panel_title(group_ax, "B", "Clinical domains")
     _legend(group_ax, handles, loc="lower right", title="Horizon")
@@ -1993,7 +1993,7 @@ def figure_atlas_matrix(atlas, models=None, *, horizon=365, vmin=0.55, vmax=0.95
     cax = fig.add_subplot(grid[2])
     cax.set_position([cax.get_position().x0 + 0.01, 0.35, 0.012, 0.3])
     bar = fig.colorbar(image, cax=cax)
-    bar.set_label(f"{_split_word()} AUC (" + ("OPERA" if lead == "OPERA" else "joint model")
+    bar.set_label(f"{_split_word()} time-dependent AUC (" + ("OPERA" if lead == "OPERA" else "joint model")
                   + ")", fontsize=6.6)
     bar.ax.tick_params(labelsize=6)
     bar.outline.set_visible(False)
@@ -3076,7 +3076,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
     rows["endpoint_group"] = rows.endpoint_group.map(lambda g: SHORT_GROUP.get(g, g))
     handles = _diamond_forest(ax, rows, row_key="endpoint_group", row_order=short,
                               series_key="contrast", series_style=styles,
-                              xlabel="AUC gain (median, IQR)", show_counts=False)
+                              xlabel="Δ time-dependent AUC (median, IQR)", show_counts=False)
     ax.xaxis.set_major_locator(MaxNLocator(4))
     _panel_title(ax, "A", "Discrimination")
     fig.legend(handles=handles, loc="upper left", ncol=2, frameon=False, fontsize=6.4,
@@ -3120,7 +3120,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
     ax.axhline(0, color=PALETTE["zero_line"], lw=0.7)
     ax.set_xscale("log")
     ax.set_xlabel("Target training events (log scale)")
-    ax.set_ylabel(f"AUC gain, {'OPERA' if lead == 'OPERA' else 'joint'} vs XGBoost")
+    ax.set_ylabel(f"Δ time-dependent AUC, {'OPERA' if lead == 'OPERA' else 'joint'} vs XGBoost")
     _panel_title(ax, "C", "Gain by training events")
     if horizon_panel:
         ax.clear()
@@ -3136,7 +3136,7 @@ def figure_benchmarks(cells, curve=None, summary=None, reliability=None, example
         ax.set_xticks(list(HORIZON_COLORS), [str(h) for h in HORIZON_COLORS])
         ax.minorticks_off()
         ax.set_xlabel('Horizon (days)')
-        ax.set_ylabel('Median AUC gain')
+        ax.set_ylabel('Median Δ time-dependent AUC')
         _panel_title(ax, 'C', 'Differences across horizons')
     despine(ax, "y")
     for index, (title, (cohort, outcome)) in enumerate(shown):
@@ -4238,20 +4238,26 @@ def figure_score_overview(scores, *, mark=None, seed=0):
         ax.grid(axis="x", color=PALETTE["grid"], lw=0.6)
         ax.grid(axis="y", visible=False)
         if row == 0:
+            mixed = len({s["horizon_days"] for s in scores}) > 1
             _clinical_figure_text(fig, 0.63, 1 - 0.22 / height, "C",
-                                  f"At {_horizon_text(horizon)} (95% CI)",
+                                  "At the horizon (95% CI)" if mixed
+                                  else f"At {_horizon_text(horizon)} (95% CI)",
                                   fontsize=10.5, va="top")
         if row != len(scores) - 1:
             ax.tick_params(axis="x", labelbottom=False)
         else:
-            ax.set_xlabel(_survival_label(spec["endpoint"]) if event_free
-                          else "Cumulative incidence", fontsize=7)
+            same = len({s.get("endpoint") for s in scores}) == 1
+            ax.set_xlabel((_survival_label(spec["endpoint"]) if same else "Event-free survival")
+                          if event_free else "Cumulative incidence", fontsize=7)
         for spine in ("top", "right"):
             ax.spines[spine].set_visible(False)
         ax._opera_groups = [("Model", (split - 1) / 2),
                             (index_label, split + (len(estimates) - split - 1) / 2)]
         ax._opera_group_size = 6.6
-        fig.text(0.005, ax.get_position().y1 + 0.18 / height, _score_label(spec["title"]),
+        row_title = _score_label(spec["title"])
+        if len({s["horizon_days"] for s in scores}) > 1:
+            row_title += f", at {_horizon_text(horizon)}"
+        fig.text(0.005, ax.get_position().y1 + 0.18 / height, row_title,
                  fontsize=8.5, fontweight="bold", color=PALETTE["ink"], va="bottom")
     # System labels sit just left of the longest category label in each forest
     # (placed by _finish_clinical, after the final face is set).
@@ -4468,15 +4474,15 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
     gain = vs_x.set_index("region").gain
     span = (float(np.nanmax(np.abs(gain))) or 0.01) if np.isfinite(gain).any() else 0.01
     map_panel(0, "A", "Gain over XGBoost", gain.to_dict(), GAIN_CMAP,
-              TwoSlopeNorm(0, -span, span), f"{when} AUC gain", "{:+.3f}",
+              TwoSlopeNorm(0, -span, span), f"{when} Δ time-dependent AUC", "{:+.3f}",
               intervals_of(vs_x), reference=0.0)
     if absolute is not None:
         joint = absolute.loc[(absolute.metric == "auc") & (absolute.model == lead)]
         values = joint.set_index("region").gain
         low, high = (float(values.min()), float(values.max())) if np.isfinite(values).any() else (0., 1.)
         pad = max((high - low) * 0.15, 0.005)
-        map_panel(1, "B", f"{lead_name} AUC", values.to_dict(), ATLAS_CMAP,
-                  plt.Normalize(low - pad, high + pad), f"{when} AUC", "{:.3f}",
+        map_panel(1, "B", f"{lead_name}, time-dependent AUC", values.to_dict(), ATLAS_CMAP,
+                  plt.Normalize(low - pad, high + pad), f"{when} time-dependent AUC", "{:.3f}",
                   intervals_of(joint))
         bias_rows = absolute.loc[(absolute.metric == "calibration_bias")
                                  & (absolute.model == lead)]
@@ -4505,7 +4511,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
 
     ax = fig.add_subplot(lower[0])
     _region_forest(ax, auc, [(k, "contrast", v) for k, v in styles.items()])
-    ax.set_xlabel("AUC gain (95% CI)")
+    ax.set_xlabel("Δ time-dependent AUC (95% CI)")
     ax.legend(frameon=False, fontsize=7.5, loc="lower left", bbox_to_anchor=(-0.05, 1.0),
               ncol=1, handletextpad=0.1)
     header(ax, "D", "Gain")
@@ -4514,7 +4520,7 @@ def figure_regions(effects, models=None, coverage=None, geometry=None, *, horizo
         _region_forest(ax, absolute.loc[absolute.metric == "auc"],
                        [(k, "model", v) for k, v in model_styles.items()], reference=None)
         ax.tick_params(axis="y", labelleft=False)
-        ax.set_xlabel("AUC (95% CI)")
+        ax.set_xlabel("Time-dependent AUC (95% CI)")
         ax.legend(frameon=False, fontsize=7.5, loc="lower left", bbox_to_anchor=(-0.05, 1.0),
                   ncol=1, handletextpad=0.1)
         header(ax, "E", "Performance")
@@ -4895,7 +4901,7 @@ def figure_support_sensitivity(cells, *, horizon=365, cutoffs=(5, 10, 20, 50),
         _panel_title(ax, letter, title)
         despine(ax, 'y')
     axes[0].axhline(0, color=PALETTE['zero_line'], lw=.7)
-    axes[0].set_ylabel('AUC gain (descriptive mean)')
+    axes[0].set_ylabel('Δ time-dependent AUC (descriptive mean)')
     axes[1].set_ylabel('Disease–outcome cells')
     fig.legend(*axes[0].get_legend_handles_labels(), loc='lower left',
                bbox_to_anchor=(.09, .025), ncol=2, frameon=False, fontsize=8)
@@ -4930,12 +4936,12 @@ def figure_whole_cohort(estimates, coverage, *, horizon=365, page=1, per_page=12
             share = part.available_n / cover.groupby('outcome').available_n.max().reindex(outcomes)
         axes[1].scatter(share, np.arange(len(outcomes))+offset, color=color, marker='D', s=16,
                         label=names.get(model, model))
-    for ax, letter, title in zip(axes, 'AB', ['AUC on the common population', 'Prediction coverage']):
+    for ax, letter, title in zip(axes, 'AB', ['Time-dependent AUC, common population', 'Prediction coverage']):
         ax.set_yticks(range(len(outcomes)), [outcome_display_name(o) for o in outcomes], fontsize=7)
         ax.set_ylim(len(outcomes)-.5, -.5)
         _panel_title(ax, letter, title)
         despine(ax, 'x')
-    axes[0].set_xlabel('Pooled AUC (paired 95% CI)')
+    axes[0].set_xlabel('Pooled time-dependent AUC (paired 95% CI)')
     axes[0].xaxis.set_major_locator(MaxNLocator(4))
     axes[1].set_xlim(-.03, 1.03)
     axes[1].set_xticks([0, .5, 1], ['0%', '50%', '100%'])
@@ -5080,8 +5086,8 @@ def figure_rescue(cells, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.0, m
                 c=np.where(harmed, '#C16A58', '#8995A4'), linewidths=0, rasterized=True)
     ax.axhline(0, color=PALETTE['zero_line'], lw=.8)
     ax.axvline(0, color=PALETTE['grid'], lw=1)
-    ax.set_xlabel(f'Joint vs specialist ({_split_word().lower()} AUC)')
-    ax.set_ylabel('OPERA vs joint (AUC)')
+    ax.set_xlabel(f'Joint vs specialist ({_split_word().lower()} Δ time-dependent AUC)')
+    ax.set_ylabel('OPERA vs joint (Δ time-dependent AUC)')
     ax.xaxis.set_major_locator(MaxNLocator(4))
     ax.yaxis.set_major_locator(MaxNLocator(5))
     _panel_title(ax, 'A', 'Cells by tuning harm')
@@ -5094,7 +5100,7 @@ def figure_rescue(cells, *, metric="auc", horizon=ALL_HORIZONS, tolerance=0.0, m
     summary = _summary_rows(long, ['stratum', 'series'])
     _diamond_forest(ax, summary, row_key='stratum', row_order=strata,
         series_key='series', series_style=styles,
-        xlabel=f'{_split_word()} AUC gain (median, IQR)', show_counts=True)
+        xlabel=f'{_split_word()} Δ time-dependent AUC (median, IQR)', show_counts=True)
     ax.set_yticklabels([t.get_text().replace(' on tuning', '\non tuning').replace(' (n=', '\n(n=')
                          for t in ax.get_yticklabels()])
     ax.set_ylim(1.5, -.5)
@@ -5153,7 +5159,7 @@ def figure_strategy(cells, selection, *, horizon=ALL_HORIZONS, mark=None):
         ax.yaxis.set_major_locator(MaxNLocator(4))
         ax.set_xlabel(label)
         if column == 0:
-            ax.set_ylabel("Joint model AUC")
+            ax.set_ylabel("Joint model, time-dependent AUC")
         _panel_title(ax, letter, title)
         despine(ax, "both")
     ax = fig.add_subplot(grid[1,:])
@@ -5577,7 +5583,7 @@ def figure_recent_record_gaps(restrictions, *, horizons=None, mark=None):
             ax.scatter(100 * part.mean_delta, y, s=22, marker='D', color=color, label=label)
         ax.axvline(0, color=PALETTE['zero_line'], linewidth=.8)
         ax.set(yticks=np.arange(len(groups)), yticklabels=[SHORT_GROUP.get(g, g) for g in groups],
-               xlabel='AUC change (×100; paired 95% CI)')
+               xlabel='Δ time-dependent AUC ×100 (paired 95% CI)')
         ax.tick_params(labelsize=8.5)
         ax.set_xlim(limits[0] - margin, limits[1] + margin)
         ax.xaxis.set_major_locator(MaxNLocator(4))
@@ -5612,7 +5618,7 @@ def figure_recent_record_gap_horizons(restrictions, *, mark=None):
     ax.axhline(0, color=PALETTE['zero_line'], lw=.8)
     ax.set_xticks(range(len(horizons)), [f'{int(h)} d' if h < 365 else f'{h / 365:g} y' for h in horizons])
     ax.set_xlabel('Prediction horizon')
-    ax.set_ylabel('AUC change (×100; paired 95% CI)')
+    ax.set_ylabel('Δ time-dependent AUC ×100 (paired 95% CI)')
     _panel_title(ax, 'A', 'Reliance on recent clinical history')
     fig.legend(*ax.get_legend_handles_labels(), loc='upper center', bbox_to_anchor=(.55,.98),
                ncol=2, frameon=False, fontsize=8)

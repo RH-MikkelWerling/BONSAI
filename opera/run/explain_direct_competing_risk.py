@@ -820,6 +820,9 @@ def _run(args):
     )
 
     rng = np.random.default_rng(args.seed)
+    # Baseline construction is skipped on resume. Keep its random draws separate
+    # so loading a cached baseline cannot change the patient/check ordering.
+    baseline_rng = np.random.default_rng(args.seed)
 
     # Baseline: an average event, from training patients only.
     baseline_stats = {"patients": 0, "event_tokens": 0}
@@ -829,7 +832,7 @@ def _run(args):
             dataset = data_module._build_dataset_for_cohort(name, cohort_cfg, "train")
             if dataset is None:
                 continue
-            take = rng.permutation(len(dataset))[
+            take = baseline_rng.permutation(len(dataset))[
                 : max(1, args.baseline_patients // len(cohort_configs))
             ]
             for i in take:

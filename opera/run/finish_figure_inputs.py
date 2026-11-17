@@ -194,7 +194,8 @@ def projects(repo, national, closure=None):
             'tuning': national / 'extended_tuning_comparison',
             'fractions': national / 'fraction_results_20261116'}
     if closure is not None:
-        result.update({f'focused_{kind}': closure / f'comparisons_{kind}' for kind in ['core', 'ablations']})
+        result.update({f'focused_{kind}': closure / f'comparisons_{kind}'
+                       for kind in ['core', 'ablations', 'pretraining_controls']})
     return result
 
 

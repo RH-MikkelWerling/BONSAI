@@ -407,7 +407,7 @@ def figure_attribution_structure(similarity, restrictions=None, *, outcome_restr
         bcax = fig.add_axes([bbox.x0, bar_bottom, bbox.width, bar_height])
         bbar = fig.colorbar(bimage, cax=bcax, orientation="horizontal")
         bbar.ax.xaxis.set_major_locator(plt.MaxNLocator(5, symmetric=True))
-        bbar.set_label("AUC change (percentage points)", fontsize=6.2)
+        bbar.set_label("Δ time-dependent AUC ×100", fontsize=6.2)
         bbar.ax.tick_params(labelsize=5.8, length=2)
         bbar.outline.set_visible(False)
         fig.restriction_outcome_order = tuple(outcomes)
@@ -667,7 +667,7 @@ def figure_attribution_main(variance_sources, concepts, restrictions, episodes, 
     bx.xaxis.tick_top()
     bx.set_yticks([])
     _cell_grid(bx, grid_b.shape)
-    bx.set_xlabel("Change in AUC (×100)\nheader: all outcomes", fontsize=7)
+    bx.set_xlabel("Δ time-dependent AUC ×100\nheader: all outcomes", fontsize=7)
 
     # C: findings and the risks they raise, columns grouped by source.
     cx = fig.add_subplot(top[2])

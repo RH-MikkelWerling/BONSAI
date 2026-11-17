@@ -22,12 +22,18 @@ COMPARISONS = {
     'E1': 'gain(J_E,J_L)', 'E2': 'gain(R_E,OPERA)', 'A1': 'gain(J_EA,J_E)', 'A2': 'gain(R_EA,R_E)',
     'E3': 'gain(J_EA,J_L)', 'E4': 'gain(R_EA,OPERA)',
     'FINAL_R_EA_VS_S_L': 'gain(R_EA,S_L)',
+    'FINAL_R_EA_VS_XP': 'gain(R_EA,XP)',
+    'FINAL_J_EA_VS_XP': 'gain(J_EA,XP)',
 }
 ABLATIONS = {
     'OAOWN_DIS': 'gain(OPERA,J_OA_OWN_NODIS_L)',
     'OAOWN_OUT': 'gain(OPERA,J_OA_OWN_NOOUT_L)',
     'OFF_J': 'gain(R_PF_OFF_L,J_L)', 'OAOWN_OFF': 'gain(OPERA,R_PF_OFF_L)',
     'AB_OFF': 'gain(R_AB_L,R_PF_OFF_L)', 'OAOWN_J': 'gain(OPERA,J_L)',
+}
+PRETRAINING_CONTROLS = {
+    'P0': 'gain(J_L,J_RI)',
+    'P7': 'gain(J_L,J_FZ)',
 }
 
 
@@ -40,7 +46,8 @@ def prepare(repo, output, kind):
     sources = [(path, read(path)) for path in source_paths if path.is_file()]
     if not sources: raise FileNotFoundError('No registered source analysis configs')
     config = copy.deepcopy(next((spec for path, spec in sources if path == original), sources[0][1]))
-    desired = COMPARISONS if kind == 'core' else ABLATIONS
+    desired = {'core': COMPARISONS, 'ablations': ABLATIONS,
+               'pretraining_controls': PRETRAINING_CONTROLS}[kind]
     wanted = models_for(desired)
     wanted.add('J_OA_OWN_L')
     if kind == 'core': wanted |= {'D_L', 'O_L', 'XP', 'XR'}
@@ -97,13 +104,18 @@ def prepare(repo, output, kind):
         raise ValueError('Figure comparisons need one shared frozen downstream data contract')
     present = {a['model'] for a in artifacts if a['split'] == 'held_out'}
     if alias_source in present: present.add('OPERA')
-    required = {'J_L', 'S_L', 'X', 'OPERA', 'R_EA'} if kind == 'core' else {'OPERA'}
+    required = ({'J_L', 'S_L', 'X', 'OPERA', 'R_EA'} if kind == 'core'
+                else {'J_L'} if kind == 'pretraining_controls' else {'OPERA'})
     if not required <= present:
         raise ValueError(f'Missing required held-out models: {sorted(required - present)}')
     contrasts = {name: expression for name, expression in desired.items()
                  if models_for({name: expression}) <= present}
     missing = {name: sorted(models_for({name: expression}) - present)
                for name, expression in desired.items() if name not in contrasts}
+    if kind == 'pretraining_controls' and not contrasts:
+        raise ValueError('No existing held-out random-initialisation/frozen-encoder '
+                         'control predictions in registered inventories; no fits launched. '
+                         + json.dumps(missing))
     if kind == 'ablations' and not ({'OAOWN_DIS', 'OAOWN_OUT'} & set(contrasts)):
         raise ValueError('Local NODIS/NOOUT predictions absent; no ablation job launched. '
                          'Adapted arms are not substituted. ' + json.dumps(missing))
@@ -124,9 +136,10 @@ def prepare(repo, output, kind):
         registered = read(repo / 'opera/configs/locked_prediction_analysis.example.yaml')
         config['patient_groups'] = config.get('patient_groups') or registered['patient_groups']
         columns = ['history_event_count', 'age_at_index', 'sex', 'IPI', 'predominant_region', 'index_year']
-        group_contrasts = [c for c in ['P5', 'T2', 'O1', 'O3', 'E3', 'E4', 'FINAL_R_EA_VS_S_L'] if c in contrasts]
+        group_contrasts = [c for c in ['P5', 'T2', 'O1', 'O3', 'E3', 'E4', 'FINAL_R_EA_VS_S_L',
+                                      'FINAL_R_EA_VS_XP', 'FINAL_J_EA_VS_XP'] if c in contrasts]
         config['stratified_reanalysis'] = {column: {'contrasts': group_contrasts,
-            'models': [m for m in ['J_L', 'OPERA', 'R_EA', 'X'] if m in present]} for column in columns}
+            'models': [m for m in ['J_L', 'OPERA', 'R_EA', 'J_EA', 'XP', 'X'] if m in present]} for column in columns}
     else:
         config.update(patient_groups={}, stratified_reanalysis={})
     immutable(output / 'analysis.yaml', config)
@@ -144,7 +157,7 @@ def prepare(repo, output, kind):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=['core', 'ablations'], default='core')
+    parser.add_argument('--kind', choices=['core', 'ablations', 'pretraining_controls'], default='core')
     parser.add_argument('--output-root', type=Path, default=Path('data/figure_closure_20261116'))
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()

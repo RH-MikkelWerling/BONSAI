@@ -173,7 +173,7 @@ def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None)
     present = [s for s, _ in LADDER if s in set(data.step) and data.loc[data.step == s].gain.notna().any()]
     if "corrections" not in present and "reading" not in present:
         raise ValueError("Gain-source figure needs the corrections or reading step")
-    unit = {"auc": "AUC", "brier": "Brier", "log_loss": "Log loss"}.get(metric, metric)
+    unit = {"auc": "time-dependent AUC", "brier": "Brier score", "log_loss": "log loss"}.get(metric, metric)
     fig = plt.figure(figsize=(7.2, 7.6))
     top = fig.add_gridspec(1, 1, left=0.32, right=0.97, top=0.92, bottom=0.66)
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 0.95], wspace=0.62, left=0.095,
@@ -238,7 +238,7 @@ def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None)
     finite = np.asarray(limits)[np.isfinite(limits)]
     span = max(float(np.ptp(finite)), .02)
     ax.set_xlim(float(finite.min()) - .05 * span, float(finite.max()) + .05 * span)
-    ax.set_xlabel(f'{unit} difference between the named models')
+    ax.set_xlabel(f'Δ {unit} between the named models')
     ax.xaxis.set_major_locator(MaxNLocator(5))
     handles = [Line2D([], [], marker='D', color=PALETTE['ink'], lw=1.2,
                        markeredgecolor='white', markersize=4, label='Paired mean, 95% CI')]
@@ -280,7 +280,7 @@ def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None)
         span = max(high - low, 0.02)
         ax.set_ylim(low - 0.08 * span, high + 0.08 * span)
     ax.set_xlabel("Cell training events (log scale)")
-    ax.set_ylabel(f"{unit} gain")
+    ax.set_ylabel(f"Δ {unit}")
     ax.yaxis.set_major_locator(MaxNLocator(5))
     _panel_title(ax, "B", "By training support", pad=22)
     despine(ax, "y")
@@ -297,7 +297,7 @@ def figure_gain_sources(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None)
     style = {s: (STEP_STYLE[s][0], names[s]) for s in support_steps}
     handles = _diamond_forest(ax, summary, row_key="endpoint_group",
                               row_order=[_short_domain(g) for g in order], series_key="series",
-                              series_style=style, xlabel=f"{unit} gain (median, IQR)",
+                              series_style=style, xlabel=f"Δ {unit} (median, IQR)",
                               show_counts=False, spread=0.25)
     ax.xaxis.set_major_locator(MaxNLocator(4))
     ax.tick_params(axis="y", length=0)
@@ -373,7 +373,7 @@ def figure_design_search(designs, *, mark=None):
         ax.tick_params(axis="y", length=0)
         ax.xaxis.set_major_locator(MaxNLocator(4))
         ax.tick_params(axis="x", labelsize=7)
-        ax.set_xlabel("AUC difference (paired 95% CI)", fontsize=8)
+        ax.set_xlabel("Δ time-dependent AUC (paired 95% CI)", fontsize=8)
         despine(ax, "x")
         _panel_title(ax, "AB"[index], DESIGN_REFERENCE_TITLES[reference], fontsize=9.5)
         if index:
@@ -832,7 +832,7 @@ def figure_xgboost_gap(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
     data = data.loc[data.contrast.isin([*gap_style, opera_j])]
     if data.loc[data.contrast == opera_x].gain.notna().sum() == 0:
         raise ValueError("XGBoost-gap figure needs OPERA vs XGBoost cells")
-    unit = {"auc": "AUC", "brier": "Brier", "log_loss": "Log loss"}.get(metric, metric)
+    unit = {"auc": "time-dependent AUC", "brier": "Brier score", "log_loss": "log loss"}.get(metric, metric)
     summary = _summary_rows(data.rename(columns={"contrast": "series"}), ["endpoint_group", "series"])
     order = (summary.loc[summary.series == opera_x].sort_values("median").endpoint_group.tolist())
     order += [g for g in summary.endpoint_group.unique() if g not in order]
@@ -846,7 +846,7 @@ def figure_xgboost_gap(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
     ax = fig.add_subplot(grid[0])
     handles = _diamond_forest(ax, summary.loc[summary.series.isin(gap_style)], row_key="row",
                               row_order=labels, series_key="series", series_style=gap_style,
-                              xlabel=f"{unit} difference (median, IQR)", show_counts=False, spread=0.18)
+                              xlabel=f"Δ {unit} (median, IQR)", show_counts=False, spread=0.18)
     ax.tick_params(axis="y", length=0, labelsize=7.2)
     _overall_means(ax, data, gap_style)
     ax.xaxis.set_major_locator(MaxNLocator(5))
@@ -857,7 +857,7 @@ def figure_xgboost_gap(cells, *, metric="auc", horizon=ALL_HORIZONS, mark=None):
     gain_style = {opera_j: (MODEL_STYLE["OPERA"][0], "OPERA vs joint")}
     _diamond_forest(ax, summary.loc[summary.series == opera_j], row_key="row", row_order=labels,
                     series_key="series", series_style=gain_style,
-                    xlabel=f"{unit} difference (median, IQR)", show_counts=False)
+                    xlabel=f"Δ {unit} (median, IQR)", show_counts=False)
     _overall_means(ax, data, gain_style)
     ax.tick_params(axis="y", labelleft=False, length=0)
     ax.xaxis.set_major_locator(MaxNLocator(4))

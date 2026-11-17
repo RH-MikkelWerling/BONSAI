@@ -58,7 +58,12 @@ def _render_script(repo: Path):
 
 
 def _survival_paths(national: Path):
-    return sorted(national.glob("predictions/EA/seed42/*/held_out/direct_cr_predictions.parquet"))
+    # Several adapted architectures share this directory tree. Bind to R_EA,
+    # rather than requiring the whole EA tree to contain exactly one export.
+    bundle = json.loads((national / 'adapted_fits/bundle.json').read_text())
+    row, = [r for r in bundle['runs'] if r['name'] == 'seed42/EA/R']
+    path = national / 'predictions' / row['run_directory'] / 'held_out/direct_cr_predictions.parquet'
+    return [path] if path.is_file() else []
 
 
 def _survival(path: Path):
@@ -75,11 +80,38 @@ def _score_config(workspace: Path, explicit: Path | None):
     import yaml
     if explicit:
         return explicit
+    # launch_adapted_clinical_comparison uses the flat workspace layout.
+    canonical = workspace / 'clinical_scores.yaml'
+    if canonical.is_file():
+        return canonical
     found = [p for p in sorted((workspace / "configs").glob("*.yaml"))
              if "tuning" not in p.name and "scores" in (yaml.safe_load(p.read_text()) or {})]
     if len(found) != 1:
         raise ValueError(f"Pass --score-config; held-out score configs found: {[p.name for p in found]}")
     return found[0]
+
+
+def _clinical_analysis(workspace):
+    for path in (workspace / 'analysis.yaml', workspace / 'analysis_inventory/analysis.yaml'):
+        if path.is_file():
+            return path
+    raise FileNotFoundError(f'No clinical analysis.yaml in {workspace}')
+
+
+def refresh_discrimination(analysis_path, score_path, output):
+    """Use the same expanded, endpoint-patched recipe as the clinical plates."""
+    import yaml
+    from opera.run.analyse_locked_predictions import read_table
+    from opera.run.render_clinical_score_panels import expand_index_scores
+    from opera.run.launch_adapted_clinical_comparison import discrimination
+    analysis = yaml.safe_load(Path(analysis_path).read_text())
+    metadata = read_table(analysis['patient_metadata'])
+    metadata.subject_id = metadata.subject_id.astype(str)
+    metadata = metadata.rename(columns=analysis.get('patient_metadata_column_map', {}))
+    specs = expand_index_scores(yaml.safe_load(Path(score_path).read_text()), metadata)
+    if not specs:
+        raise ValueError('No expanded clinical scores for discrimination')
+    discrimination(analysis, specs, metadata, Path(output))
 
 
 class Run:
@@ -184,7 +216,11 @@ def main():
                 coords["ipi_group"] = values.map(lambda v: IPI_FROM_SCORE.get(int(v)) if pd.notna(v) else None)
                 coords = coords.loc[coords.patient_id.isin(set(survival.patient_id))]
                 coords.to_csv(run.private / f"{family}_encoder_coordinates.csv", index=False)
-                fig = figure_encoder_embeddings(coords, survival, model_order=list(family_stages), model_labels=LABELS)
+                from opera.visualization.encoder_embedding_comparison import neighbourhood_metrics
+                metrics = neighbourhood_metrics(coords, survival)
+                metrics.to_csv(run.ready / "tables" / f"embedding_neighbourhood_{family}.csv", index=False)
+                fig = figure_encoder_embeddings(coords, survival, model_order=list(family_stages), model_labels=LABELS,
+                                                metrics=metrics)
                 for t in fig.findobj(matplotlib.text.Text):
                     t.set_fontfamily("serif")
                 stem = run.ready / "figures" / f"supp_embedding_comparison_{family}"
@@ -202,9 +238,7 @@ def main():
         def check():
             if not a.clinical_workspace:
                 raise ValueError("Pass --clinical-workspace (the completed held-out R_EA clinical workspace)")
-            analysis = a.clinical_workspace / "analysis_inventory/analysis.yaml"
-            if not analysis.is_file():
-                raise FileNotFoundError(analysis)
+            analysis = _clinical_analysis(a.clinical_workspace)
             return {"analysis_config": str(analysis), "score_config": str(_score_config(a.clinical_workspace, a.score_config))}
 
         def action():
@@ -233,6 +267,8 @@ def main():
                             "--analysis-config", plan["analysis_config"], "--score-config", str(score_config),
                             "--output-dir", str(target), "--split", "held_out", "--execute"],
                            env=dict(os.environ), check=True)
+            refresh_discrimination(plan['analysis_config'], score_config,
+                                   target / 'clinical_discrimination.csv')
             archive = run.ready / "clinical_R_EA_thesis_style.zip"
             archive.unlink(missing_ok=True)
             package_clinical(target, archive)
@@ -287,6 +323,8 @@ def main():
             z.write(run.status_path, run.status_path.name)
         print(f"Download only: {archive}")
     print(json.dumps({k: v.get("status") for k, v in run.status.items()}, indent=2))
+    if a.execute and any(run.status.get(name, {}).get('status') != 'complete' for name in wanted):
+        raise SystemExit('Story export incomplete; inspect story_status.json (partial archive retained)')
 
 
 if __name__ == "__main__":

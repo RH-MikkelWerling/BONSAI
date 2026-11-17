@@ -61,9 +61,22 @@ def _rows(score_id, display, group, category, data, grid, horizon):
 def km_splits(patients, spec, *, step_days=7):
     """Curves and summaries for one index population (held-out ``score_patients`` output)."""
     horizon = int(spec["horizon_days"])
-    grid = np.arange(0, int(horizon * 1.25) + 1, step_days)
+    # Local risk tables display these exact times. A weekly grid alone would
+    # otherwise return a stale risk count (e.g. day 364 for a day-365 label).
+    grid = np.unique(np.r_[np.arange(0, int(horizon * 1.25) + 1, step_days),
+                           0., horizon / 2, float(horizon)])
     p = patients.assign(event=patients.event.astype(int))
     curves, summary = [], []
+    # Reuse the renderer's actual assignments, including its tie handling.
+    # Do not replace equal-size groups with fresh quantiles here.
+    if spec.get('cutoff_rule') == 'cohort_size_matched' and 'model_group' in p:
+        for category in spec['group_order']:
+            part = p[p.model_group == category]
+            if not part.empty:
+                r, s = _rows(spec['id'], 'model_equal_size', category, category,
+                             part, grid, horizon)
+                curves += r
+                summary.append(s)
     for category in spec["group_order"]:
         part = p[p.ipi_group == category]
         if part.empty:

@@ -40,6 +40,40 @@ DISEASE_EXTRA = ["#BD648E", "#697481"]
 INK, INK2, MUTED, CLOUD = "#17212B", "#485463", "#657180", "#D5DAE1"
 
 
+def neighbourhood_metrics(coords, survival, *, horizon=365, k=50):
+    """Descriptive summaries of each map, so differences between encoders can be checked, not
+    only seen. For every patient, its k nearest neighbours on the two-dimensional map:
+
+    * disease agreement: the share of neighbours with the patient's own disease group;
+    * neighbourhood mortality AUC: how well the neighbours' observed death rate within the
+      horizon ranks the patient's own death (patients with known status at the horizon).
+
+    Computed on the plotted projection, so they describe the maps, not the full representation.
+    """
+    from scipy.spatial import cKDTree
+    from sklearn.metrics import roc_auc_score
+    surv = survival.set_index("patient_id")
+    rows = []
+    for model, data in coords.groupby("model", sort=False):
+        data = data.set_index("patient_id")
+        pts = data[["x", "y"]].to_numpy(float)
+        _, idx = cKDTree(pts).query(pts, k=min(k + 1, len(pts)))
+        idx = idx[:, 1:]  # leave the patient out
+        disease = data.disease.astype(str).to_numpy()
+        agree = float(np.mean(disease[idx] == disease[:, None]))
+        s = surv.loc[data.index]
+        known = (s.event.to_numpy() == 1) & (s.time_days.to_numpy() <= horizon) | (s.time_days.to_numpy() > horizon)
+        died = ((s.event.to_numpy() == 1) & (s.time_days.to_numpy() <= horizon)).astype(float)
+        died_known = np.where(known, died, np.nan)
+        neigh = np.nanmean(died_known[idx], axis=1)
+        ok = known & np.isfinite(neigh)
+        auc = float(roc_auc_score(died[ok], neigh[ok])) if len(np.unique(died[ok])) == 2 else float("nan")
+        rows.append(dict(model=model, patients=len(data), k=k, horizon_days=horizon,
+                         disease_agreement=agree, neighbourhood_mortality_auc=auc,
+                         known_status=int(ok.sum()), deaths=int(died[ok].sum())))
+    return pd.DataFrame(rows)
+
+
 def _check(coords, survival, models):
     need = {"model", "patient_id", "x", "y", "disease", "ipi_group"}
     if not need <= set(coords):
@@ -61,7 +95,8 @@ def _check(coords, survival, models):
 
 
 def figure_encoder_embeddings(coords, survival, *, model_order=None, model_labels=None, horizon=365,
-                              grid_size=150, min_effective_support=25.0, mark=None):
+                              grid_size=150, min_effective_support=25.0, mark=None, metrics=None,
+                              row_labels=True):
     models = list(model_order or coords.model.drop_duplicates())
     _check(coords, survival, models)
     labels = model_labels or {m: m for m in models}
@@ -75,8 +110,9 @@ def figure_encoder_embeddings(coords, survival, *, model_order=None, model_label
 
     ncol = len(models)
     size = 1.95
-    fig = plt.figure(figsize=(size * ncol + 1.6, size * 3 + 0.8))
-    grid = fig.add_gridspec(3, ncol + 1, width_ratios=[1] * ncol + [0.7], left=0.03, right=0.985,
+    fig = plt.figure(figsize=(size * ncol + 1.6 + (0.35 if row_labels else 0), size * 3 + 0.8))
+    grid = fig.add_gridspec(3, ncol + 1, width_ratios=[1] * ncol + [0.7],
+                            left=0.03 + (0.06 if row_labels else 0), right=0.985,
                             bottom=0.03, top=1 - 0.62 / fig.get_figheight(), hspace=0.14, wspace=0.05)
     cmap = plt.get_cmap("plasma").copy()
     cmap.set_bad((1, 1, 1, 0))
@@ -122,6 +158,17 @@ def figure_encoder_embeddings(coords, survival, *, model_order=None, model_label
             a.set_ylim(extent[2:])
         ax.set_title(f"{chr(65 + mi)}   " + textwrap.fill(str(labels[model]), 22), loc="left", fontsize=9.6,
                      fontweight="bold", pad=6, color=INK)
+        if metrics is not None and model in set(metrics.model):
+            r = metrics.set_index("model").loc[model]
+            for a, text in ((ax, f"same-disease neighbours {100 * r.disease_agreement:.0f}%"),
+                            (cx, f"mortality from neighbours, AUC {r.neighbourhood_mortality_auc:.2f}")):
+                a.text(0.02, 0.02, text, transform=a.transAxes, fontsize=6.6, color=INK2, zorder=5,
+                       bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.8))
+        if row_labels and mi == 0:
+            for a, text in ((ax, "Disease group"), (bx, "IPI category"),
+                            (cx, "Observed one-year\nmortality")):
+                a.text(-0.06, 0.5, text, transform=a.transAxes, rotation=90, ha="right", va="center",
+                       fontsize=8, color=INK2)
 
     # legends, one per row, in the right-hand column
     def legend_axis(row):

@@ -172,7 +172,7 @@ def fig2_overview(b: Bundle, out: Path):
     ax.set_xticks(range(len(STEPS)), [lab for _, lab, _ in STEPS], fontsize=6.9)
     ax.set_ylim(0.5, 0.8)
     ax.yaxis.set_major_locator(MultipleLocator(0.1))
-    ax.set_ylabel("Mean AUC, held-out patients", fontsize=LABEL_SIZE)
+    ax.set_ylabel("Mean time-dependent AUC", fontsize=LABEL_SIZE)
     tidy(ax)
     title(ax, "A", "Borrowing more, step by step", f"The same {n_cells:,} disease–outcome–horizon tasks")
 
@@ -191,6 +191,7 @@ def fig2_overview(b: Bundle, out: Path):
         bx.scatter(xs, byh[m], color=col, s=16, edgecolor="white", linewidth=0.7, zorder=3)
     bx.set_xticks(xs, [str(h) for h in byh.index])
     bx.set_xlabel("Horizon (days)", fontsize=LABEL_SIZE)
+    bx.set_ylabel("Mean time-dependent AUC", fontsize=LABEL_SIZE)
     bx.set_ylim(0.5, 0.85)
     bx.yaxis.set_major_locator(MultipleLocator(0.1))
     tidy(bx)
@@ -205,7 +206,7 @@ def fig2_overview(b: Bundle, out: Path):
 
 
 # -- Figure 3: whether to borrow ---------------------------------------------------------
-def support_panel(ax, b: Bundle, series, ylabel="AUC gain (95% CI)", annotate=True):
+def support_panel(ax, b: Bundle, series, ylabel="Δ time-dependent AUC (95% CI)", annotate=True):
     xs = np.arange(len(BINS))
     for k, (contrast, label, col, offset) in enumerate(series):
         rows = b.by(contrast, "support_bin").reindex([key for key, _ in BINS])
@@ -252,14 +253,14 @@ def fig3_pooling(b: Bundle, cells_path: Path, out: Path):
     bx.axvline(0, color=PALETTE["zero_line"], lw=0.7)
     bx.tick_params(axis="y", labelleft=False, length=0)
     bx.xaxis.set_major_locator(MaxNLocator(3))
-    bx.set_xlabel("AUC gain over specialist\n(mean, paired 95% CI)")
+    bx.set_xlabel("Δ time-dependent AUC (95% CI)")
     bx.grid(axis="y", visible=False)
     title(bx, "B", "By pooling axis")
     despine(bx, "x")
     box = ax.get_position()
     cax = fig.add_axes([box.x0, 0.415, box.width, 0.010])
     cb = fig.colorbar(image, cax=cax, orientation="horizontal")
-    cb.set_label("All-horizon AUC gain, joint vs specialist (median within domain)", fontsize=7.2)
+    cb.set_label("Δ time-dependent AUC, joint vs specialist\n(median within domain)", fontsize=7.2)
     cb.ax.tick_params(labelsize=6.5)
     cb.outline.set_visible(False)
 
@@ -271,7 +272,7 @@ def fig3_pooling(b: Bundle, cells_path: Path, out: Path):
     support_panel(cx, b, [("P1", "Across diseases", pf.CONTRAST_STYLE["D-S"][0], -0.12),
                           ("P5", "Both (joint)", pf.CONTRAST_STYLE["J-S"][0], 0.0),
                           ("P2", "Across outcomes", pf.CONTRAST_STYLE["O-S"][0], 0.12)],
-                  ylabel="AUC gain over specialist (95% CI)")
+                  ylabel="Δ time-dependent AUC (95% CI)")
     avg = b.row("P1").gain
     cx.axhline(avg, color=lighten(pf.CONTRAST_STYLE["D-S"][0], 0.5), lw=0.9, ls=(0, (3, 2)), zorder=1)
     cx.annotate(minus(f"average {avg:+.3f}"), xy=(1, avg), xycoords=("axes fraction", "data"),
@@ -285,7 +286,7 @@ def fig3_pooling(b: Bundle, cells_path: Path, out: Path):
     summary["endpoint_group"] = summary.endpoint_group.map(lambda g: pf.SHORT_GROUP.get(g, g))
     pf._diamond_forest(dx, summary, row_key="endpoint_group", row_order=[pf.SHORT_GROUP.get(g, g) for g in order],
                        series_key="contrast", series_style={k: pf.CONTRAST_STYLE[k] for k in ("D-S", "O-S", "J-S")},
-                       xlabel="AUC gain (mean, 95% CI)", show_counts=False)
+                       xlabel="Δ time-dependent AUC (95% CI)", show_counts=False)
     dx.xaxis.set_major_locator(MaxNLocator(4))
     title(dx, "D", "By clinical domain")
     _save(fig, out / "fig3_pooling")
@@ -320,7 +321,7 @@ def fig4_population(b: Bundle, cells_path: Path, out: Path):
             ax.spines["left"].set_visible(False)
             ax.tick_params(axis="y", labelleft=False)
         title(ax, "ABC"[k], name)
-    axes[0].set_ylabel("AUC gain (95% CI)", fontsize=LABEL_SIZE)
+    axes[0].set_ylabel("Δ time-dependent AUC (95% CI)", fontsize=LABEL_SIZE)
     axes[0].yaxis.set_major_locator(MultipleLocator(0.05))
     axes[0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
     fig.text(0.545, 0.03, "Training events for the task", ha="center", fontsize=LABEL_SIZE, color=INK2)
@@ -352,7 +353,7 @@ def supp_population_disease(b: Bundle, cells_path: Path, out: Path):
     ax.set_ylim(len(present) - 0.5, -0.6)
     ax.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(0.05))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
-    ax.set_xlabel("AUC gain, adapted vs cohort encoder", fontsize=LABEL_SIZE)
+    ax.set_xlabel("Δ time-dependent AUC, adapted vs\ncohort encoder (95% CI)", fontsize=LABEL_SIZE)
     tidy(ax, grid="x")
     ax.spines["left"].set_visible(False)
     _save(fig, out / "supp_population_disease")
@@ -383,7 +384,7 @@ def fig5_specialise(b: Bundle, out: Path):
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _, k=digits: "0" if abs(v) < 1e-12 else minus(f"{v:+.{k}f}")))
         tidy(ax)
         title(ax, letter, name, sub)
-    panels[0][0].set_ylabel("AUC difference (95% CI)", fontsize=LABEL_SIZE)
+    panels[0][0].set_ylabel("Δ time-dependent AUC (95% CI)", fontsize=LABEL_SIZE)
     panels[1][0].set_ylim(-0.045, 0.006)
 
     cx = fig.add_subplot(g[1, :])
@@ -395,7 +396,7 @@ def fig5_specialise(b: Bundle, out: Path):
     cx.set_yticks(range(len(rows)), [pf.SHORT_GROUP.get(gname, gname) for gname in rows.index], fontsize=8)
     cx.set_ylim(len(rows) - 0.5, -0.6)
     cx.xaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
-    cx.set_xlabel("Adapted OPERA minus pooled XGBoost, AUC (95% CI)", fontsize=LABEL_SIZE)
+    cx.set_xlabel("Δ time-dependent AUC, adapted OPERA minus pooled XGBoost (95% CI)", fontsize=LABEL_SIZE)
     cx.annotate("\u2190 pooled XGBoost better", xy=(0, 1), xycoords=("data", "axes fraction"), xytext=(-6, 2),
                 textcoords="offset points", ha="right", va="bottom", fontsize=7, color=SIENNA)
     cx.annotate("OPERA better \u2192", xy=(0, 1), xycoords=("data", "axes fraction"), xytext=(6, 2),
@@ -455,9 +456,11 @@ def fig6_clinical(clinical: Path, out: Path, variant="dots",
         ax.plot([r.index_auc, r.model_auc], [i, i], color=lighten(OPERA, 0.3), lw=2.2, zorder=1, solid_capstyle="round")
         ax.scatter([r.index_auc], [i], marker="D", s=28, color=SIENNA, edgecolor="white", linewidth=1, zorder=3)
         ax.scatter([r.model_auc], [i], marker="D", s=34, color=OPERA, edgecolor="white", linewidth=1, zorder=3)
-        ax.annotate(minus(f"{r.gain:+.2f}"), (max(r.index_auc, r.model_auc), i), xytext=(7, 0),
+        ax.annotate(minus(f"{r.gain:+.2f}"), (max(r.index_auc, r.model_auc), i), xytext=(7, 2.6),
                     textcoords="offset points", va="center", fontsize=7, color=INK2 if r.lower > 0 else MUTED,
                     weight="bold" if r.lower > 0 else "normal")
+        ax.annotate(minus(f"({r.lower:.2f} to {r.upper:.2f})"), (max(r.index_auc, r.model_auc), i),
+                    xytext=(7, -5.2), textcoords="offset points", va="center", fontsize=5.6, color=MUTED)
         labels.append(f"{name}, {endpoint_label(r)} (n={int(r.n_patients):,})")
     top = m.loc[CLINICAL_ROWS[0][0]]
     ax.annotate("index", (top.index_auc, 0), xytext=(0, 7), textcoords="offset points", ha="center", va="bottom",
@@ -470,7 +473,7 @@ def fig6_clinical(clinical: Path, out: Path, variant="dots",
     ax.set_xlim(0.40, 1.0)
     ax.set_xticks([0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
     ax.axvline(0.5, color=ZERO, lw=0.7, ls=(0, (2, 2)), zorder=0)
-    ax.set_xlabel("AUC", fontsize=LABEL_SIZE)
+    ax.set_xlabel("Time-dependent AUC", fontsize=LABEL_SIZE)
     tidy(ax, grid="x")
     ax.spines["left"].set_visible(False)
     title(ax, "A", "Discrimination", "Same held-out patients", keep_sub=True)
@@ -530,6 +533,9 @@ def fig6_clinical(clinical: Path, out: Path, variant="dots",
     _save(fig, out / ("fig6_clinical" if variant == "dots" else "fig6_clinical_bars"))
 
 
+XLIM_RATIO = (0.42, 12)
+
+
 def _matched_counts(bx, m, side, letter, name, sub, first, population):
     """How many times as many patients OPERA places at the index's observed risk (log scale), with
     its 95% interval; the counts (index -> OPERA) are written beside each point."""
@@ -537,19 +543,26 @@ def _matched_counts(bx, m, side, letter, name, sub, first, population):
     for i, (sid, *_r) in enumerate(CLINICAL_ROWS):
         r = m.loc[sid]
         if r[f"{side}_status"] != "estimable":
-            bx.text(1.06, i, "n.e.", ha="left", va="center", fontsize=6.6, color=MUTED, style="italic")
+            bx.text(0.47, i, "n.e.", ha="left", va="center", fontsize=6.6, color=MUTED, style="italic", zorder=4,
+                    bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"))
             continue
         if degenerate(r, side, population):
-            bx.text(1.06, i, "index not beyond average", ha="left", va="center", fontsize=6.3,
-                    color=MUTED, style="italic")
+            bx.text(0.47, i, f"index finds no {side}-risk group", ha="left", va="center", fontsize=6.1,
+                    color=MUTED, style="italic", zorder=4,
+                    bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"))
             continue
         a, b_ = r[f"{side}_index_n"], r[f"{side}_model_n"]
         lo, hi = r[f"{side}_additional_n_lower"], r[f"{side}_additional_n_upper"]
         ratio = b_ / a
         sure = bool(np.isfinite(lo) and lo > 0)
         if np.isfinite(lo) and np.isfinite(hi):
-            estimate(bx, ratio, i, max((a + lo) / a, 0.5), (a + hi) / a, col, horizontal=True, size=24,
-                     filled=sure)
+            low_, high_ = (a + lo) / a, (a + hi) / a
+            estimate(bx, ratio, i, max(low_, XLIM_RATIO[0]), min(high_, XLIM_RATIO[1]), col, horizontal=True,
+                     size=24, filled=sure)
+            for edge, clipped, marker in ((XLIM_RATIO[0], low_ < XLIM_RATIO[0], "<"),
+                                          (XLIM_RATIO[1], high_ > XLIM_RATIO[1], ">")):
+                if clipped:  # the interval runs past the axis
+                    bx.scatter([edge], [i], marker=marker, s=14, color=lighten(col, 0.3), lw=0, zorder=3)
         else:
             bx.scatter([ratio], [i], marker="D", s=24, color="white", edgecolor=col, linewidth=1.1, zorder=3)
         bx.annotate(f"{int(a):,}\u2192{int(b_):,}", (1, i), xycoords=("axes fraction", "data"),
@@ -557,8 +570,8 @@ def _matched_counts(bx, m, side, letter, name, sub, first, population):
                     color=MUTED)
     bx.axvline(1, color=ZERO, lw=0.8, zorder=1)
     bx.set_xscale("log")
-    bx.set_xlim(0.8, 12)
-    bx.set_xticks([1, 2, 5, 10], ["1\u00d7", "2\u00d7", "5\u00d7", "10\u00d7"])
+    bx.set_xlim(*XLIM_RATIO)
+    bx.set_xticks([0.5, 1, 2, 5, 10], ["\u00bd\u00d7", "1\u00d7", "2\u00d7", "5\u00d7", "10\u00d7"])
     bx.minorticks_off()
     bx.tick_params(axis="y", labelleft=False)
     tidy(bx, grid="x")
@@ -611,15 +624,30 @@ def _km_step(ax, part, colour, lw=1.6, ls="-", band=True, z=2):
                         alpha=0.12, lw=0, zorder=z - 1)
 
 
+def _at_risk_rows(ax, curves, rows, horizon):
+    """Numbers at risk under a KM panel (required with Kaplan-Meier figures): one row per
+    (label, colour, curve) at 0, half the horizon and the horizon."""
+    ticks = [0, horizon / 2, horizon]
+    for j, (label, colour, part) in enumerate(rows):
+        y = -0.36 - 0.1 * j
+        if label:
+            ax.text(-0.1, y, label, transform=ax.transAxes, ha="right", va="center", fontsize=6.2, color=colour)
+        for t in ticks:
+            sel = part.loc[part.time_days <= t]
+            n = int(sel.at_risk.iloc[-1]) if len(sel) else int(part.at_risk.iloc[0])
+            ax.text(t / 365 / ax.get_xlim()[1], y, f"{n:,}", transform=ax.transAxes, ha="center", va="center",
+                    fontsize=6.2, color=colour)
+
+
 def fig_within_category(curves: pd.DataFrame, summary: pd.DataFrame, score_id: str, label: str,
                         endpoint: str, stem: Path):
     """One panel per index category: the category's KM curve, split at OPERA's median risk."""
     c = curves[curves.score_id.eq(score_id)]
     sm = summary[summary.score_id.eq(score_id)]
     cats = list(dict.fromkeys(sm.loc[sm.display.eq("index"), "category"]))
-    fig, axes = plt.subplots(1, len(cats), figsize=(1.75 * len(cats) + 0.5, 2.45), sharey=True)
+    fig, axes = plt.subplots(1, len(cats), figsize=(1.75 * len(cats) + 0.5, 3.0), sharey=True)
     axes = np.atleast_1d(axes)
-    fig.subplots_adjust(left=0.09, right=0.99, top=0.8, bottom=0.3, wspace=0.08)
+    fig.subplots_adjust(left=0.13, right=0.99, top=0.83, bottom=0.42, wspace=0.12)
     horizon = int(sm.horizon_days.iloc[0])
     for ax, cat in zip(axes, cats):
         idx = c[c.display.eq("index") & c.category.eq(cat)]
@@ -640,12 +668,18 @@ def fig_within_category(curves: pd.DataFrame, summary: pd.DataFrame, score_id: s
         ax.set_xlim(0, horizon * 1.25 / 365)
         tidy(ax)
         ax.set_xlabel("Years", fontsize=7.6)
+        _at_risk_rows(ax, c, [("Lower" if ax is axes[0] else "", LOW_HALF,
+                               c[c.display.eq("within") & c.category.eq(cat) & c.group.eq("OPERA lower half")]),
+                              ("Upper" if ax is axes[0] else "", HIGH_HALF,
+                               c[c.display.eq("within") & c.category.eq(cat) & c.group.eq("OPERA upper half")])],
+                      horizon)
+    axes[0].text(-0.02, -0.27, "At risk", transform=axes[0].transAxes, ha="right", fontsize=6.4, color=MUTED)
     axes[0].set_ylabel(endpoint, fontsize=LABEL_SIZE)
     fig.suptitle(f"{label}: each category split by OPERA", x=0.09, ha="left", fontsize=9.4, fontweight="bold")
     fig.legend(handles=[Line2D([], [], color=LOW_HALF, lw=1.6, label="OPERA lower half"),
                         Line2D([], [], color=HIGH_HALF, lw=1.6, label="OPERA upper half"),
                         Line2D([], [], color="#9AA3AF", lw=1.1, ls=(0, (3, 2)), label="Whole category")],
-               loc="lower center", ncol=3, frameon=False, fontsize=7, bbox_to_anchor=(0.54, 0.0))
+               loc="upper right", ncol=3, frameon=False, fontsize=7, bbox_to_anchor=(0.99, 0.995))
     _save(fig, stem)
 
 
@@ -655,8 +689,8 @@ def fig_tails(curves: pd.DataFrame, summary: pd.DataFrame, score_id: str, label:
     c = curves[curves.score_id.eq(score_id)]
     sm = summary[summary.score_id.eq(score_id)]
     horizon = int(sm.horizon_days.iloc[0])
-    fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.6), sharey=True)
-    fig.subplots_adjust(left=0.09, right=0.99, top=0.84, bottom=0.18, wspace=0.08)
+    fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.3), sharey=True)
+    fig.subplots_adjust(left=0.13, right=0.99, top=0.88, bottom=0.42, wspace=0.12)
     ramp = ["#3E8A84", "#B18B4D", "#C46A4F", "#7A2331"]
     cats = list(dict.fromkeys(sm.loc[sm.display.eq("index"), "category"]))
     for ax, display, groups, name in ((axes[0], "index", cats, f"{label} categories"),
@@ -671,6 +705,14 @@ def fig_tails(curves: pd.DataFrame, summary: pd.DataFrame, score_id: str, label:
             _km_step(ax, part, col)
             ax.plot([], [], color=col, lw=1.6, label=f"{grp}: {100 * r.survival:.0f}% (n={int(r.n):,})")
         ax.legend(loc="lower left", frameon=False, fontsize=6.6, handlelength=1.2, labelspacing=0.3)
+        rows = []
+        for grp, col in zip(groups, cols):
+            key = "category" if display == "index" else "group"
+            part = c[c.display.eq(display) & c[key].eq(grp)]
+            if len(part):
+                rows.append(("", col, part))
+        ax.set_xlim(0, horizon * 1.25 / 365)
+        _at_risk_rows(ax, c, rows, horizon)
         ax.axvline(horizon / 365, color=ZERO, lw=0.6, ls=(0, (2, 2)), zorder=1)
         ax.set_ylim(0, 1.02)
         ax.set_xlim(0, horizon * 1.25 / 365)
@@ -678,6 +720,7 @@ def fig_tails(curves: pd.DataFrame, summary: pd.DataFrame, score_id: str, label:
         tidy(ax)
         ax.set_title(name, loc="left", fontsize=8.6, fontweight="bold", pad=4)
     axes[0].set_ylabel(endpoint, fontsize=LABEL_SIZE)
+    axes[0].text(-0.02, -0.27, "At risk", transform=axes[0].transAxes, ha="right", fontsize=6.4, color=MUTED)
     _save(fig, stem)
 
 
@@ -708,7 +751,7 @@ def supp_tabular(b: Bundle, out: Path):
     ax.tick_params(axis="y", labelsize=7.8)
     ax.set_ylim(len(order) - 0.5, -0.6)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
-    ax.set_xlabel("AUC difference (95% CI)", fontsize=LABEL_SIZE)
+    ax.set_xlabel("Δ time-dependent AUC (95% CI)", fontsize=LABEL_SIZE)
     tidy(ax, grid="x")
     ax.spines["left"].set_visible(False)
     ax.legend(handles=[Line2D([], [], marker="D", ls="", color=col, markersize=5, label=lab) for _, lab, col in TAB_SERIES],
@@ -730,7 +773,7 @@ def supp_tabular(b: Bundle, out: Path):
     bx.axhline(0, color=ZERO, lw=0.8, zorder=1)
     bx.set_xticks(range(len(hz)), [str(h) for h in hz])
     bx.set_xlabel("Horizon (days)", fontsize=LABEL_SIZE)
-    bx.set_ylabel("AUC difference", fontsize=LABEL_SIZE)
+    bx.set_ylabel("Δ time-dependent AUC", fontsize=LABEL_SIZE)
     bx.yaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
     tidy(bx)
     title(bx, "B", "By horizon", "Same contrasts at each horizon")
@@ -885,7 +928,7 @@ def supp_atlas_matrix(b: Bundle, out: Path, model="R_EA"):
     cax = fig.add_axes([0.88, 0.2, 0.02, 0.7])
     cb = fig.colorbar(im, cax=cax)
     cb.outline.set_visible(False)
-    cb.set_label("Median AUC over the group's tasks", fontsize=LABEL_SIZE)
+    cb.set_label("Median time-dependent AUC", fontsize=LABEL_SIZE)
     title(ax, "", "Adapted OPERA: held-out AUC by disease and outcome group",
           "Median over outcomes and horizons in each tile; diseases by held-out size, smallest at top")
     ax.set_title(ax.get_title(loc="left").strip(), loc="left", fontsize=9.6, fontweight="bold", pad=17)
@@ -911,11 +954,11 @@ def supp_clinical_groups(figures: Path, clinical: Path, out: Path):
         ax.plot(x, part.index_estimate, color=lighten(SIENNA, 0.5), lw=1.1, zorder=1)
         ax.plot(x, part.model_estimate, color=lighten(OPERA, 0.5), lw=1.1, zorder=1)
         ax.scatter(x, part.index_estimate, marker="o", s=22, color=SIENNA, edgecolor="white", linewidth=0.8, zorder=3)
-        ax.scatter(x, part.model_estimate, marker="D", s=24, color=OPERA, edgecolor="white", linewidth=0.8, zorder=3)
-        for xi, r in zip(x, part.itertuples()):
-            sig = r.lower > 0 or r.upper < 0
-            ax.vlines(xi, min(r.model_estimate, r.index_estimate), max(r.model_estimate, r.index_estimate),
-                      color=OPERA if sig else "#C5CAD3", lw=2.4 if sig else 1.2, zorder=2, alpha=0.35)
+        sig = ((part.lower > 0) | (part.upper < 0)).to_numpy()
+        ax.scatter(x[sig], part.model_estimate[sig], marker="D", s=26, color=OPERA, edgecolor="white",
+                   linewidth=0.8, zorder=4)
+        ax.scatter(x[~sig], part.model_estimate[~sig], marker="D", s=24, color="white", edgecolor=OPERA,
+                   linewidth=1.1, zorder=4)
         ax.set_xticks(x, [GROUP_SHORT[gname] for gname in part.group], fontsize=6.8)
         ax.set_xlim(-0.4, len(x) - 0.6)
         ax.set_ylim(0.3, 1.04)
@@ -928,14 +971,15 @@ def supp_clinical_groups(figures: Path, clinical: Path, out: Path):
         ax.annotate(f"{end.split(',')[0]} at {horizon}; n={int(r.n_patients):,}", xy=(0, 1), xycoords="axes fraction",
                     xytext=(0, 2), textcoords="offset points", fontsize=6.6, color=MUTED, style="italic", va="bottom")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Survival", fontsize=8)
+        ax.set_ylabel("Event-free survival", fontsize=8)
     leg = axes.flat[-1]
     leg.axis("off")
     leg.legend(handles=[Line2D([], [], marker="o", ls="-", color=lighten(SIENNA, 0.5), markerfacecolor=SIENNA,
                                markeredgecolor="white", markersize=6, label="Index category"),
                         Line2D([], [], marker="D", ls="-", color=lighten(OPERA, 0.5), markerfacecolor=OPERA,
-                               markeredgecolor="white", markersize=6, label="Adapted OPERA group,\nsame size"),
-                        Line2D([], [], color=OPERA, lw=2.4, alpha=0.35, label="Difference: interval\nexcludes zero")],
+                               markeredgecolor="white", markersize=6, label="Adapted OPERA group, same\nsize; difference interval\nexcludes zero"),
+                        Line2D([], [], marker="D", ls="-", color=lighten(OPERA, 0.5), markerfacecolor="white",
+                               markeredgecolor=OPERA, markersize=6, label="Interval includes zero")],
                loc="center", frameon=False, fontsize=7.4)
     fig.suptitle("Survival by risk group at equal group sizes", x=0.1, ha="left", fontsize=9.6, fontweight="bold")
     _save(fig, out / "supp_clinical_groups")
@@ -970,7 +1014,7 @@ def supp_label_efficiency(fractions: Path, out: Path):
         ax.annotate(f"{int(part.n_cells.iloc[0]):,} tasks", xy=(0, 1), xycoords="axes fraction", xytext=(0, 1),
                     textcoords="offset points", fontsize=6.6, color=MUTED, style="italic", va="bottom")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Mean AUC", fontsize=8)
+        ax.set_ylabel("Mean time-dependent AUC", fontsize=8)
     for ax in axes[-1]:
         ax.set_xlabel("Share of training patients", fontsize=8)
     fig.legend(handles=[Line2D([], [], color=ADAPT, marker="o", markersize=4, lw=1.4,
