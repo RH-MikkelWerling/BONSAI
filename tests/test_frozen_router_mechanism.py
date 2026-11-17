@@ -254,7 +254,7 @@ def test_full_cpu_audit_uses_existing_ipcw_and_exports_aggregate_only_zip(tmp_pa
     assert len(resample_ids) == len(VARIANTS) + 1
     assert len(set(resample_ids)) == 1
     summary = pd.read_csv(output / 'effect_summaries.csv')
-    assert set(summary.weighting) == {'equal_cell', 'disease_balanced'}
+    assert set(summary.weighting) == {'equal_cell', 'disease_outcome_balanced'}
     assert set(summary.variant) == set(VARIANTS)
     assert report['joint_path_comparison']['status'] == 'available'
     joint = pd.read_csv(output / 'joint_path_summaries.csv')

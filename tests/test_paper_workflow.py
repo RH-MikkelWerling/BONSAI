@@ -331,6 +331,34 @@ def test_prediction_reuse_checks_checkpoint_and_output_hashes(tmp_path, monkeypa
         evaluate_row(row, path, config, option)
 
 
+@pytest.mark.parametrize("alias", ["R_E", "R_EA"])
+def test_national_reading_command_matches_its_route_free_evaluation_intent(tmp_path, monkeypatch, alias):
+    import opera.run.paper_prediction_queue as queue
+
+    directory = bundle(tmp_path)
+    _, rows = bundle_runs(directory)
+    row, path, config = next(item for item in rows if item[0]["phase"] == "supervision")
+    config["competing_risk"]["readout_mode"] = "outcome_attention"
+    complete_run(tmp_path / "runs" / row["run_directory"], config["training"]["eval_monitor_metric"])
+    options = Namespace(runs_dir=tmp_path / "runs", output_dir=tmp_path / "predictions",
+                        split="tuning", execute=True, horizons="30,365", batch_size=1,
+                        num_workers=0, device="cpu", export_routes=False)
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        output = Path(command[command.index("--output-dir") + 1])
+        (output / "direct_cr_predictions.parquet").write_bytes(b"predictions")
+
+    monkeypatch.setattr(queue.subprocess, "run", fake_run)
+    assert evaluate_row(row, path, config, options, [alias])["status"] == "evaluated"
+    output = options.output_dir / row["run_directory"] / options.split
+    intent = json.loads((output / "evaluation_intent.json").read_text())
+    assert intent["export_routes"] is False
+    assert "--export-routes" not in commands[0]
+    assert "--export-embeddings" in commands[0]
+
+
 def test_generated_bayes_recipes_keep_reference_simple_and_sensitivities_separate(
     tmp_path,
 ):
@@ -677,3 +705,14 @@ def test_router_decision_reports_by_default_and_records_only_on_request(tmp_path
     evaluate = args("evaluate", only=["supervision:J", "source_screen"], record=False)
     command = build_commands(evaluate, config)[0]
     assert command.count("--only") == 2 and "supervision:J" in command
+
+
+def test_inventory_can_use_a_fresh_rehearsal_conversion_cache(tmp_path):
+    settings = env(tmp_path) | {
+        'OPERA_PAPER_PATIENT_METADATA': str(tmp_path / 'patients.parquet'),
+        'OPERA_PAPER_CELL_METADATA': str(tmp_path / 'cells.csv'),
+        'OPERA_PAPER_DATA_CONTRACT': 'registered-release',
+        'OPERA_PAPER_TABULAR_INVENTORY_CACHE': str(tmp_path / 'fresh/conversion_cache'),
+    }
+    command, = build_commands(args(action='inventory'), settings)
+    assert command[command.index('--tabular-cache') + 1] == str(tmp_path / 'fresh/conversion_cache')

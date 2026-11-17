@@ -332,3 +332,27 @@ def test_vectorised_coverage_equals_the_loop():
     pd.testing.assert_frame_equal(coverage_inventory(frame, no_split).reset_index(drop=True),
                                   _reference_coverage(frame, no_split).reset_index(drop=True),
                                   check_dtype=False)
+
+
+def test_normalization_owned_input_matches_default_without_mutating_default_input():
+    from opera.evaluation.secondary_analysis import normalize_predictions
+    frame = _rows(np.array([10., 50., 400., 200.]), np.array([1, 0, 0, 2]),
+                  (30, 365), cut=False).assign(data_contract='c')
+    original = frame.copy(deep=True)
+    default, audit = normalize_predictions(frame, 'cif_ipcw')
+    pd.testing.assert_frame_equal(frame, original)
+    owned, owned_audit = normalize_predictions(original.copy(), 'cif_ipcw', copy=False)
+    pd.testing.assert_frame_equal(default, owned)
+    assert audit == owned_audit
+
+
+def test_normalization_does_not_copy_sorted_table_to_reset_index(monkeypatch):
+    from opera.evaluation.secondary_analysis import normalize_predictions
+    frame = _rows(np.array([10., 50., 400., 200.]), np.array([1, 0, 0, 2]),
+                  (30, 365), cut=False).assign(data_contract='c')
+    def reject_reset(*args, **kwargs):
+        raise AssertionError('Do not copy the sorted full-cohort table to reset its index')
+    monkeypatch.setattr(pd.DataFrame, 'reset_index', reject_reset)
+    result, _ = normalize_predictions(frame, 'cif_ipcw', copy=False)
+    assert result.index.equals(pd.RangeIndex(len(result)))
+    assert len(result) == len(frame)

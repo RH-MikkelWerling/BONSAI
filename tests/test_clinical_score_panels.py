@@ -284,6 +284,14 @@ def test_clinical_renderer_runs_native_train_and_tuning_exports_end_to_end(tmp_p
     assert inventory.threshold_n.tolist() == [600]
     assert inventory.threshold_split.tolist() == ['train']
     assert inventory.eligible_n.tolist() == [240]
+    matched = pd.read_csv(output / 'evaluation_km_matched_groups.csv')
+    assert set(matched.end) == {'low', 'high'}
+    assert matched.grouping_uses_future_outcomes.all()
+    assert set(matched.split) == {'tuning'}
+    assert matched.n_patients.eq(240).all()
+    assert (output / 'evaluation_km_frontiers.csv').is_file()
+    assert (output / 'nccn_ipi/evaluation_km_matching.pdf').is_file()
+
     metrics = pd.read_csv(output / 'classification_at_thresholds.csv')
     assert set(metrics.split) == {'tuning'}
     assert set(metrics.boundary) == set(NATIVE_FOUR[1:])

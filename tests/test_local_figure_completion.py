@@ -65,7 +65,9 @@ def test_score_merge_rejects_conflicting_numeric_scores(tmp_path):
         prepare(base, [other], tmp_path / 'out.parquet')
 
 
-def test_selected_fit_checks_prediction_checkpoint_and_config(tmp_path, monkeypatch):
+@pytest.mark.parametrize("primary, aliases, expected", [("R_L", ["R_AB_L"], "R_AB_L"),
+                                                       ("J_OA_OWN_L", ["J_OA_OWN_L"], "J_OA_OWN_L")])
+def test_selected_fit_checks_prediction_checkpoint_and_config(tmp_path, monkeypatch, primary, aliases, expected):
     from opera.run import complete_local_figures as runner
     run = 'L/seed42/abc'
     pred = tmp_path / 'predictions' / run / 'tuning/direct_cr_predictions.parquet'
@@ -82,10 +84,10 @@ def test_selected_fit_checks_prediction_checkpoint_and_config(tmp_path, monkeypa
     (pred.parent / 'evaluation_complete.json').write_text(json.dumps(marker))
     row = dict(scientific_hash='abc', run_directory=run)
     monkeypatch.setattr(runner, 'bundle_runs', lambda p: ({}, [(row, config, {'training': {'eval_monitor_metric': 'loss'}})]))
-    monkeypatch.setattr(runner, 'canonical_models', lambda *a: ['R_AB_L'])
+    monkeypatch.setattr(runner, 'canonical_models', lambda *a: aliases)
     monkeypatch.setattr(runner, 'verified_training_selection', lambda p: dict(best_checkpoint_sha256=digest(checkpoint), monitor='loss'))
-    analysis = dict(opera_model='R_L', artifacts=[dict(model='R_L', split='tuning', seed=42, path=str(pred))])
-    assert selected_fit(analysis, tmp_path, [tmp_path])['model'] == 'R_AB_L'
+    analysis = dict(opera_model=primary, artifacts=[dict(model=primary, split='tuning', seed=42, path=str(pred))])
+    assert selected_fit(analysis, tmp_path, [tmp_path])['model'] == expected
     pred.write_bytes(b'changed')
     with pytest.raises(ValueError, match='predictions changed'):
         selected_fit(analysis, tmp_path, [tmp_path])

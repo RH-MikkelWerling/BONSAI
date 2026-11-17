@@ -55,6 +55,7 @@ MODEL_CODES = {"S_L": "S", "D_L": "D", "O_L": "O", "J_L": "J", "R_L": "R",
                "OPERA": "OPERA", "X": "X", "LR": "LR"}
 ORIGIN_MODELS = {f"{readout}_{origin}": (origin, readout)
                  for origin in ("L", "E", "EA") for readout in ("J", "R")}
+ORIGIN_MODELS['J_OA_OWN_L'] = ('L', 'R')
 DEFAULT_CHOICES = Path(__file__).resolve().parents[1] / "configs/paper_figure_choices.yaml"
 
 
@@ -187,6 +188,8 @@ def descriptive_support_curve(cells, *, contrasts=FALLBACK_CONTRASTS, bandwidth=
 
 def origin_estimates(panel, *, seed=None):
     data = _select(panel, seed=seed)
+    if 'group' in data and data['group'].eq('encoder_origin').any():
+        data = data.loc[data['group'].eq('encoder_origin')]
     data = data.loc[data.model.isin(ORIGIN_MODELS)].copy()
     data[["origin", "readout"]] = data.model.map(ORIGIN_MODELS).tolist()
     return data[["origin", "readout", "metric", "horizon_days", "estimate", "lower",
@@ -242,7 +245,9 @@ def strategy_tables(estimates, selection, metadata, *, seed=None, metric="auc"):
     wide = _with_cells(wide, metadata)
     chosen = _select(selection, seed=seed)
     chosen = chosen.loc[chosen.status.isin(['selected_on_tuning', 'selected_held_out_missing'])].copy()
-    chosen["selected_model"] = chosen.selected_model.str.removesuffix("_L")
+    if chosen.empty or not chosen.selected_model.notna().any():
+        raise Missing('No tuning-selected strategy candidates in this export')
+    chosen["selected_model"] = chosen.selected_model.astype('string').str.removesuffix("_L")
     groups = outcome_endpoint_groups()
     chosen["endpoint_group"] = chosen.outcome.map(groups)
     return (to_display(wide),

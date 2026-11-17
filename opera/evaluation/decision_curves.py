@@ -180,7 +180,6 @@ def figure_decision_curve(table, *, index_label="IPI", model_label="OPERA",
     for name in ["model", *[s for s in order if s != "model"][::-1]]:
         colour, line, label = styles[name]
         handles.append(Line2D([], [], color=colour, ls=line, lw=1.6, label=label))
-    _key_legend(a, handles, y=-0.22, ncol=3)
 
     keys = []
     for name in [s for s in table.strategy.unique() if s.startswith("model_minus_")]:
@@ -200,14 +199,19 @@ def figure_decision_curve(table, *, index_label="IPI", model_label="OPERA",
     b.yaxis.set_major_locator(MaxNLocator(5))
     despine(b, "y")
     _panel_title(b, "B", f"{model_label} against each")
+    shown = False
     for label, threshold in (points or {}).items():
         x = threshold * 100
         if not table.threshold.min() * 100 <= x <= table.threshold.max() * 100:
             continue
         for ax in (a, b):
             ax.axvline(x, color=PALETTE["ink_muted"], lw=0.8, ls=(0, (1, 2)), zorder=0)
-        a.text(x, 0.03, label + " ", transform=a.get_xaxis_transform(), rotation=90,
-               va="bottom", ha="right", fontsize=6.3, color=PALETTE["ink_secondary"])
+        shown = True
+    # The cutoff lines are named in the key, not by text that crosses the axes.
+    if shown:
+        handles.append(Line2D([], [], color=PALETTE["ink_muted"], lw=0.8, ls=(0, (1, 2)),
+                              label="Model risk-group cutoffs"))
+    _key_legend(a, handles, y=-0.22, ncol=3)
     _key_legend(b, keys, y=-0.22, ncol=2)
     watermark(fig, mark)
     return fig

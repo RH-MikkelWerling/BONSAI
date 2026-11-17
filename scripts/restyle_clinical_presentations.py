@@ -9,6 +9,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input-dir', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--figure-width', type=float, default=7.2,
+                        help='Paper-width canvas in inches, preserving aspect and point-size type')
     args = parser.parse_args()
     sources = sorted(args.input_dir.rglob('*.plot.json'))
     if not sources:
@@ -25,6 +27,8 @@ def main():
         target = args.output_dir / relative.parent / relative.name.removesuffix('.plot.json')
         target.parent.mkdir(parents=True, exist_ok=True)
         fig = render_plot_state(source)
+        width, height = fig.get_size_inches()
+        fig.set_size_inches(args.figure_width, height * args.figure_width / width)
         for ax in fig.axes:
             for getter, setter in [(ax.get_xlabel, ax.set_xlabel), (ax.get_ylabel, ax.set_ylabel)]:
                 label = getter()
@@ -32,6 +36,27 @@ def main():
                     # Endpoint definition stays explicit in the manuscript caption.
                     suffix = ' (95% CI)' if '95%' in label else ''
                     setter('Treatment-failure-free survival' + suffix)
+            labels = [t.get_text() for t in ax.get_xticklabels()]
+            if any('intermediate' in label.lower() for label in labels):
+                compact = [label.replace('Low-\nintermediate', 'Low–\nint.')
+                                .replace('High-\nintermediate', 'High–\nint.')
+                                .replace('Low-intermediate', 'Low–int.')
+                                .replace('High-intermediate', 'High–int.') for label in labels]
+                ax.set_xticks(ax.get_xticks(), compact)
+        if source.name == 'risk_groups.plot.json':
+            # Presentation legends store their old figure coordinates. Anchor
+            # them to the resized curve axes so they cannot spill over ticks.
+            for legend, ax in zip(fig.legends[:2], fig.axes[:2]):
+                box = ax.get_position()
+                legend.set_loc('lower left')
+                legend.set_bbox_to_anchor((box.x0 + .01 * box.width,
+                                          box.y0 + .01 * box.height), transform=fig.transFigure)
+                legend.set_title('')
+                for text in legend.get_texts():
+                    text.set_fontsize(7)
+            for ax in fig.axes:
+                if 'Treatment-failure-free survival' in ax.get_xlabel():
+                    ax.set_xlabel('Treatment-failure-free survival\n(95% CI)')
         _finish_clinical(fig)
         for suffix in ['.pdf', '.png']:
             fig.savefig(target.with_suffix(suffix), dpi=300, bbox_inches='tight')

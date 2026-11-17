@@ -30,7 +30,7 @@ def test_numbers_and_table_rows_come_from_the_aggregate_outputs(tmp_path):
     frame.to_csv(tmp_path / "p.csv", index=False)
     pd.DataFrame([{"cohort": "CLL", "cohort_group": "CLL", "outcome": o, "horizon_days": 365,
                    "n_events_train": 12, "n_patients_train": 120,
-                   "endpoint_group": "Infection", "outcome_family": "t"}
+                   "endpoint_group": "Infection", "outcome_family": "t", "loss_endpoint": o}
                   for o in ["a", "b"]]).to_csv(tmp_path / "c.csv", index=False)
     run({"estimand": "binary_known_status_unweighted",
          "artifacts": [{"path": str(tmp_path / "p.csv")}],

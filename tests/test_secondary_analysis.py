@@ -456,6 +456,7 @@ class SecondaryAnalysisTest(unittest.TestCase):
                         "n_events_train": 20,
                         "outcome_family": "test",
                         "endpoint_group": outcome,
+                        "loss_endpoint": outcome,
                     }
                     for outcome in ["a", "b"]
                 ]

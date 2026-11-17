@@ -54,6 +54,9 @@ def main():
     collect('paper/tables/generated', '06_manuscript_tables',
             'Current generated manuscript numerical tables/macros; Table 1 refresh remains pending',
             ['*.tex', 'paper_numbers.json'])
+    collect('scratch/recovered_final_figures_20261116_v4/rendered', '06b_recovered_native_plates',
+            'Verified held-out aggregates; headline history panel explicitly unavailable; local fraction curve absent',
+            ['*.pdf', '*.png', 'figure_manifest.json'])
     collect('scratch/paper_results_export_20261116_v3/exploratory_representation', '07_exploratory_TUNING',
             'Exploratory tuning core; not held-out mechanistic confirmation', ['*.pdf', '*.csv', 'report.md'])
     collect('scratch/paper_results_export_20261116_v3/exploratory_representation/correction_reliance',
@@ -64,8 +67,8 @@ def main():
     collect('paper/figures/results', '09_partial_figures',
             'PARTIAL: gain-source ablation components are missing', ['fig_gain_sources.pdf', 'fig_gain_sources.png'])
     gaps = [
-        'Main headline: final common-roster comparison plate still needs assembly; direct R_EA versus S_L paired CI is absent.',
-        'Full registered external-pretraining plate: needs compatible absolute-stage and cell-level inputs; standalone fraction plots are available.',
+        'Headline plate restored; patient-history panel and national per-cell absolute estimates for its complete overview remain absent. Direct R_EA versus S_L paired CI is absent.',
+        'Registered four-panel external plate restored; local fraction arms remain absent, so the cohort reference is 100% only.',
         'Gain-source plate: disease/outcome-specific correction ablation exports remain missing.',
         'Clinical J_EA and R_AB_EA: final exports absent; server jobs need completion.',
         'Embeddings: final embedding_figures.zip absent.',

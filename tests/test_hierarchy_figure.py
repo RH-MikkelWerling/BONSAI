@@ -62,7 +62,8 @@ def test_opera_alias_copies_the_chosen_model():
     frame = pd.DataFrame({"model": ["J_L", "R_L", "X"], "risk": [0.1, 0.2, 0.3]})
     out, contrasts = with_opera_alias(frame, "R_L")
     assert out.loc[out.model == "OPERA", "risk"].tolist() == [0.2]
-    assert contrasts == {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)"}  # no S_L
+    assert contrasts == {"O1": "gain(OPERA,X)", "O2": "gain(OPERA,J_L)",
+                         "O2_MATCHED": "gain(OPERA,J_L)"}  # no S_L
     assert with_opera_alias(frame, "R_O_L")[1] == {}
     assert with_opera_alias(frame, None)[0] is frame
 
@@ -103,3 +104,17 @@ def test_unused_router_variants_are_not_analysed():
     assert dropped == {"R_A_L", "R_ABT_L"}
     assert set(kept.model) == {"J_L", "R_L", "X", "R_AB_L", "RBH_AB_L", "N_A_L"}
     assert analysed_models_only(frame, contrasts, {"keep_all_models": True})[1] == set()
+
+
+def test_selected_encoder_contrasts_are_fixed_by_model_identity():
+    from opera.run.analyse_locked_predictions import with_opera_alias
+    for origin in ["E", "EA"]:
+        frame = pd.DataFrame({"model": [f"R_{origin}", f"J_{origin}", f"R_PF_OFF_{origin}", "J_L"]})
+        _, contrasts = with_opera_alias(frame, f"R_{origin}")
+        assert contrasts["O2"] == "gain(OPERA,J_L)"
+        assert contrasts["O2_MATCHED"] == f"gain(OPERA,J_{origin})"
+        assert contrasts["O_READ_MATCHED"] == f"gain(OPERA,R_PF_OFF_{origin})"
+    frame = pd.DataFrame({"model": ["J_OA_OWN_L", "J_L", "R_PF_OFF_L", "J_OA_L"]})
+    _, contrasts = with_opera_alias(frame, "J_OA_OWN_L")
+    assert contrasts["O_CORRECTIONS_MATCHED"] == "gain(OPERA,J_OA_L)"
+    assert contrasts["O2_LOCAL"] == "gain(J_OA_OWN_L,J_L)"

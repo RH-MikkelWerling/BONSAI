@@ -8,11 +8,12 @@ import yaml
 from opera.run import rerun_full_tuning_rehearsal as runner
 
 
+@pytest.mark.parametrize('defer_national', [False, True])
 @pytest.mark.parametrize('clinical_gaps', [False, True])
 @pytest.mark.parametrize('diagnostic_failure', [False, True])
 @pytest.mark.parametrize('verify_sources', [False, True])
 def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
-        tmp_path, monkeypatch, clinical_gaps, diagnostic_failure, verify_sources):
+        tmp_path, monkeypatch, clinical_gaps, diagnostic_failure, verify_sources, defer_national):
     source = tmp_path / 'old'
     (source / 'analysis_inventory').mkdir(parents=True)
     legacy_tabular = source / 'analysis_inventory/tabular.csv'
@@ -39,6 +40,7 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
             complete = output / 'analysis'
             (complete / 'figure_inputs').mkdir(parents=True)
             (complete / 'figure_inputs/supplement_tables.yaml').write_text('tables: []')
+            (complete / 'completion.json').write_text(json.dumps({'status':'complete'}))
             (complete / 'overnight.env').write_text(f'OPERA_PAPER_CELL_METADATA={tmp_path}/cells.csv\n')
         elif name.endswith('prepare_attribution_refresh'):
             summary = output / 'ig/attributions/summary_365d'
@@ -53,7 +55,12 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
             review = output / 'review'
             review.mkdir()
             (review / 'review_manifest.json').write_text(json.dumps(dict(
-                status='partial_review' if clinical_gaps else 'review_ready')))
+                status='partial_review' if clinical_gaps or defer_national else 'review_ready',
+                missing=[{'family':'clinical'}] if clinical_gaps else [])))
+            if defer_national:
+                (review / 'main').mkdir()
+                (review / 'main/figure_manifest.json').write_text(json.dumps(dict(
+                    figures=[{'id':'fig_headline'}], skipped={'fig_external':'missing inputs: national.csv'})))
         return SimpleNamespace(returncode=0)
     verification_calls = []
     monkeypatch.setattr(runner, 'verify_sources', lambda repo: verification_calls.append(repo))
@@ -65,10 +72,17 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
     monkeypatch.setattr(runner, 'digest', checked_digest)
     monkeypatch.setattr(runner.subprocess, 'run', execute)
     monkeypatch.setattr('sys.argv', ['full', '--analysis-root', str(source), '--output-dir', str(output)]
-                        + (['--verify-sources'] if verify_sources else []))
-    runner.main()
+                        + (['--verify-sources'] if verify_sources else [])
+                        + (['--defer-national'] if defer_national else []))
+    if clinical_gaps or diagnostic_failure:
+        with pytest.raises(SystemExit) as stopped:
+            runner.main()
+        assert stopped.value.code == 1
+    else:
+        runner.main()
     result = json.loads((output / 'full_rehearsal.json').read_text())
-    assert result['status'] == ('finished_with_gaps' if clinical_gaps or diagnostic_failure else 'complete')
+    assert result['status'] == ('finished_with_gaps' if clinical_gaps or diagnostic_failure
+                                else 'complete_local_national_pending' if defer_national else 'complete')
     assert len(verification_calls) == (2 if verify_sources else 0)
     assert result['source_verification_enabled'] is verify_sources
     if not verify_sources:
@@ -89,6 +103,11 @@ def test_fresh_full_rehearsal_uses_locked_inputs_and_new_auxiliary_outputs(
     assert any(c[2].endswith('complete_local_figures') and '--clinical-only' not in c for c in calls)
     assert any(c[2].endswith('prepare_attribution_refresh') and '--execute' in c for c in calls)
     assert any(c[2].endswith('package_figure_review') for c in calls)
+    for action in ('task-structure', 'correction-arrows'):
+        assert any(c[2].endswith('paper_experiments') and c[3] == action for c in calls)
+    assemble, = [c for c in calls if c[2].endswith('assemble_figure_review')]
+    assert assemble[assemble.index('--whole-cohort-dir') + 1] == str(output / 'whole_cohort')
+
     assert any(c[2].endswith('audit_router_vectors') and
                str(output / 'analysis/routed_vectors') in c for c in calls)
     whole, = [c for c in calls if c[2].endswith('evaluate_whole_cohort_outcomes')]
@@ -139,3 +158,13 @@ def test_rejects_non_tuning_declaration_before_opening_artifact(split):
         runner.tuning_inventory({'artifacts': [
             {'model': 'J_L', 'format': 'direct_cif', 'split': split,
              'path': '/never/open/this/prediction.parquet'}]})
+
+
+def test_figure_checklist_includes_missing_not_just_present_files(tmp_path):
+    folder = tmp_path / 'main'
+    folder.mkdir()
+    (folder / 'figure_manifest.json').write_text(json.dumps(dict(
+        figures=[dict(id='fig_headline')], skipped={'fig_external':'national fit pending'})))
+    rows = runner.figure_checklist(tmp_path)
+    assert [(r['figure_id'], r['status']) for r in rows] == [('fig_headline','rendered'),('fig_external','missing')]
+    assert rows[1]['reason'] == 'national fit pending'

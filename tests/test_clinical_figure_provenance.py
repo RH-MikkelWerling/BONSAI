@@ -70,13 +70,16 @@ def test_clinical_refresh_zip_excludes_patient_arrays_and_unknown_tables(tmp_pat
     (directory / 'cll').mkdir(parents=True)
     (directory / 'cll/risk.png').write_bytes(b'figure')
     (directory / 'size_matched_survival_comparisons.csv').write_text('group,difference\nLow,0.1\n')
+    (directory / 'evaluation_km_matched_groups.csv').write_text('end,additional_n\nlow,30\n')
+    (directory / 'evaluation_km_frontiers.csv').write_text('end,model_n,model_survival\nhigh,50,.6\n')
     (directory / 'patients_INTERNAL.npz').write_bytes(b'private')
     (directory / 'patients.csv').write_text('subject_id,risk\na,.1\n')
     (tmp_path / 'patient_metadata.parquet').write_bytes(b'private metadata outside figures')
     output = tmp_path / 'clinical.zip'
     package_clinical(directory, output)
     with zipfile.ZipFile(output) as archive:
-        assert set(archive.namelist()) == {'cll/risk.png', 'size_matched_survival_comparisons.csv'}
+        assert set(archive.namelist()) == {'cll/risk.png', 'size_matched_survival_comparisons.csv',
+                                         'evaluation_km_matched_groups.csv', 'evaluation_km_frontiers.csv'}
 
 
 @pytest.mark.parametrize('grouping_mode', ['current', 'cohort_size_matched'])

@@ -163,3 +163,43 @@ def test_stage_sixteen_repeats_the_runner_up_on_new_seeds():
         assert _seedless(entry["config"]) == _seedless(source["config"]), alias
     order = [e["name"].rsplit("_", 1)[-1] for e in sorted(after[len(before):], key=lambda e: e["queue_order"])]
     assert order == ["s43", "s44"]
+
+
+def test_national_opera_contrasts_compare_like_with_like():
+    from opera.run.analyse_locked_predictions import national_counterparts, panel_groups
+
+    manifest = {"E2": "gain(R_E,R_L)", "E4": "gain(R_EA,R_L)", "I1": "gain(R_E,J_E)-gain(R_L,J_L)",
+                "OAOWN_AB": "gain(J_OA_OWN_L,R_L)", "A2": "gain(R_EA,R_E)"}
+    fixed = national_counterparts(manifest, "J_OA_OWN_L")
+    assert fixed["E2"] == "gain(R_E,J_OA_OWN_L)" and fixed["E4"] == "gain(R_EA,J_OA_OWN_L)"
+    assert fixed["I1"] == "gain(R_E,J_E)-gain(J_OA_OWN_L,J_L)"
+    assert fixed["OAOWN_AB"] == manifest["OAOWN_AB"] and fixed["A2"] == manifest["A2"]  # R_L stays routing
+    assert national_counterparts(manifest, "R_AB_L") == manifest                         # a router primary
+    for selected in ["R_E", "R_EA"]:
+        assert national_counterparts(manifest, selected) == fixed
+        assert panel_groups({"opera_model": selected}) == panel_groups({"opera_model": "J_OA_OWN_L"})
+    groups = panel_groups({"opera_model": "J_OA_OWN_L"})
+    assert groups["encoder_origin"] == ["J_L", "J_OA_OWN_L", "J_E", "R_E", "J_EA", "R_EA"]
+    assert groups["encoder_origin_routing"] == ["R_AB_L", "R_AB_E", "R_AB_EA"]
+
+
+def test_national_mechanism_ladder_clones_the_local_fits():
+    from opera.run.paper_prediction_queue import canonical_models
+    from opera.run.prepare_paper_run_bundle import build_bundle
+
+    args = dict(ARGS, task_ablation=True, task_design=True, task_seeds=True, ladder_seeds=True,
+                selection_seeds=True)
+    entries = build_bundle(base_config(), reference(), {"L": "/L.ckpt", "E": "/E.ckpt", "EA": "/EA.ckpt"},
+                           **args, routed_model="J_OA_OWN_L")
+    external = {e["name"]: e for e in entries if e["phase"] == "external"}
+    expected = {f"seed42/{o}/{m}" for o in ("E", "EA") for m in ("J", "R", "AB", "OFF")}
+    expected |= {"seed42/EA/NODIS", "seed42/EA/NOOUT"}
+    assert set(external) == expected
+    names = {n: canonical_models(e, e["config"], {"selected_router": LOCK})[0] for n, e in external.items()}
+    assert names["seed42/EA/OFF"] == "R_PF_OFF_EA" and names["seed42/EA/NODIS"] == "J_OA_OWN_NODIS_EA"
+    local = {e["name"]: e["config"] for e in entries if e["origin"] == "L"}
+    for mode, fit in (("OFF", "fix_R_PF_OFF"), ("NODIS", "fix_J_OA_OWN_NODIS")):
+        national, source = external[f"seed42/EA/{mode}"]["config"], local[f"seed42/L/{fit}"]
+        assert national["competing_risk"] == source["competing_risk"]        # same model
+        assert national["dapt_ckpt"] == "/EA.ckpt" and source.get("dapt_ckpt") != "/EA.ckpt"
+        assert national["training"] == source["training"] and national["outcomes"] == source["outcomes"]

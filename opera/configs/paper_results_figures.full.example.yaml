@@ -272,30 +272,35 @@ figures:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: D-S
+    title_size: 22
 - id: supp_pooling_cells_02
   function: figure_pooling_cells
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: O-S
+    title_size: 22
 - id: supp_pooling_cells_03
   function: figure_pooling_cells
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: J-S
+    title_size: 22
 - id: supp_pooling_cells_04
   function: figure_pooling_cells
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: interaction
+    title_size: 22
 - id: supp_pooling_cells_05
   function: figure_pooling_cells
   tables:
     cells: ${OPERA_PAPER_PLOT_TABLE_ROOT}/paired_cells.csv
   options:
     contrast: OPERA-J
+    title_size: 22
 # New OPERA design (1 Nov 2026). gain_sources_cells.csv and design_search.csv
 # come from plot-tables; the task-structure tables from
 # opera.run.export_opera_task_structure and the arrow aggregates from

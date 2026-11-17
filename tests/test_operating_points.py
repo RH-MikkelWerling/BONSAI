@@ -71,6 +71,16 @@ def test_unknown_status_is_excluded_and_small_counts_suppressed():
     assert safe.mcc.notna().all()
 
 
+def test_tuning_rehearsal_is_explicit_and_default_does_not_relabel_it():
+    predictions = _predictions(np.random.default_rng(4))
+    predictions = predictions.loc[predictions.split == 'tuning']
+    points, _ = operating_points(predictions, {})
+    assert points.empty
+    points, _ = operating_points(predictions, {}, evaluation_split='tuning')
+    assert points.evaluation_role.eq('apparent_tuning_rehearsal').all()
+    assert (points[['tp', 'fp', 'fn', 'tn']].sum(axis=1) == 300).all()
+
+
 def test_specificity_rule_reaches_target_on_tuning_data():
     rng = np.random.default_rng(3)
     label = rng.random(500) < 0.2

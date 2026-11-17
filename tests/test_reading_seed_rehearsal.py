@@ -24,7 +24,7 @@ def test_replicas_pair_and_identical_predictions_have_zero_gain():
     assert identities["J_OA_OWN_s43_L"] == 43
     assert set(context.seed) == {0}
     assert set(context.training_seed) == {42, 43}
-    metadata = pd.DataFrame([dict(cohort="DLBCL", outcome="infection", horizon_days=365)])
+    metadata = pd.DataFrame([dict(cohort="DLBCL", outcome="infection", horizon_days=365, loss_endpoint="infection")])
     tables, _ = analyse(frame, metadata, replicates=20)
     paired = tables["contrasts"].query("contrast == 'OAOWN_NF' and metric == 'auc'")
     assert len(paired) == 1 and paired.iloc[0].gain == 0

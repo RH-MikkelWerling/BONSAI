@@ -65,7 +65,7 @@ def test_paired_tuning_summary_from_native_exports(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['summary', '--root', str(tmp_path)])
     main()
     summary = pd.read_csv(tmp_path / 'paired_tuning_analysis/paired_means.csv')
-    assert set(summary.aggregation) == {'equal_cell', 'disease_balanced'}
+    assert set(summary.aggregation) == {'equal_cell', 'disease_outcome_balanced'}
     # Both rank perfectly; the better probabilities improve Brier without AUC gain.
     auc = summary.loc[summary.metric == 'auc', 'gain']
     brier = summary.loc[summary.metric == 'brier', 'gain']

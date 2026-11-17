@@ -25,3 +25,20 @@ def test_prepares_selected_fit_tuning_ig_without_execution(tmp_path, monkeypatch
     manifest=json.loads((output / 'refresh_manifest.json').read_text())
     assert manifest['fit']==fit
     assert [c[3] for c in manifest['commands']]==['attributions','attribution-summary']
+    calls = []
+    def execute(command, check):
+        calls.append(command)
+        (output / 'attributions').mkdir(exist_ok=True)
+    monkeypatch.setattr(refresh.subprocess, 'run', execute)
+    monkeypatch.setattr('sys.argv',['refresh','--analysis-root',str(root),
+        '--output-dir',str(output),'--execute'])
+    refresh.main()
+    assert len(calls) == 2
+    assert json.loads((output / 'refresh_manifest.json').read_text())['status'] == 'complete'
+    refresh.main()
+    assert len(calls) == 2  # Main runner reuses the work from the second allocation.
+    cfg['run']['split'] = 'test'
+    (output / 'attribution.yaml').write_text(yaml.safe_dump(cfg))
+    import pytest
+    with pytest.raises(ValueError, match='different inputs or recipe'):
+        refresh.main()

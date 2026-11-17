@@ -6,6 +6,22 @@ from opera.evaluation.followup import median_followup, reverse_km_quantiles
 from opera.run.render_clinical_score_panels import followup_horizon, native_entries
 
 
+def test_named_secondary_endpoint_is_not_overwritten_by_index_default():
+    specs = [dict(id="nccn_ipi", score_label="NCCN-IPI"),
+             dict(id="nccn_ipi_treatment_failure_2y", score_label="NCCN-IPI",
+                  include_in_headline=False)]
+    entries = native_entries(specs, {
+        "NCCN-IPI": dict(outcome="overall_survival", horizons_days=[365]),
+        "nccn_ipi_treatment_failure_2y": dict(outcome="treatment_failure",
+            horizons_days=[730], endpoint_match="proxy"),
+    })
+    assert entries[0]["outcome"] == "overall_survival"
+    assert entries[1]["outcome"] == "treatment_failure"
+    assert entries[1]["horizon_days"] == 730
+    assert entries[1]["endpoint_match"] == "proxy"
+    assert not entries[1]["include_in_headline"]
+
+
 def test_reverse_km_ignores_deaths_when_summarising_followup():
     # Ten patients censored at 100..1000 days; deaths early do not shorten it.
     time = np.r_[np.arange(100, 1001, 100), [10, 20, 30]]
@@ -26,10 +42,11 @@ def test_native_entries_and_followup_horizon():
               "outcome": "tf", "horizon_days": 730, "manuscript_figures": True}]
     native = {"IPI": {"outcome": "overall_survival", "outcome_label": "Overall survival",
                       "death_in_endpoint": True, "original_endpoint": "OS, 5 years",
-                      "horizons_days": [365, 730]}}
+                      "horizons_days": [365, 730], "endpoint_match": "same_endpoint"}}
     entry, = native_entries(specs, native)
     assert entry["id"] == "ipi_dlbcl_native" and entry["outcome"] == "overall_survival"
     assert entry["horizon_days"] == 730 and not entry["manuscript_figures"]
+    assert entry["endpoint_match"] == "same_endpoint"
     # Two years needs at least a third of the patients followed past 730 days.
     enough = pd.DataFrame({"time_days": np.r_[np.full(60, 500), np.full(40, 800)],
                            "event": 0})

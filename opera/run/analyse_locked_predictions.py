@@ -950,7 +950,9 @@ def run(config, output_dir):
     pairs = [tuple(pair) for pair in point_settings.get(
         "pairs", [["J_L", "X"], ["J_L", "S_L"], ["R_L", "J_L"]])]
     minimum_events = int(point_settings.get("minimum_tuning_events", 5))
-    if checkpoint_root is not None:
+    if not rules:
+        operating_results = []
+    elif checkpoint_root is not None:
         from opera.evaluation.distributed_analysis import distributed_operating_points
         operating_results = cached_call(checkpoint_root, 'operating_all',
             lambda: distributed_operating_points(predictions, draws,
@@ -962,12 +964,13 @@ def run(config, output_dir):
     for points, differences in operating_results:
         point_tables.append(points)
         difference_tables.append(differences)
-    points = pd.concat(point_tables, ignore_index=True)
+    points = pd.concat(point_tables, ignore_index=True) if point_tables else pd.DataFrame()
     tables["operating_points_counts"] = points
     tables["operating_points"] = suppress_small_counts(
         points, int(point_settings.get("minimum_cell_count", 5))
     )
-    tables["operating_point_differences"] = pd.concat(difference_tables, ignore_index=True)
+    tables["operating_point_differences"] = (pd.concat(difference_tables, ignore_index=True)
+                                             if difference_tables else pd.DataFrame())
     stage("seed-averaged effects")
     tables["seed_averaged_effects"] = seed_averaged_effects(
         tables["contrasts"], tables["bootstrap_draws"]

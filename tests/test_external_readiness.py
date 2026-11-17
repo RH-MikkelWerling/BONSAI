@@ -74,3 +74,15 @@ def test_national_coverage_counts_unknown_pre_index_tokens_only():
     assert coverage.national_vocabulary_coverage.iloc[0] == pytest.approx(0.5)
     assert np.isnan(national_coverage(subjects, {1: -1.0}, VOCAB)
                     .national_vocabulary_coverage.iloc[0])
+
+
+def test_audit_explicit_sequence_directory_and_identifier_types(tmp_path):
+    sequences, membership = _sequences(tmp_path, [
+        {'subject_id': '1', 'code': [6, 3, 7]},
+        {'subject_id': '2', 'code': [6, 7]},
+    ])
+    pd.DataFrame({'subject_id': [1, 2]}).to_csv(membership, index=False)
+    destination = tmp_path / 'new_audit'
+    report = audit_sequences(destination, membership, sequence_dir=sequences)
+    assert report['missing'] == 0
+    assert (destination / 'audit_report.json').exists()

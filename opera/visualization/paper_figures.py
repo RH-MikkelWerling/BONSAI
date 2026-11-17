@@ -410,7 +410,8 @@ def shared_gain_limit(cells, *, metric="auc", horizon=ALL_HORIZONS, quantile=0.9
 
 
 def figure_pooling_cells(cells, *, metric="auc", horizon=ALL_HORIZONS, order="support",
-                         include_router=True, domain=None, contrast=None, mark=None):
+                         include_router=True, domain=None, contrast=None, mark=None,
+                         title_size=None):
     """Supplement: the full disease-by-outcome maps behind the pooling figure.
 
     Rows and columns run from fewest to most training events by default
@@ -457,7 +458,7 @@ def figure_pooling_cells(cells, *, metric="auc", horizon=ALL_HORIZONS, order="su
                 _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(diseases),
                                axis="y", labels=diseases, fontsize=5.8,
                                label=_support_label(cells, "cohort") if index == 0 else None)
-        _panel_title(titled, letter, title)
+        _panel_title(titled, letter, title, **({'fontsize': title_size} if title_size else {}))
     cax = fig.add_axes([0.935, 0.48, 0.012, 0.24])
     bar = fig.colorbar(image, cax=cax)
     bar.set_label(f"{_horizon_phrase(horizon)} {METRIC_LABEL[metric]}", fontsize=7.5)
@@ -822,8 +823,8 @@ def figure_headline(cells, models=None, subgroups=None, scores=None, *, horizon=
     horizon_models = HEADLINE_MODELS if focus_model == "J" else (
         ("Joint", MODEL_STYLE["J"][0], ("J-X",)),
         (focus_label, MODEL_STYLE["R"][0], ("OPERA-X",)),
-        ("OPERA, national", ORIGIN_STYLE["E"][0], ("E-L:R", "R-X")),
-        ("OPERA, adapted national", "#B18B4D", ("EA-L:R", "R-X")),
+        ("OPERA, national", ORIGIN_STYLE["E"][0], ("E-L:R", "OPERA-X")),
+        ("OPERA, adapted national", "#B18B4D", ("EA-L:R", "OPERA-X")),
     )
     # The selected OPERA alias may itself be a national variant. Show that
     # fitted model once, rather than repeating it under a second legend entry.
@@ -1071,13 +1072,13 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
     cohort effect per cell (``cells``), by training events and by disease.
     """
     panel_rows = cells if panel is None else panel
-    efficiency = models is not None and {"J_L_F10", "J_EA_F10"} <= set(models)
+    efficiency = models is not None and {"J", "J_EA", "J_EA_F10"} <= set(models)
     national, local = ORIGIN_STYLE["EA"][0], ORIGIN_STYLE["L"][0]
     disease_rows = cells.loc[cells.contrast.eq('EA-L:J') & cells.metric.eq(metric)
                              & cells.horizon_days.eq(horizon)]
     n_diseases = disease_rows.cohort.nunique() if 'cohort' in disease_rows else 0
-    height = max(7.2, 4.1 + .19 * n_diseases)
-    fig = plt.figure(figsize=(8.8, height))
+    height = max(7.0, 3.8 + .14 * n_diseases)
+    fig = plt.figure(figsize=(7.2, height))
     outer = fig.add_gridspec(2, 1, height_ratios=[1.0, max(1., .055*n_diseases)],
                              hspace=0.42, left=0.09, right=0.975, top=0.94, bottom=0.08)
     top = outer[0].subgridspec(1, 2, width_ratios=[1.0, 1.15], wspace=0.55)
@@ -1114,12 +1115,17 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
             # the caption rather than floating prose under the panel.
             ax.scatter([share], [target], s=50, color="white", edgecolor=national, lw=1.5,
                        zorder=5)
-            ax.annotate(f"{'≤' if already else '≈'}{share:.0f}%", xy=(share, target),
-                        xytext=(0, 7), textcoords="offset points", ha="center",
-                        va="bottom", fontsize=7, color=national, fontweight="bold")
+            if not already:
+                ax.annotate(f"≈{share:.0f}%", xy=(share, target),
+                            xytext=(0, 7), textcoords="offset points", ha="center",
+                            va="bottom", fontsize=7, color=national, fontweight="bold")
         part = cells.loc[(cells.metric == metric) & (cells.horizon_days == horizon)]
         codes = [f"EA-L:F{f}" for f in EFFICIENCY_FRACTIONS[:-1]] + ["EA-L:J"]
-        for f, code, low, high in list(zip(fn, codes, ql[:, 1], qn[:, 1]))[:-1]:
+        local_at = dict(zip(fl, ql[:, 1]))
+        for f, code, high in list(zip(fn, codes, qn[:, 1]))[:-1]:
+            if f not in local_at:
+                continue  # no local fraction fit: never invent a paired gap
+            low = local_at[f]
             gains = part.loc[part.contrast == code, "gain"].dropna()
             gap = float(gains.median()) if len(gains) else high - low
             # A bar joins the two models at this share; its difference beside it.
@@ -1132,8 +1138,6 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
                 fontsize=6.6, va="bottom", ha="left", fontweight="bold", linespacing=1.0)
         ax.text(fl[-1] * 1.08, ql[-1, 1] - 0.004, "Cohort", color=local, fontsize=6.6, va="top",
                 ha="left", fontweight="bold")
-        ax.text(EFFICIENCY_FRACTIONS[0] * 0.9, target, "cohort encoder, all patients", fontsize=5.8,
-                color=local, va="bottom", ha="left")
         ax.set_xscale("log")
         ax.set_xticks(EFFICIENCY_FRACTIONS, [f"{f}%" for f in EFFICIENCY_FRACTIONS])
         ax.minorticks_off()
@@ -1232,7 +1236,7 @@ def figure_external(estimates, cells, panel=None, models=None, *, horizon=365, m
         cx.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:,.0f}"))
         cx.set_xlabel("Training events in the cell")
     cx.axhline(0, color=PALETTE["zero_line"], lw=0.7)
-    cx.set_ylabel(f"{METRIC_LABEL[metric]}, adapted national vs cohort")
+    cx.set_ylabel(f"{METRIC_LABEL[metric]}: adapted vs cohort")
     cx.yaxis.set_major_locator(MaxNLocator(5))
     despine(cx, "y")
     _panel_title(cx, "C", "By training events")
@@ -1811,8 +1815,8 @@ def figure_borrowing_detail(table, hypotheses, levels=None, *, domains=None, min
     return fig
 
 
-def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "R1"), mark=None):
-    """Supplement: pooling and routed-versus-joint effects over follow-up."""
+def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "OPERA-J"), mark=None):
+    """Supplement: pooling and OPERA-versus-joint effects over follow-up."""
     fig, axes = plt.subplots(1, len(contrasts), figsize=(max(7.2, 2.15 * len(contrasts)), 3.8), sharey=True,
                              sharex=False, squeeze=False)
     axes = axes.ravel()
@@ -1838,7 +1842,10 @@ def figure_horizons(cells, *, metric="auc", contrasts=("D-S", "O-S", "J-S", "R1"
             xlabel=f"{METRIC_LABEL[metric]} " + ("(mean, 95% CI)" if paired_means else "(median, IQR)"), show_counts=False)
         if index:
             ax.tick_params(axis="y", labelleft=False)
-        _panel_title(ax, chr(65 + index), ("Routed vs joint" if contrast == "R1" else CONTRAST_STYLE[contrast][1]).replace(" vs ", "\nvs "))
+        title = {"R1": "Routed vs joint", "OPERA-J": "OPERA vs joint"}.get(contrast)
+        if title is None:
+            title = CONTRAST_STYLE[contrast][1]
+        _panel_title(ax, chr(65 + index), title.replace(" vs ", "\nvs "))
         ax.xaxis.set_major_locator(MaxNLocator(3))
     fig.legend(handles=handles, loc="lower left", ncol=6, frameon=False, fontsize=7,
                bbox_to_anchor=(0.2, 0.0))
@@ -3185,7 +3192,9 @@ def _mean_with_ci(values, *, draws=1000, seed=0):
 
 def _survival_label(outcome_label):
     """Axis label for a death-inclusive endpoint shown as survival."""
-    label = str(outcome_label)
+    import re
+    # Endpoint roles such as "(additional endpoint)" belong in the caption.
+    label = re.sub(r"\s*\([^)]*endpoint[^)]*\)", "", str(outcome_label)).strip()
     if 'second-line treatment or death' in label.lower():
         return 'Treatment-failure-free survival'
     if "survival" in label.lower():
@@ -3193,10 +3202,11 @@ def _survival_label(outcome_label):
     return f"{label}-free survival".capitalize()
 
 
-def _count_text(count, minimum=5):
-    """Patient or event count for display; counts below ``minimum`` are not shown."""
+def _count_text(count, minimum=None):
+    """Patient or event count for display. Small counts are shown as they are;
+    pass ``minimum`` only where a release rule requires "<minimum"."""
     count = int(count)
-    return f"<{minimum}" if 0 < count < minimum else f"{count:,}"
+    return f"<{minimum}" if minimum and 0 < count < minimum else f"{count:,}"
 
 
 def _cell_borders(ax, shape, colour="white", width=1.6):
@@ -3219,7 +3229,7 @@ def _count_grid(ax, counts, *, xlabels, xlabel=None, show_y=True, height=0.3,
     Columns line up with the grid above and the rows are much shorter, so the
     survival pattern and the support behind it read at a glance. The counts
     are shaded lightly in one tone, so they never compete with the survival
-    colours. Counts below five are shown as <5. The x labels move to this grid.
+    colours. Every count is shown as it is. The x labels move to this grid.
     """
     from matplotlib.colors import LinearSegmentedColormap as _Map
 
@@ -3229,7 +3239,7 @@ def _count_grid(ax, counts, *, xlabels, xlabel=None, show_y=True, height=0.3,
     grid.imshow(counts, cmap=tone, vmin=0, vmax=max(1.0, counts.max()), aspect="auto",
                 interpolation="nearest")
     for (i, j), value in np.ndenumerate(counts):
-        grid.text(j, i, _count_text(value) if value else "0", ha="center", va="center",
+        grid.text(j, i, _count_text(value), ha="center", va="center",
                   fontsize=fontsize, color=PALETTE["ink_secondary"])
     grid.set_xticks(range(counts.shape[1]), _risk_tick_labels(xlabels), fontsize=max(6.6, label_size))
     labels = [t.get_text() for t in ax.get_yticklabels()]
@@ -3328,26 +3338,73 @@ def _cutoff_ranges(thresholds):
 
 
 def _clinical_title(ax, letter, title, **kwargs):
-    """Left-aligned panel title with a bold letter (mathtext keeps one Text)."""
+    """Use the same plain-font panel lettering as the other paper figures."""
     kwargs.setdefault("fontsize", TITLE_SIZE)
     kwargs.setdefault("loc", "left")
-    return ax.set_title(rf"$\mathbf{{{letter}}}$  {title}", **kwargs)
+    return ax.set_title(f"{letter}  {title}", **kwargs)
+
+
+def _thesis_look():
+    """True when the thesis style (OPERA_THESIS_STYLE) is active."""
+    import os
+    return bool(os.environ.get("OPERA_THESIS_STYLE"))
 
 
 def _clinical_figure_text(fig, x, y, letter, title, **kwargs):
+    """A figure-level panel heading; bold like the thesis axes headings."""
     kwargs.setdefault("fontsize", TITLE_SIZE)
-    return fig.text(x, y, rf"$\mathbf{{{letter}}}$  {title}", color=PALETTE["ink"],
+    if _thesis_look():
+        kwargs.setdefault("fontweight", "bold")
+        kwargs["fontsize"] = min(kwargs["fontsize"], 9.6)
+        return fig.text(x, y, f"{letter}  {title}", color=PALETTE["ink"], **kwargs)
+    return fig.text(x, y, f"{letter}  {title}", color=PALETTE["ink"],
                     **kwargs)
 
 
 def _apply_clinical_font(fig):
     """Set every text (tick labels included, hence the draws) in the house font."""
     from matplotlib.text import Text
+    from matplotlib.font_manager import FontProperties, findfont
+    import re
 
     fig.canvas.draw()  # create tick labels before fixing their font
+    # One face for every text, legends included: the thesis face (rcParams) when
+    # the thesis style is active, so layout is measured in the face that is saved.
+    wanted = FontProperties() if _thesis_look() else FontProperties(family=CLINICAL_FONT)
+    family = FontProperties(fname=findfont(wanted)).get_name()
     for text in fig.findobj(Text):
-        text.set_fontfamily(CLINICAL_FONT)
+        # Older portable states encoded letters in mathtext, whose glyphs use
+        # a separate font even after set_fontfamily(). Migrate those titles.
+        label = re.sub(r'^\$\\mathbf\{([A-Z])\}\$\s*', r'\1  ', text.get_text())
+        if label != text.get_text():
+            text.set_text(label)
+        text.set_fontfamily(family)
     fig.canvas.draw()
+
+
+def _place_group_labels(fig):
+    """Rotated system labels ("Model", the index) left of a forest's category
+    labels, measured in the saved face so they never touch the tick labels.
+    Axes opt in with ``ax._opera_groups = [(label, y_centre), ...]``."""
+    from matplotlib.transforms import offset_copy
+
+    renderer = fig.canvas.get_renderer()
+    for ax in fig.axes:
+        groups = getattr(ax, "_opera_groups", None)
+        if not groups:
+            continue
+        widths = [t.get_window_extent(renderer).width for t in ax.get_yticklabels()
+                  if t.get_visible() and t.get_text()]
+        tick = ax.yaxis.majorTicks[0] if ax.yaxis.majorTicks else None
+        pad = tick.get_pad() + tick.tick1line.get_markersize() if tick is not None else 4
+        offset = (max(widths) if widths else 0) * 72 / fig.dpi + pad + 4
+        transform = offset_copy(ax.get_yaxis_transform(), fig=fig, x=-offset, units="points")
+        size = getattr(ax, "_opera_group_size", 7.2)
+        for label, centre in groups:
+            ax.text(0, centre, label, transform=transform, ha="right", va="center",
+                    rotation=90, fontsize=size, fontweight="bold",
+                    color=PALETTE["ink_secondary"])
+        ax._opera_groups = None
 
 
 def _finish_clinical(fig, notes=(), mark=None):
@@ -3360,10 +3417,11 @@ def _finish_clinical(fig, notes=(), mark=None):
 
     watermark(fig, mark)
     _apply_clinical_font(fig)
+    _place_group_labels(fig)
     renderer = fig.canvas.get_renderer()
     for ax in fig.axes:  # align bold-letter titles with the panel's tick labels
         text = ax._left_title
-        if not re.match(r"^\$\\mathbf\{[A-Z]\}\$", text.get_text()):
+        if not re.match(r"^[A-Z]\s{2}", text.get_text()):
             continue
         text.set_visible(False)
         try:
@@ -3413,9 +3471,7 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         for group in names:
             color, ls = colors[group], styles[group]
             part = data.loc[data[key] == group]
-            if len(part) < 10:
-                ax.plot([], [], color=color, ls=ls,
-                        label=f'{group} (n={_count_text(len(part))}; insufficient)')
+            if part.empty:
                 continue
             point, low, high = _cif_band(part.time_days.to_numpy(float),
                                          part.event.to_numpy(int), grid, rng)
@@ -3441,16 +3497,13 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         ax.set_ylim(0, 1)
         ax.yaxis.set_major_locator(MaxNLocator(5))
         _clinical_title(ax, letter, title)
-        _legend(ax, ax.get_legend_handles_labels()[0],
-                loc="lower left" if event_free else "upper left", title=legend_title,
-                fontsize=8, title_fontsize=8, handlelength=2.6, labelspacing=.4)
         risk_times = np.array([0, horizon_days / 2, horizon_days])
         risk_counts = [[_count_text((data.loc[data[key] == group, "time_days"] >= t).sum())
                         for t in risk_times] for group in names]
         table = ax.table(cellText=risk_counts, rowLabels=names,
                          colLabels=["Start", f"{horizon_days / 2 / 365.25:.1f} y",
                                     f"{horizon_days / 365.25:.1f} y"],
-                         bbox=[0.18, -0.52, 0.82, 0.27], cellLoc="center")
+                         bbox=[0.18, -0.64, 0.82, 0.27], cellLoc="center")
         table.auto_set_font_size(False)
         table.set_fontsize(7)
         for (row, col), cell in table.get_celld().items():
@@ -3460,11 +3513,17 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
                 cell.get_text().set_fontweight("bold")
             if row == 0:
                 cell.get_text().set_color(PALETTE["ink_secondary"])
-        ax.text(0.0, -0.25, "Number at risk", transform=ax.transAxes, fontsize=7,
+        ax.text(0.0, -0.37, "Number at risk", transform=ax.transAxes, fontsize=7,
                 color=PALETTE["ink_secondary"], va="bottom")
         despine(ax, "y")
+    # One key for both panels (same groups, colours and line styles), between the
+    # curves and the number-at-risk tables, so it never covers a curve.
+    fig.legend(handles=[Line2D([], [], color=colors[g], ls=styles[g], lw=1.6, label=g)
+                        for g in names],
+               loc="center", bbox_to_anchor=(0.53, 0.63 - 0.245 * 0.31), ncol=len(names),
+               frameon=False, fontsize=8, handlelength=2.6, columnspacing=1.6)
     bottom = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.6, left=0.22,
-                              right=0.97, top=0.37, bottom=0.12)
+                              right=0.97, top=0.35, bottom=0.1)
     ax = fig.add_subplot(bottom[0])
     estimates = pd.DataFrame(estimates)
     labels = []
@@ -3476,11 +3535,9 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
     ax.set_yticks(range(len(labels)), labels, fontsize=7.4)
     split = int((estimates.system == "Model").sum()) if len(estimates) else 0
     ax.axhline(split - 0.5, color=PALETTE["grid"], lw=1)
-    for label, centre in (("Model", (split - 1) / 2),
-                          (ipi_label, split + (len(estimates) - split - 1) / 2)):
-        ax.text(-0.78, centre, label, transform=ax.get_yaxis_transform(), ha="center",
-                va="center", fontsize=7.6, color=PALETTE["ink_secondary"], rotation=90,
-                fontweight="bold")
+    ax._opera_groups = [("Model", (split - 1) / 2),
+                        (ipi_label, split + (len(estimates) - split - 1) / 2)]
+    ax._opera_group_size = 7.6
     ax.invert_yaxis()
     ax.set_xlim(-.04, 1.04)
     ax.set_xlabel(f"{_horizon_adjective(horizon_days)} "
@@ -3497,7 +3554,7 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         for group in names:
             part = data.loc[(data.ipi_group == ipi) & (data.model_group == group)]
             estimate = (_estimate_with_ci(part, horizon_days, event_free)
-                        if len(part) >= 10 else (np.nan, np.nan, np.nan))
+                        if len(part) else (np.nan, np.nan, np.nan))
             row.append((*estimate, len(part)))
         table.append(row)
     values = np.array([[cell[0] for cell in row] for row in table], float)
@@ -3507,12 +3564,12 @@ def figure_risk_groups(patients, *, outcome_label, horizon_days=730,
         aspect="auto")
     for i, row in enumerate(table):
         for j, (value, low, high, count) in enumerate(row):
-            if count:
-                ax.text(j, i, _estimate_text(value, low, high), ha="center", va="center",
-                        fontsize=7.2, linespacing=1.1,
-                        color="white" if np.isfinite(value) and
-                        (value < 0.45 if event_free else value > 0.55)
-                        else PALETTE["ink"])
+            # Every non-empty cell shows its estimate; empty cells show "–".
+            ax.text(j, i, _estimate_text(value, low, high), ha="center", va="center",
+                    fontsize=7.2, linespacing=1.1,
+                    color="white" if np.isfinite(value) and
+                    (value < 0.45 if event_free else value > 0.55)
+                    else PALETTE["ink"])
     ax.set_xticks(range(len(names)), names, fontsize=7.4)
     ax.set_yticks(range(len(ipi_order)), list(ipi_order), fontsize=7.4)
     ax.grid(False)
@@ -3555,13 +3612,20 @@ def _risk_cutoff_labels(thresholds):
 
 
 def _score_label(label):
+    """Display label: no "all subtypes" suffix and no middle dots."""
     import re
-    return re.sub(r'\s*·\s*all (?:eligible )?(?:lymphoma )?subtypes\b', '',
-                  str(label), flags=re.IGNORECASE)
+    label = re.sub(r'\s*[·,]\s*all (?:eligible )?(?:lymphoma )?subtypes\b', '',
+                   str(label), flags=re.IGNORECASE)
+    return re.sub(r'\s*·\s*', ', ', label)
 
 
-def _label_index_thresholds(ax, points, cuts, *, min_gap=0.055):
-    """'≥ k' beside every index threshold; near-coincident points share a label."""
+def _label_index_thresholds(ax, points, cuts, *, min_gap=0.055, avoid=()):
+    """'≥ k' beside every index threshold; near-coincident points share a label.
+
+    Each label takes the first nearby position (below, above, left or right of
+    its point) that keeps clear of the curve and markers in ``avoid`` (data
+    coordinates), of the other labels and of the axes edges. Limits must be set.
+    """
     order = np.argsort([p[0] for p in points])
     groups = []
     for i in order:
@@ -3570,14 +3634,42 @@ def _label_index_thresholds(ax, points, cuts, *, min_gap=0.055):
             groups[-1][1].append(cuts[i])
         else:
             groups.append(((x, y), [cuts[i]]))
+    fig = ax.figure
+    renderer = fig.canvas.get_renderer()
+    scale = fig.dpi / 72
+    obstacles = ax.transData.transform(np.asarray(
+        [*avoid, *[p for p in points]], float).reshape(-1, 2))
+    frame = ax.get_window_extent(renderer)
+    # (dx, dy) in points; ha/va put the text on the far side of the offset.
+    candidates = [(0, -7), (0, 7), (-6, -6), (6, -6), (-6, 6), (6, 6), (-7, 0), (7, 0),
+                  (0, -15), (0, 15), (-12, -12), (12, -12), (-12, 12), (12, 12)]
+    placed = []
     for (x, y), members in groups:
         members = sorted(members)
         text = (f"≥ {members[0]:g}" if len(members) == 1
                 else f"≥ {members[0]:g}–{members[-1]:g}")
-        right = x > 0.88
-        ax.annotate(text, (x, y), xytext=(-4 if right else 4, -7), textcoords="offset points",
-                    ha="right" if right else "left", va="top", fontsize=6.6,
-                    color=PALETTE["ink_secondary"], zorder=5)
+        label = ax.annotate(text, (x, y), xytext=(0, 0), textcoords="offset points",
+                            fontsize=6.6, color=PALETTE["ink_secondary"], zorder=5)
+        best, best_cost = None, np.inf
+        for dx, dy in candidates:
+            label.set_position((dx, dy))
+            label.set_ha("center" if dx == 0 else ("left" if dx > 0 else "right"))
+            label.set_va("center" if dy == 0 else ("bottom" if dy > 0 else "top"))
+            box = label.get_window_extent(renderer).expanded(1.0, 1.0).padded(1.5 * scale)
+            inside = ((obstacles[:, 0] >= box.x0) & (obstacles[:, 0] <= box.x1)
+                      & (obstacles[:, 1] >= box.y0) & (obstacles[:, 1] <= box.y1)).sum()
+            cost = (inside + 50 * sum(box.overlaps(other) for other in placed)
+                    + 100 * (box.x0 < frame.x0 or box.x1 > frame.x1
+                             or box.y0 < frame.y0 or box.y1 > frame.y1))
+            if cost < best_cost:
+                best, best_cost = (dx, dy), cost
+            if cost == 0:
+                break
+        dx, dy = best
+        label.set_position((dx, dy))
+        label.set_ha("center" if dx == 0 else ("left" if dx > 0 else "right"))
+        label.set_va("center" if dy == 0 else ("bottom" if dy > 0 else "top"))
+        placed.append(label.get_window_extent(renderer).padded(1.0 * scale))
 
 
 def _clinical_precision_recall_panel(ax, known, label, *, ipi_label, ipi_high,
@@ -3605,12 +3697,23 @@ def _clinical_precision_recall_panel(ax, known, label, *, ipi_label, ipi_high,
         x, y = np.array(points).T
         ax.plot(x, y, color=index_color, ls='none', marker='o', ms=3.5,
                 label=f'{ipi_label} thresholds ≥ k (AP {score_ap:.2f})')
-        _label_index_thresholds(ax, points, cuts)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.02)
+    avoid = [np.column_stack([recall, precision])]
+
+    def label_thresholds(*extra):
+        if points:
+            # Densify the step curve so labels also keep clear of its segments.
+            curve = avoid[0]
+            dense = [curve, *[np.linspace(a, b, 6) for a, b in zip(curve[:-1], curve[1:])]]
+            _label_index_thresholds(ax, points, cuts,
+                                    avoid=np.vstack([*dense, *avoid[1:], *extra]))
     high = known.ipi_score >= ipi_high
     specificity = float((~high[label == 0]).mean())
     cut = float(model_threshold) if model_threshold is not None else float(
         np.quantile(known.loc[label == 0, 'model_risk'], specificity))
     if not np.isfinite(cut):
+        label_thresholds()
         return ['Independent development classifier unavailable; continuous comparison shown.']
     # The exported binary metrics and pd.cut risk groups include threshold ties.
     flagged = known.model_risk >= cut
@@ -3619,8 +3722,10 @@ def _clinical_precision_recall_panel(ax, known, label, *, ipi_label, ipi_high,
     achieved_specificity = float((~flagged[label == 0]).mean())
     if np.isfinite(ppv):
         ax.scatter(sensitivity, ppv, s=40, color=model_color, zorder=4, marker='D',
-                   label='Model at frozen cutoff')
+                   label='Model at training-derived cutoff (descriptive)')
+        avoid.append([[sensitivity, ppv]])
     if not high.any():
+        label_thresholds()
         return [f'No patients meet the index high-risk cutoff (≥ {ipi_high:g}).',
                 f'Frozen model cutoff: recall {sensitivity:.2f}, specificity {achieved_specificity:.2f}.']
     reference = (float(label[high].mean()), float(high[label == 1].mean()))
@@ -3634,6 +3739,10 @@ def _clinical_precision_recall_panel(ax, known, label, *, ipi_label, ipi_high,
     ax.plot([reference[1], at_precision], [reference[0], reference[0]], **projection)
     ax.scatter([reference[1], at_precision], [at_recall, reference[0]], s=10,
                color=model_color, zorder=4)
+    label_thresholds([[reference[1], reference[0]], [reference[1], at_recall],
+                      [at_precision, reference[0]],
+                      *np.linspace([reference[1], reference[0]], [reference[1], at_recall], 8),
+                      *np.linspace([reference[1], reference[0]], [at_precision, reference[0]], 8)])
     ppv_text = f'{ppv:.2f}' if np.isfinite(ppv) else 'unavailable'
     return [f'At index recall: precision {reference[0]:.2f} → {at_recall:.2f}',
             f'At index precision: recall {reference[1]:.2f} → {at_precision:.2f}',
@@ -3738,8 +3847,8 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
     quantity = (f"{_horizon_adjective(horizon_days)} survival" if event_free
                 else f"{_horizon_adjective(horizon_days)} risk")
     for column, (key, letter, title) in enumerate((
-            ("model_group", "C", f"{quantity.capitalize()} by age · model groups"),
-            ("ipi_group", "D", f"{quantity.capitalize()} by age · {ipi_label}"))):
+            ("model_group", "C", f"{quantity.capitalize()} by age: model groups"),
+            ("ipi_group", "D", f"{quantity.capitalize()} by age: {ipi_label}"))):
         ax = fig.add_subplot(bottom[column])
         values = np.full((len(age_labels), len(names)), np.nan)
         lows, highs = values.copy(), values.copy()
@@ -3748,19 +3857,19 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
             for j, group in enumerate(names):
                 part = data.loc[(ages == interval) & (data[key] == group)]
                 counts[i, j] = len(part)
-                if len(part) >= 10:
+                if len(part):
                     values[i, j], lows[i, j], highs[i, j] = _estimate_with_ci(
                         part, horizon_days, event_free)
         ax.imshow(np.ma.masked_invalid(values), cmap=cmap, vmin=0, vmax=1, aspect="auto")
         for i in range(len(age_labels)):
             for j in range(len(names)):
-                if counts[i, j]:
-                    value = values[i, j]
-                    ax.text(j, i, _estimate_text(value, lows[i, j], highs[i, j]),
-                            ha="center", va="center", fontsize=6.2, linespacing=1.1,
-                            color="white" if np.isfinite(value) and
-                            (value < 0.45 if event_free else value > 0.55)
-                            else PALETTE["ink"])
+                # Every non-empty cell shows its estimate; empty cells show "–".
+                value = values[i, j]
+                ax.text(j, i, _estimate_text(value, lows[i, j], highs[i, j]),
+                        ha="center", va="center", fontsize=6.2, linespacing=1.1,
+                        color="white" if np.isfinite(value) and
+                        (value < 0.45 if event_free else value > 0.55)
+                        else PALETTE["ink"])
         ax.set_xticks(range(len(names)), _risk_tick_labels(names), fontsize=6.8)
         ax.set_yticks(range(len(age_labels)), age_labels, fontsize=6.8)
         if column:
@@ -3780,7 +3889,7 @@ def figure_clinical_score(patients, *, outcome_label, horizon_days=730,
                  f"{g} {r}" for g, r in zip(names, _cutoff_ranges(thresholds))) + ".",
              *summary,
              f"C–D: {metric_label} by {horizon_label} (95% CI); patients per cell below; "
-             "estimates suppressed for n < 10."]
+             "small cells are shown with their counts and wide intervals."]
     return _finish_clinical(fig, notes, mark)
 
 
@@ -4036,26 +4145,29 @@ def figure_score_overview(scores, *, mark=None, seed=0):
     """Model risk groups against every recorded prognostic index.
 
     ``scores`` is a list of dicts, one per index and population, each with
-    ``title`` (e.g. "CLL-IPI · CLL"), ``endpoint`` (e.g. "Overall survival"),
+    ``title`` (e.g. "CLL-IPI, CLL"), optional ``index_label``, ``endpoint`` (e.g. "Overall survival"),
     ``patients`` (as for :func:`figure_risk_groups`), ``thresholds``,
     ``ipi_order``, ``horizon_days`` and ``event_free``. Each row shows survival
     by model group and by index category on the same patients, and both
     systems' estimates at the horizon. Colours, line styles and markers match
     the single-index plates (diamond: model group; circle: index category).
     """
+    import re
+
     rng = np.random.default_rng(seed)
     heights = [2.15 if len(s['ipi_order']) > 3 else 1.85 for s in scores]
     height = sum(heights) + .55 * len(scores) + .5
     fig = plt.figure(figsize=(8.8, height))
     rows = dict(height_ratios=heights, hspace=0.62, top=1 - 0.9 / height,
                 bottom=0.5 / height)
-    curves = fig.add_gridspec(len(scores), 2, wspace=0.08, left=0.09, right=0.62, **rows)
-    forests = fig.add_gridspec(len(scores), 1, left=0.765, right=0.985, **rows)
+    curves = fig.add_gridspec(len(scores), 2, wspace=0.08, left=0.09, right=0.6, **rows)
+    forests = fig.add_gridspec(len(scores), 1, left=0.8, right=0.985, **rows)
     forest_axes = []
     for row, spec in enumerate(scores):
         data = spec["patients"].loc[spec["patients"].ipi_group.notna()].copy()
         names = list(spec["ipi_order"])
-        index_label = _score_label(spec["title"]).split(" · ")[0]
+        index_label = spec.get("index_label") or re.split(r"\s*[·,]\s*",
+                                                          _score_label(spec["title"]))[0]
         colors = dict(zip(names, _ordinal_colors(len(names))))
         styles = dict(zip(names, _ordinal_linestyles(len(names))))
         event_free = spec.get("event_free", True)
@@ -4069,10 +4181,7 @@ def figure_score_overview(scores, *, mark=None, seed=0):
             ax = fig.add_subplot(curves[row, column])
             for group in names:
                 part = data.loc[data[key] == group]
-                handle_label = f"{group} (n={_count_text(len(part))})"
-                if len(part) < 10:
-                    ax.plot([], [], color=colors[group], ls=styles[group], lw=1.3,
-                            label=handle_label + "; insufficient")
+                if part.empty:
                     continue
                 point, low, high = _cif_band(part.time_days.to_numpy(float),
                                              part.event.to_numpy(int), grid_days, rng,
@@ -4082,7 +4191,7 @@ def figure_score_overview(scores, *, mark=None, seed=0):
                 ax.fill_between(grid_days / 365.25, low, high, color=colors[group],
                                 alpha=0.13, linewidth=0, step="post")
                 ax.step(grid_days / 365.25, point, where="post", color=colors[group],
-                        ls=styles[group], lw=1.3, label=handle_label)
+                        ls=styles[group], lw=1.3)
                 at = np.searchsorted(grid_days, horizon)
                 estimates.append((system, group, len(part), point[at], low[at], high[at],
                                   colors[group]))
@@ -4090,15 +4199,14 @@ def figure_score_overview(scores, *, mark=None, seed=0):
             ax.set_ylim(0, 1.02)
             ax.yaxis.set_major_locator(MaxNLocator(3))
             ax.tick_params(labelsize=6.5)
-            ax.legend(loc="lower left" if event_free else "upper left", title=legend_title,
-                      frameon=True, facecolor="white", edgecolor=PALETTE["grid"],
-                      framealpha=0.95, fontsize=5.9, title_fontsize=6.1, handlelength=2.4,
-                      labelspacing=0.25, borderpad=0.4, alignment="left")
+            # No legend over the curves: panel C names each group, with its n,
+            # in the curve colour.
             if column:
                 ax.tick_params(axis="y", labelleft=False)
             else:
                 ax.set_ylabel(textwrap.fill(_survival_label(spec["endpoint"]) if event_free
-                                            else spec["endpoint"], 18), fontsize=7)
+                                            else re.sub(r"\s*\([^)]*endpoint[^)]*\)", "",
+                                                        spec["endpoint"]), 22), fontsize=7)
             if row == len(scores) - 1:
                 ax.set_xlabel("Years since first-line treatment", fontsize=7)
             else:
@@ -4115,8 +4223,11 @@ def figure_score_overview(scores, *, mark=None, seed=0):
             ax.plot([low, high], [y, y], color=color, lw=1.2, alpha=0.55)
             ax.scatter(value, y, marker="D" if system == "Model" else "o", s=18,
                        color=color, zorder=3)
-        ax.set_yticks(range(len(estimates)), [group for _, group, *_ in estimates],
+        ax.set_yticks(range(len(estimates)),
+                      [f"{group} ({_count_text(n)})" for _, group, n, *_ in estimates],
                       fontsize=6.4)
+        for tick, estimate in zip(ax.get_yticklabels(), estimates):
+            tick.set_color(estimate[-1])  # the curve colour: the key for A and B
         split = sum(1 for e in estimates if e[0] == "Model")
         if 0 < split < len(estimates):
             ax.axhline(split - 0.5, color=PALETTE["grid"], lw=1)
@@ -4127,7 +4238,7 @@ def figure_score_overview(scores, *, mark=None, seed=0):
         ax.grid(axis="x", color=PALETTE["grid"], lw=0.6)
         ax.grid(axis="y", visible=False)
         if row == 0:
-            _clinical_figure_text(fig, 0.645, 1 - 0.22 / height, "C",
+            _clinical_figure_text(fig, 0.63, 1 - 0.22 / height, "C",
                                   f"At {_horizon_text(horizon)} (95% CI)",
                                   fontsize=10.5, va="top")
         if row != len(scores) - 1:
@@ -4139,23 +4250,13 @@ def figure_score_overview(scores, *, mark=None, seed=0):
             ax.spines[spine].set_visible(False)
         ax._opera_groups = [("Model", (split - 1) / 2),
                             (index_label, split + (len(estimates) - split - 1) / 2)]
+        ax._opera_group_size = 6.6
         fig.text(0.005, ax.get_position().y1 + 0.18 / height, _score_label(spec["title"]),
                  fontsize=8.5, fontweight="bold", color=PALETTE["ink"], va="bottom")
-    from matplotlib.transforms import offset_copy
-
-    # System labels sit just left of the longest category label in each forest.
-    _apply_clinical_font(fig)
-    renderer = fig.canvas.get_renderer()
-    for ax in forest_axes:
-        widths = [t.get_window_extent(renderer).width for t in ax.get_yticklabels()]
-        offset = (max(widths) if widths else 0) * 72 / fig.dpi + 7
-        transform = offset_copy(ax.get_yaxis_transform(), fig=fig, x=-offset, units="points")
-        for label, centre in ax._opera_groups:
-            ax.text(0, centre, label, transform=transform, ha="right", va="center",
-                    rotation=90, fontsize=6.6, fontweight="bold",
-                    color=PALETTE["ink_secondary"])
-    return _finish_clinical(fig, ["Diamonds: model risk groups; circles: index categories."],
-                            mark)
+    # System labels sit just left of the longest category label in each forest
+    # (placed by _finish_clinical, after the final face is set).
+    return _finish_clinical(fig, ["Diamonds: model risk groups; circles: index categories; "
+                                  "numbers of patients in brackets."], mark)
 
 
 # Schematic positions of the five Danish regions (x, y), used when no boundary
@@ -5332,7 +5433,7 @@ def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
             for j, group in enumerate(names):
                 part = data.loc[(ages == band) & (data[key] == group)]
                 values[0, col, i, j] = len(part)
-                if len(part) >= 10:
+                if len(part):  # small cells shown as they are
                     prediction, p_low, p_high = _mean_with_ci(part.model_risk, seed=seed)
                     if event_free:
                         prediction, p_low, p_high = 1 - prediction, 1 - p_high, 1 - p_low
@@ -5348,9 +5449,13 @@ def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
     quantity = f"{when} event-free survival" if event_free else f"{when} risk"
     observed_quantity = (f"{when} event-free survival" if event_free
                          else f"{when} cumulative incidence")
-    row_titles = ["Patients", f"Model-predicted {quantity}", f"Observed {observed_quantity}"]
-    bar_labels = ["Patients", quantity.capitalize(), observed_quantity.capitalize()]
-    systems = ["Model risk groups", f"{ipi_label} categories"]
+    # One-line headings; the endpoint and intervals are in the caption.
+    short = f"{when} survival" if event_free else f"{when} risk"
+    row_titles = ["Patients", f"Model-predicted {short}",
+                  f"Observed {short}" if event_free else f"Observed {when} incidence"]
+    bar_labels = ["Patients", short.capitalize(),
+                  short.capitalize() if event_free else observed_quantity.capitalize()]
+    systems = ["model groups", ipi_label]
     for row in range(3):
         for col in range(2):
             ax = axes[row, col]
@@ -5377,8 +5482,7 @@ def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
             else:
                 ax.set_ylabel("Age (years)")
             _clinical_title(ax, chr(65 + row * 2 + col),
-                            f"{row_titles[row]}\n{systems[col]}", fontsize=8.5, pad=6,
-                            linespacing=1.25)
+                            f"{row_titles[row]}, {systems[col]}", fontsize=8.5, pad=6)
             ax.grid(False)
             for spine in ax.spines.values():
                 spine.set_visible(False)
@@ -5388,7 +5492,7 @@ def figure_clinical_score_age(patients, *, outcome_label, horizon_days=730,
                       color=PALETTE["ink_secondary"])
     notes = [grouping_note,
              f"{outcome_label} at {_horizon_text(horizon_days)}; 95% bootstrap intervals; "
-             "estimates suppressed for n < 10 (grey)."]
+             "small cells shown with their counts; empty cells (–) in grey."]
     return _finish_clinical(fig, notes, mark)
 
 
@@ -5521,7 +5625,7 @@ def figure_recent_record_gap_horizons(restrictions, *, mark=None):
 def figure_evaluation_km_matching(frontier, matching):
     """Descriptive survival/size curves; empirical points, no spline or smoothing."""
     fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.9))
-    fig.subplots_adjust(left=.08, right=.98, bottom=.28, top=.85, wspace=.28)
+    fig.subplots_adjust(left=.08, right=.98, bottom=.24, top=.88, wspace=.28)
     color = MODEL_STYLE['OPERA'][0]
     for ax, end, letter in zip(axes, ['low', 'high'], 'AB'):
         curve = frontier.loc[frontier.end.eq(end)]
@@ -5547,10 +5651,11 @@ def figure_evaluation_km_matching(frontier, matching):
     handles, labels = axes[0].get_legend_handles_labels()
     h2, l2 = axes[1].get_legend_handles_labels()
     unique = dict(zip(labels + l2, handles + h2))
-    fig.legend(unique.values(), unique.keys(), loc='lower center', bbox_to_anchor=(.5, .08),
+    fig.legend(unique.values(), unique.keys(), loc='lower center', bbox_to_anchor=(.5, .01),
                frameon=False, ncol=3, fontsize=8)
-    fig.text(.5, .02, 'Descriptive evaluation-cohort matching; each end selected separately. Grey points: insufficient support.',
-             ha='center', fontsize=7, color=PALETTE['ink_muted'])
-    fig.opera_caption_notes = ('Clinical KM target and largest model group re-estimated within paired bootstrap draws. '
+    # Descriptive notes belong in the caption, not on the figure.
+    fig.opera_caption_notes = ('Descriptive evaluation-cohort matching; each end selected separately. '
+                              'Grey points: insufficient support. '
+                              'Clinical KM target and largest model group re-estimated within paired bootstrap draws. '
                               'No smoothing, no deployment-cutoff claim; low and high selections may overlap.')
     return fig

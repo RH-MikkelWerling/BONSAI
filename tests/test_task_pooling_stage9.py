@@ -241,7 +241,7 @@ def test_national_arm_uses_a_stage_nine_primary_readout(encoder_lr):
                            seeds=(42,), selected_router=LOCK, routed_model="J_OA_LR_OWN_L",
                            external_encoder_lr=encoder_lr)
     external = {e["name"]: e for e in entries if e["phase"] == "external"}
-    assert set(external) == {"seed42/E/J", "seed42/E/R", "seed42/EA/J", "seed42/EA/R"}
+    assert set(external) == {f"seed42/{o}/{m}" for o in ("E", "EA") for m in ("J", "R", "AB")}
     local = next(e["config"] for e in _bundles()[1] if e["name"].endswith("fix_J_OA_LR_OWN"))
     for origin in ("E", "EA"):
         routed = external[f"seed42/{origin}/R"]["config"]
@@ -252,7 +252,17 @@ def test_national_arm_uses_a_stage_nine_primary_readout(encoder_lr):
         keys = {k for k in local["competing_risk"] if k.startswith(("attention_", "outcome_attention", "readout"))}
         assert {k: risk[k] for k in keys} == {k: local["competing_risk"][k] for k in keys}
         assert canonical_models(external[f"seed42/{origin}/R"], routed, {"selected_router": LOCK}) == [f"R_{origin}"]
-        for mode in ("J", "R"):
+        # The secondary model, learned routing, on the same national encoder:
+        # the same router as the local R_AB fit.
+        routing = external[f"seed42/{origin}/AB"]
+        assert canonical_models(routing, routing["config"], {"selected_router": LOCK}) == [f"R_AB_{origin}"]
+        local_ab = next(e["config"] for e in _bundles()[1] if e["name"].endswith("/L/fix_R_AB"))
+        router_keys = {k for k in local_ab["competing_risk"] if k.startswith(("adapter_", "readout"))}
+        assert {k: routing["config"]["competing_risk"].get(k) for k in router_keys} == \
+            {k: local_ab["competing_risk"][k] for k in router_keys}
+        assert routing["config"]["dapt_ckpt"] == f"/{origin}.ckpt"
+        validate_direct_cr_config(routing["config"])
+        for mode in ("J", "R", "AB"):
             training = external[f"seed42/{origin}/{mode}"]["config"]["training"]
             assert training.get("encoder_lr_multiplier") == encoder_lr if encoder_lr else \
                 "encoder_lr_multiplier" not in training or training["encoder_lr_multiplier"] != 1.0

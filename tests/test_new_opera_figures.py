@@ -153,7 +153,7 @@ def test_new_figures_render_without_text_collisions(name):
     if name == "fig_gain_sources":
         fig = design.figure_gain_sources(proofs.synthetic_gain_sources(rng), mark="SYNTHETIC")
         labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
-        assert "+ Learn whom to borrow from" in labels and "− Remove outcome correction" in labels
+        assert "Learned routing\nvs own corrections" in labels and "Without outcome correction\nvs OPERA" in labels
     elif name == "supp_design_search":
         fig = design.figure_design_search(proofs.synthetic_design_search(rng), mark="SYNTHETIC")
         assert len(fig.axes) == 2 and fig.axes[0].patches  # seed band drawn
@@ -170,7 +170,7 @@ def test_gain_sources_without_the_pending_ablations():
     cells = proofs.synthetic_gain_sources(np.random.default_rng(4))
     fig = design.figure_gain_sources(cells.loc[~cells.step.str.startswith("no_")])
     labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
-    assert len(labels) == 4 and not any("Remove" in label for label in labels)
+    assert len(labels) == 3 and not any("Without" in label for label in labels)
     plt.close(fig)
 
 

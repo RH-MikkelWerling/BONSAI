@@ -216,6 +216,10 @@ def render_plot_state(source):
         if record.get('xgrid'):ax.grid(True,axis='x')
         if record.get('ygrid'):ax.grid(True,axis='y')
         for name, settings in record['spines'].items():
+            if name not in ax.spines:
+                # Colorbar-only outlines are already in the retained raster
+                # layer; a replay uses ordinary axes without that spine.
+                continue
             ax.spines[name].set_visible(settings['visible'])
             ax.spines[name].set_color(settings['color'])
             ax.spines[name].set_linewidth(settings['width'])

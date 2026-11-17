@@ -34,6 +34,7 @@ rely on hue alone.
 from __future__ import annotations
 from typing import Optional
 import numpy as np
+import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -244,6 +245,37 @@ def setup_style() -> None:
             "legend.borderaxespad": 0.6,
         }
     )
+    # Opt-in thesis look for server renders (OPERA_THESIS_STYLE=1): the manuscript's body face,
+    # TeX Gyre Pagella, as in opera.run.paper_story_figures.thesis_style.
+    if os.environ.get("OPERA_THESIS_STYLE"):
+        thesis_rc()
+
+
+def thesis_rc() -> None:
+    """TeX Gyre Pagella and muted ink, as opera.run.paper_story_figures.thesis_style.
+
+    Kept here (not imported from paper_story_figures) because that module imports
+    paper_figures and this module at import time: importing it from setup_style()
+    is circular whenever OPERA_THESIS_STYLE is set before the first import.
+    """
+    import subprocess
+    from matplotlib import font_manager
+    for name in ("regular", "bold", "italic", "bolditalic"):
+        try:
+            path = subprocess.run(["kpsewhich", f"texgyrepagella-{name}.otf"], capture_output=True,
+                                  text=True, env={"PATH": "/Library/TeX/texbin:/usr/bin:/usr/local/bin"}
+                                  ).stdout.strip()
+            if path:
+                font_manager.fontManager.addfont(path)
+        except OSError:
+            pass
+    plt.rcParams.update({
+        "font.family": "serif", "font.serif": ["TeX Gyre Pagella", "DejaVu Serif"],
+        "mathtext.fontset": "custom", "font.size": 8.5, "text.color": "#17212B",
+        "axes.labelcolor": "#485463", "axes.titlecolor": "#17212B", "xtick.color": "#485463",
+        "ytick.color": "#485463", "axes.edgecolor": "#CBD2DA", "axes.linewidth": 0.6,
+        "xtick.labelsize": 8, "ytick.labelsize": 8, "axes.labelsize": 8.5, "legend.fontsize": 7.8,
+        "pdf.fonttype": 42, "ps.fonttype": 42})
 
 
 setup_style()
@@ -347,6 +379,9 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
     Lettered panel titles are aligned to the top left of their panels.
     """
     if path is not None:
+        if os.environ.get("OPERA_THESIS_STYLE"):
+            from opera.run.render_thesis_style import thesis_headings
+            thesis_headings(fig)
         align_panel_titles(fig)
         for ax in fig.axes:
             for collection in ax.collections:
@@ -368,7 +403,6 @@ def save_fig(fig: plt.Figure, path: Optional[str], dpi: int = 300) -> None:
                 pad_inches=0.12,
                 facecolor="white",
             )
-        import os
         if os.environ.get('OPERA_PAPER_EXPORT_PLOT_STATE') == '1':
             from opera.visualization.plot_state import export_plot_state
             export_plot_state(fig, path.with_suffix('.plot.json'))
