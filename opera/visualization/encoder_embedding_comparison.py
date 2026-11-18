@@ -542,7 +542,7 @@ def _blocks(a, factor, how="sum"):
 
 def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, metrics=None,
                            rows=("disease", "ipi", "predicted", "mortality"), width=6.9, horizon=365,
-                           pixels=800, other_below=0.02, row_rules=False):
+                           pixels=800, other_below=0.02, row_rules=False, panel_notes=False):
     """Encoder maps from ``map_grids`` aggregates, drawn like the outcome gallery (Figures S24-S29).
 
     One column per encoder (maps aligned to the adapted encoder's, one shared frame) and one row per
@@ -570,7 +570,11 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
         hit = (cells.layer == "disease") & cells.key.isin(small)
         cells.loc[hit, "key"] = "Other"
         cells = cells.groupby(["model", "layer", "key", "ix", "iy"], as_index=False).value.sum()
-    diseases = [d for d in sizes.sort_values(ascending=False).index if d not in small] + (["Other"] if small else [])
+    # Colour follows the disease, not its rank in this figure: a fixed order (cohort sizes in the joint
+    # family's maps) so every encoder figure gives each disease the same colour.
+    fixed = ["Myeloma", "DLBCL-like", "Indolent B-NHL", "CLL/SLL", "Hodgkin", "T-cell NHL", "MCL", "BL/LBL"]
+    ranked = [d for d in sizes.sort_values(ascending=False).index if d not in small]
+    diseases = [d for d in fixed if d in ranked] + [d for d in ranked if d not in fixed] + (["Other"] if small else [])
     palette = [c for c in CATEGORICAL if c != "#9E9E9E"] + DISEASE_EXTRA[:1]  # grey is kept for Other
     disease_colours = {d: palette[i % len(palette)] for i, d in enumerate(d for d in diseases if d != "Other")}
     disease_colours["Other"] = "#B8BEC6"
@@ -589,7 +593,9 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
     # disease and IPI rows, their own key; the shared mortality key goes under the last row.
     top_names, header, sub_h, key_row, last_key = 0.20, 0.27, 0.17, 0.40, 0.62
     slots, cursor = {}, top_names
-    has_sub = {"disease": False}  # rows with a line under their heading; the disease row has none
+    # Rows with a note under each map heading (average risk, "grey: no index recorded"). Off by default:
+    # those facts belong in the caption (Mikkel, 18 Nov).
+    has_sub = {r: (panel_notes and r != "disease") for r in rows}
     for layer in rows:
         cursor += header + (sub_h if has_sub.get(layer, True) else 0.0)
         slots[layer] = cursor
@@ -669,7 +675,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
             _map_axis(ax)
             ax.set_xlim(extent[:2])
             ax.set_ylim(extent[2:])
-            if sub:
+            if sub and panel_notes:
                 ax.set_title(sub, fontsize=7.2, pad=2, color=_INK2, loc="center")
     fig.canvas.draw()
     # Encoder names once, above the columns.
