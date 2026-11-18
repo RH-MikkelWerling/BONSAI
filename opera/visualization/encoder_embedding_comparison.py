@@ -333,7 +333,11 @@ def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth
         for d in sorted(data.disease.dropna().astype(str).unique()):
             add("disease", d, smoothed((data.disease.astype(str) == d).to_numpy()))
         for level in IPI_LEVELS:
-            add("ipi", level, smoothed((data.ipi_group == level).to_numpy()))
+            # Nullable registry categories yield pandas BooleanArray masks.
+            # Missing categories belong to no index group, but remain in total,
+            # disease and risk layers. NumPy indexing requires native bool.
+            mask = data.ipi_group.eq(level).fillna(False).to_numpy(dtype=bool)
+            add("ipi", level, smoothed(mask))
         # Observed death within the horizon: IPCW-weighted, smoothed over cells.
         s = surv.loc[data.index]
         hd = horizon_ipcw_data(s.time_days.to_numpy(float), s.event.to_numpy(float), horizon)
