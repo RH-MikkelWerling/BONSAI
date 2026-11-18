@@ -253,7 +253,8 @@ def synthetic_inputs(seed=23, n=1500):
 def align_maps(coords, *, reference=None):
     """Rotate, reflect, scale and shift each model's map onto the reference model's, fitted on
     the same patients (orthogonal Procrustes). UMAP orientation is arbitrary, so without this
-    the columns cannot be compared by eye. Distances within a map are preserved up to scale."""
+    the columns cannot be compared by eye. The rotation is the Procrustes fit; the scale makes
+    each map's spread equal to the reference's. Distances within a map are preserved up to scale."""
     from scipy.linalg import orthogonal_procrustes
     models = list(coords.model.drop_duplicates())
     ref = reference or models[-1]
@@ -268,7 +269,10 @@ def align_maps(coords, *, reference=None):
         a_mean = a.mean(0)
         a0 = a - a_mean
         rot, _ = orthogonal_procrustes(a0, t0)
-        scale = np.trace((a0 @ rot).T @ t0) / max(np.sum(a0 ** 2), 1e-12)
+        # Match the spread (root-mean-square distance from the centre), not the least-squares
+        # Procrustes scale: that scale shrinks a map in proportion to how poorly it agrees with the
+        # reference, so weakly aligned encoders looked small and over-smoothed (18 Nov).
+        scale = np.sqrt(np.sum(t0 ** 2) / max(np.sum(a0 ** 2), 1e-12))
         xy = (d[["x", "y"]].to_numpy(float) - a_mean) @ rot * scale + t_mean
         out.append(d.assign(x=xy[:, 0], y=xy[:, 1]).reset_index())
     return pd.concat(out, ignore_index=True)
@@ -378,6 +382,8 @@ def figure_encoder_maps_from_grids(cells, meta, *, model_order=None, model_label
                                    horizon=365, smooth=1.2):
     """The encoder-map figure drawn from ``map_grids`` aggregates (no patient-level data)."""
     from scipy.ndimage import gaussian_filter
+    # Layers without a key (count, mortality, predicted) read back from CSV as NaN; match them as "".
+    cells = cells.assign(key=cells["key"].fillna("").astype(str))
     models = list(model_order or meta.model)
     labels = model_labels or {m: m for m in models}
     diseases = sorted(cells.loc[cells.layer == "disease", "key"].unique(), key=str)
@@ -536,7 +542,7 @@ def _blocks(a, factor, how="sum"):
 
 def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, metrics=None,
                            rows=("disease", "ipi", "predicted", "mortality"), width=6.9, horizon=365,
-                           pixels=150, other_below=0.02, row_rules=False):
+                           pixels=800, other_below=0.02, row_rules=False):
     """Encoder maps from ``map_grids`` aggregates, drawn like the outcome gallery (Figures S24-S29).
 
     One column per encoder (maps aligned to the adapted encoder's, one shared frame) and one row per
@@ -548,6 +554,8 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
     """
     from matplotlib.colors import LinearSegmentedColormap
     from matplotlib.patches import Patch
+    # Layers without a key (count, mortality, predicted) read back from CSV as NaN; match them as "".
+    cells = cells.assign(key=cells["key"].fillna("").astype(str))
     models = list(model_order or meta.model)
     labels = model_labels or {m: m for m in models}
     # At most eight disease colours: groups under ``other_below`` of patients (hairy cell leukaemia,
@@ -714,7 +722,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
 DENSITY_COLOURS = ["#EEF0F8", "#AEB8DA", "#5C6BB5", "#2D3A8C", "#141C4F"]  # one hue, light to dark
 
 
-def figure_encoder_disease_grid(cells, meta, *, model_order=None, model_labels=None, width=6.9, pixels=150,
+def figure_encoder_disease_grid(cells, meta, *, model_order=None, model_labels=None, width=6.9, pixels=800,
                                 blocks=2):
     """Where each disease's patients sit under each encoder: small multiples from ``map_grids``.
 
@@ -725,6 +733,8 @@ def figure_encoder_disease_grid(cells, meta, *, model_order=None, model_labels=N
     columns of encoder triplets, each headed by a labelled rule as in the outcome gallery.
     """
     from matplotlib.colors import LinearSegmentedColormap
+    # Layers without a key (count, mortality, predicted) read back from CSV as NaN; match them as "".
+    cells = cells.assign(key=cells["key"].fillna("").astype(str))
     models = list(model_order or meta.model)
     labels = model_labels or {m: m for m in models}
     m_meta = meta.set_index("model")

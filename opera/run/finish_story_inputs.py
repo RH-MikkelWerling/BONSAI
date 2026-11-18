@@ -313,7 +313,8 @@ def main():
                 # Aggregate map grids (smoothed densities, suppressed below 5 patients per
                 # neighbourhood) so the maps can be redrawn locally without patient coordinates.
                 from opera.visualization.encoder_embedding_comparison import map_grids
-                cells, grid_meta = map_grids(coords, survival)
+                # 18 Nov: finer lattice and less smoothing for print; the <5-patient mask is unchanged.
+                cells, grid_meta = map_grids(coords, survival, grid=800, bandwidth=0.009)
                 predicted_models = set(cells.loc[cells.layer.eq('predicted'), 'model'])
                 if predicted_models != set(family_stages):
                     raise ValueError(f'Empty predicted-risk grid(s) for {family}: '

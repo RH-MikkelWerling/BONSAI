@@ -418,7 +418,7 @@ CLINICAL_ROWS = [
     ("r_ipi_all_subtypes_native", "R-IPI", "OS"), ("r_iss_all_subtypes_native", "R-ISS", "OS"),
     ("ips_all_subtypes_native", "IPS", "TF"), ("ipi_computed_native", "IPI", "OS"),
     ("nccn_ipi_native", "NCCN-IPI", "OS"), ("nccn_ipi_treatment_failure_2y_native", "NCCN-IPI", "TF, 2 y"),
-    ("flipi2_all_subtypes_native", "FLIPI2", "TF"),
+    ("flipi2_all_subtypes_native", "FLIPI2", "OS"),  # moved to overall survival (17 Nov)
 ]
 
 
