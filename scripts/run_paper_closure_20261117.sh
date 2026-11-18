@@ -21,6 +21,7 @@ Run named lanes on the appropriate allocations (this plan starts no jobs):
   comparisons     Dedicated >=96 GiB FREE RAM: core, ablations, pretraining controls
   diagnostics     Dedicated free GPU + RAM: correction replay then tuning diagnostics
   pooling         CPU: analysis 5, after diagnostics prepared snapshot exists
+  fixed_budget    CPU: exploratory highest/lowest deciles from completed core snapshot
   table1          CPU/R: filled registry template then score/PS refresh
   mechanism       CPU: explicit matching tuning analysis/checkpoint/vectors required
   vocabulary      CPU: explicit original cohort records and national vocabulary required
@@ -64,6 +65,12 @@ PLAN
   pooling)
     bash scripts/run_pooling_absorption.sh \
       data/diagnostics/representation_absorption_20261112/tuning_all_terms.prepared_INTERNAL
+    ;;
+  fixed_budget)
+    "$python_bin" scripts/check_results_resources.py --minimum-free-gib 16 --require-no-coordinator
+    "$python_bin" -u -m opera.analysis.fixed_budget_risk \
+      --checkpoint-dir "$comparison_root/comparisons_core/checkpoints" \
+      --output-dir "${OPERA_FIXED_BUDGET_OUTPUT:-data/fixed_budget_risk_20261118/held_out}"
     ;;
   table1)
     # Edit the R source blocks first; these steps require fresh output directories.

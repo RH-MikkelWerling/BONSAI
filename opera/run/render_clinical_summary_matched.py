@@ -44,7 +44,7 @@ ROWS = [
     ("r_ipi_all_subtypes_native", "R-IPI", "recorded", "OS, 1 y"),
     ("flipi2_all_subtypes_native", "FLIPI2", "recorded", "TF, 1 y"),
     ("malt_ipi_all_subtypes_native", "MALT-IPI", "recorded", "OS, 1 y"),
-    ("ipi_computed_native", "IPI (computed)", "all", "OS, 1 y"),
+    ("ipi_computed_native", "IPI", "all", "OS, 1 y"),
 ]
 PANELS = [
     ("A", "Lowest group", "OPERA − index\n(percentage points)", "Equal group sizes"),
@@ -226,13 +226,13 @@ def write_table(figures: Path, review: Path, out: Path) -> None:
 
     shared = (r"OS, overall survival; TF, treatment failure (second-line treatment or death). "
               r"Intervals are paired patient-bootstrap 95\% intervals; bold intervals exclude zero. "
-              r"Each index is evaluated in the held-out patients with it recorded (the computed IPI: "
+              r"Each index is evaluated in the held-out patients with it recorded (the IPI: "
               r"with its components).")
     t1 = _wrap_table(
         "tab:clinical-index-summary",
         r"\textbf{Discrimination of adapted \opera{} and each clinical prognostic index on the "
         r"held-out patients.} AUC of the index (its ordinal categories, or its points for the "
-        r"computed IPI and NCCN-IPI) and of \opera{} on the same patients, at the endpoint and "
+        r"IPI and NCCN-IPI) and of \opera{} on the same patients, at the endpoint and "
         r"horizon given, each with its 95\% interval, and the paired difference. Separate AUC intervals can "
         r"overlap even where the paired difference excludes zero; the paired difference is the comparison. " + shared,
         "@{}llrrccl@{}",

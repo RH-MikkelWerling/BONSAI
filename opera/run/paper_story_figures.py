@@ -17,7 +17,7 @@ current figures are untouched.
     python -m opera.run.paper_story_figures \
         --bundle scratch/download_bundle_20261112/tables \
         --cells scratch/registered_figures_20261114/plot_tables/paired_cells.csv \
-        --clinical scratch/R_EA_clinical_review_20261115 \
+        --clinical scratch/R_EA_clinical_review_20261117 \
         --out paper/figures/results/story
 """
 from __future__ import annotations
@@ -56,11 +56,15 @@ def thesis_style():
     for name in ("regular", "bold", "italic", "bolditalic"):
         try:
             path = subprocess.run(["kpsewhich", f"texgyrepagella-{name}.otf"], capture_output=True, text=True,
-                                  env={"PATH": "/Library/TeX/texbin:/usr/bin"}).stdout.strip()
+                                  env={"PATH": __import__("os").path.expanduser("~/texlive/2026/bin/universal-darwin") + ":/Library/TeX/texbin:/usr/bin"}).stdout.strip()
             if path:
                 font_manager.fontManager.addfont(path)
         except OSError:
             pass
+    # Without TeX (e.g. on the analysis server): the repository's copies of the font.
+    from opera.visualization import style as _style
+    for font in sorted((Path(_style.__file__).resolve().parent / "fonts").glob("texgyrepagella-*.otf")):
+        font_manager.fontManager.addfont(str(font))
     plt.rcParams.update({
         "font.family": "serif", "font.serif": ["TeX Gyre Pagella", "DejaVu Serif"], "mathtext.fontset": "custom",
         "font.size": 8.5, "text.color": INK, "axes.labelcolor": INK2, "axes.titlecolor": INK,
@@ -412,7 +416,7 @@ CLINICAL_ROWS = [
     ("ipsswm_all_subtypes_native", "IPSS-WM", "OS"), ("malt_ipi_all_subtypes_native", "MALT-IPI", "OS"),
     ("cll_ipi_all_subtypes_native", "CLL-IPI", "OS"), ("mipi_all_subtypes_native", "MIPI", "OS"),
     ("r_ipi_all_subtypes_native", "R-IPI", "OS"), ("r_iss_all_subtypes_native", "R-ISS", "OS"),
-    ("ips_all_subtypes_native", "IPS", "TF"), ("ipi_computed_native", "IPI (computed)", "OS"),
+    ("ips_all_subtypes_native", "IPS", "TF"), ("ipi_computed_native", "IPI", "OS"),
     ("nccn_ipi_native", "NCCN-IPI", "OS"), ("nccn_ipi_treatment_failure_2y_native", "NCCN-IPI", "TF, 2 y"),
     ("flipi2_all_subtypes_native", "FLIPI2", "TF"),
 ]
@@ -442,7 +446,7 @@ def degenerate(r, side, population):
 
 
 def fig6_clinical(clinical: Path, out: Path, variant="dots",
-                  figures: Path = Path("scratch/R_EA_clinical_figures")):
+                  figures: Path = Path("scratch/R_EA_clinical_figures_20261117")):
     m = pd.read_csv(clinical / "matched_risk_and_auc.csv").set_index("score_id")
     population = _population_survival(figures)
     fig = plt.figure(figsize=(6.4, 6.1))
@@ -1050,7 +1054,7 @@ def main():
             "fig6_bars": lambda: fig6_clinical(a.clinical, a.out, variant="bars"),
             "supp_tabular": lambda: supp_tabular(b, a.out), "supp_calibration": lambda: supp_calibration(b, a.out),
             "supp_atlas_matrix": lambda: supp_atlas_matrix(b, a.out),
-            "supp_clinical_groups": lambda: supp_clinical_groups(Path("scratch/R_EA_clinical_figures"), a.clinical, a.out),
+            "supp_clinical_groups": lambda: supp_clinical_groups(Path("scratch/R_EA_clinical_figures_20261117"), a.clinical, a.out),
             "supp_label_efficiency": lambda: supp_label_efficiency(Path("scratch/fraction_figures_20261116_ready"), a.out),
             "supp_population_disease": lambda: supp_population_disease(b, a.cells, a.out)}
     for k, job in jobs.items():

@@ -518,8 +518,9 @@ def display_names(specs, horizons=None):
     counts = pd.Series([s["score_label"] for s in specs]).value_counts()
     names = {}
     for s in specs:
-        name = s["score_label"]
-        if counts[name] > 1:
+        # The frozen configuration labels it "IPI (computed)"; in the paper it is simply the IPI.
+        name = re.sub(r"\s*\(computed\)", "", s["score_label"])
+        if counts[s["score_label"]] > 1:
             name = (f"{name}, " + endpoint_phrase(
                 s["outcome_label"], horizons.get(s["id"], s.get("horizon_days")
                                                  or max(s.get("horizons_days") or [365]))))
@@ -724,6 +725,9 @@ def main():
     metadata.subject_id = metadata.subject_id.astype(str)
     metadata = metadata.rename(columns=analysis.get("patient_metadata_column_map", {}))
     specs = expand_index_scores(config, metadata)
+    # Display-only normalization, after endpoint expansion; frozen inputs stay untouched.
+    specs = [{**spec, 'score_label': re.sub(r'\s*\(computed\)', '', spec['score_label'], flags=re.IGNORECASE)}
+             for spec in specs]
     if not specs:
         raise ValueError("Register every score/population in score config first")
     names = [s["id"] for s in specs]

@@ -4209,6 +4209,8 @@ def figure_score_overview(scores, *, mark=None, seed=0):
                                                         spec["endpoint"]), 22), fontsize=7)
             if row == len(scores) - 1:
                 ax.set_xlabel("Years since first-line treatment", fontsize=7)
+            elif horizon != scores[-1]["horizon_days"]:
+                pass  # a different time scale from the bottom row: keep its own tick labels
             else:
                 ax.tick_params(axis="x", labelbottom=False)
             if row == 0:
@@ -4255,7 +4257,8 @@ def figure_score_overview(scores, *, mark=None, seed=0):
                             (index_label, split + (len(estimates) - split - 1) / 2)]
         ax._opera_group_size = 6.6
         row_title = _score_label(spec["title"])
-        if len({s["horizon_days"] for s in scores}) > 1:
+        if (len({s["horizon_days"] for s in scores}) > 1
+                and _horizon_text(horizon) not in row_title):
             row_title += f", at {_horizon_text(horizon)}"
         fig.text(0.005, ax.get_position().y1 + 0.18 / height, row_title,
                  fontsize=8.5, fontweight="bold", color=PALETTE["ink"], va="bottom")

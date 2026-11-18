@@ -263,12 +263,17 @@ def thesis_rc() -> None:
     for name in ("regular", "bold", "italic", "bolditalic"):
         try:
             path = subprocess.run(["kpsewhich", f"texgyrepagella-{name}.otf"], capture_output=True,
-                                  text=True, env={"PATH": "/Library/TeX/texbin:/usr/bin:/usr/local/bin"}
+                                  text=True, env={"PATH": __import__("os").path.expanduser("~/texlive/2026/bin/universal-darwin") + ":/Library/TeX/texbin:/usr/bin:/usr/local/bin"}
                                   ).stdout.strip()
             if path:
                 font_manager.fontManager.addfont(path)
         except OSError:
             pass
+    # Without TeX (e.g. on the analysis server), use the copies shipped with the repository
+    # (TeX Gyre Pagella, GUST Font License, freely redistributable).
+    from pathlib import Path as _Path
+    for font in sorted((_Path(__file__).resolve().parent / "fonts").glob("texgyrepagella-*.otf")):
+        font_manager.fontManager.addfont(str(font))
     plt.rcParams.update({
         "font.family": "serif", "font.serif": ["TeX Gyre Pagella", "DejaVu Serif"],
         "mathtext.fontset": "custom", "font.size": 8.5, "text.color": "#17212B",

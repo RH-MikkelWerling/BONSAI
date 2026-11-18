@@ -4,7 +4,7 @@ Runs alongside ``opera.run.finish_figure_inputs`` (Codex's recover/maps/arrows l
 covers what those lanes do not:
 
   embeddings   encoder comparison plates (joint and OPERA; cohort, national, adapted encoders)
-               with ``figure_encoder_embeddings``: disease group, computed IPI in its four
+               with ``figure_encoder_embeddings``: disease group, risk group by the disease's own index (three
                standard categories, observed one-year overall-survival risk relative to the
                average. Coordinates stay in ``server_only/``.
   clinical     the held-out adapted-OPERA clinical plates re-rendered in the thesis style
@@ -42,9 +42,32 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+
+import numpy as np
 from zipfile import ZIP_DEFLATED, ZipFile
 
 IPI_FROM_SCORE = {0: "Low", 1: "Low", 2: "Low-intermediate", 3: "High-intermediate", 4: "High", 5: "High"}
+
+
+def index_risk_group(metadata):
+    """Low / Intermediate / High by each disease's own index (Table 1's "risk group by the
+    disease's own index"): the recorded category of the patient's index, collapsed to three groups;
+    for DLBCL the NCCN-IPI from registry components where it can be scored. Missing otherwise."""
+    import pandas as pd
+    from opera.run.flatten_ipi_records import NCCN_RISK, NOT_RECORDED, RISK
+    meta = metadata.set_index("subject_id")
+    if "risk_category" in meta:
+        tier = meta.risk_category.astype("string").replace(NOT_RECORDED, pd.NA)
+    else:
+        if "IPI" not in meta:
+            raise ValueError("patient metadata has neither risk_category nor the recorded IPI column")
+        tier = meta["IPI"].astype("string").str.strip().str.lower().map(RISK)
+        if "nccn_ipi_group" in meta and "cohort_fine" in meta:
+            nccn = meta.nccn_ipi_group.astype("string").str.strip().str.lower().map(NCCN_RISK)
+            use = (meta.cohort_fine.astype("string") == "DLBCL") & nccn.notna()
+            tier = tier.where(~use, nccn)
+    print("[embeddings] index risk groups:", tier.value_counts(dropna=False).to_dict())
+    return tier
 LABELS = {"Local joint": "Cohort encoder", "National joint": "National encoder", "Adapted joint": "Adapted encoder",
           "Local OPERA": "Cohort encoder", "National OPERA": "National encoder", "Adapted OPERA": "Adapted encoder"}
 SUPPRESS = 5
@@ -65,6 +88,28 @@ def _survival_paths(national: Path):
     row, = [r for r in bundle['runs'] if r['name'] == 'seed42/EA/R']
     path = national / 'predictions' / row['run_directory'] / 'held_out/direct_cr_predictions.parquet'
     return [path] if path.is_file() else []
+
+
+def _stage_predictions(npz_path, horizon=365):
+    """Predicted one-year overall-survival risk (cif_365d) of the model that produced this held-out
+    embedding export, read from the direct_cr_predictions.parquet of the same run; None if absent."""
+    import pandas as pd
+    from opera.run.build_paper_embedding_tables import _patient_ids
+    here = Path(npz_path).resolve().parent
+    for folder in (here, *list(here.parents)[:3]):
+        for candidate in (folder / "direct_cr_predictions.parquet", folder / "held_out/direct_cr_predictions.parquet"):
+            if candidate.is_file():
+                frame = _patient_ids(pd.read_parquet(candidate, columns=["subject_id", "outcome", f"cif_{horizon}d"]))
+                frame = frame.loc[frame.outcome.eq("overall_survival")].drop_duplicates()
+                if frame.subject_id.duplicated().any():
+                    raise ValueError(f'Conflicting overall-survival predictions in {candidate}')
+                if frame.empty:
+                    raise ValueError(f'No overall-survival predictions in {candidate}')
+                values = frame[f'cif_{horizon}d'].to_numpy(float)
+                if not np.isfinite(values).all() or ((values < 0) | (values > 1)).any():
+                    raise ValueError(f'Invalid one-year risk probabilities in {candidate}')
+                return frame.set_index("subject_id")[f"cif_{horizon}d"], str(candidate)
+    return None, None
 
 
 def _survival(path: Path):
@@ -228,45 +273,58 @@ def main():
             return {"stages": stages, "survival": str(survival_path())}
 
         def action():
-            import matplotlib.pyplot as plt
-            import matplotlib.text
             import pandas as pd
             import yaml
             from opera.run.analyse_locked_predictions import read_table
             from opera.run.build_paper_embedding_tables import _patient_ids, embedding_comparison
-            from opera.run.paper_story_figures import thesis_style
-            from opera.visualization.encoder_embedding_comparison import figure_encoder_embeddings
-            from opera.visualization.style import setup_style
-            setup_style()
-            thesis_style()
             stages = _render_script(repo).select_stages(json.loads(a.inventory.read_text()))
             metadata = _patient_ids(read_table(a.patient_metadata))
-            if "ipi_computed_score" not in metadata:
-                raise ValueError("patient metadata lacks ipi_computed_score (use the prepared clinical metadata)")
-            score = metadata.set_index("subject_id").ipi_computed_score
+            tiers = index_risk_group(metadata)
             group_map = yaml.safe_load(Path("opera/configs/paper_embedding_tables.example.yaml").read_text()).get("ipi_group_map")
             survival = _survival(survival_path())
             out = {}
+            # Remove only obsolete products of this step from an earlier pass.
+            # Final figures are now rendered locally from the aggregate grids.
+            for family in stages:
+                (run.ready / 'tables' / f'embedding_neighbourhood_{family}.csv').unlink(missing_ok=True)
+                for suffix in ('.pdf', '.png', '.plot.json'):
+                    (run.ready / 'figures' / f'supp_embedding_comparison_{family}{suffix}').unlink(missing_ok=True)
             for family, family_stages in stages.items():
                 coords, _ = embedding_comparison(family_stages, metadata, method="umap", group_map=group_map)
-                values = pd.to_numeric(coords.patient_id.map(score), errors="coerce")
-                coords["ipi_group"] = values.map(lambda v: IPI_FROM_SCORE.get(int(v)) if pd.notna(v) else None)
+                # Risk group by each disease's own index, as in Table 1 (not the IPI applied to everyone).
+                coords["ipi_group"] = coords.patient_id.map(tiers)
                 coords = coords.loc[coords.patient_id.isin(set(survival.patient_id))]
+                # Each column's own model: predicted one-year risk of death, for the predicted-risk layer.
+                coords["predicted"] = np.nan
+                sources = {}
+                for label, paths in family_stages.items():
+                    pred, source = _stage_predictions(paths[-1])
+                    sources[label] = source
+                    if pred is None:
+                        raise FileNotFoundError(f'No held-out prediction source for {family}/{label}: {paths[-1]}')
+                    rows_ = coords.model.eq(label)
+                    values = coords.loc[rows_, "patient_id"].map(pred)
+                    if values.isna().any():
+                        raise ValueError(f'Missing predicted risk for {int(values.isna().sum())} '
+                                         f'displayed patients in {family}/{label}')
+                    coords.loc[rows_, "predicted"] = values.to_numpy()
+                print(f"[embeddings] {family} prediction sources: {sources}")
                 coords.to_csv(run.private / f"{family}_encoder_coordinates.csv", index=False)
-                from opera.visualization.encoder_embedding_comparison import neighbourhood_metrics
-                metrics = neighbourhood_metrics(coords, survival)
-                metrics.to_csv(run.ready / "tables" / f"embedding_neighbourhood_{family}.csv", index=False)
-                fig = figure_encoder_embeddings(coords, survival, model_order=list(family_stages), model_labels=LABELS,
-                                                metrics=metrics)
-                for t in fig.findobj(matplotlib.text.Text):
-                    t.set_fontfamily("serif")
-                stem = run.ready / "figures" / f"supp_embedding_comparison_{family}"
-                fig.savefig(stem.with_suffix(".pdf"))
-                fig.savefig(stem.with_suffix(".png"), dpi=200)
-                plt.close(fig)
+                # Aggregate map grids (smoothed densities, suppressed below 5 patients per
+                # neighbourhood) so the maps can be redrawn locally without patient coordinates.
+                from opera.visualization.encoder_embedding_comparison import map_grids
+                cells, grid_meta = map_grids(coords, survival)
+                predicted_models = set(cells.loc[cells.layer.eq('predicted'), 'model'])
+                if predicted_models != set(family_stages):
+                    raise ValueError(f'Empty predicted-risk grid(s) for {family}: '
+                                     f'{sorted(set(family_stages) - predicted_models)}')
+                cells.to_csv(run.ready / "tables" / f"embedding_grids_{family}.csv.gz", index=False)
+                grid_meta.to_csv(run.ready / "tables" / f"embedding_grids_{family}_meta.csv", index=False)
                 out[family] = {"patients": int(coords.patient_id.nunique()),
                                "with_ipi": int(coords.drop_duplicates("patient_id").ipi_group.notna().sum()),
-                               "projection": sorted(coords.projection.unique()) if "projection" in coords else None}
+                               "projection": sorted(coords.projection.unique()) if "projection" in coords else None,
+                               "prediction_sources": sources,
+                               "index_risk_groups": coords.drop_duplicates('patient_id').ipi_group.fillna('Not recorded').value_counts().to_dict()}
             return out
         run.step("embeddings", check, action)
 
