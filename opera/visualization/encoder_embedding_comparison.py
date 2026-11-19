@@ -39,6 +39,10 @@ from opera.visualization.style import CATEGORICAL
 IPI_LEVELS = ["Low", "Intermediate", "High"]
 IPI_COLOURS = ["#9CC9BE", "#D99A62", "#6E1A2E"]  # light to dark: low to high risk
 DISEASE_EXTRA = ["#BD648E", "#697481"]
+# Two palette slots read alike on the disease maps (19 Nov): MCL's eucalyptus against indolent B-NHL's
+# teal (OKLab distance 4.6; 3.8 deuteranopic) and T-cell NHL's lavender against Hodgkin's blue (6.1;
+# 3.1). Fixed replacements, at least 10 from every other disease colour, also under simulated CVD.
+DISEASE_COLOUR_OVERRIDES = {"MCL": "#6E1A2E", "T-cell NHL": "#D9A52C"}
 INK, INK2, MUTED, CLOUD = "#17212B", "#485463", "#657180", "#D5DAE1"
 
 
@@ -115,6 +119,7 @@ def figure_encoder_embeddings(coords, survival, *, model_order=None, model_label
     if len(diseases) > len(palette):
         raise ValueError("Too many disease groups for the palette")
     disease_colours = {d: palette[i] for i, d in enumerate(diseases)}
+    disease_colours.update({d: c for d, c in DISEASE_COLOUR_OVERRIDES.items() if d in disease_colours})
     surv = survival.set_index("patient_id")
 
     ncol = len(models)
@@ -393,6 +398,7 @@ def figure_encoder_maps_from_grids(cells, meta, *, model_order=None, model_label
     diseases = sorted(cells.loc[cells.layer == "disease", "key"].unique(), key=str)
     palette = CATEGORICAL + DISEASE_EXTRA
     disease_colours = {d: palette[i % len(palette)] for i, d in enumerate(diseases)}
+    disease_colours.update({d: c for d, c in DISEASE_COLOUR_OVERRIDES.items() if d in disease_colours})
     ncol = len(models)
     fig = plt.figure(figsize=(1.95 * ncol + 1.95, 1.95 * 3 + 0.8))
     grid_spec = fig.add_gridspec(3, ncol + 1, width_ratios=[1] * ncol + [0.7], left=0.09, right=0.985,
@@ -586,6 +592,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
     diseases = [d for d in fixed if d in ranked] + [d for d in ranked if d not in fixed] + (["Other"] if small else [])
     palette = [c for c in CATEGORICAL if c != "#9E9E9E"] + DISEASE_EXTRA[:1]  # grey is kept for Other
     disease_colours = {d: palette[i % len(palette)] for i, d in enumerate(d for d in diseases if d != "Other")}
+    disease_colours.update({d: c for d, c in DISEASE_COLOUR_OVERRIDES.items() if d in disease_colours})
     disease_colours["Other"] = "#B8BEC6"
     risk_cmap = plt.get_cmap("plasma").copy()
     risk_cmap.set_bad((1, 1, 1, 0))

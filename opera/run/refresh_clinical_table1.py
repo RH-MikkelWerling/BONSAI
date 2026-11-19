@@ -41,11 +41,19 @@ def refresh(original, prepared, lyfo_path, source_analysis, output, quality_meta
         quality['PS'] = pd.to_numeric(quality.PS, errors='raise')
         if not quality.PS.dropna().isin([0, 1, 2, 3, 4]).all():
             raise ValueError('Quality-registry PS must use explicitly mapped ECOG values 0–4')
-        if not quality.PS.notna().any():
+        conflict_flags = quality.get('quality_registry_ps_conflict', pd.Series(False, index=quality.index)).fillna(False)
+        if not conflict_flags.isin([True, False, 0, 1]).all():
+            raise ValueError('Quality-registry PS conflict flags must be boolean')
+        conflict_flags = conflict_flags.astype(bool)
+        if (conflict_flags & quality.PS.notna()).any():
+            raise ValueError('Conflicting quality-registry PS must be explicitly missing')
+        quality['quality_registry_ps_conflict'] = conflict_flags
+        if not quality.PS.notna().any() and not conflict_flags.any():
             raise ValueError('No nonmissing quality-registry PS supplied')
         supplied = selected.subject_id.map(quality.set_index('subject_id').PS)
         old_ps = pd.to_numeric(selected.get('PS', pd.Series(index=selected.index, dtype=float)), errors='coerce')
         covered = supplied.notna()
+        conflicted = selected.subject_id.map(quality.set_index('subject_id').quality_registry_ps_conflict).fillna(False).astype(bool)
         for column in ('PS', 'ps', 'performance_status'):
             if column in selected:
                 selected[column] = selected[column].astype(object)
@@ -53,11 +61,20 @@ def refresh(original, prepared, lyfo_path, source_analysis, output, quality_meta
         selected.loc[covered, 'performance_status'] = supplied.loc[covered].map(performance_group)
         if 'ps' in selected:
             selected.loc[covered, 'ps'] = supplied.loc[covered]
+        # An explicit unresolved conflict must not silently fall back to an old
+        # PS from a potentially different episode. Keep the patient, clear PS only.
+        for column in ('PS', 'ps', 'performance_status'):
+            if column in selected:
+                selected.loc[conflicted, column] = pd.NA
+        # Display unknown PS as an explicit category, including populations
+        # where every PS is missing. Raw PS remains missing, never imputed.
+        selected['performance_status'] = selected['performance_status'].fillna('Not recorded')
         replaced |= {'PS', 'ps', 'performance_status'}
         changes = selected[['cohort_fine', 'split']].assign(
             refreshed_ps_available=covered.astype(int),
             newly_observed_ps=(covered & old_ps.isna()).astype(int),
             changed_existing_ps=(covered & old_ps.notna() & old_ps.ne(supplied)).astype(int))
+        changes['unresolved_ps_conflict'] = conflicted.astype(int)
         quality_changes = changes.groupby(['cohort_fine', 'split'], as_index=False).sum()
         source_manifest = quality_path.parent / 'quality_registry_manifest.json'
         source_notes = json.loads(source_manifest.read_text()) if source_manifest.exists() else {}
@@ -65,6 +82,8 @@ def refresh(original, prepared, lyfo_path, source_analysis, output, quality_meta
                           'patients_with_refreshed_ps': int(covered.sum()),
                           'newly_observed_ps': int((covered & old_ps.isna()).sum()),
                           'changed_existing_ps': int((covered & old_ps.notna() & old_ps.ne(supplied)).sum()),
+                          'patients_with_unresolved_ps_conflict': int(conflicted.sum()),
+                          'unresolved_conflict_policy': 'Patient retained; PS missing; no fallback to previous PS',
                           'all_required_ps_sources_declared_loaded': source_notes.get('all_required_sources_loaded', False),
                           'source_names': list(source_notes.get('sources', {})),
                           'uncovered_patients': 'Original multi-registry values retained',
