@@ -210,9 +210,10 @@ def disease_map(root: Path, out: Path):
     ax.grid(False)
     handles = [Line2D([], [], ls="", marker=styles[g][1], color=styles[g][0], markersize=5,
                       label=od._lineage_label(g)) for g in order]
-    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.36, 1.0), frameon=False, fontsize=7,
-              title="Disease group", title_fontsize=7.2, handletextpad=0.2, alignment="left")
-    fig.subplots_adjust(left=0.03, right=0.62, top=0.97, bottom=0.12)
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.0), ncol=5, frameon=False,
+               fontsize=7, title="Disease group", title_fontsize=7.2, handletextpad=0.2,
+               columnspacing=1.0)
+    fig.subplots_adjust(left=0.03, right=0.80, top=0.97, bottom=0.24)
     _save(fig, out / "supp_disease_map")
 
 

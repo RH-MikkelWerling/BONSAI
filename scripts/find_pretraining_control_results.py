@@ -31,21 +31,23 @@ def references(tree, prefix=''):
             yield from references(value, f'{prefix}[{i}]')
     elif isinstance(tree, str) and '.ckpt' in tree:
         # Include earlier variants, but label their release instead of merging them.
-        if ('pretrain_scaled_time2vec_hidden256' in tree
-                or 'pretrain_harmonized_scaled_time2vec_len8192_20ep' in tree):
-            name = Path(tree).name.lower()
-            kind = ('epoch10' if re.search(r'epoch[_=-]?0?10(?:\D|$)', name)
-                    else 'epoch20' if re.search(r'epoch[_=-]?0?20(?:\D|$)', name)
-                    else 'last_epoch_unverified' if name == 'last.ckpt'
-                    else 'best_epoch_unverified' if name == 'best.ckpt'
-                    else 'epoch_unverified')
-            yield {'field': prefix, 'checkpoint_reference': tree, 'reference_kind': kind,
-                   'current_release': 'daly_care_t100_joined_bins_with_sor_final_v2' in tree}
+        # Retain renamed/relative encoder references too. Filtering to two known
+        # pretraining directory names missed older experiments and copied fits.
+        name = Path(tree).name.lower()
+        kind = ('epoch10' if re.search(r'epoch[_=-]?0?10(?:\D|$)', name)
+                else 'epoch20' if re.search(r'epoch[_=-]?0?20(?:\D|$)', name)
+                else 'last_epoch_unverified' if name == 'last.ckpt'
+                else 'best_epoch_unverified' if name == 'best.ckpt'
+                else 'epoch_unverified')
+        yield {'field': prefix, 'checkpoint_reference': tree, 'reference_kind': kind,
+               'current_release': 'daly_care_t100_joined_bins_with_sor_final_v2' in tree}
 
 
 def search(roots, max_files=30000):
     result = {'scope': 'Read-only provenance search; reference filenames do not verify checkpoint epochs',
+              'roots': [str(root) for root in roots], 'skipped_symlink_directories': [],
               'references': [], 'controls': [], 'probe_candidates': [], 'head_audit_candidates': [],
+              'checkpoint_candidates': [],
               'errors': [], 'truncated': False, 'files_read': 0}
     def note_probe(path, data):
         text = yaml.safe_dump(data).lower()
@@ -60,15 +62,26 @@ def search(roots, max_files=30000):
             result['errors'].append({'path': str(root), 'reason': 'directory_missing'})
             continue
         for directory, children, names in os.walk(root, followlinks=False):
+            result['skipped_symlink_directories'].extend(str(Path(directory) / c)
+                for c in children if (Path(directory) / c).is_symlink())
             children[:] = sorted(c for c in children if c not in SKIP
-                                 and not c.startswith('.') and 'INTERNAL' not in c.upper()
+                                 and (not c.startswith('.') or c == '.hydra') and 'INTERNAL' not in c.upper()
                                  and not (Path(directory) / c).is_symlink())
+            if re.search(r'20ep|epoch[_=-]?0?20|(?:^|[/_])e20(?:[/_]|$)|linear.?probe|head.?only', str(directory), re.I):
+                for name in sorted(n for n in names if n.endswith('.ckpt')):
+                    result['checkpoint_candidates'].append({'path': str(Path(directory) / name),
+                        'note': 'Filename/path candidate only; no checkpoint loaded'})
             if any(token in str(directory).lower() for token in ['mechanism', 'linear_probe', 'linear-probe', 'head_only']):
                 for name in sorted(set(names) & {'report.json', 'manifest.json', 'training_selection.json',
                                                 'selection_receipt.json', 'router_mechanism_review.zip'}):
                     result['head_audit_candidates'].append({'path': str(Path(directory) / name),
                         'note': 'Filename candidate; checkpoint identity and completion not yet verified'})
-            for name in sorted(set(names) & {'checkpoint_metadata.json', 'hparams.yaml', 'config.yaml', 'bundle.json'}):
+            metadata_names = {'checkpoint_metadata.json', 'hparams.yaml', 'hparams.yml', 'config.yaml',
+                              'config.yml', 'config.json', 'model_metadata.json', 'bundle.json',
+                              'training_selection.json', 'selection_receipt.json', 'overrides.yaml'}
+            config_files = {n for n in names if n.endswith(('.yaml', '.yml'))
+                            and any(part in {'configs', 'hydra', '.hydra'} for part in Path(directory).parts)}
+            for name in sorted((set(names) & metadata_names) | config_files):
                 path = Path(directory) / name
                 if path.is_symlink() or path.resolve() in seen:
                     continue
