@@ -23,9 +23,12 @@ def collect(root):
         'data/clinical_registry_refresh/20261111/*/table1_review.zip',
         'data/control_followup_20261117.zip',
         'data/diagnostics/representation_absorption_20261112/*/manifest.json',
-        'data/fixed_budget_risk_20261118/held_out/manifest.json',
-        'data/fixed_budget_risk_20261118/held_out/fixed_budget_review.zip',
-        'logs/reproducibility_facts_20261118*.json',
+        'data/diagnostics/representation_absorption_20261112/*/pipeline_complete.json',
+        'data/fixed_budget_risk_20261118/*/manifest.json',
+        'data/fixed_budget_risk_20261118/*/fixed_budget_review.zip',
+        'logs/reproducibility_facts_2026111*.json',
+        'logs/tabular_inference_recovery_2026111*.json',
+        'logs/pretraining_downstream_search_2026111*.json',
     ]
     result = {'collected_utc': datetime.now(timezone.utc).isoformat(),
               'scope': 'Files in this checkout only; presence is not proof of complete coverage or a live process',
@@ -48,6 +51,10 @@ def collect(root):
                         row['receipt'] = {k: data[k] for k in
                             ['status', 'complete', 'embeddings', 'clinical', 'no_index',
                              'flipi2_endpoint', 'generation', 'exploratory'] if k in data}
+                        if isinstance(data.get('steps'), dict):
+                            row['step_statuses'] = {
+                                k: {field: value[field] for field in ['status', 'returncode'] if field in value}
+                                for k, value in data['steps'].items() if isinstance(value, dict)}
                 except (ValueError, OSError) as error:
                     row['receipt_error'] = str(error)
             result['artifacts'].append(row)
