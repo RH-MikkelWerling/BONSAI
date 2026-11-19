@@ -44,6 +44,11 @@ RESULT_ROWS = [
     ('EXT_R_EA_VS_XP', 'OPERA (adapted)', 'Pooled XGBoost'),
     ('EXT_R_AB_EA_VS_XP', 'Routing (adapted)', 'Pooled XGBoost'),
     ('T9', 'Joint (cohort)', 'XGBoost + registry'),
+    # Ridge logistic regression per task (19 Nov). FINAL_R_EA_VS_LR appears once the server rerun
+    # exports it; a contrast absent from the source is skipped, as for every row.
+    ('T4', 'XGBoost specialists', 'Logistic regression'),
+    ('O7', 'OPERA (cohort)', 'Logistic regression'),
+    ('FINAL_R_EA_VS_LR', 'OPERA (adapted)', 'Logistic regression'),
 ]
 
 
@@ -58,8 +63,8 @@ def render_table(panel):
         # Avoid displaying negative zero at the chosen table precision.
         def fmt(v):
             return f'{0. if abs(v)<.0005 else v:.3f}'.replace('-', '$-$')
-        return (r'\shortstack[c]{\textbf{'+fmt(point)+r'}\\[-1pt]'
-                +r'{\fontsize{7.2}{8}\selectfont ('+fmt(low)+' to '+fmt(high)+r')}}')
+        return (r'\shortstack[c]{\textbf{'+fmt(point)+r'}\\[-1.8pt]'
+                +r'{\fontsize{7}{7.6}\selectfont ('+fmt(low)+' to '+fmt(high)+r')}}')
     first_group=True
     for code,candidate,reference in RESULT_ROWS:
         if code is None:

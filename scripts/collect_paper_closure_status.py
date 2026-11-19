@@ -22,8 +22,10 @@ def collect(root):
         'data/paper_256_v3_national_20261111/final_interpretation_20261116/*status.json',
         'data/clinical_registry_refresh/20261111/*/table1_review.zip',
         'data/control_followup_20261117.zip',
-        'data/outcome_embedding_grids_20261119/manifest.json',
-        'data/outcome_embedding_grids_20261119/download_outcome_grids.zip',
+        'data/outcome_embedding_grids_20261119*/manifest.json',
+        'data/outcome_embedding_grids_20261119*/download_outcome_grids.zip',
+        'data/task_structure_comparison_20261119/task_structure_comparison.zip',
+        'data/paper_256_v3_national_20261111/final_recent_record_gaps_20261119/recent_record_review.zip',
         'data/diagnostics/representation_absorption_20261112/*/manifest.json',
         'data/diagnostics/representation_absorption_20261112/*/pipeline_complete.json',
         'data/fixed_budget_risk_20261118/*/manifest.json',
@@ -31,6 +33,7 @@ def collect(root):
         'logs/reproducibility_facts_2026111*.json',
         'logs/tabular_inference_recovery_2026111*.json',
         'logs/pretraining_downstream_search_2026111*.json',
+        'logs/epoch20_*_20261119*.json',
     ]
     result = {'collected_utc': datetime.now(timezone.utc).isoformat(),
               'scope': 'Files in this checkout only; presence is not proof of complete coverage or a live process',
@@ -60,6 +63,19 @@ def collect(root):
                 except (ValueError, OSError) as error:
                     row['receipt_error'] = str(error)
             result['artifacts'].append(row)
+    recipe = root / 'data/paper_256_v3_national_20261111/final_interpretation_20261116/attribution.yaml'
+    if recipe.is_file():
+        try:
+            import yaml
+            data = yaml.safe_load(recipe.read_text())
+            ids = [r['id'] for r in data.get('restrictions', [])]
+            required = {'gap_7d', 'gap_14d', 'gap_21d', 'gap_28d', 'last_year',
+                        'no_labs', 'no_medication', 'no_diagnoses', 'timeline', 'no_region_specialty'}
+            result['saved_interpretation_recipe'] = {'path': str(recipe.relative_to(root)),
+                'split': data.get('run', {}).get('split'), 'restriction_ids': ids,
+                'missing_requested_restrictions': sorted(required - set(ids))}
+        except (ImportError, ValueError, OSError, KeyError, TypeError) as error:
+            result['saved_interpretation_recipe'] = {'error': str(error)}
     return result
 
 

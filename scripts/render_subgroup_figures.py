@@ -30,8 +30,8 @@ from opera.run.paper_story_figures import thesis_style, S_COL, XP_COL, ADAPT, OP
 
 # Paired comparisons shown, in the colours of Figures 4 and 5.
 CONTRASTS = {
-    "FINAL_R_EA_VS_S_L": (S_COL, "OPERA vs specialists"),
-    "FINAL_R_EA_VS_XP": (XP_COL, "OPERA vs pooled XGBoost"),
+    "FINAL_R_EA_VS_S_L": (S_COL, "Adapted OPERA vs specialists"),
+    "FINAL_R_EA_VS_XP": (XP_COL, "Adapted OPERA vs pooled XGBoost"),
     "E3": (ADAPT, "Adapted vs cohort encoder"),
 }
 MODELS = {"R_EA": (OPERA, "Adapted OPERA"), "XP": (XP_COL, "Pooled XGBoost"),
@@ -104,7 +104,7 @@ def who_benefits(effects, models, out: Path):
     for metric in ("auc", "ipa"):
         both, has_interval = _with_per_task(effects, models, metric)
         panels.append(_subgroups(both, "stratum_value"))
-    label = "OPERA vs XGBoost per task"  # without its interval until exported: see caption
+    label = "Adapted OPERA vs XGBoost per task"  # without its interval until exported: see caption
     styles = {**CONTRASTS, "VS_X": (XGB_REF, label)}
     styles = {k: styles[k] for k in ("FINAL_R_EA_VS_S_L", "VS_X", "FINAL_R_EA_VS_XP", "E3")}
     auc, ipa = panels
@@ -153,15 +153,19 @@ def _english(ax, on_map=False):
         # Dark ink with a thin white halo reads on every fill and on the sea, where the
         # longer English names now reach; the default white-on-dark text vanished there.
         halo = [patheffects.withStroke(linewidth=1.8, foreground="white")]
-        for text in ax.texts:
-            if text.get_text() == "Bornholm":
+        for text in list(ax.texts):
+            if text.get_text() == "Bornholm":  # the inset speaks for itself
+                text.remove()
                 continue
             text.set_color("#17212B")
             text.set_path_effects(halo)
             text.set_fontsize(7.0 if text.get_text() in ENGLISH.values() else 7.4)
             x, y = text.get_position()
-            if 11.4 < x < 11.6 and y > 56.5:  # Capital Region: closer to its leader line
-                text.set_position((x - 0.12, y - 0.17))
+            if 11.4 < x < 11.6 and y > 56.5:  # Capital Region: between Bornholm and the region
+                text.set_position((12.5, y - 0.35))
+        for line in list(ax.lines):  # its leader line is no longer needed
+            if len(line.get_xdata()) == 2 and abs(line.get_xdata()[0] - 11.75) < 1e-6:
+                line.remove()
     labels = [t.get_text() for t in ax.get_yticklabels()]
     if any(l in ENGLISH for l in labels):
         ax.set_yticks(ax.get_yticks(), [ENGLISH.get(l, l) for l in labels])
@@ -178,7 +182,7 @@ def regions(effects, models, out: Path):
                                        "auc")
     auc["region"] = auc.stratum_value.map(pf._region_name)
     shown = {"FINAL_R_EA_VS_S_L": CONTRASTS["FINAL_R_EA_VS_S_L"],
-             "VS_X": (XGB_REF, "OPERA vs XGBoost per task"),  # interval: see caption
+             "VS_X": (XGB_REF, "Adapted OPERA vs XGBoost per task"),  # interval: see caption
              "FINAL_R_EA_VS_XP": CONTRASTS["FINAL_R_EA_VS_XP"], "E3": CONTRASTS["E3"]}
     fig = plt.figure(figsize=(6.6, 7.0))
     maps = fig.add_gridspec(1, 3, wspace=0.06, left=0.01, right=0.99, top=0.95, bottom=0.64)
