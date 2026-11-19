@@ -304,14 +304,18 @@ def fig4_population(b: Bundle, cells_path: Path, out: Path):
     """Two kinds of borrowing by training events: pooling across diseases (sequence model and
     XGBoost) falls with support; pretraining on the population does not. In the style of
     Figures 3C and 5: diamonds with tinted intervals, the average as a dashed line."""
-    panels = [("P1", "Sequence model", D_COL), ("T7", "XGBoost", XP_COL), ("E3", "Sequence model", ADAPT)]
-    fig = plt.figure(figsize=(6.4, 2.85))
-    g = fig.add_gridspec(1, 4, width_ratios=[1, 1, 0.12, 1], left=0.1, right=0.99, top=0.78, bottom=0.2,
-                         wspace=0.14)
+    # Each panel is a difference against its own reference model, so each names that reference
+    # and carries its own y-axis; the limits stay common so the slopes compare fairly (18 Nov).
+    panels = [("P1", "Sequence model", "pooled vs one model per task", D_COL),
+              ("T7", "XGBoost", "pooled vs one model per task", XP_COL),
+              ("E3", "Sequence model", "adapted national vs cohort encoder", ADAPT)]
+    fig = plt.figure(figsize=(6.4, 2.95))
+    g = fig.add_gridspec(1, 4, width_ratios=[1, 1, 0.10, 1], left=0.1, right=0.99, top=0.74, bottom=0.19,
+                         wspace=0.30)
     first = fig.add_subplot(g[0])
     axes = [first, fig.add_subplot(g[1], sharey=first), fig.add_subplot(g[3], sharey=first)]
     xs = np.arange(len(BINS))
-    for k, (ax, (c, name, col)) in enumerate(zip(axes, panels)):
+    for k, (ax, (c, name, versus, col)) in enumerate(zip(axes, panels)):
         rows = b.by(c, "support_bin").reindex([key for key, _ in BINS])
         ax.axhline(b.row(c).gain, color=lighten(col, 0.5), lw=0.9, ls=(0, (3, 2)), zorder=1)
         ax.plot(xs, rows.gain, color=lighten(col, 0.55), lw=1.3, zorder=2)
@@ -321,10 +325,8 @@ def fig4_population(b: Bundle, cells_path: Path, out: Path):
         ax.set_xticks(xs, [lab for _, lab in BINS])
         ax.set_xlim(-0.5, len(BINS) - 0.5)
         tidy(ax)
-        if k:
-            ax.spines["left"].set_visible(False)
-            ax.tick_params(axis="y", labelleft=False)
-        title(ax, "ABC"[k], name)
+        ax.tick_params(axis="y", labelleft=True)
+        title(ax, "ABC"[k], name, versus, keep_sub=True)
     axes[0].set_ylabel("Δ time-dependent AUC (95% CI)", fontsize=LABEL_SIZE)
     axes[0].yaxis.set_major_locator(MultipleLocator(0.05))
     axes[0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))

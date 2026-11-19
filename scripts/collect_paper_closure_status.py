@@ -22,6 +22,8 @@ def collect(root):
         'data/paper_256_v3_national_20261111/final_interpretation_20261116/*status.json',
         'data/clinical_registry_refresh/20261111/*/table1_review.zip',
         'data/control_followup_20261117.zip',
+        'data/outcome_embedding_grids_20261119/manifest.json',
+        'data/outcome_embedding_grids_20261119/download_outcome_grids.zip',
         'data/diagnostics/representation_absorption_20261112/*/manifest.json',
         'data/diagnostics/representation_absorption_20261112/*/pipeline_complete.json',
         'data/fixed_budget_risk_20261118/*/manifest.json',

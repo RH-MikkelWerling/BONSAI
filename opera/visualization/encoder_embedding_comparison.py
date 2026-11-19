@@ -279,7 +279,7 @@ def align_maps(coords, *, reference=None):
 
 
 def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth=0.013, min_support=25.0,
-              reference=None):
+              reference=None, frame=None):
     """Binned, aggregate version of each encoder map, safe to export from the server.
 
     The maps are first aligned to the ``reference`` model (default: the last) by rotation,
@@ -309,6 +309,10 @@ def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth
     side = (hi - lo).max() * 1.12  # one square frame shared by every map
     mid = (lo + hi) / 2
     x0, x1, y0, y1 = mid[0] - side / 2, mid[0] + side / 2, mid[1] - side / 2, mid[1] + side / 2
+    if frame is not None:
+        x0, x1, y0, y1 = map(float, frame)
+        if not np.isfinite(frame).all() or x1 <= x0 or y1 <= y0:
+            raise ValueError('Invalid shared map frame')
     for model, data in aligned.groupby("model", sort=False):
         data = data.set_index("patient_id")
         pts = data[["x", "y"]].to_numpy(float)
@@ -542,7 +546,8 @@ def _blocks(a, factor, how="sum"):
 
 def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, metrics=None,
                            rows=("disease", "ipi", "predicted", "mortality"), width=6.9, horizon=365,
-                           pixels=800, other_below=0.02, row_rules=False, panel_notes=False):
+                           pixels=800, other_below=0.02, row_rules=False, panel_notes=False,
+                           row_titles=None, risk_label=None):
     """Encoder maps from ``map_grids`` aggregates, drawn like the outcome gallery (Figures S24-S29).
 
     One column per encoder (maps aligned to the adapted encoder's, one shared frame) and one row per
@@ -688,7 +693,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
     for ri, layer in enumerate(rows):
         first, last = axes[ri, 0].get_position(), axes[ri, ncol - 1].get_position()
         y = first.y1 + ((sub_h if has_sub.get(layer, True) else 0.0) + 0.04) / H
-        name = ROW_TITLES[layer].replace("\n", " ")
+        name = (row_titles or ROW_TITLES)[layer].replace("\n", " ")
         if row_rules:
             fig.add_artist(Line2D([first.x0, last.x1], [y, y], transform=fig.transFigure, color=_INK2, lw=0.6))
             fig.text(first.x0, y + 0.03 / H, name, fontsize=8.0, fontweight="bold", color=_INK, va="bottom",
@@ -713,7 +718,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
         cb = fig.colorbar(images[key], cax=key_axes(y), orientation="horizontal")
         if key == "risk":
             cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
-            cb.set_label("One-year mortality relative to the observed average (both rows above)", fontsize=7.2,
+            cb.set_label(risk_label or "One-year mortality relative to the observed average (both rows above)", fontsize=7.2,
                          color=_INK2, labelpad=2)
         else:
             cb.set_ticks(range(len(IPI_LEVELS)), labels=IPI_LEVELS)
