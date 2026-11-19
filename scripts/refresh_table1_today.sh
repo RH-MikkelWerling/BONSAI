@@ -6,14 +6,29 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 python_bin="${OPERA_PYTHON:-$PWD/.venv-v100/bin/python}"
 original="${OPERA_TABLE1_ORIGINAL:-data/paper_256_v2/table1/LOCAL_ONLY_internal/table1_values_long.csv}"
 output="${1:-data/clinical_registry_refresh/20261111/table1_refresh_20261116}"
-quality="${OPERA_TABLE1_QUALITY_METADATA:-data/clinical_registry_refresh/20261111/quality_table1_20261116/quality_ps_INTERNAL.parquet}"
-quality_args=()
-if [[ -f "$quality" ]]; then
-  quality_args=(--quality-metadata "$quality")
-  echo "Refreshing score rows and explicitly prepared quality-registry PS: $quality"
-else
-  echo 'Scope: clinical-score rows only; quality-registry PS input has not been prepared yet.'
+# Require the actual R output; never fall back to an older LYFO-only export.
+quality="${2:-${OPERA_TABLE1_QUALITY_METADATA:-}}"
+if [[ -z "$quality" || ! -f "$quality" ]]; then
+  echo "Missing explicit PS input: $quality" >&2
+  echo "Usage: bash scripts/refresh_table1_today.sh NEW_OUTPUT_DIR PATH_TO_quality_ps_INTERNAL.parquet" >&2
+  exit 1
 fi
+quality_args=(--quality-metadata "$quality")
+"$python_bin" - "$quality" <<'PYINPUT'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]).resolve()
+manifest = path.parent / 'quality_registry_manifest.json'
+if not manifest.is_file():
+    raise SystemExit(f'Missing PS source manifest: {manifest}')
+notes = json.loads(manifest.read_text())
+if notes.get('all_required_sources_loaded') is not True:
+    raise SystemExit('PS source manifest does not confirm all intended sources loaded')
+print(f'PS input: {path}', flush=True)
+print(f"PS sources: {', '.join(notes.get('sources', {}))}", flush=True)
+print(f"PS conflict policy: {notes.get('conflict_policy')}", flush=True)
+print(f"Unresolved PS conflicts: {notes.get('patients_with_unresolved_ps_conflict', 'not recorded')}", flush=True)
+PYINPUT
 "$python_bin" - "$original" <<'PY'
 import hashlib,sys
 from pathlib import Path
