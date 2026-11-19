@@ -15,8 +15,8 @@ def render(tables, output, per_page=4):
     import matplotlib.pyplot as plt
     tables, output = Path(tables), Path(output)
     manifest = json.loads((tables / 'manifest.json').read_text())
-    if manifest.get('status') != 'complete' or manifest.get('model') != 'R_EA':
-        raise ValueError('Need complete adapted-OPERA outcome grid export')
+    if manifest.get('status') != 'complete' or manifest.get('model') not in {'R_EA', 'J_EA'}:
+        raise ValueError('Need complete adapted joint/OPERA outcome grid export')
     meta = pd.read_csv(tables / 'outcome_grid_meta.csv')
     meta = meta.sort_values(['domain', 'label'])
     if per_page < 1:

@@ -448,7 +448,7 @@ CORRECTION_ARROW_TABLES = ("correction_arrows.csv", "correction_arrow_density.cs
                            "correction_arrows.json")
 SELECTED_DESIGN = "J_OA_OWN_L"
 SELECTED_SEEDS = ("J_OA_OWN_s43_L", "J_OA_OWN_s44_L", "J_OA_OWN_s45_L")
-DESIGN_REFERENCES = {"OAOWN": "J_OA_OWN", "AB": "R_AB"}
+DESIGN_REFERENCES = {"OAOWN": "J_OA_OWN", "AB": "R_AB", "J": "J", "OFF_F10": "R_PF_OFF_F10"}
 
 
 def design_code(model: str) -> str:

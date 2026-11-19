@@ -544,16 +544,20 @@ def _blocks(a, factor, how="sum"):
         return np.nanmean(b, (1, 3))
 
 
+MIXED_COLOUR = "#E3E6EA"  # cells where no disease group dominates; lighter than "Other"
+
+
 def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, metrics=None,
                            rows=("disease", "ipi", "predicted", "mortality"), width=6.9, horizon=365,
                            pixels=800, other_below=0.02, row_rules=False, panel_notes=False,
-                           row_titles=None, risk_label=None):
+                           row_titles=None, risk_label=None, mixed_below=0.4):
     """Encoder maps from ``map_grids`` aggregates, drawn like the outcome gallery (Figures S24-S29).
 
     One column per encoder (maps aligned to the adapted encoder's, one shared frame) and one row per
     layer, each headed by a labelled rule as the gallery heads its clinical domains. The lattice is
     shown as ``pixels`` x ``pixels`` square cells without interpolation. Disease: the most common
-    disease in each cell, paler where diseases mix. IPI: the mean IPI category where one is recorded.
+    disease in each cell, or neutral grey ("mixed") where no group reaches ``mixed_below`` of the
+    cell's patients. IPI: the mean IPI category where one is recorded.
     Predicted and observed one-year mortality: relative to the observed average, on the gallery's
     plasma scale (log, 1/4x to 4x). Call after ``paper_story_figures.thesis_style()``.
     """
@@ -645,8 +649,9 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
                 lead = stack.argmax(0)
                 purity = stack.max(0) / np.maximum(stack.sum(0), 1e-12)
                 rgb = np.array([to_rgb(disease_colours[d]) for d in diseases])[lead]
-                mix = np.clip((purity - 0.3) / 0.5, 0, 1)[..., None]  # paler where diseases mix
-                rgb = mix * rgb + (1 - mix) * (0.55 * rgb + 0.45)
+                # Mixed cells are grey, not a paler disease colour: pale myeloma navy read as Hodgkin
+                # (19 Nov), so a tint could pass for another group.
+                rgb = np.where((purity < mixed_below)[..., None], np.array(to_rgb(MIXED_COLOUR)), rgb)
                 alpha = np.where(empty, 0.0, 1.0)
                 ax.imshow(np.dstack([rgb, alpha]).transpose(1, 0, 2), origin="lower", extent=extent,
                           aspect="equal", interpolation="nearest", zorder=1)
@@ -707,9 +712,11 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
 
     if "disease" in rows:
         y = slots["disease"] + panel + 0.06
-        fig.legend(handles=[Patch(fc=disease_colours[d], ec="none", label=str(d)) for d in diseases],
+        handles = [Patch(fc=disease_colours[d], ec="none", label=str(d)) for d in diseases]
+        handles.append(Patch(fc=MIXED_COLOUR, ec="none", label=f"Mixed (none ≥{100 * mixed_below:.0f}%)"))
+        fig.legend(handles=handles,
                    loc="upper center", bbox_to_anchor=(0.5, 1 - y / H),
-                   ncol=len(diseases) if len(diseases) <= 6 else int(np.ceil(len(diseases) / 2)), frameon=False,
+                   ncol=len(handles) if len(handles) <= 6 else int(np.ceil(len(handles) / 2)), frameon=False,
                    fontsize=7.2, handlelength=1.0, handleheight=0.8, columnspacing=1.2, borderaxespad=0)
     for key in ("ipi", "risk"):
         if key not in images:

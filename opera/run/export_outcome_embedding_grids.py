@@ -1,4 +1,4 @@
-"""Export all-outcome aggregate maps on the final adapted-OPERA story projection.
+"""Export all-outcome aggregate maps on an adapted joint/OPERA story projection.
 
 Reuses map_grids, its smoothing and suppression. No UMAP, inference or training.
 Only named aggregate products enter the ZIP; coordinates and predictions stay server-side.
@@ -54,26 +54,29 @@ def outcome_grids(coords, predictions, reference_meta, *, horizon=365, bandwidth
     return cells, meta
 
 
-def run(story, output):
+def run(story, output, *, family='opera'):
+    if family not in {'opera', 'joint'}:
+        raise ValueError('Choose opera or joint family')
+    label, model = ('Adapted OPERA', 'R_EA') if family == 'opera' else ('Adapted joint', 'J_EA')
     story, output = Path(story), Path(output)
     status = json.loads((story / 'story_status.json').read_text())
     if status['embeddings']['status'] != 'complete':
         raise ValueError('Complete final story embeddings first')
-    source = Path(status['embeddings']['opera']['prediction_sources']['Adapted OPERA'])
-    coordpath = story / 'server_only/opera_encoder_coordinates.csv'
-    metapath = story / 'ready/tables/embedding_grids_opera_meta.csv'
+    source = Path(status['embeddings'][family]['prediction_sources'][label])
+    coordpath = story / f'server_only/{family}_encoder_coordinates.csv'
+    metapath = story / f'ready/tables/embedding_grids_{family}_meta.csv'
     coords = pd.read_csv(coordpath, dtype={'patient_id': str})
-    coords = coords.loc[coords.model.eq('Adapted OPERA')].copy()
+    coords = coords.loc[coords.model.eq(label)].copy()
     if coords.patient_id.duplicated().any() or coords.empty:
-        raise ValueError('Need unique adapted OPERA reference coordinates')
+        raise ValueError(f'Need unique {label} reference coordinates')
     refs = pd.read_csv(metapath)
-    reference, = refs.loc[refs.model.eq('Adapted OPERA')].to_dict('records')
+    reference, = refs.loc[refs.model.eq(label)].to_dict('records')
     if int(reference['grid']) != 800:
         raise ValueError('Need final 800-grid story export')
     outcomes = set()
     for batch in pq.ParquetFile(source).iter_batches(columns=['outcome'], batch_size=50000):
         outcomes.update(batch.column(0).to_pylist())
-    identity = dict(predictions_sha256=sha(source), coordinates_sha256=sha(coordpath),
+    identity = dict(family=family, predictions_sha256=sha(source), coordinates_sha256=sha(coordpath),
                     reference_meta_sha256=sha(metapath), implementation_sha256=sha(__file__),
                     grid_implementation_sha256=sha(Path(__file__).resolve().parents[1] / 'visualization/encoder_embedding_comparison.py'),
                     horizon_days=365, bandwidth=.009, min_count=5, min_support=25)
@@ -114,23 +117,27 @@ def run(story, output):
             files.append(gridpath)
             print(f'Outcome grids {i + 1}/{len(outcomes)}: {outcome}: {row["status"]}', flush=True)
         pd.DataFrame(rows).to_csv(output / 'outcome_grid_meta.csv', index=False)
-        manifest = dict(status='complete', model='R_EA', exploratory_display=True,
-                        same_projection_as='story adapted OPERA', **identity,
+        manifest = dict(status='complete', model=model, exploratory_display=True,
+                        same_projection_as=f'story {label}', **identity,
                         outcomes=len(rows), supported=sum(r['status'] == 'complete' for r in rows),
                         note='IPCW display surfaces; fixed common frame, smoothing and suppression from story maps; no patient exports')
         (output / 'manifest.json').write_text(json.dumps(manifest, indent=2))
-        with ZipFile(output / 'download_outcome_grids.zip', 'w', ZIP_DEFLATED) as archive:
+        archive_name = 'download_outcome_grids_joint.zip' if family == 'joint' else 'download_outcome_grids.zip'
+        with ZipFile(output / archive_name, 'w', ZIP_DEFLATED) as archive:
             for path in files + [output / 'outcome_grid_meta.csv', output / 'manifest.json']:
                 archive.write(path, path.name)
-        print(f'Download: {output / "download_outcome_grids.zip"}', flush=True)
+        print(f'Download: {output / archive_name}', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--story-root', type=Path, default=Path('data/story_closure_20261116'))
-    p.add_argument('--output-dir', type=Path, default=Path('data/outcome_embedding_grids_20261119'))
+    p.add_argument('--family', choices=['opera', 'joint'], default='opera')
+    p.add_argument('--output-dir', type=Path)
     a = p.parse_args()
-    run(a.story_root, a.output_dir)
+    output = a.output_dir or Path('data/outcome_embedding_grids_joint_20261119' if a.family == 'joint'
+                                  else 'data/outcome_embedding_grids_20261119')
+    run(a.story_root, output, family=a.family)
 
 
 if __name__ == '__main__':

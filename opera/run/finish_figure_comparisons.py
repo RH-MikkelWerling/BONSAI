@@ -26,6 +26,9 @@ COMPARISONS = {
     # Adapted OPERA against XGBoost for each task, for the subgroup and region figures
     # (19 Nov): the per-model averages gave only a point estimate, without an interval.
     'FINAL_R_EA_VS_X': 'gain(R_EA,X)',
+    # Adapted OPERA against ridge logistic regression per task (19 Nov): the Methods name LR as a
+    # comparator; only the cohort-encoder O7 and XGBoost T4 contrasts with LR existed.
+    'FINAL_R_EA_VS_LR': 'gain(R_EA,LR)',
     'FINAL_J_EA_VS_XP': 'gain(J_EA,XP)',
 }
 ABLATIONS = {
@@ -38,10 +41,11 @@ PRETRAINING_CONTROLS = {
     'P0': 'gain(J_L,J_RI)',
     'P7': 'gain(J_L,J_FZ)',
 }
+LOGISTIC_COMPARISON = {'FINAL_R_EA_VS_LR': 'gain(R_EA,LR)'}
 
 
-def prepare(repo, output, kind):
-    from opera.run.analyse_locked_predictions import models_for
+def prepare(repo, output, kind, patient_metadata=None):
+    from opera.run.analyse_locked_predictions import models_for, DESIGN_SEARCH_MODELS, design_search_contrasts
     national = repo / 'data/paper_256_v3_national_20261111'
     original = repo / 'data/paper_256_v3/analysis/local_test_20261109_four_allocations/analysis_inventory/analysis.yaml'
     source_paths = [original, national / 'extended_test_comparison/analysis.yaml',
@@ -49,15 +53,26 @@ def prepare(repo, output, kind):
     sources = [(path, read(path)) for path in source_paths if path.is_file()]
     if not sources: raise FileNotFoundError('No registered source analysis configs')
     config = copy.deepcopy(next((spec for path, spec in sources if path == original), sources[0][1]))
-    desired = {'core': COMPARISONS, 'ablations': ABLATIONS,
-               'pretraining_controls': PRETRAINING_CONTROLS}[kind]
+    designs = set(DESIGN_SEARCH_MODELS) | {'J_L_F10', 'R_PF_OFF_F10_L', 'R_PF5E_F10_L', 'R_PH_GE_F10_L',
+                                         'R_PF5E_LIVE_F10_L', 'R_PL8_F10_L'}
+    design_contrasts = design_search_contrasts(designs)
+    for tag, reference in [('J', 'J_L'), ('OFF_F10', 'R_PF_OFF_F10_L')]:
+        for model in designs - {reference}:
+            if tag == 'OFF_F10' and '_F10' not in model:
+                continue
+            design_contrasts[f'DS_{model}__{tag}'] = f'gain({model},{reference})'
+    desired = {'core': COMPARISONS, 'logistic': LOGISTIC_COMPARISON,
+               'vocabulary': COMPARISONS, 'design_search': design_contrasts,
+               'ablations': ABLATIONS, 'pretraining_controls': PRETRAINING_CONTROLS}[kind]
     wanted = models_for(desired)
     wanted.add('J_OA_OWN_L')
-    if kind == 'core': wanted |= {'D_L', 'O_L', 'XP', 'XR'}
+    if kind in {'core', 'vocabulary'}: wanted |= {'D_L', 'O_L', 'XP', 'XR'}
     artifacts = {}
     for _, spec in sources:
         for item in spec.get('artifacts', []):
             if int(item.get('seed', -1)) != 42 or item.get('split') not in ['held_out', 'tuning']:
+                continue
+            if kind == 'design_search' and item.get('split') != 'tuning':
                 continue
             item = copy.deepcopy(item)
             if item['model'] not in wanted: continue
@@ -105,10 +120,12 @@ def prepare(repo, output, kind):
     contracts = {a['data_contract'] for a in artifacts}
     if len(contracts) != 1:
         raise ValueError('Figure comparisons need one shared frozen downstream data contract')
-    present = {a['model'] for a in artifacts if a['split'] == 'held_out'}
+    evaluation_split = 'tuning' if kind == 'design_search' else 'held_out'
+    present = {a['model'] for a in artifacts if a['split'] == evaluation_split}
     if alias_source in present: present.add('OPERA')
-    required = ({'J_L', 'S_L', 'X', 'OPERA', 'R_EA'} if kind == 'core'
-                else {'J_L'} if kind == 'pretraining_controls' else {'OPERA'})
+    required = ({'J_L', 'S_L', 'X', 'OPERA', 'R_EA'} if kind in {'core', 'vocabulary'}
+                else {'J_L'} if kind in {'pretraining_controls', 'design_search'}
+                else {'R_EA', 'LR'} if kind == 'logistic' else {'OPERA'})
     if not required <= present:
         raise ValueError(f'Missing required held-out models: {sorted(required - present)}')
     contrasts = {name: expression for name, expression in desired.items()
@@ -134,7 +151,9 @@ def prepare(repo, output, kind):
                   panel_estimate_groups={'figure_models': sorted(present)},
                   patient_gain_contrasts=([c for c in ['P5', 'T2', 'O1', 'O3', 'E1', 'A1', 'A2', 'E3', 'E4', 'FINAL_R_EA_VS_S_L']
                                            if c in contrasts] if kind == 'core' else []))
-    if kind == 'core':
+    if kind in {'design_search', 'vocabulary'}:
+        config['design_search'] = kind == 'design_search'
+    if kind in {'core', 'vocabulary'}:
         # Retain the source's pre-index groups/bins. No held-out cutpoint choice.
         registered = read(repo / 'opera/configs/locked_prediction_analysis.example.yaml')
         config['patient_groups'] = config.get('patient_groups') or registered['patient_groups']
@@ -144,6 +163,16 @@ def prepare(repo, output, kind):
                            if c in contrasts]
         config['stratified_reanalysis'] = {column: {'contrasts': group_contrasts,
             'models': [m for m in ['J_L', 'OPERA', 'R_EA', 'J_EA', 'XP', 'X'] if m in present]} for column in columns}
+        if kind == 'vocabulary':
+            if patient_metadata is None:
+                raise ValueError('Supply --patient-metadata from the national coverage producer')
+            import pyarrow.parquet as pq
+            if 'national_vocabulary_coverage' not in pq.ParquetFile(patient_metadata).schema.names:
+                raise ValueError('National coverage column missing from supplied metadata')
+            config['patient_metadata'] = str(Path(patient_metadata).resolve())
+            config['patient_groups'] = {'national_vocabulary_coverage': registered['patient_groups']['national_vocabulary_coverage']}
+            config['stratified_reanalysis'] = {'national_vocabulary_coverage': {
+                'contrasts': group_contrasts, 'models': [m for m in ['J_L', 'OPERA', 'R_EA', 'J_EA', 'XP', 'X'] if m in present]}}
     else:
         config.update(patient_groups={}, stratified_reanalysis={})
     immutable(output / 'analysis.yaml', config)
@@ -161,7 +190,8 @@ def prepare(repo, output, kind):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=['core', 'ablations', 'pretraining_controls'], default='core')
+    parser.add_argument('--kind', choices=['core', 'ablations', 'pretraining_controls', 'design_search', 'vocabulary', 'logistic'], default='core')
+    parser.add_argument('--patient-metadata', type=Path)
     parser.add_argument('--output-root', type=Path, default=Path('data/figure_closure_20261116'))
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
@@ -174,7 +204,7 @@ def main():
         if (output / 'results/analysis_manifest.json').is_file():
             print(f'COMPARISONS {args.kind}: already complete: {output / "results"}'); return
         try:
-            report = prepare(repo, output, args.kind)
+            report = prepare(repo, output, args.kind, args.patient_metadata)
         except (ValueError, FileNotFoundError, KeyError) as error:
             (output / 'blocked.json').write_text(json.dumps({'status': 'blocked', 'reason': str(error)}, indent=2))
             raise SystemExit(f'COMPARISONS {args.kind}: BLOCKED: {error}')

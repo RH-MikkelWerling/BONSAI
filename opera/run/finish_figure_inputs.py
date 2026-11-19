@@ -195,7 +195,7 @@ def projects(repo, national, closure=None):
             'fractions': national / 'fraction_results_20261116'}
     if closure is not None:
         result.update({f'focused_{kind}': closure / f'comparisons_{kind}'
-                       for kind in ['core', 'ablations', 'pretraining_controls']})
+                       for kind in ['core', 'ablations', 'pretraining_controls', 'design_search', 'vocabulary', 'logistic']})
     return result
 
 
@@ -244,12 +244,14 @@ def harvest(repo, national, output):
                 if not metadata.is_absolute(): metadata = repo / metadata
                 model_cells(estimates, pd.read_csv(metadata), seed=42).to_csv(target / 'model_cells.csv', index=False)
                 copied.append('model_cells.csv')
-        if name == 'tuning' and (result / 'effect_summaries.csv').exists():
+        if name in {'tuning', 'focused_design_search'} and (result / 'effect_summaries.csv').exists():
             from opera.run.build_paper_plot_tables import Missing
             try:
                 designs = design_search_table(pd.read_csv(result / 'effect_summaries.csv', low_memory=False), seed=42)
                 if not designs.empty:
                     designs.to_csv(target / 'design_search.csv', index=False); copied.append('design_search.csv')
+                    report['design_search'] = {'status': 'harvested', 'source': str(result),
+                                               'file': str(target / 'design_search.csv')}
             except Missing as error:
                 report['design_search'] = {'status': 'blocked', 'reason': str(error)}
         report[name] = {'status': 'harvested', 'source': str(result), 'files': copied}
