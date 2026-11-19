@@ -45,7 +45,15 @@ def references(tree, prefix=''):
 
 def search(roots, max_files=30000):
     result = {'scope': 'Read-only provenance search; reference filenames do not verify checkpoint epochs',
-              'references': [], 'controls': [], 'errors': [], 'truncated': False, 'files_read': 0}
+              'references': [], 'controls': [], 'probe_candidates': [], 'head_audit_candidates': [],
+              'errors': [], 'truncated': False, 'files_read': 0}
+    def note_probe(path, data):
+        text = yaml.safe_dump(data).lower()
+        if any(token in text for token in ['linear_probe', 'linear-probe', 'head_only',
+                                           'freeze_encoder: true', 'freeze_encoder=true']):
+            result['probe_candidates'].append({
+                'config_path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                'note': 'Candidate configuration only: verify frozen encoder AND linear head, fitted checkpoint and held-out selection/results separately.'})
     seen = set()
     for root in roots:
         if not root.is_dir():
@@ -55,6 +63,11 @@ def search(roots, max_files=30000):
             children[:] = sorted(c for c in children if c not in SKIP
                                  and not c.startswith('.') and 'INTERNAL' not in c.upper()
                                  and not (Path(directory) / c).is_symlink())
+            if any(token in str(directory).lower() for token in ['mechanism', 'linear_probe', 'linear-probe', 'head_only']):
+                for name in sorted(set(names) & {'report.json', 'manifest.json', 'training_selection.json',
+                                                'selection_receipt.json', 'router_mechanism_review.zip'}):
+                    result['head_audit_candidates'].append({'path': str(Path(directory) / name),
+                        'note': 'Filename candidate; checkpoint identity and completion not yet verified'})
             for name in sorted(set(names) & {'checkpoint_metadata.json', 'hparams.yaml', 'config.yaml', 'bundle.json'}):
                 path = Path(directory) / name
                 if path.is_symlink() or path.resolve() in seen:
@@ -66,10 +79,14 @@ def search(roots, max_files=30000):
                 result['files_read'] += 1
                 try:
                     data = read(path)
+                    note_probe(path, data)
                     for ref in references(data):
                         result['references'].append({'metadata_file': str(path), **ref})
                     if name == 'bundle.json' and isinstance(data, dict):
                         for row in data.get('runs', []):
+                            if row.get('config_path'):
+                                candidate = path.parent / row['config_path']
+                                note_probe(candidate, read(candidate))
                             if row.get('origin') not in {'RI', 'FZ'}:
                                 continue
                             config = path.parent / row['config_path']
@@ -102,4 +119,6 @@ if __name__ == '__main__':
         json.dump(result, handle, indent=2)
     print(json.dumps({'output': str(args.output), 'references': len(result['references']),
                       'control_configs': len(result['controls']), 'errors': len(result['errors']),
+                      'probe_candidates': len(result['probe_candidates']),
+                      'head_audit_candidates': len(result['head_audit_candidates']),
                       'files_read': result['files_read'], 'truncated': result['truncated']}, indent=2))

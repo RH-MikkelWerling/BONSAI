@@ -23,6 +23,9 @@ COMPARISONS = {
     'E3': 'gain(J_EA,J_L)', 'E4': 'gain(R_EA,OPERA)',
     'FINAL_R_EA_VS_S_L': 'gain(R_EA,S_L)',
     'FINAL_R_EA_VS_XP': 'gain(R_EA,XP)',
+    # Adapted OPERA against XGBoost for each task, for the subgroup and region figures
+    # (19 Nov): the per-model averages gave only a point estimate, without an interval.
+    'FINAL_R_EA_VS_X': 'gain(R_EA,X)',
     'FINAL_J_EA_VS_XP': 'gain(J_EA,XP)',
 }
 ABLATIONS = {
@@ -137,7 +140,8 @@ def prepare(repo, output, kind):
         config['patient_groups'] = config.get('patient_groups') or registered['patient_groups']
         columns = ['history_event_count', 'age_at_index', 'sex', 'IPI', 'predominant_region', 'index_year']
         group_contrasts = [c for c in ['P5', 'T2', 'O1', 'O3', 'E3', 'E4', 'FINAL_R_EA_VS_S_L',
-                                      'FINAL_R_EA_VS_XP', 'FINAL_J_EA_VS_XP'] if c in contrasts]
+                                      'FINAL_R_EA_VS_XP', 'FINAL_J_EA_VS_XP', 'FINAL_R_EA_VS_X']
+                           if c in contrasts]
         config['stratified_reanalysis'] = {column: {'contrasts': group_contrasts,
             'models': [m for m in ['J_L', 'OPERA', 'R_EA', 'J_EA', 'XP', 'X'] if m in present]} for column in columns}
     else:

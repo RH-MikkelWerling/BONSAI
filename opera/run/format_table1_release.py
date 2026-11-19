@@ -73,7 +73,7 @@ NOT_IN_TABLE = {"index_year",
                 "followup_days",  # observed follow-up: the reverse KM row is shown
                 "nccn_ipi_risk"}  # part of the risk group (DLBCL), not its own block
 # Registry blocks: "Not recorded" (incl. conflicting records) is shown as Missing.
-MISSING_SHOWN = frozenset({"performance_status", "risk_category"})
+MISSING_SHOWN = frozenset({"performance_status", "risk_category", "predominant_region"})
 # Shown only in the supplementary table by disease.
 # Also kept out of Table 1: the subtype-assignment pass (an internal pipeline
 # field) and the detailed first-line regimens (too many small categories for
@@ -162,7 +162,9 @@ def _disease_rows(result, cells, informative, width, label):
             .groupby(overall.category.astype(str)).max() if "count" in overall else pd.Series(dtype=float))
 
     def named(fine, standalone=False):
-        dagger = r"$^{\dagger}$" if fine in NO_ROUTINE_INDEX else ""
+        # Descriptive Table 1 annotation includes AITL; the locked analysis
+        # stratum in NO_ROUTINE_INDEX deliberately remains unchanged.
+        dagger = r"$^{\dagger}$" if fine in NO_ROUTINE_INDEX or fine == "AITL" else ""
         name = disease_long_name(fine) if standalone else disease_in_group_name(fine)
         return _tex(name) + dagger
 
@@ -451,6 +453,33 @@ def layout_table_latex():
         r"Layout preview: every value (·) awaits the reviewed server export. ", 1)
 
 
+def region_rows_with_missing(table):
+    """Preserve all patients in the region distribution before disclosure masking."""
+    region = table.loc[table.variable.eq('predominant_region')].copy()
+    if region.empty:
+        return table.copy()
+    parts = []
+    for _, rows in region.groupby(['cohort_level', 'cohort', 'split'], dropna=False):
+        rows = rows.copy()
+        for column in ['n_total', 'n_observed', 'n_missing']:
+            if rows[column].nunique(dropna=False) != 1 or rows[column].isna().any():
+                raise ValueError('Inconsistent region population counts')
+        total, observed, missing = (int(rows[c].iloc[0]) for c in ['n_total', 'n_observed', 'n_missing'])
+        absent = rows.category.isin(['Not recorded', 'Missing'])
+        if observed + missing != total or rows.loc[~absent, 'count'].sum() != observed:
+            raise ValueError('Region counts do not reconcile with the population')
+        if absent.sum() > 1 or (absent.any() and rows.loc[absent, 'count'].iloc[0] != missing):
+            raise ValueError('Region missing category disagrees with missing count')
+        if not absent.any():
+            extra = rows.iloc[[0]].copy()
+            extra['category'], extra['count'] = 'Not recorded', missing
+            rows = pd.concat([rows, extra], ignore_index=True)
+        rows['percent'] = rows['count'] * 100 / total if total else float('nan')
+        rows['display'] = rows.apply(lambda r: f"{int(r['count']):,} ({r['percent']:.1f}%)" if total else 'Not available', axis=1)
+        parts.append(rows)
+    return pd.concat([table.loc[~table.variable.eq('predominant_region')], *parts], ignore_index=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path)
@@ -488,9 +517,11 @@ def main():
         raise ValueError(
             "Use the exact LOCAL_ONLY_internal/table1_values_long.csv, not an already suppressed export"
         )
+    table = region_rows_with_missing(table)
     result, policy = release_table(
         table, args.suppression_threshold, args.disclosure_policy
     )
+    policy['region_percent_denominator'] = 'all patients in the relevant cohort/split; Missing shown explicitly'
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result.to_csv(args.output_dir / "table1_values_long.csv", index=False)
     pooled = result.loc[result.cohort_level == "all"].copy()

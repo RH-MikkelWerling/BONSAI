@@ -575,7 +575,7 @@ def figure_task_organisation(outcome_similarity, disease_similarity, outcome_fam
 def _spearman(x, y):
     from scipy.stats import spearmanr
     keep = np.isfinite(x) & np.isfinite(y)
-    return spearmanr(x[keep], y[keep]).statistic if keep.sum() > 2 else np.nan
+    return spearmanr(x[keep], y[keep])[0] if keep.sum() > 2 else np.nan  # [0]: also older SciPy
 
 
 def _label_extremes(ax, data, x, y, labels, n=3):

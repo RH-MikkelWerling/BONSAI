@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import subprocess
 import sys
 from importlib import metadata
@@ -30,7 +31,9 @@ KEYS = {"learning_rate", "lr", "encoder_lr_multiplier", "encoder_lr", "epochs", 
         "encoder_initialization", "early_stopping_patience", "eval_monitor_metric", "seed", "hidden_size",
         "num_hidden_layers", "num_attention_heads", "intermediate_size", "vocab_size", "max_position_embeddings",
         "abspos_encoding", "source_checkpoint", "global_step", "epoch", "train_patient_fraction", "precision",
-        "gradient_cache", "optimizer", "scheduler"}
+        "gradient_cache", "optimizer", "scheduler", "head_type", "training_stage",
+        "trainable_prefixes", "num_layers", "n_layers", "feed_forward_size",
+        "observation_years", "start_year", "end_year", "betas"}
 
 
 def run(cmd):
@@ -63,7 +66,8 @@ def reduce(obj, out, prefix=""):
     if isinstance(obj, dict):
         for key, value in obj.items():
             path = f"{prefix}.{key}" if prefix else str(key)
-            if key in KEYS and not isinstance(value, (dict, list)):
+            exposure = bool(re.search(r'token|epoch|step|accuracy|top_?(1|10|100)|wall.?clock|duration|elapsed', str(key), re.I))
+            if (key in KEYS or exposure) and not isinstance(value, (dict, list)):
                 out[path] = value
             reduce(value, out, path)
     elif isinstance(obj, list):

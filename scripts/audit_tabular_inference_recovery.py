@@ -12,13 +12,17 @@ from pathlib import Path
 def inventory(roots, limit=300000):
     result = {'scope': 'Read-only filename/config inventory; no models or patient tables loaded',
               'missing_roots': [], 'candidate_serialized_files': [], 'metadata_examples': [],
+              'selected_hyperparameters': [],
               'metadata_files': 0, 'files_examined': 0, 'truncated': False}
     for root in roots:
         root = Path(root)
         if not root.is_dir():
             result['missing_roots'].append(str(root)); continue
         for directory, children, names in os.walk(root, followlinks=False):
-            children[:] = sorted(n for n in children if n not in {'.git', '__pycache__', 'patient_cache_INTERNAL'})
+            children[:] = sorted(n for n in children if n not in
+                {'.git', '__pycache__', 'analysis', 'predictions', 'patient_cache_INTERNAL',
+                 'batches_INTERNAL', 'buckets_INTERNAL', 'prepared', 'replays'}
+                and 'INTERNAL' not in n.upper())
             for name in sorted(names):
                 result['files_examined'] += 1
                 if result['files_examined'] > limit:
@@ -28,6 +32,14 @@ def inventory(roots, limit=300000):
                 lower = name.lower()
                 if lower.endswith('_metadata.json') and 'xgboost' in lower:
                     result['metadata_files'] += 1
+                    try:
+                        if path.stat().st_size < 2_000_000:
+                            metadata = json.loads(path.read_text())
+                            result['selected_hyperparameters'].append({'path': str(path), **{
+                                k: metadata[k] for k in ['model_name', 'backend', 'tune_params',
+                                    'n_features_used', 'fit_split', 'selection_split', 'evaluation_split'] if k in metadata}})
+                    except (OSError, ValueError):
+                        pass
                     if len(result['metadata_examples']) < 20:
                         entry = {'path': str(path)}
                         try:
