@@ -28,6 +28,7 @@ directory, where the figure recipe reads them.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -111,6 +112,21 @@ def task_structure(state: dict, outcomes, diseases, *, outcome_family=None, dise
     return tables, summary
 
 
+def query_architecture(state, hyperparameters):
+    """Checkpoint evidence, keeping basis rank distinct from learned effective rank."""
+    prefix = 'outcome_attention_readout.'
+    readout = {k.split(prefix, 1)[1]: v for k, v in state.items() if prefix in k}
+    queries = readout['queries']
+    basis = readout.get('query_basis')
+    config = hyperparameters.get('model_init_config', {}).get('competing_risk_config', {})
+    return dict(configured_query_rank=config.get('outcome_attention_query_rank'),
+                state_query_basis_rank=int(basis.shape[0]) if basis is not None else 0,
+                query_shape=list(queries.shape),
+                in_proj_bias_present='attention.in_proj_bias' in readout,
+                query_residual_frobenius_norm=float(queries.double().norm()),
+                interpretation='Basis plus per-outcome residual queries; basis rank alone is not a hard rank bound on learned queries. Shared projection bias can also affect uncentred similarity.')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run-dir", type=Path, required=True)
@@ -138,6 +154,12 @@ def main() -> None:
     tables, summary = task_structure(state, outcomes, diseases, outcome_family=outcome_endpoint_groups(),
                                      disease_lineage=fine_cohort_groups(), outcome_cases=cases,
                                      disease_size=size, outcome_events=events)
+    summary['query_architecture'] = query_architecture(state, hp)
+    digest = hashlib.sha256()
+    with (args.run_dir / args.checkpoint).open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    summary['checkpoint_sha256'] = digest.hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(args.output_dir / f"{name}.csv", index=name.endswith("similarity"))
