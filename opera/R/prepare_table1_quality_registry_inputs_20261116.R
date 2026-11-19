@@ -10,6 +10,10 @@ all_required_sources_loaded <- FALSE
 # Leave empty to reject cross-registry disagreements. If needed, explicitly order
 # ALL loaded source names here after reviewing which registry should take priority.
 source_priority <- character()
+# Optional: "earliest_baseline" selects the earliest dated, clinically relevant
+# baseline assessment across sources. Supply assessment_date_column in each call.
+# All dates for conflicting patients must be present; contradictory earliest ties stop.
+conflict_policy <- "reject"  # "reject" or "earliest_baseline"
 
 cohort <- as.data.frame(read_parquet(file.path(prepared_dir, "patient_metadata.parquet")))
 cohort <- cohort[cohort$split %in% c("train", "tuning", "held_out"), , drop=FALSE]
@@ -28,7 +32,7 @@ if (anyDuplicated(cohort$subject_id)) stop("Frozen cohort has duplicate patient 
 parts <- list()
 source_notes <- list()
 add_ps_source <- function(data, source, id_column, ps_column, baseline_confirmed,
-                          source_description) {
+                          source_description, assessment_date_column=NULL) {
   if (source %in% names(parts)) stop("Duplicate source name: ", source)
   if (!isTRUE(baseline_confirmed))
     stop(source, ": first restrict to the appropriate diagnosis/baseline record, then confirm timing")
@@ -41,12 +45,22 @@ add_ps_source <- function(data, source, id_column, ps_column, baseline_confirmed
   bad <- !missing & (is.na(ps) | !is.finite(ps) | ps != trunc(ps) | !ps %in% 0:4)
   if (any(bad)) stop(source, ": unmapped PS values; inspect coding and explicitly recode missing/other values before calling add_ps_source")
   keep <- !missing & ids %in% cohort$subject_id
+  dates <- as.Date(rep(NA_character_, nrow(data)))
+  if (!is.null(assessment_date_column)) {
+    if (!assessment_date_column %in% names(data)) stop(source, ": assessment date column absent")
+    value <- data[[assessment_date_column]]
+    if (!inherits(value, "Date") && !inherits(value, "POSIXt"))
+      stop(source, ": parse the assessment date column explicitly as Date/POSIXt before adding the source")
+    dates <- as.Date(value)
+  }
   selected <- unique(data.frame(subject_id=ids[keep], PS=ps[keep],
-                                 quality_registry_ps_source=source))
+                                 quality_registry_ps_source=source,
+                                 quality_registry_ps_date=dates[keep]))
   if (anyDuplicated(selected$subject_id))
     stop(source, ": conflicting PS records per patient; select the intended baseline episode explicitly")
   parts[[source]] <<- selected
   source_notes[[source]] <<- list(id_column=id_column, ps_column=ps_column,
+    assessment_date_column=assessment_date_column,
     baseline_confirmed=TRUE, source_description=source_description,
     patients_with_ps_in_frozen_cohort=nrow(selected))
 }
@@ -90,13 +104,30 @@ all_ps <- do.call(rbind, parts)
 if (!nrow(all_ps)) stop("No supplied PS records overlap the frozen cohort")
 value_counts <- tapply(all_ps$PS, all_ps$subject_id, function(x) length(unique(x)))
 conflict_ids <- names(value_counts)[value_counts > 1]
-if (length(conflict_ids) && !length(source_priority)) {
+if (!conflict_policy %in% c("reject", "earliest_baseline")) stop("Unknown conflict_policy")
+if (conflict_policy == "earliest_baseline" && length(source_priority))
+  stop("Choose earliest_baseline OR source_priority, not both")
+if (length(conflict_ids) && !length(source_priority) && conflict_policy == "reject") {
   dir.create(dirname(output_dir), recursive=TRUE, showWarnings=FALSE)
   conflict_path <- paste0(output_dir, "_ps_conflicts_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_INTERNAL.parquet")
   write_parquet(all_ps[all_ps$subject_id %in% conflict_ids, ],
                 conflict_path)
   stop("Cross-registry PS disagreement for ", length(conflict_ids),
        " patients; inspect ", conflict_path, " and specify a justified priority or correct the source")
+}
+if (length(conflict_ids) && conflict_policy == "earliest_baseline") {
+  conflicts <- all_ps[all_ps$subject_id %in% conflict_ids, , drop=FALSE]
+  if (anyNA(conflicts$quality_registry_ps_date))
+    stop("Earliest-baseline selection requires dates for every source record of conflicting patients")
+  earliest <- ave(as.numeric(conflicts$quality_registry_ps_date), conflicts$subject_id, FUN=min)
+  first <- conflicts[as.numeric(conflicts$quality_registry_ps_date) == earliest, , drop=FALSE]
+  tied <- tapply(first$PS, first$subject_id, function(x) length(unique(x)))
+  if (any(tied > 1))
+    stop("Contradictory PS on the same earliest date for ", sum(tied > 1), " patients; resolve explicitly")
+  # All earliest tied records now agree on PS; source name only breaks provenance ties.
+  first <- first[order(first$subject_id, first$quality_registry_ps_source), , drop=FALSE]
+  first <- first[!duplicated(first$subject_id), , drop=FALSE]
+  all_ps <- rbind(all_ps[!all_ps$subject_id %in% conflict_ids, , drop=FALSE], first)
 }
 if (length(source_priority)) {
   if (anyDuplicated(source_priority) || !setequal(source_priority, names(parts)))
@@ -115,6 +146,7 @@ counts <- aggregate(list(n_patients=rep(1L, nrow(coverage))),
 write.csv(counts, file.path(output_dir, "quality_ps_coverage.csv"), row.names=FALSE)
 write_json(list(all_required_sources_loaded=all_required_sources_loaded,
   sources=source_notes, source_priority=source_priority,
+  conflict_policy=conflict_policy,
   cross_registry_conflicting_patients=length(conflict_ids),
   frozen_patients=nrow(cohort), patients_with_refreshed_ps=nrow(selected),
   scope="PS only; other Table 1 quality-registry fields still require explicit mappings"),
