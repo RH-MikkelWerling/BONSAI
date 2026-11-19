@@ -319,7 +319,11 @@ def pooled_table_latex(result, *, source_sha256, status="review", policy="target
     strings; nothing is recomputed. Multi-category characteristics get a
     heading with indented category rows.
     """
-    pooled = result.loc[result.cohort_level == "all"].copy()
+    # Raw PS aliases are internal; the manuscript uses performance_status.
+    # Mixed numeric/string raw ECOG levels can acquire identical labels after CSV
+    # round-tripping and must not enter this display-only pivot.
+    pooled = result.loc[(result.cohort_level == "all") &
+                        ~result.variable.isin(["PS", "ps"])].copy()
     columns = [split for split, _ in SPLIT_COLUMNS]
 
     def key(rows, split, decimals):
@@ -524,7 +528,11 @@ def main():
     policy['region_percent_denominator'] = 'all patients in the relevant cohort/split; Missing shown explicitly'
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result.to_csv(args.output_dir / "table1_values_long.csv", index=False)
-    pooled = result.loc[result.cohort_level == "all"].copy()
+    # Raw PS aliases are internal; the manuscript uses performance_status.
+    # Mixed numeric/string raw ECOG levels can acquire identical labels after CSV
+    # round-tripping and must not enter this display-only pivot.
+    pooled = result.loc[(result.cohort_level == "all") &
+                        ~result.variable.isin(["PS", "ps"])].copy()
     pooled["row"] = pooled.characteristic + pooled.category.map(
         lambda value: f": {value}" if pd.notna(value) else ""
     )
