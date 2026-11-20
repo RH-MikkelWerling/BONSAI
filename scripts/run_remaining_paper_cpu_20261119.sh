@@ -11,12 +11,12 @@ lane="${1:-plan}"
 mkdir -p logs
 case "$lane" in
   plan)
-    echo 'On a free >=96 GiB CPU allocation: all (paired -> design_search -> vocabulary -> harvest).'
+    echo 'On a free >=96 GiB CPU allocation: all (paired -> design_search -> harvest; vocabulary coverage cancelled).'
     echo 'Individual lanes: paired, design_search, vocabulary, harvest. No fitting, inference or GPU work.'
     exit 0 ;;
   all)
     failed=0
-    for task in paired design_search vocabulary; do
+    for task in paired design_search; do
       bash "$0" "$task" || failed=1
     done
     bash "$0" harvest || failed=1
@@ -26,6 +26,8 @@ case "$lane" in
   design_search)
     "$python_bin" -u -m opera.run.finish_figure_comparisons --kind design_search --output-root "$root" --execute ;;
   vocabulary)
+    echo 'Vocabulary-coverage analysis cancelled by the 20 November checklist; no job launched.'
+    exit 0
     "$python_bin" scripts/check_results_resources.py --minimum-free-gib 96 --require-no-coordinator
     if [[ -f "$coverage/coverage_manifest.json" ]]; then
       "$python_bin" - "$coverage" <<'PY'

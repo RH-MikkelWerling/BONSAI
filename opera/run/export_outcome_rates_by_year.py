@@ -65,7 +65,7 @@ def summarize(frame, group_columns):
     return pd.DataFrame(rows)
 
 
-def frozen_outcomes(bundle_path, metadata_path):
+def frozen_outcomes(bundle_path, metadata_path, outcome_names=None):
     from bonsai.functional.outcomes import binarize_outcomes
     from opera.functional.outcomes import filter_registry_eligible_outcomes, resolve_registry_start_date
     from opera.functional.outcomes import filter_outcome_eligibility
@@ -83,6 +83,7 @@ def frozen_outcomes(bundle_path, metadata_path):
     meta = meta.loc[meta.split.isin(['train', 'tuning', 'held_out'])].set_index('subject_id')
     outcomes = config['outcomes']
     for name, ocfg in outcomes.items():
+        if outcome_names is not None and name not in outcome_names: continue
         parts = []
         for cohort, ccfg in config['cohorts'].items():
             if name in ccfg.get('exclude_outcomes', []): continue

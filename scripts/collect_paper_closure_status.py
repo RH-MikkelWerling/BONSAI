@@ -8,6 +8,8 @@ from pathlib import Path
 def collect(root):
     root = Path(root)
     patterns = [
+        'data/decision_curves_20261120/manifest.json',
+        'data/decision_curves_20261120/download_decision_curves.zip',
         'data/epoch20_matched_20261120/download_*.zip',
         'data/adapted20_matched_20261120/download_*.zip',
         'data/*20_matched_20261120/comparisons_*/results/analysis_manifest.json',
