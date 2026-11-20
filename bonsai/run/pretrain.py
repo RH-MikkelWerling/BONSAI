@@ -219,6 +219,9 @@ def main(cfg: DictConfig) -> None:
     )
 
     callbacks = [ckpt_callback]
+    if cfg.training.get("export_epoch_counters", False):
+        from opera.run.vocabulary_control_callbacks import EpochTrainingCounters
+        callbacks.append(EpochTrainingCounters())
     milestones = list(cfg.training.get("checkpoint_milestone_epochs", []))
     if any(int(epoch) >= int(cfg.training.epochs) for epoch in milestones):
         raise ValueError(

@@ -8,6 +8,10 @@ from pathlib import Path
 def collect(root):
     root = Path(root)
     patterns = [
+        'data/vocabulary_control_20261120/preparation.json',
+        'data/vocabulary_control_20261120/manifest.json',
+        'data/vocabulary_control_20261120/download_vocab_control.zip',
+        'data/vocabulary_control_20261120/matched/comparisons_vocab_control/results/analysis_manifest.json',
         'data/decision_curves_20261120/manifest.json',
         'data/decision_curves_20261120/download_decision_curves.zip',
         'data/epoch20_matched_20261120/download_*.zip',
