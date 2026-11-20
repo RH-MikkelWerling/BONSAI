@@ -12,6 +12,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import yaml
 from opera.evaluation.km_decision_curves import evaluate,index_mapping
+from opera.run.export_outcome_rates_by_year import canonical_patient_ids
 
 MODELS=['R_EA','J_EA','X','XP']
 
@@ -33,7 +34,7 @@ def selected_predictions(prepared,pairs):
             if optional:part=part.loc[~part.prediction_absent_zero_weight.astype('boolean').fillna(False).to_numpy(dtype=bool)]
             if not part.empty: pieces.append(part)
     if not pieces:raise ValueError('No requested held-out predictions')
-    frame=pd.concat(pieces,ignore_index=True);frame['subject_id']=frame.subject_id.astype(str)
+    frame=pd.concat(pieces,ignore_index=True);frame['subject_id']=canonical_patient_ids(frame.subject_id)
     keys=['model','subject_id','outcome','horizon_days']
     if frame.duplicated(keys).any():raise ValueError('Duplicate patient/model/outcome/horizon predictions')
     return frame
@@ -75,7 +76,7 @@ def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=100
     from opera.run.export_outcome_rates_by_year import frozen_outcomes
     from opera.run.finish_figure_inputs import sha
     prepared,output=Path(prepared),Path(output)
-    metadata=pd.read_parquet(metadata_path);metadata['subject_id']=metadata.subject_id.astype(str)
+    metadata=pd.read_parquet(metadata_path);metadata['subject_id']=canonical_patient_ids(metadata.subject_id)
     if metadata.subject_id.duplicated().any():raise ValueError('Duplicate metadata patients')
     recipe=yaml.safe_load(Path(score_config).read_text())
     # Use the final story recipe, including FLIPI2 OS, not the old proxy recipe.

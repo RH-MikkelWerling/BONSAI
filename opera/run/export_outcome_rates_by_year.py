@@ -13,6 +13,26 @@ import pandas as pd
 import yaml
 
 
+def canonical_patient_ids(values):
+    """Exact integer ID keys, matching frozen binarisation's integer namespace."""
+    from decimal import Decimal, InvalidOperation
+    import numbers
+    def one(value):
+        if pd.isna(value) or isinstance(value, (bool, np.bool_)):
+            raise ValueError('Missing or boolean patient ID')
+        if isinstance(value, numbers.Real) and not isinstance(value, numbers.Integral):
+            if not np.isfinite(value) or abs(value) >= 2**53:
+                raise ValueError('Floating patient ID exceeds exact-integer safety range')
+        try:
+            number=Decimal(str(value))
+        except InvalidOperation:
+            raise ValueError('Frozen patient IDs must be exact integers') from None
+        if not number.is_finite() or number != number.to_integral_value():
+            raise ValueError('Non-integral patient ID')
+        return str(int(number))
+    return values.map(one)
+
+
 def incidence(time, event, horizon=365):
     """Aalen-Johansen incidence and delta-method logit 95% interval, tied events.
 
@@ -78,7 +98,7 @@ def frozen_outcomes(bundle_path, metadata_path, outcome_names=None):
     if sha(config_path) != row['config_sha256']: raise ValueError('Frozen fit config changed')
     config = yaml.safe_load(config_path.read_text())
     meta = pd.read_parquet(metadata_path)
-    meta['subject_id'] = meta.subject_id.astype(str)
+    meta['subject_id'] = canonical_patient_ids(meta.subject_id)
     if meta.subject_id.duplicated().any(): raise ValueError('Duplicate metadata patients')
     meta = meta.loc[meta.split.isin(['train', 'tuning', 'held_out'])].set_index('subject_id')
     outcomes = config['outcomes']
@@ -96,17 +116,17 @@ def frozen_outcomes(bundle_path, metadata_path, outcome_names=None):
             # as text vs integers. Compare canonical text, retaining original
             # frame types for the frozen eligibility/binarisation machinery.
             source_n = len(frame)
-            frame = frame.loc[frame.subject_id.astype(str).isin(population.subject_id.astype(str))].copy()
+            frame = frame.loc[canonical_patient_ids(frame.subject_id).isin(canonical_patient_ids(population.subject_id))].copy()
             membership_n = len(frame)
             frame = filter_outcome_eligibility(frame, _eligibility_path(data_dir, ocfg),
                        cohort=cohort, outcome_name=name, eligibility_scope=config.get('eligibility_scope', 'ascertainment'))
             frame = filter_registry_eligible_outcomes(frame, resolve_registry_start_date(ccfg, ocfg))
-            frame = frame.loc[frame.subject_id.astype(str).isin(meta.index)].copy()
+            frame = frame.loc[canonical_patient_ids(frame.subject_id).isin(meta.index)].copy()
             competing_path = _competing_path(data_dir, ocfg)
             competing = pd.read_parquet(competing_path) if competing_path else None
             records = binarize_outcomes(frame, ocfg['n_hours_start_include'], ocfg.get('n_hours_end_include'),
                                        require_min_followup=False, competing_event_df=competing)
-            dates = frame.assign(subject_id=frame.subject_id.astype(str)).set_index('subject_id').index_date
+            dates = frame.assign(subject_id=canonical_patient_ids(frame.subject_id)).set_index('subject_id').index_date
             audit.append(dict(cohort=cohort,source_rows=source_n,population_rows=len(population),
                               membership_rows=membership_n,eligible_metadata_rows=len(frame),records=len(records),
                               source_id_dtype=str(frame.subject_id.dtype),population_id_dtype=str(population.subject_id.dtype)))
