@@ -456,8 +456,9 @@ def figure_pooling_cells(cells, *, metric="auc", horizon=ALL_HORIZONS, order="su
                                         .reindex(outcomes), axis="x")
             if index == 0:
                 _support_strip(ax, _support_totals(cells, "cohort", horizon).reindex(diseases),
-                               axis="y", labels=diseases, fontsize=5.8,
-                               label=_support_label(cells, "cohort") if index == 0 else None)
+                               axis="y", labels=diseases, fontsize=5.8)
+                # No title on the strips: rows count training patients and columns training
+                # events, which the caption states (a single label could name only one).
         _panel_title(titled, letter, title, **({'fontsize': title_size} if title_size else {}))
     cax = fig.add_axes([0.935, 0.48, 0.012, 0.24])
     bar = fig.colorbar(image, cax=cax)

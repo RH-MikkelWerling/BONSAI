@@ -34,6 +34,9 @@ def checkpoint_record(path):
     data = torch.load(path, map_location='cpu', mmap=True, weights_only=False)
     record = dict(path=str(Path(path).resolve()), sha256=file_hash(path),
                   completed_epochs=int(data.get('epoch', -1)) + 1, global_step=data.get('global_step'))
+    for name in ['training_tokens_seen', 'training_examples_seen']:
+        matches = [v for k, v in data.get('state_dict', {}).items() if k.split('.')[-1] == name]
+        record[name] = int(matches[0].item()) if len(matches) == 1 else None
     del data
     gc.collect()
     return record

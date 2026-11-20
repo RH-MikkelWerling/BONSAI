@@ -906,6 +906,7 @@ def run(config, output_dir):
         tables["contrasts"],
         tables["bootstrap_draws"],
         cell_metadata,
+        stable_cells_only=bool(config.get("effect_summary_stable_cells_only", False)),
         strata=config.get("cell_summary_strata") or list(dict.fromkeys(
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])),
@@ -919,6 +920,7 @@ def run(config, output_dir):
     _, tables["effect_summaries_disease_balanced"] = cached_call(
         checkpoint_root, 'disease_balanced', lambda: effect_summaries(
         tables["contrasts"], tables["bootstrap_draws"], cell_metadata,
+        stable_cells_only=bool(config.get("effect_summary_stable_cells_only", False)),
         strata=config.get("cell_summary_strata") or list(dict.fromkeys(
             ["support_bin", "outcome_family", "endpoint_group", "cohort",
              *config.get("cell_groups", {})])), aggregation="disease_balanced",

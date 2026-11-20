@@ -136,6 +136,27 @@ def main(cfg: DictConfig) -> None:
     elif cfg.paths.get("initialization_vocab") not in (None, ""):
         raise ValueError("initialization_vocab was set without initialization_ckpt")
 
+    if cfg.get("continuation"):
+        # Explicit exploratory continuation preserves the verified original
+        # population-transfer provenance; it is not fresh general pretraining.
+        import torch
+        from hashlib import file_digest
+        with open(cfg.continuation.checkpoint, 'rb') as parent_file:
+            parent_hash = file_digest(parent_file, 'sha256').hexdigest()
+        if parent_hash != cfg.continuation.checkpoint_sha256:
+            raise ValueError('Adaptation continuation parent hash changed')
+        parent = torch.load(cfg.continuation.checkpoint, map_location="cpu", weights_only=False)
+        parent_metadata = parent["hyper_parameters"].get("checkpoint_metadata", {})
+        if parent_metadata.get("training_stage") != "domain_adaptive_pretraining":
+            raise ValueError("Continuation parent must be an actual adapted encoder")
+        inherited_transfer = parent_metadata.get("source_pretraining_transfer")
+        if not inherited_transfer or not inherited_transfer.get("checkpoint_sha256"):
+            raise ValueError("Continuation parent lacks original external-transfer provenance")
+        if int(parent.get("epoch", -1)) != 9:
+            raise ValueError("Continuation parent must have completed ten adaptation epochs")
+        transfer_report = inherited_transfer
+        del parent
+
     ckpt_callback = ModelCheckpoint(
         dirpath=model_save_dir,
         monitor="val/loss",

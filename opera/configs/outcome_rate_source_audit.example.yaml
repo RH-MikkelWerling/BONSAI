@@ -1,0 +1,18 @@
+# Secure-server paths and actual source column names required. No patient data exported.
+# Dates must be clinical event dates, not extraction/import dates.
+sources:
+  DNPR_diagnoses: {path: REPLACE.parquet, date_column: REPLACE_EVENT_DATE}
+  DNPR_procedures: {path: REPLACE.parquet, date_column: REPLACE_EVENT_DATE}
+  SMR: {path: REPLACE.parquet, date_column: REPLACE_EVENT_DATE}
+  prescriptions: {path: REPLACE.parquet, date_column: REPLACE_EVENT_DATE}
+  laboratory: {path: REPLACE.parquet, date_column: REPLACE_SAMPLE_DATE}
+  transfusion: {path: REPLACE.parquet, date_column: REPLACE_EVENT_DATE}
+sepsis:
+  path: REPLACE_DIAGNOSIS_SOURCE.parquet
+  date_column: REPLACE_EVENT_DATE
+  code_column: REPLACE_DIAGNOSIS_CODE
+  code_prefixes: [A40, A41] # Use actual source convention (e.g. DA40/DA41 if prefixed).
+  position_column: REPLACE_PRIMARY_SECONDARY_COLUMN
+  contact_version_column: REPLACE_LPR_VERSION_COLUMN
+  position_map: {REPLACE_PRIMARY_CODE: primary, REPLACE_SECONDARY_CODE: secondary}
+  contact_version_map: {REPLACE_LPR2_CODE: LPR2, REPLACE_LPR3_CODE: LPR3}

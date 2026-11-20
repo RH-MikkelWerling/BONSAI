@@ -341,27 +341,44 @@ def fig4_population(b: Bundle, cells_path: Path, out: Path):
 
 
 def supp_population_disease(b: Bundle, cells_path: Path, out: Path):
-    """The adapted-versus-cohort encoder gain by disease (formerly Figure 5C)."""
+    """The adapted-versus-cohort encoder gain by disease (formerly Figure 5C), in the language of
+    Fig. 6A: smallest training cohorts at the top, training patients in brackets, filled diamonds
+    where the 95% interval excludes zero, the estimate and interval in a column on the right."""
     cells = pd.read_csv(cells_path, low_memory=False)
     size = pf._support_totals(cells, "cohort", pf.ALL_HORIZONS).sort_values()
     rows = b.by("E3", "cohort")
     alias = {"Amyloidosis": "AMYLOIDOSIS", "Solitary plasmacytoma": "SolM", "Transformed FL": "TRANSFORMED_FL"}
     present = [d for d in size.index if alias.get(d, d) in rows.index]
-    fig, ax = plt.subplots(figsize=(4.2, 5.2))
-    fig.subplots_adjust(left=0.36, right=0.96, top=0.95, bottom=0.1)
+    overall = b.row("E3")
+    fig, ax = plt.subplots(figsize=(5.6, 5.6))
+    fig.subplots_adjust(left=0.3, right=0.74, top=0.9, bottom=0.1)
     for i, d in enumerate(present):
         r = rows.loc[alias.get(d, d)]
-        estimate(ax, r.gain, i, r.lower, r.upper, ADAPT, horizontal=True, size=16)
+        sure = bool(r.lower > 0 or r.upper < 0)
+        ax.plot([r.lower, r.upper], [i, i], color=lighten(ADAPT, 0.45), lw=2.0, solid_capstyle="round", zorder=2)
+        ax.scatter([r.gain], [i], marker="D", s=26, color=ADAPT if sure else "white",
+                   edgecolor="white" if sure else ADAPT, linewidth=1 if sure else 1.1, zorder=3)
+        ax.text(1.04, i, minus(f"{r.gain:+.3f}"), transform=ax.get_yaxis_transform(), ha="left", va="center",
+                fontsize=7.2, color=INK2 if sure else MUTED, fontweight="bold" if sure else "normal")
+        ax.text(1.27, i, minus(f"({r.lower:.3f} to {r.upper:.3f})"), transform=ax.get_yaxis_transform(),
+                ha="left", va="center", fontsize=6.0, color=MUTED)
     ax.axvline(0, color=ZERO, lw=0.8, zorder=1)
-    ax.axvline(b.row("E3").gain, color=lighten(ADAPT, 0.5), lw=1.0, ls=(0, (3, 2)), zorder=1)
-    ax.set_yticks(range(len(present)), present)
+    ax.axvline(overall.gain, color=lighten(ADAPT, 0.6), lw=1.0, ls=(0, (3, 2)), zorder=1)
+    ax.annotate(minus(f"all diseases {overall.gain:+.3f}"), (overall.gain, -0.6), xytext=(3, 2),
+                textcoords="offset points", fontsize=6.8, color=ADAPT, style="italic", va="bottom")
+    ax.set_yticks(range(len(present)), [f"{d} ({int(size[d]):,})" for d in present])
     ax.tick_params(axis="y", labelsize=7.4)
-    ax.set_ylim(len(present) - 0.5, -0.6)
+    ax.set_ylim(len(present) - 0.5, -1.2)
+    ax.set_xlim(-0.16, 0.16)
     ax.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(0.05))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: "0" if abs(v) < 1e-12 else minus(f"{v:+.2f}")))
-    ax.set_xlabel("Δ time-dependent AUC, adapted vs\ncohort encoder (95% CI)", fontsize=LABEL_SIZE)
+    ax.set_xlabel("Δ time-dependent AUC (95% CI)", fontsize=LABEL_SIZE)
     tidy(ax, grid="x")
     ax.spines["left"].set_visible(False)
+    ax.set_title("Adapted national vs cohort encoder, by disease", loc="left", fontsize=9.4, fontweight="bold",
+                 pad=17, x=-0.6)
+    ax.annotate("Joint models; training patients in brackets", xy=(-0.6, 1), xycoords="axes fraction",
+                xytext=(0, 4), textcoords="offset points", fontsize=7.6, color=MUTED, style="italic", va="bottom")
     _save(fig, out / "supp_population_disease")
 
 

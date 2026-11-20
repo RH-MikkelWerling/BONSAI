@@ -2,11 +2,10 @@
 for each of the 69 outcomes, adapted OPERA's predicted and observed (IPCW) one-year risk on the
 adapted OPERA map, both relative to that outcome's observed average, on the encoder maps' log
 scale (1/4x to 4x). Aggregate lattices only (cells with fewer than five patients suppressed on the
-server).
-
-Usage:
-  python -m scripts.render_outcome_gallery scratch/download_outcome_grids_20261119 \
-      paper/figures/results_thesis_overlay
+server). Both surfaces of each pair are re-smoothed from the aggregates (widen) to one
+bandwidth, as wide as that outcome needs for the median square to rest on about ten expected
+events, at most eight times the grids' bandwidth: common outcomes are unchanged, rare ones are
+smoothed more and say so under the pair. Smoothing the two alike keeps their difference fair.
 """
 import argparse
 from pathlib import Path
@@ -16,14 +15,41 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import LogNorm
+from matplotlib.colors import ListedColormap, LogNorm
 
 from opera.run.paper_story_figures import thesis_style, _save, INK, INK2, MUTED
 from opera.visualization import opera_design_figures as od
 from opera.visualization.paper_figures import _tidy_surface_mask
+from scipy.ndimage import gaussian_filter
+
+GHOST = ListedColormap(["#F1F3F5"])
 
 PER_PAGE = 12
+WIDEN = 4.0  # (calibration maps) final bandwidth as a multiple of the grids' (0.009 of the axis range, 7.2 squares)
+SIGMA = 0.009 * 800
+TARGET_EVENTS = 10.0  # expected events a typical square's observed estimate should rest on
+MAX_FACTOR = 8.0
 COLUMNS = 3  # outcome pairs per row
+
+
+def widen(count, rate, factor=WIDEN):
+    """Re-smooth a kernel surface to a wider bandwidth from its aggregates: events (count x rate)
+    and counts are each smoothed by a further Gaussian, so the combined kernel has `factor` times
+    the bandwidth, and divided. Returns the wider rate and the patients the wider kernel covers
+    (about factor^2 times the original count)."""
+    extra = SIGMA * np.sqrt(factor ** 2 - 1)
+    c = np.nan_to_num(count)
+    events = gaussian_filter(c * np.nan_to_num(rate), extra, mode="constant")
+    total = gaussian_filter(c, extra, mode="constant")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return events / total, total * factor ** 2
+
+
+def observed_factor(count, risk):
+    """Bandwidth multiple at which the median occupied square covers TARGET_EVENTS expected events
+    (patients covered grow with the square of the bandwidth)."""
+    median = float(np.median(count[count > 0]))
+    return float(np.clip(np.sqrt(TARGET_EVENTS / max(median * risk, 1e-9)), 1.0, MAX_FACTOR))
 
 
 def _crop(grids, margin=0.03):
@@ -98,14 +124,25 @@ def main():
                 centre = (x0 + pair / 2) / width
                 fig.text(centre, 1 - (top - 0.25) / height, r.label, fontsize=7.6, color=INK,
                          ha="center", va="bottom")
-                fig.text(centre, 1 - (top - 0.09) / height, f"{100 * r.observed_risk:.1f}% at 365 days",
-                         fontsize=6.6, color=INK2, ha="center", va="bottom")
                 count = _surface(grids[r.file], "count", frame)
                 empty = _tidy_surface_mask(count <= 0)
-                for j, (layer, name) in enumerate((("predicted", "predicted"), ("mortality", "observed"))):
+                raw_pred = _surface(grids[r.file], "predicted", frame)
+                raw = _surface(grids[r.file], "mortality", frame)
+                # Both surfaces of a pair at one bandwidth, widened as far as this outcome needs for a
+                # typical square to rest on about TARGET_EVENTS expected events: smoothing only one of
+                # them would flatten it and exaggerate the difference. Common outcomes are unchanged.
+                factor = observed_factor(count, r.observed_risk)
+                predicted, _ = widen(count, raw_pred, factor)
+                observed, _ = widen(count, raw, factor)
+                # Keep the exported outline: blank wherever either exported layer is (suppressed squares).
+                empty = empty | ~np.isfinite(raw_pred) | ~np.isfinite(raw)
+                note = f"; smoothed ×{factor:.0f}" if factor >= 1.5 else ""
+                fig.text(centre, 1 - (top - 0.09) / height, f"{100 * r.observed_risk:.1f}% at 365 days{note}",
+                         fontsize=6.6, color=INK2, ha="center", va="bottom")
+                for j, (values, name) in enumerate(((predicted, "predicted"), (observed, "observed"))):
                     ax = fig.add_axes([(x0 + j * (panel + 0.06)) / width, 1 - (top + panel) / height,
                                        panel / width, panel / height])
-                    values = _surface(grids[r.file], layer, frame)
+                    values = values.copy()
                     values[empty] = np.nan
                     image = ax.imshow(np.clip(values.T, 0.25, 4), origin="lower", cmap=cmap, norm=norm,
                                       interpolation="nearest", aspect="equal")

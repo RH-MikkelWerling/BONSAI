@@ -41,6 +41,12 @@ PRETRAINING_CONTROLS = {
     'P0': 'gain(J_L,J_RI)',
     'P7': 'gain(J_L,J_FZ)',
 }
+EPOCH20_COMPARISONS = {
+    'E20_COHORT': 'gain(J_L_epoch20,J_L)',
+    'E20_NATIONAL': 'gain(J_E,J_L_epoch20)',
+    'E20_ADAPTED': 'gain(J_EA,J_L_epoch20)',
+}
+
 LOGISTIC_COMPARISON = {'FINAL_R_EA_VS_LR': 'gain(R_EA,LR)'}
 
 
@@ -61,11 +67,14 @@ def prepare(repo, output, kind, patient_metadata=None):
             if tag == 'OFF_F10' and '_F10' not in model:
                 continue
             design_contrasts[f'DS_{model}__{tag}'] = f'gain({model},{reference})'
-    desired = {'core': COMPARISONS, 'logistic': LOGISTIC_COMPARISON,
+    desired = {'epoch20': EPOCH20_COMPARISONS, 'adapted20': {**EPOCH20_COMPARISONS,
+                   'EA20_VS_EA10': 'gain(J_EA_epoch20,J_EA)',
+                   'EA20_VS_L20': 'gain(J_EA_epoch20,J_L_epoch20)'},
+               'core': COMPARISONS, 'logistic': LOGISTIC_COMPARISON,
                'vocabulary': COMPARISONS, 'design_search': design_contrasts,
                'ablations': ABLATIONS, 'pretraining_controls': PRETRAINING_CONTROLS}[kind]
     wanted = models_for(desired)
-    wanted.add('J_OA_OWN_L')
+    if kind not in {'epoch20', 'adapted20'}: wanted.add('J_OA_OWN_L')
     if kind in {'core', 'vocabulary'}: wanted |= {'D_L', 'O_L', 'XP', 'XR'}
     artifacts = {}
     for _, spec in sources:
@@ -85,6 +94,14 @@ def prepare(repo, output, kind, patient_metadata=None):
                 raise ValueError(f'Conflicting source artifact declarations: {key}')
             artifacts[key] = item
     artifacts = list(artifacts.values())
+    if kind in {'epoch20', 'adapted20'}:
+        from opera.run.epoch20_artifacts import verified_artifacts
+        reference = next((a for a in artifacts if a['model'] == 'J_L'), None)
+        if reference is None:
+            raise ValueError('Missing matched J_L source declaration')
+        artifacts += verified_artifacts(repo / 'data/epoch20_joint_control_20261119', reference, 'J_L_epoch20')
+        if kind == 'adapted20':
+            artifacts += verified_artifacts(repo / 'data/adapted20_control_20261120/joint', reference, 'J_EA_epoch20')
     recovered_ablations = []
     if kind == 'ablations' and artifacts:
         # GPU lane can finish these existing fits' evaluations without editing
@@ -125,6 +142,7 @@ def prepare(repo, output, kind, patient_metadata=None):
     if alias_source in present: present.add('OPERA')
     required = ({'J_L', 'S_L', 'X', 'OPERA', 'R_EA'} if kind in {'core', 'vocabulary'}
                 else {'J_L'} if kind in {'pretraining_controls', 'design_search'}
+                else {'J_L', 'J_E', 'J_EA', 'J_L_epoch20'} | ({'J_EA_epoch20'} if kind == 'adapted20' else set()) if kind in {'epoch20', 'adapted20'}
                 else {'R_EA', 'LR'} if kind == 'logistic' else {'OPERA'})
     if not required <= present:
         raise ValueError(f'Missing required held-out models: {sorted(required - present)}')
@@ -151,6 +169,9 @@ def prepare(repo, output, kind, patient_metadata=None):
                   panel_estimate_groups={'figure_models': sorted(present)},
                   patient_gain_contrasts=([c for c in ['P5', 'T2', 'O1', 'O3', 'E1', 'A1', 'A2', 'E3', 'E4', 'FINAL_R_EA_VS_S_L']
                                            if c in contrasts] if kind == 'core' else []))
+    if kind in {'epoch20', 'adapted20'}:
+        config['effect_summary_stable_cells_only'] = True
+        config['cell_summary_strata'] = ['support_bin', 'cohort', 'horizon_days']
     if kind in {'design_search', 'vocabulary'}:
         config['design_search'] = kind == 'design_search'
     if kind in {'core', 'vocabulary'}:
@@ -190,7 +211,7 @@ def prepare(repo, output, kind, patient_metadata=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=['core', 'ablations', 'pretraining_controls', 'design_search', 'vocabulary', 'logistic'], default='core')
+    parser.add_argument('--kind', choices=['core', 'ablations', 'pretraining_controls', 'design_search', 'vocabulary', 'logistic', 'epoch20', 'adapted20'], default='core')
     parser.add_argument('--patient-metadata', type=Path)
     parser.add_argument('--output-root', type=Path, default=Path('data/figure_closure_20261116'))
     parser.add_argument('--execute', action='store_true')

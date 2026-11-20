@@ -80,7 +80,7 @@ def render_table(panel):
             continue
         candidate=candidate.replace('OPERA',r'\opera{}')
         reference=reference.replace('OPERA',r'\opera{}')
-        lines.append(' & '.join([r'\rule[-5.5pt]{0pt}{14pt}'+candidate,reference,f'{int(row["cells"]):,}',value(row,'auc'),
+        lines.append(' & '.join([r'\rule[-5.2pt]{0pt}{13.6pt}'+candidate,reference,f'{int(row["cells"]):,}',value(row,'auc'),
             value(row,'ipa'),str(row.get('cells_better','--')).replace('%',r'\%')])+r' \\')
     return '\n'.join(lines)+'\n'+r'\bottomrule'+'\n'
 
