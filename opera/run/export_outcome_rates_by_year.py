@@ -85,13 +85,19 @@ def frozen_outcomes(bundle_path, metadata_path, outcome_names=None):
     for name, ocfg in outcomes.items():
         if outcome_names is not None and name not in outcome_names: continue
         parts = []
+        audit = []
         for cohort, ccfg in config['cohorts'].items():
             if name in ccfg.get('exclude_outcomes', []): continue
             data_dir = ccfg['data_dir']
             path = _outcome_path(data_dir, ocfg)
             frame = pd.read_parquet(path)
             population = _read_population(ccfg, data_dir)
-            frame = frame.loc[frame.subject_id.isin(population.subject_id)].copy()
+            # Parquet outcomes and CSV population files can store the same IDs
+            # as text vs integers. Compare canonical text, retaining original
+            # frame types for the frozen eligibility/binarisation machinery.
+            source_n = len(frame)
+            frame = frame.loc[frame.subject_id.astype(str).isin(population.subject_id.astype(str))].copy()
+            membership_n = len(frame)
             frame = filter_outcome_eligibility(frame, _eligibility_path(data_dir, ocfg),
                        cohort=cohort, outcome_name=name, eligibility_scope=config.get('eligibility_scope', 'ascertainment'))
             frame = filter_registry_eligible_outcomes(frame, resolve_registry_start_date(ccfg, ocfg))
@@ -101,12 +107,16 @@ def frozen_outcomes(bundle_path, metadata_path, outcome_names=None):
             records = binarize_outcomes(frame, ocfg['n_hours_start_include'], ocfg.get('n_hours_end_include'),
                                        require_min_followup=False, competing_event_df=competing)
             dates = frame.assign(subject_id=frame.subject_id.astype(str)).set_index('subject_id').index_date
+            audit.append(dict(cohort=cohort,source_rows=source_n,population_rows=len(population),
+                              membership_rows=membership_n,eligible_metadata_rows=len(frame),records=len(records),
+                              source_id_dtype=str(frame.subject_id.dtype),population_id_dtype=str(population.subject_id.dtype)))
             part = pd.DataFrame([dict(subject_id=str(k), time_days=v['time_days'], event=v['event']) for k,v in records.items()])
             if part.empty: continue
             part['index_year'] = pd.to_datetime(part.subject_id.map(dates), errors='raise').dt.year
             part['region'] = part.subject_id.map(meta['predominant_region']).fillna('Not recorded')
             parts.append(part)
-        if not parts: raise ValueError(f'No frozen outcome records: {name}')
+        if not parts:
+            raise ValueError(f'No frozen outcome records: {name}; cohort row audit: {json.dumps(audit)}')
         frame = pd.concat(parts, ignore_index=True)
         if frame.subject_id.duplicated().any(): raise ValueError(f'Overlapping cohort patients: {name}')
         frame['outcome'] = name

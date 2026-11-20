@@ -30,7 +30,7 @@ def selected_predictions(prepared,pairs):
             keep=frame.model.isin(MODELS)&frame.split.eq('held_out')&frame.seed.eq(42)
             keep &= pd.MultiIndex.from_frame(frame[['outcome','horizon_days']]).isin(pairs)
             part=frame.loc[keep].copy()
-            if optional:part=part.loc[~part.prediction_absent_zero_weight.fillna(True).astype(bool)]
+            if optional:part=part.loc[~part.prediction_absent_zero_weight.astype('boolean').fillna(False).to_numpy(dtype=bool)]
             if not part.empty: pieces.append(part)
     if not pieces:raise ValueError('No requested held-out predictions')
     frame=pd.concat(pieces,ignore_index=True);frame['subject_id']=frame.subject_id.astype(str)
