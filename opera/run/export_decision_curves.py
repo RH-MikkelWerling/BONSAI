@@ -71,7 +71,36 @@ def clinical_reference(directory):
     raise FileNotFoundError(f'No clinical population reference in {directory}; expected clinical_discrimination.csv or matched_risk_and_auc.csv. Pass --clinical-results with the completed clinical directory or CSV.')
 
 
-def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=1000):
+PRE_FLIPI2_REPAIR_SHA='3c77edfcaeb33dd8e04c37ffbabf9880bcb5b37e3aea798a6fc9faa716cfebe4'
+FLIPI2_ID='flipi2_all_subtypes_native'
+
+
+def reference_override(reference,path):
+    if path is None:return reference
+    corrected,_=clinical_reference(Path(path))
+    if set(corrected.score_id)!={FLIPI2_ID}:raise ValueError('Only the audited FLIPI2 repair may override this reference')
+    old=reference.set_index('score_id');new=corrected.set_index('score_id')
+    for column in ['outcome','horizon_days']:
+        if old.loc[FLIPI2_ID,column]!=new.loc[FLIPI2_ID,column]:raise ValueError('Repair must preserve FLIPI2 endpoint/horizon')
+    result=reference.copy()
+    for column in corrected:
+        if column in result and column!='score_id':result.loc[result.score_id.eq(FLIPI2_ID),column]=corrected.iloc[0][column]
+    return result
+
+
+def verify_resume_intent(previous,current,flipi2_cached):
+    if previous==current:return
+    # Narrow migration: only the new audited reference override/exporter may
+    # differ. The numerical KM implementation and every original data identity
+    # must remain identical, and FLIPI2 must not already have a cached estimate.
+    prior={k:v for k,v in previous.items() if k not in ['implementation_sha256','reference_override_sha256']}
+    now={k:v for k,v in current.items() if k not in ['implementation_sha256','reference_override_sha256']}
+    if (previous.get('implementation_sha256')==PRE_FLIPI2_REPAIR_SHA and prior==now
+            and previous.get('reference_override_sha256') is None and not flipi2_cached):return
+    raise ValueError('Inputs changed; use a fresh DCA output root')
+
+
+def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=1000,clinical_reference_override=None):
     from opera.run.render_clinical_score_panels import score_patients
     from opera.run.export_outcome_rates_by_year import frozen_outcomes
     from opera.run.finish_figure_inputs import sha
@@ -82,6 +111,7 @@ def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=100
     # Use the final story recipe, including FLIPI2 OS, not the old proxy recipe.
     specs=recipe['scores']
     reference,reference_path=clinical_reference(clinical_results)
+    reference=reference_override(reference,clinical_reference_override)
     if not set(reference.score_id)=={s['id'] for s in specs}:raise ValueError('Clinical recipe and final figure roster differ')
     for spec in specs:
         row=reference.loc[reference.score_id.eq(spec['id'])]
@@ -99,14 +129,18 @@ def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=100
         training[frame.outcome.iloc[0]]=frame
     parts=json.loads((prepared/'prepared.json').read_text())['parts']
     part_facts={name:[(prepared/name).stat().st_size,(prepared/name).stat().st_mtime_ns] for name in parts}
-    identity=dict(prepared_partition_stats=part_facts,implementation_sha256=sha(__file__),
+    identity=dict(reference_override_sha256=sha(clinical_reference_override) if clinical_reference_override else None,
+                  prepared_partition_stats=part_facts,implementation_sha256=sha(__file__),
                   km_implementation_sha256=sha(Path(__file__).resolve().parents[1]/'evaluation/km_decision_curves.py'),
                   prepared_sha256=sha(prepared/'prepared.json'),metadata_sha256=sha(metadata_path),
                   score_config_sha256=sha(score_config),clinical_reference_path=str(reference_path),clinical_reference_sha256=sha(reference_path),
                   n_boot=n_boot,seed=2026,method='KM within selected group, refit per paired patient resample; training-only index mapping')
     output.mkdir(parents=True,exist_ok=True)
     intent=output/'intent.json'
-    if intent.exists() and json.loads(intent.read_text())!=identity:raise ValueError('Inputs changed; use a fresh DCA output root')
+    if intent.exists():
+        previous=json.loads(intent.read_text())
+        verify_resume_intent(previous,identity,(output/f'{FLIPI2_ID}_INTERNAL.json').exists())
+        if previous!=identity:(output/'intent_before_flipi2_repair.json').write_text(json.dumps(previous,indent=2))
     intent.write_text(json.dumps(identity,indent=2))
     jobs=[dict(id='all_held_out_os',outcome='overall_survival',horizon_days=365),
           dict(id='all_held_out_treatment_failure',outcome='treatment_failure',horizon_days=730),*specs]
@@ -196,12 +230,13 @@ def main():
     p.add_argument('--metadata',type=Path,default=Path('data/clinical_registry_refresh/20261111/prepared_clinical/patient_metadata.parquet'))
     p.add_argument('--score-config',type=Path,default=Path('data/story_closure_20261116/server_only/score_config_flipi2_os.yaml'))
     p.add_argument('--clinical-results',type=Path,default=Path('data/story_closure_20261116/server_only/clinical_scores'))
+    p.add_argument('--clinical-reference-override',type=Path,help='Audited FLIPI2-only clinical_discrimination.csv repair')
     p.add_argument('--output-dir',type=Path,default=Path('data/decision_curves_20261120'))
     a=p.parse_args()
     import fcntl
     a.output_dir.mkdir(parents=True,exist_ok=True)
     with (a.output_dir/'.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        run(resolve_prepared(checkpoint_dir=a.checkpoint_dir),a.metadata,a.score_config,a.clinical_results,a.output_dir)
+        run(resolve_prepared(checkpoint_dir=a.checkpoint_dir),a.metadata,a.score_config,a.clinical_results,a.output_dir,clinical_reference_override=a.clinical_reference_override)
 
 if __name__=='__main__':main()
