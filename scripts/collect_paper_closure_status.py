@@ -8,6 +8,8 @@ from pathlib import Path
 def collect(root):
     root = Path(root)
     patterns = [
+        'data/flipi2_os_repair_20261120/download_flipi2_os_repair.zip',
+        'data/flipi2_os_repair_20261120/clinical_results/report_manifest.json',
         'data/vocabulary_control_20261120/preparation.json',
         'data/vocabulary_control_20261120/manifest.json',
         'data/vocabulary_control_20261120/download_vocab_control.zip',

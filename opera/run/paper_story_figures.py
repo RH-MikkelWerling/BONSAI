@@ -991,7 +991,7 @@ def supp_clinical_groups(figures: Path, clinical: Path, out: Path):
         horizon = "2 y" if "2y" in sid else "1 y"
         ax.set_title(name if end in ("OS", "TF") else f"{name}, {end}", loc="left", fontsize=8.4,
                      fontweight="bold", pad=12)
-        ax.annotate(f"{end.split(',')[0]} at {horizon}; n={int(r.n_patients):,}", xy=(0, 1), xycoords="axes fraction",
+        ax.annotate(f"{end.split(',')[0]} at {horizon} (n={int(r.n_patients):,})", xy=(0, 1), xycoords="axes fraction",
                     xytext=(0, 2), textcoords="offset points", fontsize=6.6, color=MUTED, style="italic", va="bottom")
     for ax in axes[:, 0]:
         ax.set_ylabel("Survival or freedom\nfrom treatment failure", fontsize=7.4)
