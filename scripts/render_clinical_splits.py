@@ -99,7 +99,7 @@ def overview(summary, comps, out):
         ax.set_xticks([0.4, 0.6, 0.8, 1.0], ["40%", "60%", "80%", "100%"])
         tidy(ax, grid="x")
         ax.spines["left"].set_visible(False)
-        ax.set_xlabel("Event-free at the horizon", fontsize=LABEL_SIZE)
+        ax.set_xlabel("Alive (OS) or free of treatment failure (TF) at the horizon", fontsize=LABEL_SIZE)
         ax.text(1.38, -0.15, "Gap, points", transform=ax.get_yaxis_transform(), ha="right", va="bottom",
                 fontsize=6.6, color=MUTED, style="italic")
     fig.text(0.02, 0.975, "Within each index category, OPERA separates patients", fontsize=9.6,

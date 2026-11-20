@@ -299,7 +299,7 @@ def tails_table(figures: Path, matched: pd.DataFrame, shared: str) -> str:
         r"highest categories and their observed risk at the horizon, the observed risk in adapted \opera{}'s "
         r"groups of the same sizes, and in \opera{}'s 10\% and 5\% of patients at highest predicted risk. "
         r"Observed risk is the proportion with the event among patients with known status at the horizon, "
-        r"in per cent (not Kaplan--Meier, so values can differ from \\cref{tab:clinical-index-sizes}). Equal-size groups inherit the index's categories, which are often wide, so they show "
+        r"in per cent (not Kaplan--Meier, so values can differ from \cref{tab:clinical-index-sizes}). Equal-size groups inherit the index's categories, which are often wide, so they show "
         r"only part of the model's ranking; the top 10\% and 5\% show where the rest of it lies. " + shared,
         "@{}llrrrrrrrr@{}",
         r"& & \multicolumn{3}{c}{Lowest category} & \multicolumn{3}{c}{Highest category} & \multicolumn{2}{c}{\opera{} top} \\"

@@ -56,6 +56,20 @@ def aligned_risks(base,predictions):
     return risks,gaps
 
 
+def clinical_reference(directory):
+    """Accept the server-native discrimination table or the local assembled table."""
+    directory=Path(directory)
+    candidates=[directory] if directory.is_file() else [directory/'matched_risk_and_auc.csv', directory/'clinical_discrimination.csv']
+    for path in candidates:
+        if not path.is_file():continue
+        frame=pd.read_csv(path)
+        required={'score_id','outcome','horizon_days','n_patients'}
+        if not required<=set(frame):raise ValueError(f'Clinical reference missing columns {required-set(frame)}: {path}')
+        if frame.score_id.duplicated().any():raise ValueError(f'Duplicate score populations: {path}')
+        return frame,path
+    raise FileNotFoundError(f'No clinical population reference in {directory}; expected clinical_discrimination.csv or matched_risk_and_auc.csv. Pass --clinical-results with the completed clinical directory or CSV.')
+
+
 def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=1000):
     from opera.run.render_clinical_score_panels import score_patients
     from opera.run.export_outcome_rates_by_year import frozen_outcomes
@@ -66,7 +80,7 @@ def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=100
     recipe=yaml.safe_load(Path(score_config).read_text())
     # Use the final story recipe, including FLIPI2 OS, not the old proxy recipe.
     specs=recipe['scores']
-    reference=pd.read_csv(Path(clinical_results)/'matched_risk_and_auc.csv')
+    reference,reference_path=clinical_reference(clinical_results)
     if not set(reference.score_id)=={s['id'] for s in specs}:raise ValueError('Clinical recipe and final figure roster differ')
     for spec in specs:
         row=reference.loc[reference.score_id.eq(spec['id'])]
@@ -87,7 +101,7 @@ def run(prepared,metadata_path,score_config,clinical_results,output,*,n_boot=100
     identity=dict(prepared_partition_stats=part_facts,implementation_sha256=sha(__file__),
                   km_implementation_sha256=sha(Path(__file__).resolve().parents[1]/'evaluation/km_decision_curves.py'),
                   prepared_sha256=sha(prepared/'prepared.json'),metadata_sha256=sha(metadata_path),
-                  score_config_sha256=sha(score_config),clinical_reference_sha256=sha(Path(clinical_results)/'matched_risk_and_auc.csv'),
+                  score_config_sha256=sha(score_config),clinical_reference_path=str(reference_path),clinical_reference_sha256=sha(reference_path),
                   n_boot=n_boot,seed=2026,method='KM within selected group, refit per paired patient resample; training-only index mapping')
     output.mkdir(parents=True,exist_ok=True)
     intent=output/'intent.json'

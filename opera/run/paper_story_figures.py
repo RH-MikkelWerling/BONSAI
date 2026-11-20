@@ -994,7 +994,7 @@ def supp_clinical_groups(figures: Path, clinical: Path, out: Path):
         ax.annotate(f"{end.split(',')[0]} at {horizon}; n={int(r.n_patients):,}", xy=(0, 1), xycoords="axes fraction",
                     xytext=(0, 2), textcoords="offset points", fontsize=6.6, color=MUTED, style="italic", va="bottom")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Event-free survival", fontsize=8)
+        ax.set_ylabel("Survival or freedom\nfrom treatment failure", fontsize=7.4)
     leg = axes.flat[-1]
     leg.axis("off")
     leg.legend(handles=[Line2D([], [], marker="o", ls="-", color=lighten(SIENNA, 0.5), markerfacecolor=SIENNA,
