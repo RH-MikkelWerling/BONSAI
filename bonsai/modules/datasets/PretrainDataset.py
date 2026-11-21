@@ -5,7 +5,6 @@ import torch
 from torch.utils.data import Dataset
 
 from bonsai.functional.censoring import censor_subject
-from bonsai.functional.features import compute_abspos
 from bonsai.functional.normalization import normalize_segments
 from bonsai.functional.subject_data import clone_subject
 from bonsai.functional.truncation import (
@@ -42,7 +41,10 @@ class PretrainDataset(Dataset):
             raise ValueError("abspos_subject_jitter_years must be non-negative.")
         self.abspos_subject_jitter_years = float(abspos_subject_jitter_years)
         self.cutoff_date = (
-            compute_abspos(datetime(**cutoff_date)) if cutoff_date is not None else None
+            # Calendar cutoffs must be exact, not rounded through float32
+            # epoch milliseconds (which shifts 2022-01-01 by 25.6 seconds).
+            (datetime(**cutoff_date) - datetime(1970, 1, 1)).total_seconds() / 3600
+            if cutoff_date is not None else None
         )
         self.sample_index = [(index, None) for index in range(len(subjects))]
         if self.truncation_strategy == "all_windows":

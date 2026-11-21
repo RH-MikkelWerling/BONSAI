@@ -7,13 +7,12 @@ from pathlib import Path
 import torch
 
 from bonsai.functional.censoring import censor_subject
-from bonsai.functional.features import compute_abspos
 
 
 def audit_dataset(dataset):
     import pandas as pd
     from opera.run.export_outcome_rates_by_year import canonical_patient_ids
-    boundary = float(compute_abspos(datetime(2022, 1, 1)))
+    boundary = (datetime(2022, 1, 1) - datetime(1970, 1, 1)).total_seconds() / 3600
     if dataset.cutoff_date != boundary:
         raise ValueError('Recovery requires the exclusive 2022-01-01 cutoff')
     if dataset.abspos_subject_jitter_years:
