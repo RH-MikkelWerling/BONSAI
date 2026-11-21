@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import hydra
 import lightning as L
 from dotenv import load_dotenv
@@ -93,6 +95,9 @@ def main(cfg: DictConfig) -> None:
         ),
     )
 
+    if cfg.training.get("recovery_cutoff_audit", False):
+        data_module.recovery_cutoff_audit_path = str(Path(model_save_dir) / "cutoff_audit.json")
+
     model = BonsaiPretrain(
         vocab_size=len(data_module.vocabulary),
         max_seqlen=cfg.model.max_seqlen,
@@ -177,6 +182,9 @@ def main(cfg: DictConfig) -> None:
             "value_regression_loss_weight", 1.0
         ),
         checkpoint_metadata={
+            "recovery_exclusive_cutoff": (
+                "2022-01-01" if cfg.training.get("recovery_cutoff_audit", False) else None
+            ),
             "training_stage": (
                 "domain_adaptive_pretraining" if transfer_report is not None
                 else "general_pretraining"
@@ -229,7 +237,8 @@ def main(cfg: DictConfig) -> None:
             "last.ckpt already preserves the final epoch."
         )
     if milestones:
-        callbacks.append(CompletedEpochCheckpoint(model_save_dir, milestones))
+        callbacks.append(CompletedEpochCheckpoint(model_save_dir, milestones,
+                         atomic=bool(cfg.training.get("recovery_cutoff_audit", False))))
     if cfg.training.get("early_stopping_patience"):
         callbacks.append(
             EarlyStopping(

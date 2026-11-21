@@ -231,6 +231,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--national", type=Path, default=Path("data/paper_256_v3_national_20261111"))
     p.add_argument("--inventory", type=Path, default=Path("interpretation_inventory_20261115.json"))
+    p.add_argument("--stages-config", type=Path,
+                   help="Explicit verified recovery embedding stages, replacing legacy config-name discovery")
     p.add_argument("--patient-metadata", type=Path,
                    default=Path("data/clinical_registry_refresh/20261111/prepared_clinical/patient_metadata.parquet"))
     p.add_argument("--survival-predictions", type=Path,
@@ -264,12 +266,26 @@ def main():
 
     # -- embeddings ------------------------------------------------------------------------
     if "embeddings" in wanted:
+        def stages_input():
+            if a.stages_config:
+                import yaml
+                stages = yaml.safe_load(a.stages_config.read_text())
+                expected = {'joint': {'Local joint', 'National joint', 'Adapted joint'},
+                            'opera': {'Local OPERA', 'National OPERA', 'Adapted OPERA'}}
+                if set(stages) != set(expected) or any(set(stages[k]) != v for k, v in expected.items()):
+                    raise ValueError('Explicit embedding stages must contain both complete encoder families')
+                for family in stages.values():
+                    for paths in family.values():
+                        if len(paths) != 2 or any(not Path(p).is_file() for p in paths):
+                            raise ValueError('Each embedding stage needs existing tuning and held-out NPZ exports')
+                return stages
+            return _render_script(repo).select_stages(json.loads(a.inventory.read_text()))
         def check():
             import json as _j
-            for path in (a.inventory, a.patient_metadata):
+            for path in (a.stages_config or a.inventory, a.patient_metadata):
                 if not path.is_file():
                     raise FileNotFoundError(path)
-            stages = _render_script(repo).select_stages(_j.loads(a.inventory.read_text()))
+            stages = stages_input()
             return {"stages": stages, "survival": str(survival_path())}
 
         def action():
@@ -277,7 +293,7 @@ def main():
             import yaml
             from opera.run.analyse_locked_predictions import read_table
             from opera.run.build_paper_embedding_tables import _patient_ids, embedding_comparison
-            stages = _render_script(repo).select_stages(json.loads(a.inventory.read_text()))
+            stages = stages_input()
             metadata = _patient_ids(read_table(a.patient_metadata))
             tiers = index_risk_group(metadata)
             group_map = yaml.safe_load(Path("opera/configs/paper_embedding_tables.example.yaml").read_text()).get("ipi_group_map")

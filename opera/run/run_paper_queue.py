@@ -197,10 +197,12 @@ def audit_encoder(
 ):
     """Strict CPU reconstruction plus completion/provenance gates.
 
-    ``allow_milestone`` (width probe only) accepts a named milestone checkpoint
+    ``allow_milestone`` accepts a named milestone checkpoint
     (``epoch_010.ckpt``) of a run that is still training: its completed epochs
-    come from the checkpoint itself and must match its name. Paper runs always
-    require the completed run's metadata sidecar.
+    come from the checkpoint itself and must match its name. Guarded recovery
+    configs also enable milestones after checking their dataset audit and the
+    cutoff marker in the checkpoint. Other paper runs require the completed
+    run's metadata sidecar.
     """
     import torch
     from bonsai.functional.checkpointing import (
@@ -212,6 +214,18 @@ def audit_encoder(
     checkpoint_path = Path(config["dapt_ckpt"])
     vocabulary_path = Path(config["paths"]["vocabulary"])
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    recovery = config.get("cutoff_recovery")
+    if recovery:
+        receipt = json.loads((checkpoint_path.parent / "cutoff_audit.json").read_text())
+        checkpoint_meta = checkpoint["hyper_parameters"].get("checkpoint_metadata", {})
+        if (recovery.get("exclusive_cutoff") != "2022-01-01"
+                or receipt.get("status") != "passed"
+                or receipt.get("exclusive_cutoff") != "2022-01-01"
+                or checkpoint_meta.get("recovery_exclusive_cutoff") != "2022-01-01"):
+            raise ValueError("Recovery encoder lacks verified cutoff provenance")
+        if int(checkpoint.get("epoch", -1)) + 1 < int(recovery["expected_epochs"]):
+            raise ValueError("Recovery encoder has not reached its required epoch")
+        allow_milestone = True
     architecture = get_saved_encoder_config(checkpoint["hyper_parameters"])
     if architecture["hidden_size"] != expected_width:
         raise ValueError("Paper run refuses an encoder with the wrong hidden width")
@@ -233,15 +247,16 @@ def audit_encoder(
     metadata = checkpoint["hyper_parameters"].get("checkpoint_metadata", {})
     sidecar_path = checkpoint_path.parent / "checkpoint_metadata.json"
     milestone = re.fullmatch(r"epoch_(\d+)\.ckpt", checkpoint_path.name)
-    if allow_milestone and milestone and origin == "L":
+    if allow_milestone and milestone and (origin == "L" or (recovery and origin in {"EA", "FZ"})):
         completed = int(checkpoint.get("epoch", -1)) + 1
         if completed != int(milestone.group(1)):
             raise ValueError(
                 f"Milestone checkpoint {checkpoint_path.name} records {completed} completed epochs"
             )
-        if completed < minimum_local_epochs:
+        required_epochs = minimum_dapt_epochs if origin == "EA" else minimum_local_epochs
+        if completed < required_epochs:
             raise ValueError(
-                f"Encoder fit is not complete enough: {completed} epochs, require {minimum_local_epochs}"
+                f"Encoder fit is not complete enough: {completed} epochs, require {required_epochs}"
             )
     elif origin in {"L", "RI", "FZ", "EA"}:
         if not sidecar_path.is_file():

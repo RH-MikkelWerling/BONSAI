@@ -177,6 +177,10 @@ def read_artifact(specification, metadata=None, estimand="binary_known_status_un
             if key in frame and not frame[key].eq(specification[key]).all():
                 raise ValueError(f"Artifact declaration conflicts with rows: {key}")
             frame[key] = specification[key]
+    if specification.get('model_alias'):
+        if not specification.get('model'):
+            raise ValueError('Explicit model_alias requires a declared source model')
+        frame['model'] = specification['model_alias']
     return normalize_predictions(frame, estimand, allow_training=allow_training)
 
 
@@ -772,6 +776,10 @@ def prepare_analysis_predictions(config, estimand):
                 "R_vs_best_tuning": "gain(R_L,BEST_TUNING)",
             }
         )
+    if config.get('contrast_touch_models'):
+        touched = set(config['contrast_touch_models'])
+        contrasts = {name: expression for name, expression in contrasts.items()
+                     if models_for({name: expression}) & touched}
     predictions, unused_models = analysed_models_only(predictions, contrasts, config,
                                                      candidates)
     replicates = int(config.get("bootstrap_replicates", 1000))

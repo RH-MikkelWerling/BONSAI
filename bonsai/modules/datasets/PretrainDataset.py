@@ -76,6 +76,10 @@ class PretrainDataset(Dataset):
         )
         if self.cutoff_date is not None:
             subject = censor_subject(subject, self.cutoff_date, inclusive=False)
+        required_cutoff = getattr(self, "required_exclusive_cutoff", None)
+        if required_cutoff is not None:
+            if self.cutoff_date != required_cutoff or not torch.isfinite(subject["abspos"]).all() or (subject["abspos"] >= required_cutoff).any():
+                raise ValueError("Recovery training window violates the exclusive cutoff")
         truncated_subject, truncation_metadata = truncate_subject(
             subject,
             self.max_len,

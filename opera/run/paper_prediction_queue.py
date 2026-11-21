@@ -53,6 +53,8 @@ def bundle_runs(bundle_dir):
 
 
 def canonical_models(row, config, bundle):
+    if config.get('cutoff_recovery') and row.get('recovery_models'):
+        return row['recovery_models']
     origin = row["origin"]
     if row["phase"] == "supervision":
         return [f"{row['regime']}_{origin}"]
@@ -123,7 +125,7 @@ def export_flags(aliases, args, config=None):
     if readout is not None:
         routes = routes and readout in {"source_anchored_adapters", "unanchored_adapters"}
     return {
-        "export_embeddings": bool(aliases),
+        "export_embeddings": bool(aliases) if not (config or {}).get('cutoff_recovery') else bool(config['cutoff_recovery'].get('export_embeddings', True)),
         "export_routes": routes,
     }
 

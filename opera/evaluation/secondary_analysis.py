@@ -1272,6 +1272,8 @@ def _ordered_effect_summaries(summary, strata):
 
 def tuning_selected_strategies(frame, candidates=("S_L", "D_L", "O_L")):
     """One strategy per disease/outcome/seed, chosen only on tuning log loss."""
+    if not candidates:
+        return frame.iloc[:0], pd.DataFrame(columns=['seed', 'cohort', 'outcome', 'status', 'selected_model'])
     tuning = frame.loc[(frame.split == "tuning") & frame.model.isin(candidates)]
     # Split the tuning rows once, not once per disease and outcome.
     tuning_by_cell = dict(tuple(tuning.groupby(["seed", "cohort", "outcome"], sort=False)))

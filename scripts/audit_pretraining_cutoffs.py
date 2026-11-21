@@ -26,13 +26,15 @@ def sequence_dates(pool,allowed,boundary):
 
 def window_counts(pool,allowed,cfg):
     from opera.run.export_outcome_rates_by_year import canonical_patient_ids
-    from bonsai.modules.datasets.PretrainDataset import PretrainDataset
+    from bonsai.modules.datasets.PretrainDataset import ARPretrainDataset
     import math
     subjects=[s for s in pool if canonical_patient_ids(pd.Series([s['subject_id']])).iloc[0] in allowed]
     training=cfg['training'];batch=int(training['batch_size']);accum=int(training['accumulate_grad_batches'])
+    if not cfg.get('paths',{}).get('dataset_class','ARPretrainDataset').endswith('ARPretrainDataset'):
+        raise ValueError('Window reconstruction currently supports the audited autoregressive datasets only')
     result={}
     for label,cutoff in [('unrestricted',None),('pre2022',dict(year=2022,month=1,day=1))]:
-        dataset=PretrainDataset(subjects,max_len=int(training['max_len']),background_length=None,
+        dataset=ARPretrainDataset(subjects,max_len=int(training['max_len']),background_length=None,
             cutoff_date=cutoff,truncation_strategy=training.get('truncation_strategy','tail'),
             tail_window_probability=training.get('tail_window_probability',1.))
         batches=len(dataset)//batch

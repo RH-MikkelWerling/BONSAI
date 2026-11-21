@@ -149,6 +149,10 @@ class PretrainDataModule(L.LightningDataModule):
         else:
             raise ValueError(f"Unexpected dataset class. Got: {self.dataset_class}")
 
+        if getattr(self, "recovery_cutoff_audit_path", None):
+            from bonsai.functional.pretraining_cutoff_audit import audit_datamodule
+            audit_datamodule(self, self.recovery_cutoff_audit_path)
+
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,

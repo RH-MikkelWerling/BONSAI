@@ -60,7 +60,7 @@ class CompletedEpochCheckpoint(Callback):
     pass through the training data.
     """
 
-    def __init__(self, dirpath: str | Path, completed_epochs: list[int] | tuple[int, ...]):
+    def __init__(self, dirpath: str | Path, completed_epochs: list[int] | tuple[int, ...], *, atomic: bool = False):
         super().__init__()
         epochs = sorted({int(value) for value in completed_epochs})
         if any(value <= 0 for value in epochs):
@@ -68,16 +68,18 @@ class CompletedEpochCheckpoint(Callback):
         self.dirpath = Path(dirpath)
         self.completed_epochs = tuple(epochs)
         self._saved: set[int] = set()
+        self.atomic = atomic
 
     def on_train_epoch_end(self, trainer: Any, pl_module: Any) -> None:
         completed = int(trainer.current_epoch) + 1
         if completed not in self.completed_epochs or completed in self._saved:
             return
         self.dirpath.mkdir(parents=True, exist_ok=True)
-        trainer.save_checkpoint(
-            self.dirpath / f"epoch_{completed:03d}.ckpt",
-            weights_only=False,
-        )
+        destination = self.dirpath / f"epoch_{completed:03d}.ckpt"
+        temporary = destination.with_name(f".{destination.name}.writing") if self.atomic else destination
+        trainer.save_checkpoint(temporary, weights_only=False)
+        if self.atomic:
+            temporary.replace(destination)
         self._saved.add(completed)
 
 
@@ -316,7 +318,9 @@ def save_checkpoint_metadata_sidecar(
         payload["extra"] = extra
 
     path = Path(output_dir) / "checkpoint_metadata.json"
-    path.write_text(json.dumps(payload, indent=2, default=str))
+    temporary = path.with_name(".checkpoint_metadata.json.writing")
+    temporary.write_text(json.dumps(payload, indent=2, default=str))
+    temporary.replace(path)
     return path
 
 
