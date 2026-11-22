@@ -75,10 +75,17 @@ def prepare_analysis(root, plan, source, name):
     source_path = Path(source['source'])
     if sha(source_path) != source['source_sha256']:
         raise ValueError('Original analysis recipe changed after recovery preparation')
+    deferred = source.get('recovery_deferred_artifacts', [])
+    if source.get('recovery_defer_design_search') or (deferred and not source['artifacts']):
+        return dict(status='deferred_historical_search', original=str(source_path),
+                    note='Historical search is outside the active paper-first refresh')
     artifacts, touched, waiting, omitted = rebound_artifacts(root, plan, source['artifacts'])
     if waiting:
         return dict(status='waiting', jobs=waiting)
     if not touched:
+        if deferred:
+            return dict(status='deferred_historical_search', original=str(source_path),
+                        note='Only unchanged baselines remain; affected search fits were deferred')
         return dict(status='reused_unaffected_analysis', original=str(source_path))
     if not ({a['model'] for a in artifacts} & touched):
         return dict(status='not_estimable', original=str(source_path), omitted=omitted,
@@ -88,6 +95,19 @@ def prepare_analysis(root, plan, source, name):
     directory.mkdir(parents=True, exist_ok=True)
     original_manifest = Path(config['contrast_manifest'])
     manifest = read(original_manifest)
+    if deferred:
+        from opera.run.analyse_locked_predictions import models_for
+        available = {a['model'] for a in artifacts}
+        missing = {d['artifact']['model'] for d in deferred}-available
+        for family, expressions in manifest['essential_contrasts'].items():
+            manifest['essential_contrasts'][family] = {n: e for n, e in expressions.items()
+                if not models_for({n: e}) & missing and not n.startswith('DS_')}
+        config['extra_contrasts'] = {n: e for n, e in config.get('extra_contrasts', {}).items()
+            if not models_for({n: e}) & missing and not n.startswith('DS_')}
+        config.update(design_search=False, recovery_deferred_models=sorted(missing),
+                      recovery_scope='paper_first: historical design sweep deferred')
+        # Prevent old affected search results being merged as "unaffected".
+        touched.update(missing)
     immutable(directory/'contrasts.yaml', manifest)
     config.update(artifacts=artifacts, contrast_manifest=str(directory/'contrasts.yaml'),
                   contrast_touch_models=sorted(touched), clinical_threshold_artifacts=[],
@@ -107,6 +127,8 @@ def prepare_analysis(root, plan, source, name):
     report = dict(status='ready', analysis=str(directory/'analysis.yaml'),
                   source=str(source_path), source_sha256=source['source_sha256'],
                   refreshed_models=sorted(touched), omitted=omitted,
+                  deferred_historical_fits=[dict(job=d['job'], model=d['artifact']['model'],
+                      seed=d['artifact'].get('seed', 42)) for d in deferred],
                   note='Unchanged forecasts reused; contrasts wholly unaffected by recovery excluded')
     immutable(directory/'preparation.yaml', report)
     return report
@@ -303,7 +325,7 @@ def package(root):
                 if columns & PATIENT_COLUMNS:
                     raise ValueError(f'Patient column in plot table: {path}')
                 archive.write(path, f'{directory.name}/plot_tables/{path.name}')
-        for name in ('queue_summary.json', 'pipeline_status.json', 'queue_index.csv'):
+        for name in ('queue_summary.json', 'pipeline_status.json', 'queue_index.csv', 'workload_policy.json'):
             if (root/name).is_file(): archive.write(root/name, name)
         for pattern in ('clinical/*/download_clinical_*.zip', 'story/download_story.zip',
                         'outcome_grids_*/download_outcome_grids*.zip', 'deciles/fixed_budget_review.zip',
@@ -336,28 +358,40 @@ def watch(root, *, execute=False, wait_hours=96, poll_seconds=30, exports=False,
     if sha(Path(plan['analyses'])) != plan['analyses_sha256']:
         raise ValueError('Registered analysis inventory changed')
     sources = read(plan['analyses'])
+    from opera.run.cutoff_recovery_workload import read_policy, filter_source
+    policy = read_policy(root, plan)
+    policy_digest = sha(root/'workload_policy.json') if (root/'workload_policy.json').is_file() else None
+    if policy['profile'] == 'paper_first':
+        sources = [filter_source(source, policy) for source in sources]
     deadline = time.monotonic()+wait_hours*3600
     completed_names = set()
+    completed_reports = {}
     exports_attempted = False
     exports_report = None
     while time.monotonic() < deadline:
+        current_digest = sha(root/'workload_policy.json') if (root/'workload_policy.json').is_file() else None
+        if current_digest != policy_digest:
+            raise RuntimeError('Workload scope changed; restart the results lane to use the separate paper-first outputs')
         state = {}
         if exports_report: state['exports'] = exports_report
         tasks = [('core_damage', lambda: prepare_core(root, plan, sources))]
-        tasks += [(f'registered_{i:02d}', lambda s=s, i=i: prepare_analysis(root, plan, s, f'registered_{i:02d}'))
+        prefix = 'paper_registered' if policy['profile'] == 'paper_first' else 'registered'
+        tasks += [(f'{prefix}_{i:02d}', lambda s=s, i=i: prepare_analysis(root, plan, s, f'{prefix}_{i:02d}'))
                   for i, s in enumerate(sources)]
         for name, prepare in tasks:
             if name in completed_names:
-                state[name] = {'status': 'complete'}
+                state[name] = completed_reports[name]
                 continue
             report = prepare()
             state[name] = report
-            if report['status'] in {'reused_unaffected_analysis', 'not_estimable'}:
+            if report['status'] in {'reused_unaffected_analysis', 'not_estimable', 'deferred_historical_search'}:
                 completed_names.add(name)
+                completed_reports[name] = report
             elif report['status'] == 'ready' and execute:
                 run_analysis(root/'analyses'/name)
                 completed_names.add(name)
                 state[name] = {**report, 'status': 'complete'}
+                completed_reports[name] = state[name]
                 (root/'pipeline_status.json').write_text(json.dumps(state, indent=2))
                 package(root)
         if execute and 'core_damage' in completed_names and exports and not exports_attempted:
@@ -397,7 +431,8 @@ def watch(root, *, execute=False, wait_hours=96, poll_seconds=30, exports=False,
                     continue
                 state['interpretation'] = {'status': 'complete'}
             if execute:
-                state['overall'] = {'status': 'complete'}
+                state['overall'] = {'status': 'complete', 'workload_profile': policy['profile'],
+                                    'deferred_jobs': len(policy['deferred_jobs'])}
                 (root/'pipeline_status.json').write_text(json.dumps(state, indent=2))
             if execute: package(root)
             if execute: print('RECOVERY RESULTS COMPLETE:', root/'download_cutoff_recovery.zip', flush=True)

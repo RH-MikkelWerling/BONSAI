@@ -41,6 +41,10 @@ case "$lane" in
     if [[ -f "$OPERA_RECOVERY_ROOT/pipeline_status.json" ]]; then
       cat "$OPERA_RECOVERY_ROOT/pipeline_status.json"
     fi ;;
+  paper-first-preview)
+    python -m opera.run.cutoff_recovery_workload --root "$OPERA_RECOVERY_ROOT" ;;
+  paper-first)
+    python -m opera.run.cutoff_recovery_workload --root "$OPERA_RECOVERY_ROOT" --execute ;;
   bundle)
     python - "$OPERA_RECOVERY_ROOT" <<'PY'
 import sys
@@ -49,5 +53,5 @@ from opera.run.cutoff_recovery_results import package
 package(Path(sys.argv[1]).resolve())
 PY
     ;;
-  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle' >&2; exit 2 ;;
+  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first' >&2; exit 2 ;;
 esac

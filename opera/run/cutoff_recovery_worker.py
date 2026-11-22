@@ -161,13 +161,21 @@ def work(root, *, wait_hours=72, poll_seconds=30, max_jobs=None, with_interpreta
     if sha(Path(plan['bundle'])/'bundle.json') != plan['bundle_sha256']:
         raise ValueError('Recovery bundle changed')
     jobs = sorted(plan['jobs'].items(), key=lambda pair: (pair[1]['priority'], pair[1]['row']['seed'], pair[0]))
+    from opera.run.cutoff_recovery_workload import read_policy
+    policy = read_policy(root, plan)
+    print(f'WORKLOAD {policy["profile"]}: retained={len(jobs)-len(policy["deferred_jobs"])} '
+          f'deferred={len(policy["deferred_jobs"])}', flush=True)
     configs = {digest: read(Path(plan['bundle'])/job['row']['config_path']) for digest, job in jobs}
     worker = f'{socket.gethostname()}-{os.getpid()}'
     deadline = time.monotonic() + wait_hours*3600
     finished = failures = 0
     while time.monotonic() < deadline:
+        deferred = set(read_policy(root, plan)['deferred_jobs'])
         counts, claimed = Counter(), False
         for digest, job in jobs:
+            if digest in deferred:
+                counts['deferred_historical_search'] += 1
+                continue
             if completed(root, digest, job):
                 counts['completed'] += 1
                 continue
@@ -218,7 +226,7 @@ def work(root, *, wait_hours=72, poll_seconds=30, max_jobs=None, with_interpreta
             if with_interpretation:
                 interpretation = try_interpretation(root, plan, worker)
                 print('Interpretation:', interpretation, flush=True)
-            if counts['completed'] == len(jobs):
+            if counts['completed'] == len(jobs)-len(deferred):
                 if with_interpretation and interpretation == 'failed_needs_inspection':
                     raise RuntimeError(f'Fits complete; interpretation needs inspection: {root/"interpretation_task/failure.json"}')
                 if with_interpretation and interpretation == 'claimed_elsewhere':
@@ -237,15 +245,21 @@ def work(root, *, wait_hours=72, poll_seconds=30, max_jobs=None, with_interpreta
 
 def status(root):
     plan = read(root/'queue_plan.yaml')
+    from opera.run.cutoff_recovery_workload import read_policy
+    policy = read_policy(root, plan)
+    deferred = set(policy['deferred_jobs'])
     counts = Counter()
     for digest, job in plan['jobs'].items():
         run = root/'neural_runs'/job['row']['run_directory']
         if completed(root, digest, job): state = 'complete'
         elif (run/'.worker_claim.json').exists(): state = 'claimed_check_heartbeat'
         elif (run/'worker_failed.json').exists(): state = 'failed_or_retryable'
+        elif digest in deferred: state = 'deferred_historical_search'
         else: state = 'pending_or_waiting_for_encoder'
         counts[state] += 1
-    print(json.dumps(dict(counts=counts, summary=read(root/'queue_summary.json')), indent=2))
+    print(json.dumps(dict(counts=counts, workload_profile=policy['profile'],
+                         retained_jobs=len(plan['jobs'])-len(deferred),
+                         deferred_jobs=len(deferred), summary=read(root/'queue_summary.json')), indent=2))
 
 
 def clear_stale(root, *, execute=False, confirmed_stopped=False, stale_minutes=30):
