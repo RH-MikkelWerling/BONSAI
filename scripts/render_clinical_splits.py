@@ -46,13 +46,13 @@ def _comparisons(summary):
     return out
 
 
-def _rows(summary, sid, cats):
+def _rows(summary, sid, cats, lower=LOWER, upper=UPPER):
     sm = summary[summary.score_id.eq(sid)]
     for cat in cats:
         part = sm[sm.category.eq(cat)]
         whole = part[part.display.eq("index")].iloc[0]
         halves = part[part.display.eq("within")].set_index("group")
-        yield cat, whole, halves.loc[LOWER], halves.loc[UPPER]
+        yield cat, whole, halves.loc[lower], halves.loc[upper]
 
 
 def _label(name, end, years, n):
@@ -160,9 +160,11 @@ def _at_risk(part, t):
     return int(sel.at_risk.iloc[-1]) if len(sel) else int(part.at_risk.iloc[0])
 
 
-def km_page(summary, curves, comps, out, stem, panel_h=0.74):
+def km_page(summary, curves, comps, out, stem, panel_h=0.74, lower=LOWER, upper=UPPER, model="OPERA's",
+            flag_horizon=True):
     """One row per comparison, one panel per category, with numbers at risk under every panel
-    (start, half the horizon, the horizon) for each of OPERA's halves."""
+    (start, half the horizon, the horizon) for each of the model's halves. ``lower``/``upper`` name
+    the halves in the export, ``model`` labels them in the legend (Paper II reuses this page)."""
     W, left, col_w, gap, head = 6.9, 0.98, 1.34, 0.13, 0.42
     title_h, ticks_h, risk_h, after = 0.17, 0.13, 0.13, 0.14
     row_h = title_h + panel_h + ticks_h + 2 * risk_h + after
@@ -178,7 +180,7 @@ def km_page(summary, curves, comps, out, stem, panel_h=0.74):
         fig.text(lx, y_mid - 0.03 / H, f"{SHORT_END[end]} at {years} y", fontsize=6.6, color=INK2, va="center",
                  ha="right")
         fig.text(lx, y_mid - 0.15 / H, f"n={n:,}", fontsize=6.6, color=MUTED, va="center", ha="right")
-        if years != 1:  # the one comparison on a longer horizon: say so where the eye lands
+        if flag_horizon and years != 1:  # the one comparison on a longer horizon: say so where the eye lands
             fig.text(lx, y_mid - 0.3 / H, f"{years}-year axis", fontsize=6.4, color=INK2, style="italic",
                      fontweight="bold", va="center", ha="right")
         rows_y = [1 - (top + panel_h + ticks_h + (k + 0.55) * risk_h) / H for k in range(2)]
@@ -190,13 +192,13 @@ def km_page(summary, curves, comps, out, stem, panel_h=0.74):
         for start, span in empty:
             _not_available(fig, (left + start * (col_w + gap)) / W, 1 - (top + panel_h) / H,
                            (span * col_w + (span - 1) * gap) / W, panel_h / H, len(cats))
-        for start, (cat, whole, lo, hi) in zip(slots, _rows(summary, sid, cats)):
+        for start, (cat, whole, lo, hi) in zip(slots, _rows(summary, sid, cats, lower, upper)):
             x0 = left + start * (col_w + gap)
             ax = fig.add_axes([x0 / W, 1 - (top + panel_h) / H, col_w / W, panel_h / H])
             _step(ax, c[c.display.eq("index") & c.category.eq(cat)], WHOLE, lw=0.9, ls=(0, (3, 2)), band=False)
-            parts = {g: c[c.display.eq("within") & c.category.eq(cat) & c.group.eq(g)] for g in (LOWER, UPPER)}
-            _step(ax, parts[UPPER], HALF_HIGH, lw=1.2, z=3)
-            _step(ax, parts[LOWER], HALF_LOW, lw=1.2, z=4)
+            parts = {g: c[c.display.eq("within") & c.category.eq(cat) & c.group.eq(g)] for g in (lower, upper)}
+            _step(ax, parts[upper], HALF_HIGH, lw=1.2, z=3)
+            _step(ax, parts[lower], HALF_LOW, lw=1.2, z=4)
             ax.axvline(years, color=ZERO, lw=0.5, ls=(0, (2, 2)), zorder=1)
             span_x = years * 1.12
             ax.set_xlim(0, span_x)
@@ -210,15 +212,15 @@ def km_page(summary, curves, comps, out, stem, panel_h=0.74):
             for k, (r, colour) in enumerate(((lo, HALF_LOW), (hi, HALF_HIGH))):
                 ax.text(0.04, 0.22 - 0.17 * k, f"{100 * r.survival:.0f}%", transform=ax.transAxes, fontsize=6.6,
                         color=colour, fontweight="bold", va="bottom")
-            for k, (g, colour) in enumerate(((LOWER, HALF_LOW), (UPPER, HALF_HIGH))):
+            for k, (g, colour) in enumerate(((lower, HALF_LOW), (upper, HALF_HIGH))):
                 for t in times:
                     fig.text((x0 + col_w * t / span_x) / W, rows_y[k], f"{_at_risk(parts[g], t):,}", fontsize=5.6,
                              color=colour, ha="center", va="center")
     for start, text, ha in ((0, "Lowest category", "left"), (3, "Highest category", "right")):
         x = left + start * (col_w + gap) + (col_w if ha == "right" else 0)
         fig.text(x / W, 1 - 0.3 / H, text, fontsize=7.0, color=MUTED, style="italic", ha=ha, va="center")
-    fig.legend(handles=[Line2D([], [], color=HALF_LOW, lw=1.5, label="OPERA's lower-risk half"),
-                        Line2D([], [], color=HALF_HIGH, lw=1.5, label="OPERA's higher-risk half"),
+    fig.legend(handles=[Line2D([], [], color=HALF_LOW, lw=1.5, label=f"{model} lower-risk half"),
+                        Line2D([], [], color=HALF_HIGH, lw=1.5, label=f"{model} higher-risk half"),
                         Line2D([], [], color=WHOLE, lw=1.0, ls=(0, (3, 2)), label="Whole index category")],
                loc="upper center", ncol=3, frameon=False, fontsize=7.2, bbox_to_anchor=(0.57, 1.0))
     _save(fig, out / stem)

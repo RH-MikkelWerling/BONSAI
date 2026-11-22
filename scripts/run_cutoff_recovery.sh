@@ -45,6 +45,21 @@ case "$lane" in
     python -m opera.run.cutoff_recovery_workload --root "$OPERA_RECOVERY_ROOT" ;;
   paper-first)
     python -m opera.run.cutoff_recovery_workload --root "$OPERA_RECOVERY_ROOT" --execute ;;
+  epoch20-prepare)
+    python -m opera.run.cutoff_recovery_epoch20 prepare --root "$OPERA_RECOVERY_ROOT" ;;
+  epoch20-opera-prepare)
+    python -m opera.run.cutoff_recovery_epoch20 prepare-opera --root "$OPERA_RECOVERY_ROOT" ;;
+  epoch20-status)
+    python -m opera.run.cutoff_recovery_epoch20 status --root "$OPERA_RECOVERY_ROOT" ;;
+  epoch20|cohort20|adapted20|opera20|cohort-opera20|adapted-opera20)
+    python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
+    family=()
+    [[ "$lane" == cohort20 || "$lane" == cohort-opera20 ]] && family=(--family cohort)
+    [[ "$lane" == adapted20 || "$lane" == adapted-opera20 ]] && family=(--family adapted)
+    architecture=()
+    [[ "$lane" == *opera20 ]] && architecture=(--architecture opera)
+    python -u -m opera.run.cutoff_recovery_epoch20 work --root "$OPERA_RECOVERY_ROOT" "${family[@]}" "${architecture[@]}"
+    bash "$0" worker ;;
   bundle)
     python - "$OPERA_RECOVERY_ROOT" <<'PY'
 import sys
@@ -53,5 +68,5 @@ from opera.run.cutoff_recovery_results import package
 package(Path(sys.argv[1]).resolve())
 PY
     ;;
-  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first' >&2; exit 2 ;;
+  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first | epoch20-prepare | epoch20-opera-prepare | epoch20-status | epoch20 | cohort20 | adapted20 | opera20 | cohort-opera20 | adapted-opera20' >&2; exit 2 ;;
 esac

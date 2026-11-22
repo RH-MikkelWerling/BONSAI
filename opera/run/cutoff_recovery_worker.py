@@ -170,6 +170,12 @@ def work(root, *, wait_hours=72, poll_seconds=30, max_jobs=None, with_interpreta
     deadline = time.monotonic() + wait_hours*3600
     finished = failures = 0
     while time.monotonic() < deadline:
+        from opera.run.cutoff_recovery_epoch20 import try_one
+        if try_one(root, worker) == 'processed':
+            finished += 1
+            if max_jobs and finished >= max_jobs:
+                return
+            continue
         deferred = set(read_policy(root, plan)['deferred_jobs'])
         counts, claimed = Counter(), False
         for digest, job in jobs:
@@ -260,6 +266,9 @@ def status(root):
     print(json.dumps(dict(counts=counts, workload_profile=policy['profile'],
                          retained_jobs=len(plan['jobs'])-len(deferred),
                          deferred_jobs=len(deferred), summary=read(root/'queue_summary.json')), indent=2))
+    from opera.run.cutoff_recovery_epoch20 import registry, status as epoch20_status
+    if registry(root) is not None:
+        print(json.dumps(dict(epoch20=epoch20_status(root)), indent=2))
 
 
 def clear_stale(root, *, execute=False, confirmed_stopped=False, stale_minutes=30):

@@ -375,6 +375,12 @@ def watch(root, *, execute=False, wait_hours=96, poll_seconds=30, exports=False,
         state = {}
         if exports_report: state['exports'] = exports_report
         tasks = [('core_damage', lambda: prepare_core(root, plan, sources))]
+        if (root/'epoch20_priority/manifest.yaml').is_file():
+            from opera.run.cutoff_recovery_epoch20 import prepare_analysis as prepare_epoch20
+            tasks.append(('epoch20_check', lambda: prepare_epoch20(root)))
+        if (root/'epoch20_priority/opera_extension/manifest.yaml').is_file():
+            from opera.run.cutoff_recovery_epoch20 import prepare_analysis as prepare_epoch20
+            tasks.append(('epoch20_architecture_check', lambda: prepare_epoch20(root, architecture='opera')))
         prefix = 'paper_registered' if policy['profile'] == 'paper_first' else 'registered'
         tasks += [(f'{prefix}_{i:02d}', lambda s=s, i=i: prepare_analysis(root, plan, s, f'{prefix}_{i:02d}'))
                   for i, s in enumerate(sources)]
