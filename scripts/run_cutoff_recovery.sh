@@ -51,6 +51,9 @@ case "$lane" in
     python -m opera.run.cutoff_recovery_epoch20 prepare-opera --root "$OPERA_RECOVERY_ROOT" ;;
   epoch20-status)
     python -m opera.run.cutoff_recovery_epoch20 status --root "$OPERA_RECOVERY_ROOT" ;;
+  epoch20-results)
+    python scripts/check_results_resources.py --minimum-free-gib 96 --require-no-coordinator
+    exec python -u -m opera.run.cutoff_recovery_epoch20 compare --root "$OPERA_RECOVERY_ROOT" --architecture opera ;;
   epoch20|cohort20|adapted20|opera20|cohort-opera20|adapted-opera20)
     python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
     family=()
@@ -68,5 +71,5 @@ from opera.run.cutoff_recovery_results import package
 package(Path(sys.argv[1]).resolve())
 PY
     ;;
-  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first | epoch20-prepare | epoch20-opera-prepare | epoch20-status | epoch20 | cohort20 | adapted20 | opera20 | cohort-opera20 | adapted-opera20' >&2; exit 2 ;;
+  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first | epoch20-prepare | epoch20-opera-prepare | epoch20-status | epoch20-results | epoch20 | cohort20 | adapted20 | opera20 | cohort-opera20 | adapted-opera20' >&2; exit 2 ;;
 esac

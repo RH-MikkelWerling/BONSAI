@@ -285,7 +285,7 @@ def prepare_analysis(root, architecture='joint'):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('stage', choices=['prepare', 'prepare-opera', 'work', 'status'])
+    p.add_argument('stage', choices=['prepare', 'prepare-opera', 'work', 'status', 'compare'])
     p.add_argument('--root', type=Path, default=Path('data/cutoff_recovery_20261121'))
     p.add_argument('--family', choices=['cohort', 'adapted'])
     p.add_argument('--architecture', choices=['joint', 'opera'])
@@ -296,6 +296,15 @@ def main():
         print(json.dumps(prepare(root, 'opera' if a.stage == 'prepare-opera' else 'joint'), indent=2))
     elif a.stage == 'status':
         print(json.dumps(status(root, a.family, a.architecture), indent=2))
+    elif a.stage == 'compare':
+        from opera.run.cutoff_recovery_results import run_analysis, package
+        report = prepare_analysis(root, a.architecture or 'opera')
+        print(json.dumps(report, indent=2), flush=True)
+        if report['status'] != 'ready':
+            raise SystemExit(3)
+        run_analysis(Path(report['analysis']).parent)
+        package(root)
+        print('EPOCH20 COMPARISONS COMPLETE:', Path(report['analysis']).parent/'results', flush=True)
     else:
         if a.wait_hours <= 0:
             p.error('wait-hours must be positive')
