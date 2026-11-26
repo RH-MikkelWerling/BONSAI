@@ -28,6 +28,10 @@ for family, stem in [("joint", "fig_encoder_maps"), ("opera", "supp_embedding_op
     cells, meta = shared_crop(cells, meta)
     print(family, "crop side", int(meta.grid.iloc[0]))
     labels = {m: m.split()[0].replace("Local", "Cohort") + " encoder" for m in meta.model}
-    _save(e.figure_encoder_maps_v2(cells, meta, model_labels=labels), out / stem)
+    support = "--support" in sys.argv[3:]
+    rows = ("disease", "ipi", "predicted", "mortality", "support_band") if support else ("disease", "ipi", "predicted", "mortality")
+    if support and not cells.layer.eq("support_band").any():
+        raise ValueError("Support panel requested but support_band aggregates are absent")
+    _save(e.figure_encoder_maps_v2(cells, meta, model_labels=labels, rows=rows), out / stem)
     if family == "joint":
         _save(e.figure_encoder_disease_grid(cells, meta, model_labels=labels), out / "supp_embedding_diseases")

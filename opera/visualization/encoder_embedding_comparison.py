@@ -653,8 +653,12 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
         cursor += header + (sub_h if has_sub.get(layer, True) else 0.0)
         slots[layer] = cursor
         cursor += panel + (key_row if layer in ("disease", "ipi") else 0.0)
+        if layer == "support_band":
+            cursor += last_key
+        if layer in ("predicted", "mortality") and layer == [r for r in rows if r in ("predicted", "mortality")][-1] and "support_band" in rows:
+            cursor += last_key
     risk_rows = [l for l in rows if l in ("predicted", "mortality")]
-    if risk_rows:
+    if risk_rows and "support_band" not in rows:
         cursor += last_key
     fig = plt.figure(figsize=(width, cursor + 0.05))
     H = fig.get_figheight()
@@ -666,7 +670,7 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
 
     def lattice(model, layer, key=""):
         g = int(m_meta.loc[model, "grid"])
-        a = np.full((g, g), np.nan) if layer in ("mortality", "predicted") else np.zeros((g, g))
+        a = np.full((g, g), np.nan) if layer in ("mortality", "predicted", "support_band") else np.zeros((g, g))
         part = cells[(cells.model == model) & (cells.layer == layer) & (cells.key == key)]
         a[part.ix.to_numpy(), part.iy.to_numpy()] = part.value.to_numpy()
         return a
@@ -716,6 +720,15 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
                 images["ipi"] = ax.imshow(mean.T, origin="lower", extent=extent, aspect="equal", vmin=0,
                                           vmax=len(IPI_LEVELS) - 1, cmap=ipi_cmap, interpolation="nearest", zorder=1)
                 sub = "grey: no index recorded"
+            elif layer == "support_band":
+                from matplotlib.colors import BoundaryNorm
+                support = _blocks(lattice(model, layer), factor, how="mean")
+                support[empty] = np.nan
+                cmap = plt.get_cmap("YlGnBu", 7).copy()
+                cmap.set_bad((1, 1, 1, 0))
+                images["support"] = ax.imshow(support.T, origin="lower", extent=extent,
+                    cmap=cmap, norm=BoundaryNorm(np.arange(8) - .5, 7),
+                    aspect="equal", interpolation="nearest", zorder=1)
             else:
                 rel = _blocks(lattice(model, layer), factor, how="mean")
                 rel[empty] = np.nan
@@ -742,7 +755,8 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
     for ri, layer in enumerate(rows):
         first, last = axes[ri, 0].get_position(), axes[ri, ncol - 1].get_position()
         y = first.y1 + ((sub_h if has_sub.get(layer, True) else 0.0) + 0.04) / H
-        name = (row_titles or ROW_TITLES)[layer].replace("\n", " ")
+        name = (row_titles or {}).get(layer, "Effective follow-up support" if layer == "support_band"
+                                     else ROW_TITLES.get(layer, layer)).replace("\n", " ")
         if row_rules:
             fig.add_artist(Line2D([first.x0, last.x1], [y, y], transform=fig.transFigure, color=_INK2, lw=0.6))
             fig.text(first.x0, y + 0.03 / H, name, fontsize=8.0, fontweight="bold", color=_INK, va="bottom",
@@ -762,14 +776,20 @@ def figure_encoder_maps_v2(cells, meta, *, model_order=None, model_labels=None, 
                    loc="upper center", bbox_to_anchor=(0.5, 1 - y / H),
                    ncol=len(handles) if len(handles) <= 6 else int(np.ceil(len(handles) / 2)), frameon=False,
                    fontsize=7.2, handlelength=1.0, handleheight=0.8, columnspacing=1.2, borderaxespad=0)
-    for key in ("ipi", "risk"):
+    for key in ("ipi", "risk", "support"):
         if key not in images:
             continue
-        y = slots["ipi"] + panel - 0.02 if key == "ipi" else slots[risk_rows[-1]] + panel + 0.02
+        y = (slots["ipi"] + panel - 0.02 if key == "ipi" else
+             slots["support_band"] + panel + 0.02 if key == "support" else
+             slots[risk_rows[-1]] + panel + 0.02)
         cb = fig.colorbar(images[key], cax=key_axes(y), orientation="horizontal")
         if key == "risk":
             cb.set_ticks([0.25, 0.5, 1, 2, 4], labels=["¼×", "½×", "average", "2×", "4×"])
             cb.set_label(risk_label or "One-year mortality relative to the observed average (both rows above)", fontsize=7.2,
+                         color=_INK2, labelpad=2)
+        elif key == "support":
+            cb.set_ticks(range(7), labels=["<5", "5–9", "10–19", "20–24", "25–49", "50–99", "≥100"])
+            cb.set_label("Effective sample size for observed one-year mortality", fontsize=7.2,
                          color=_INK2, labelpad=2)
         else:
             cb.set_ticks(range(len(IPI_LEVELS)), labels=IPI_LEVELS)
