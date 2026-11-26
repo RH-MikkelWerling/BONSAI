@@ -110,7 +110,45 @@ def collect(root):
     return result
 
 
-def collect_recovery(root, *, projection_version="held_out_descriptive_v1"):
+def ig_cache_progress(directory, *, planned_patients=None):
+    """Aggregate cached timing only; no patient identifiers leave this function."""
+    import statistics
+    directory = Path(directory)
+    markers = sorted((directory/'patient_cache_INTERNAL').glob('patient-*/complete.json'))
+    times, unreadable = [], 0
+    for marker in markers:
+        try:
+            value = json.loads(marker.read_text()).get('wall_seconds')
+            if value is not None and float(value) >= 0:
+                times.append(float(value))
+        except (OSError, ValueError, TypeError):
+            unreadable += 1
+    run_path = directory/'attribution_run.json'
+    if run_path.is_file():
+        try:
+            run = json.loads(run_path.read_text())
+            planned_patients = run.get('planned_patients', planned_patients)
+        except (OSError, ValueError):
+            pass
+    result = dict(cached_patient_receipts=len(markers), unreadable_receipts=unreadable,
+                  patients_timed=len(times), planned_patients=planned_patients,
+                  checkpoint_identity_verified=False,
+                  note='Timing estimate only; normal resume verifies checkpoint, roster and cache hashes. Initial patients include additional checks; future records may differ in length.')
+    if times:
+        recent = times[-50:]
+        mean = statistics.mean(times)
+        result.update(mean_seconds_per_patient=mean,
+                      median_seconds_per_patient=statistics.median(times),
+                      latest_50_median_seconds_per_patient=statistics.median(recent))
+        if planned_patients is not None:
+            remaining = max(0, int(planned_patients)-len(markers))
+            result.update(remaining_patients=remaining,
+                remaining_hours_at_observed_mean=remaining*mean/3600,
+                remaining_hours_at_latest_50_median=remaining*statistics.median(recent)/3600)
+    return result
+
+
+def collect_recovery(root, *, projection_version="held_out_descriptive_v1", ig_planned_patients=None):
     """Read aggregate receipts and ZIP directories only; never load patient data."""
     from zipfile import ZipFile, BadZipFile
     root = Path(root)
@@ -180,6 +218,8 @@ def collect_recovery(root, *, projection_version="held_out_descriptive_v1"):
         "steps": {name: value.get('status') for name, value in interpretation.get('steps', {}).items()
                   if isinstance(value, dict)}}
     arrows = receipt(root/'exports'/f'model_exports_{projection_version}'/'status.json')
+    interpretation['cache_progress'] = ig_cache_progress(root/'final_interpretation/attributions',
+                                                         planned_patients=ig_planned_patients)
     interpretation['test_fitted_arrows'] = {"status": arrows.get('status', 'unknown'),
                                             "projection_version": arrows.get('projection_version')}
     paths = [root/'download_cutoff_recovery.zip']
@@ -204,12 +244,13 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('.'))
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--recovery-root', type=Path, help='Inspect the cutoff-recovery release instead of legacy paths')
+    parser.add_argument('--ig-planned-patients', type=int, help='Planned IG count if no attribution receipt exists yet (timing estimates only)')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as handle:
         if args.recovery_root:
             path = args.recovery_root if args.recovery_root.is_absolute() else args.root/args.recovery_root
-            report = collect_recovery(path)
+            report = collect_recovery(path, ig_planned_patients=args.ig_planned_patients)
         else:
             report = collect(args.root)
         json.dump(report, handle, indent=2)
