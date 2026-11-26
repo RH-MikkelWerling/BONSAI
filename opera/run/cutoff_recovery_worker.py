@@ -114,16 +114,22 @@ def one_job(root, digest):
 
 
 def interpretation_ready(root, plan):
+    models = {'J_L', 'J_OA_OWN_L', 'J_EA', 'R_EA'}
     required = [(digest, job) for digest, job in plan['jobs'].items()
-                if 'R_EA' in job['models'] and job['row']['seed'] == 42]
-    return len(required) == 1 and completed(root, *required[0])
+                if models.intersection(job['models']) and job['row']['seed'] == 42]
+    covered = set().union(*(set(job['models']) for _, job in required)) if required else set()
+    return models <= covered and all(completed(root, digest, job) for digest, job in required)
 
 
 def try_interpretation(root, plan, worker):
     from opera.run.paper_worker import Claim
     output = root/'final_interpretation'
     manifest = output/'interpretation_manifest.json'
-    if manifest.is_file() and read(manifest).get('status') == 'complete':
+    from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+    arrows = root/'exports'/f'model_exports_{PROJECTION_VERSION}'/'status.json'
+    arrows_complete = (arrows.is_file() and read(arrows).get('status') == 'complete'
+                       and read(arrows).get('projection_version') == PROJECTION_VERSION)
+    if manifest.is_file() and read(manifest).get('status') == 'complete' and arrows_complete:
         return 'complete'
     if not interpretation_ready(root, plan): return 'not_ready'
     for label, item in plan.get('export_inputs', {}).items():

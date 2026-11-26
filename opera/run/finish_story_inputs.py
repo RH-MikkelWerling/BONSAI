@@ -292,7 +292,8 @@ def main():
             import pandas as pd
             import yaml
             from opera.run.analyse_locked_predictions import read_table
-            from opera.run.build_paper_embedding_tables import _patient_ids, embedding_comparison
+            from opera.run.build_paper_embedding_tables import (
+                PROJECTION_VERSION, _patient_ids, embedding_comparison)
             stages = stages_input()
             metadata = _patient_ids(read_table(a.patient_metadata))
             tiers = index_risk_group(metadata)
@@ -306,7 +307,8 @@ def main():
                 for suffix in ('.pdf', '.png', '.plot.json'):
                     (run.ready / 'figures' / f'supp_embedding_comparison_{family}{suffix}').unlink(missing_ok=True)
             for family, family_stages in stages.items():
-                coords, _ = embedding_comparison(family_stages, metadata, method="umap", group_map=group_map)
+                coords, _ = embedding_comparison(family_stages, metadata, method="umap", group_map=group_map,
+                    patient_ids=set(survival.patient_id) & set(metadata.subject_id))
                 # Risk group by each disease's own index, as in Table 1 (not the IPI applied to everyone).
                 coords["ipi_group"] = coords.patient_id.map(tiers)
                 coords = coords.loc[coords.patient_id.isin(set(survival.patient_id))]
@@ -338,11 +340,19 @@ def main():
                 cells.to_csv(run.ready / "tables" / f"embedding_grids_{family}.csv.gz", index=False)
                 grid_meta.to_csv(run.ready / "tables" / f"embedding_grids_{family}_meta.csv", index=False)
                 out[family] = {"patients": int(coords.patient_id.nunique()),
+                               "projection_version": PROJECTION_VERSION,
+                               "projection_fit_split": "held_out",
+                               "projection_fit_patients": int(coords.patient_id.nunique()),
                                "with_ipi": int(coords.drop_duplicates("patient_id").ipi_group.notna().sum()),
                                "projection": sorted(coords.projection.unique()) if "projection" in coords else None,
                                "prediction_sources": sources,
                                "index_risk_groups": coords.drop_duplicates('patient_id').ipi_group.fillna('Not recorded').value_counts().to_dict()}
+            out["projection_version"] = PROJECTION_VERSION
             return out
+        # Old completed maps must never be silently reused under the new policy.
+        from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+        if run.status.get("embeddings", {}).get("projection_version") != PROJECTION_VERSION:
+            run.redo.add("embeddings")
         run.step("embeddings", check, action)
 
     # -- clinical plates ----------------------------------------------------------------------

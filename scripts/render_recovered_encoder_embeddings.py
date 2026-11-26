@@ -77,7 +77,7 @@ def main():
     group_map = yaml.safe_load(Path('opera/configs/paper_embedding_tables.example.yaml').read_text()).get('ipi_group_map')
     manifest = {'evaluation_split': 'held_out', 'analysis_root': str(output),
                 'notes': ['Fine-tuned encoders only; no frozen-pretraining representations are implied.',
-                          'Projection fitted on tuning patients and applied to held-out patients.',
+                          'Descriptive projection fitted without labels on common held-out patients.',
                           'Separate maps show geometry, not evidence of improved discrimination.'],
                 'steps': {}, 'source_hashes': {str(args.patient_metadata): sha(args.patient_metadata),
                                                str(args.inventory): sha(args.inventory)}}

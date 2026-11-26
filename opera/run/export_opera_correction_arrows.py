@@ -5,9 +5,9 @@ representation drawn on the paper's patient map). Each outcome then adds what
 its own attention query reads, gated by tanh(g), and own low-rank corrections
 (diagnosis, outcome, global). This step places the shared summary and each
 outcome's final representation on the *same* fitted map as the calibration maps
-(``build_paper_embedding_tables``: standardisation, PCA and UMAP fitted on tuning
-patients, applied unchanged; UMAP ``transform`` places the displaced vectors, as
-for the retired router arrows) and writes only binned means:
+(``build_paper_embedding_tables``: standardisation, PCA and UMAP fitted without
+labels on the displayed held-out patients; UMAP ``transform`` places the
+displaced vectors) and writes only binned means:
 
 * ``correction_arrows.csv``: per outcome and component (``total``: shared ->
   final; ``reading``: shared -> after reading; ``corrections``: after reading ->
@@ -33,7 +33,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
 
 MIN_BIN_PATIENTS = 20
 COMPONENTS = ("total", "reading", "corrections")
@@ -42,6 +41,7 @@ COMPONENTS = ("total", "reading", "corrections")
 def representation_parts(model, batch, outcome_indices) -> dict:
     """Shared summary, after outcome-specific reading, and final representation
     of the chosen outcomes: (b, h), (b, k, h), (b, k, h)."""
+    import torch
     readout = getattr(model, "outcome_attention_readout", None)
     if readout is None or not hasattr(readout, "outcome_queries"):
         raise ValueError("Correction arrows need an outcome-attention (J_OA*) checkpoint")
@@ -101,13 +101,20 @@ def arrow_aggregates(before, after: dict, *, bins=None, min_count=MIN_BIN_PATIEN
     return arrows, density
 
 
-def project_parts(projection, parts: dict, outcomes) -> tuple[np.ndarray, dict]:
+def project_parts(projection, parts: dict, outcomes, *, shared_coordinates=None) -> tuple[np.ndarray, dict]:
     """Map positions of the shared summary and of each outcome's representations."""
-    before = projection.transform(parts["shared"])
+    before = (projection.transform(parts["shared"]) if shared_coordinates is None
+              else np.asarray(shared_coordinates))
     after = {}
     for k, outcome in enumerate(outcomes):
         read = projection.transform(parts["read"][:, k])
         final = projection.transform(parts["final"][:, k])
+        # Zero reading/corrections must not acquire a shift merely because UMAP
+        # transforms new points differently from its original fitted positions.
+        read[np.all(parts["read"][:, k] == parts["shared"], axis=1)] = before[
+            np.all(parts["read"][:, k] == parts["shared"], axis=1)]
+        same = np.all(parts["final"][:, k] == parts["read"][:, k], axis=1)
+        final[same] = read[same]
         after[(outcome, "total")] = (before, final)
         after[(outcome, "reading")] = (before, read)
         after[(outcome, "corrections")] = (read, final)
@@ -117,6 +124,7 @@ def project_parts(projection, parts: dict, outcomes) -> tuple[np.ndarray, dict]:
 def _collect(args, outcomes, keep_ids):
     """Run the checkpoint over the split; keep the displayed patients' vectors
     in memory only."""
+    import torch
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
     from omegaconf import OmegaConf
@@ -219,23 +227,27 @@ def main() -> None:
     args = parser.parse_args()
     import yaml
 
-    from opera.run.build_paper_embedding_tables import fit_projection, load_stage
+    from opera.run.build_paper_embedding_tables import (
+        PROJECTION_VERSION, fit_projection, matched_stage_frames)
 
     if args.min_count < MIN_BIN_PATIENTS:
         raise ValueError(f"--min-count must be at least {MIN_BIN_PATIENTS}")
     config = yaml.safe_load(args.embedding_config.read_text())
     maps = config["calibration_maps"]
     outcomes = args.outcomes.split(",") if args.outcomes else list(maps["outcomes"])
-    frame = load_stage(config["stages"][maps["stage"]])
+    frame = matched_stage_frames(config["stages"], rehearse=args.rehearse_on_tuning)[maps["stage"]]
     projection, shown = fit_projection(frame, method=config.get("method", "umap"),
                                        rehearse=args.rehearse_on_tuning)
     args.data_split = "tuning" if args.rehearse_on_tuning else "held_out"
     ids, parts = _collect(args, outcomes, set(shown.subject_id.astype(str)))
+    if set(ids) != set(shown.subject_id.astype(str)):
+        raise ValueError("Correction arrows do not cover the full displayed map roster")
     reference = shown.set_index(shown.subject_id.astype(str)).loc[ids]
     if not np.allclose(parts["shared"], np.stack(reference.embedding), atol=1e-4, rtol=1e-3):
         raise ValueError("The map stage was not exported from this checkpoint "
                          "(shared representations differ); arrows need the same checkpoint")
-    before, after = project_parts(projection, parts, outcomes)
+    anchors = None if args.rehearse_on_tuning else projection.fitted_coordinates(ids)
+    before, after = project_parts(projection, parts, outcomes, shared_coordinates=anchors)
     del parts
     arrows, density = arrow_aggregates(before, after, bins=args.bins, min_count=args.min_count)
     from opera.visualization.outcome_names import outcome_display_name
@@ -246,6 +258,9 @@ def main() -> None:
     arrows.to_csv(args.output_dir / "correction_arrows.csv", index=False)
     density.to_csv(args.output_dir / "correction_arrow_density.csv", index=False)
     meta = {"checkpoint": str(args.checkpoint), "projection": projection.method,
+            "projection_version": PROJECTION_VERSION,
+            "projection_fit_split": args.data_split,
+            "projection_fit_patients": len(projection.fit_ids),
             "map_stage": maps["stage"], "split": args.data_split, "n_patients": int(len(ids)),
             "outcomes": [outcome_display_name(o) for o in outcomes], "min_count": args.min_count,
             "components": list(COMPONENTS),

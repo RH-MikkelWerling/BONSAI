@@ -25,8 +25,6 @@ RESULT_ROWS = [
     ('OFF_J_EA', 'Corrections only', 'Joint model'),
     ('OAOWN_OFF_EA', 'OPERA', 'Corrections only'),
     ('EXT_ARCH_EA', 'OPERA', 'Joint model'),
-    ('AB_OFF_EA', 'Learned routing', 'Corrections only'),
-    ('OAOWN_AB_EA', 'OPERA', 'Learned routing'),
     (None, 'D. What do national pretraining and specialty adaptation add?', ''),
     ('E1', 'Joint (national)', 'Joint (cohort)'),
     ('E3', 'Joint (adapted)', 'Joint (cohort)'),
@@ -42,7 +40,6 @@ RESULT_ROWS = [
     ('T5_shared', 'Joint (adapted)', 'XGBoost specialists'),
     ('EXT_J_EA_VS_XP', 'Joint (adapted)', 'Pooled XGBoost'),
     ('EXT_R_EA_VS_XP', 'OPERA (adapted)', 'Pooled XGBoost'),
-    ('EXT_R_AB_EA_VS_XP', 'Routing (adapted)', 'Pooled XGBoost'),
     ('T9', 'Joint (cohort)', 'XGBoost + registry'),
     # Ridge logistic regression per task (19 Nov). FINAL_R_EA_VS_LR appears once the server rerun
     # exports it; a contrast absent from the source is skipped, as for every row.
@@ -51,8 +48,17 @@ RESULT_ROWS = [
     ('FINAL_R_EA_VS_LR', 'OPERA (adapted)', 'Logistic regression'),
 ]
 
+# Learned routing was tested and not selected (23 Nov 2026). Its comparisons are reported in a
+# supplementary table, not in the main Table 2; it stays in the prespecified Holm family.
+ROUTING_ROWS = [
+    (None, 'Learned routing, adapted national encoder.', ''),
+    ('AB_OFF_EA', 'Learned routing', 'Corrections only'),
+    ('OAOWN_AB_EA', 'OPERA', 'Learned routing'),
+    ('EXT_R_AB_EA_VS_XP', 'Learned routing', 'Pooled XGBoost'),
+]
 
-def render_table(panel):
+
+def render_table(panel, rows=RESULT_ROWS):
     lines=[]
     def value(row,metric):
         point=row.get(metric+'_gain')
@@ -66,7 +72,7 @@ def render_table(panel):
         return (r'\shortstack[c]{\textbf{'+fmt(point)+r'}\\[-1.8pt]'
                 +r'{\fontsize{7}{7.6}\selectfont ('+fmt(low)+' to '+fmt(high)+r')}}')
     first_group=True
-    for code,candidate,reference in RESULT_ROWS:
+    for code,candidate,reference in rows:
         if code is None:
             if first_group:
                 first_group=False
@@ -142,7 +148,7 @@ def main():
     numbers['pooled_xgboost_predictors']=f'{len(xp_tasks):,}'
     selected=effects[(effects.stratum=='all_cells')&(effects.horizon_days==0)]
     panel=[]
-    for code,_,_ in RESULT_ROWS:
+    for code,_,_ in RESULT_ROWS+ROUTING_ROWS:
         if code is None or code not in set(selected.contrast):
             continue
         record=dict(contrast=code)
@@ -176,6 +182,8 @@ def main():
     # Separate filename prevents legacy seven-column tables from being loaded
     # under the new explicit candidate/reference column headings.
     (a.output_dir/'panel_comparisons_rows.tex').write_text(table)
+    (a.output_dir/'panel_routing_rows.tex').write_text(
+        render_table({r['contrast']:r for r in panel},rows=ROUTING_ROWS))
     (a.output_dir/'panel_comparisons_heading.tex').write_text(
         r'\def\panelcomparisonheading{'+RESULT_ROWS[0][1]+'}\n')
     (a.output_dir/'paper_numbers.json').write_text(json.dumps(dict(split='held_out',seed=42,

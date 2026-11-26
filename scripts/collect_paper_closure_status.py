@@ -110,15 +110,119 @@ def collect(root):
     return result
 
 
+def collect_recovery(root, *, projection_version="held_out_descriptive_v1"):
+    """Read aggregate receipts and ZIP directories only; never load patient data."""
+    from zipfile import ZipFile, BadZipFile
+    root = Path(root)
+
+    def receipt(path):
+        if not path.is_file():
+            return {"status": "absent"}
+        try:
+            if path.stat().st_size > 2_000_000:
+                return {"status": "present_not_parsed", "bytes": path.stat().st_size}
+            value = json.loads(path.read_text())
+            if not isinstance(value, dict):
+                return {"status": "unexpected_receipt_type"}
+            return value
+        except (OSError, ValueError) as error:
+            return {"status": "unreadable", "reason": str(error)}
+
+    def archive(path):
+        item = {"path": str(path), "exists": path.is_file(), "directory_readable": False}
+        if not path.is_file():
+            return item
+        try:
+            item["bytes"] = path.stat().st_size
+            with ZipFile(path) as z:
+                names = z.namelist()
+                item.update(directory_readable=True, members=len(names),
+                            contains_test_fitted_maps=any(f"story_{projection_version}/" in n for n in names))
+        except (OSError, BadZipFile, EOFError) as error:
+            item["error"] = str(error)
+        return item
+
+    pipeline = receipt(root/'pipeline_status.json')
+    stages = {name: {key: value[key] for key in ('status', 'workload_profile', 'deferred_jobs') if key in value}
+              for name, value in pipeline.items() if isinstance(value, dict)}
+    analyses = {}
+    for directory in sorted((root/'analyses').glob('*')):
+        if not directory.is_dir():
+            continue
+        final = directory/'results'
+        progress = directory/'results.progress'
+        final_manifest = final/'analysis_manifest.json'
+        files = {}
+        for name in ('effect_summaries.csv', 'effect_summaries_disease_balanced.csv',
+                     'calibration_summary.csv', 'operating_points.csv', 'analysis_status.csv'):
+            path = final/name if (final/name).is_file() else progress/name
+            files[name] = {"present": path.is_file(), "final": path.parent == final,
+                           "bytes": path.stat().st_size if path.is_file() else 0}
+        analyses[directory.name] = {"final_manifest_present": final_manifest.is_file(), "tables": files}
+
+    story = root/'exports'/f'story_{projection_version}'
+    story_receipt = receipt(story/'story_status.json').get('embeddings', {})
+    maps = {"status": story_receipt.get('status', 'absent'),
+            "projection_version": story_receipt.get('projection_version'), "families": {}}
+    for family in ('joint', 'opera'):
+        info = story_receipt.get(family, {})
+        required = [story/'ready/tables'/f'embedding_grids_{family}.csv.gz',
+                    story/'ready/tables'/f'embedding_grids_{family}_meta.csv']
+        maps['families'][family] = {"patients": info.get('patients'),
+            "projection_fit_split": info.get('projection_fit_split'),
+            "grid_files_present": all(p.is_file() for p in required)}
+    maps['ready'] = (maps['status'] == 'complete' and maps['projection_version'] == projection_version
+                     and all(v['projection_fit_split'] == 'held_out' and v['grid_files_present']
+                             for v in maps['families'].values()))
+
+    interpretation = receipt(root/'final_interpretation/interpretation_manifest.json')
+    interpretation = {"status": interpretation.get('status', 'unknown'),
+        "steps": {name: value.get('status') for name, value in interpretation.get('steps', {}).items()
+                  if isinstance(value, dict)}}
+    arrows = receipt(root/'exports'/f'model_exports_{projection_version}'/'status.json')
+    interpretation['test_fitted_arrows'] = {"status": arrows.get('status', 'unknown'),
+                                            "projection_version": arrows.get('projection_version')}
+    paths = [root/'download_cutoff_recovery.zip']
+    patterns = ['clinical/*/download_clinical_*.zip', f'story_{projection_version}/download_story.zip',
+        f'outcome_grids_*_{projection_version}/download_outcome_grids*.zip',
+        f'model_exports_{projection_version}/download_model_exports.zip',
+        'deciles/fixed_budget_review.zip', 'decision_curves/download_decision_curves.zip',
+        'task_structure/download_task_structure.zip']
+    for pattern in patterns:
+        paths.extend(sorted((root/'exports').glob(pattern)))
+    downloads = [archive(path) for path in paths]
+    return {"collected_utc": datetime.now(timezone.utc).isoformat(), "root": str(root),
+        "scope": "Read-only recovery receipts. Not live process status, full file-hash verification or ZIP CRC validation.",
+        "pipeline": stages, "analyses": analyses, "test_fitted_maps": maps,
+        "interpretation": interpretation, "downloads": downloads,
+        "missing_export_families": [pattern for pattern in patterns if not list((root/'exports').glob(pattern))],
+        "transfer_note": "A newly delivered national epoch-20 encoder is separate; this collector does not certify its transfer or downstream fits."}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path('.'))
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--recovery-root', type=Path, help='Inspect the cutoff-recovery release instead of legacy paths')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as handle:
-        json.dump(collect(args.root), handle, indent=2)
+        if args.recovery_root:
+            path = args.recovery_root if args.recovery_root.is_absolute() else args.root/args.recovery_root
+            report = collect_recovery(path)
+        else:
+            report = collect(args.root)
+        json.dump(report, handle, indent=2)
     print(f'Status inventory: {args.output}')
+    if args.recovery_root:
+        print('PIPELINE:', json.dumps(report['pipeline']))
+        print('FINAL ANALYSES:', ', '.join(k for k, v in report['analyses'].items() if v['final_manifest_present']) or 'none')
+        print('TEST-FITTED MAPS READY:', report['test_fitted_maps']['ready'])
+        print('INTERPRETATION:', json.dumps(report['interpretation']))
+        for item in report['downloads']:
+            if item['directory_readable']:
+                print('AVAILABLE ZIP:', item['path'], f"({item['bytes']:,} bytes)")
+        print('MISSING EXPORT FAMILIES:', json.dumps(report['missing_export_families']))
 
 
 if __name__ == '__main__':

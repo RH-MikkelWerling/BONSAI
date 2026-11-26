@@ -12,9 +12,25 @@ from opera.run.finish_figure_inputs import final_fit, map_config, immutable
 def run(root):
     root = root.resolve()
     fit = final_fit(root)
-    directory = root/'exports/model_exports'
+    from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+    directory = root/'exports'/f'model_exports_{PROJECTION_VERSION}'
     directory.mkdir(parents=True, exist_ok=True)
-    private, metadata, binding, _ = map_config(root, fit, directory)
+    # Use the identical cross-encoder roster as the descriptive OPERA plate.
+    stages = None
+    if (root/'queue_plan.yaml').is_file():
+        from opera.run.cutoff_recovery_worker import read
+        from opera.run.cutoff_recovery_results import rebound_artifacts
+        from opera.run.cutoff_recovery_exports import stages_config
+        plan = read(root/'queue_plan.yaml')
+        wanted = {'J_L', 'J_OA_OWN_L', 'J_E', 'R_E', 'J_EA', 'R_EA'}
+        declarations = [d for source in read(plan['analyses']) for d in source['artifacts']
+                        if d['artifact']['model'] in wanted and int(d['artifact'].get('seed', 42)) == 42]
+        artifacts, _, waiting, _ = rebound_artifacts(root, plan, declarations)
+        if waiting:
+            raise ValueError('Main embedding exports must finish before correction-arrow projection')
+        stages_path = stages_config(root, artifacts)
+        stages = read(stages_path)['opera']
+    private, metadata, binding, _ = map_config(root, fit, directory, stages)
     immutable(directory/'intent.yaml', binding)
     arrows = directory/'correction_arrows'
     if not (arrows/'correction_arrows.json').is_file():
@@ -46,7 +62,7 @@ def run(root):
             if path.suffix in {'.pdf', '.png'}: target.write(path, path.name)
     temporary.replace(archive)
     (directory/'status.json').write_text(json.dumps(dict(status='complete', archive=str(archive),
-        checkpoint_sha256=fit['checkpoint_sha256']), indent=2))
+        checkpoint_sha256=fit['checkpoint_sha256'], projection_version=PROJECTION_VERSION), indent=2))
     print('DOWNLOAD:', archive, flush=True)
 
 

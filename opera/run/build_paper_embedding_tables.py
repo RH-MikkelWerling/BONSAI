@@ -4,9 +4,9 @@ Each model stage supplies index-time embeddings (``subject_ids``,
 ``embeddings``, ``splits``), either from evaluation (``--export-embeddings``,
 fine-tuned models) or from ``extract_patient_embeddings`` (pretrained
 encoders). For every stage the projection -- standardisation, PCA and UMAP
-(PCA when UMAP is unavailable) -- is fitted on tuning patients and then applied
-unchanged to held-out patients, so held-out patients never shape the map. Only
-held-out patients present in every stage are drawn.
+(PCA when UMAP is unavailable) -- is fitted without labels on the common
+held-out patients being displayed. The maps are descriptive, not prediction
+inputs. Outcome-specific displacements use the same fitted projection.
 
     python -m opera.run.build_paper_embedding_tables --config <embedding.yaml> \
         --patient-metadata <metadata.parquet> --output-dir <plot_tables>
@@ -22,9 +22,11 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from opera.run.analyse_locked_predictions import read_table
 from opera.visualization.outcome_names import outcome_display_name
 from opera.visualization.paper_taxonomy import disease_group_name
+
+
+PROJECTION_VERSION = "held_out_descriptive_v1"
 
 
 def _patient_ids(frame):
@@ -56,8 +58,17 @@ class MapProjection:
     displaced (outcome-specific or routed) representations are drawn on the
     shared-representation map."""
 
-    def __init__(self, scaler, pca, reducer, method):
+    def __init__(self, scaler, pca, reducer, method, fit_ids, coordinates):
         self.scaler, self.pca, self.reducer, self.method = scaler, pca, reducer, method
+        self.fit_ids = pd.Index(fit_ids.astype(str))
+        self.coordinates = np.asarray(coordinates)
+
+    def fitted_coordinates(self, subject_ids):
+        """Return the original fitted positions, including reordered/subset anchors."""
+        positions = self.fit_ids.get_indexer(np.asarray(subject_ids).astype(str))
+        if (positions < 0).any():
+            raise ValueError("Patient was not fitted on this projection")
+        return self.coordinates[positions].copy()
 
     def transform(self, vectors) -> np.ndarray:
         reduced = self.pca.transform(self.scaler.transform(np.asarray(vectors)))
@@ -65,47 +76,70 @@ class MapProjection:
 
 
 def fit_projection(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False):
-    """Fit the map on tuning patients; return it with the displayed patients.
+    """Fit a descriptive map on displayed held-out embeddings, without labels.
 
-    ``rehearse``: no held-out data; fit on half of the tuning patients and
-    display the other half (fixed by subject id), to test the pipeline."""
+    A tuning-only rehearsal retains its earlier fit-half/display-half protocol.
+    """
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
 
-    tuning = frame.loc[frame.split == "tuning"]
-    held = frame.loc[frame.split == "held_out"]
+    frame = _patient_ids(frame)
+    held = frame.loc[frame.split == "held_out"].sort_values("subject_id").copy()
+    fit_frame = held
     if rehearse:
         if not held.empty:
             raise ValueError("Rehearsal mode is for tuning-only exports")
-        shown = pd.util.hash_pandas_object(tuning.subject_id.astype(str), index=False) % 2 == 1
-        tuning, held = tuning.loc[~shown.to_numpy()], tuning.loc[shown.to_numpy()]
-    if tuning.empty or held.empty:
-        raise ValueError("Projection needs tuning (fit) and held-out (display) patients")
-    fit = np.stack(tuning.embedding)
+        tuning = frame.loc[frame.split == "tuning"].sort_values("subject_id")
+        shown = pd.util.hash_pandas_object(tuning.subject_id, index=False) % 2 == 1
+        fit_frame, held = tuning.loc[~shown.to_numpy()], tuning.loc[shown.to_numpy()]
+    if len(fit_frame) < 3 or held.empty:
+        raise ValueError("Projection needs at least three fit patients and nonempty held-out display (tuning-only for rehearsal)")
+    if fit_frame.subject_id.duplicated().any():
+        raise ValueError("Duplicate projection-fit patients")
+    fit = np.stack(fit_frame.embedding)
+    if fit.ndim != 2 or not np.isfinite(fit).all():
+        raise ValueError("Projection requires finite embedding vectors")
     scaler = StandardScaler().fit(fit)
     pca = PCA(n_components=min(50, fit.shape[1], len(fit) - 1), random_state=seed)
     reduced_fit = pca.fit_transform(scaler.transform(fit))
     reducer, used = None, "pca"
+    coordinates = reduced_fit[:, :2]
     if method == "umap":
         try:
             from umap import UMAP
 
             reducer = UMAP(n_components=2, n_neighbors=30, min_dist=0.3,
                            random_state=seed).fit(reduced_fit)
+            coordinates = reducer.embedding_
             used = "umap"
         except ImportError:
             pass
-    return MapProjection(scaler, pca, reducer, used), held
+    projection = MapProjection(scaler, pca, reducer, used,
+                               fit_frame.subject_id.to_numpy(), coordinates)
+    return projection, held
+
+
+def matched_stage_frames(stages, *, rehearse=False, patient_ids=None):
+    """Match the displayed roster BEFORE fitting each stage's map."""
+    frames = {label: load_stage(paths) for label, paths in stages.items()}
+    if not frames:
+        raise ValueError("No embedding stages")
+    split = "tuning" if rehearse else "held_out"
+    common = set.intersection(*(set(f.loc[f.split == split, "subject_id"]) for f in frames.values()))
+    if patient_ids is not None:
+        common &= set(map(str, patient_ids))
+    if not common:
+        raise ValueError("No common displayed patients across embedding stages")
+    return {label: frame.loc[frame.split.ne(split) | frame.subject_id.isin(common)].copy()
+            for label, frame in frames.items()}
 
 
 def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, routed_vectors=None, allow_partial_routed=False) -> pd.DataFrame:
-    """2-D coordinates fitted on tuning patients, applied to held-out patients.
-
-    ``rehearse``: no held-out data; fit on half of the tuning patients and
-    display the other half (fixed by subject id), to test the pipeline."""
+    """Descriptive held-out coordinates; tuning-only rehearsal is separate."""
     projection, held = fit_projection(frame, method=method, seed=seed, rehearse=rehearse)
     used = projection.method
-    xy = projection.transform(np.stack(held.embedding))
+    xy = (projection.transform(np.stack(held.embedding)) if rehearse
+          else projection.fitted_coordinates(held.subject_id))
     result = pd.DataFrame({"subject_id": held.subject_id.to_numpy(), "x": xy[:, 0],
                            "y": xy[:, 1], "projection": used})
     for outcome, path in (routed_vectors or {}).items():
@@ -136,10 +170,11 @@ def project(frame: pd.DataFrame, *, method="umap", seed=0, rehearse=False, route
 
 
 def embedding_comparison(stages: dict, metadata: pd.DataFrame, *, method="umap",
-                         group_map=None, rehearse=False):
+                         group_map=None, rehearse=False, patient_ids=None):
     """Long table of held-out coordinates per stage with shared colour columns."""
-    coordinates = {label: project(load_stage(paths), method=method, rehearse=rehearse)
-                   for label, paths in stages.items()}
+    frames = matched_stage_frames(stages, rehearse=rehearse, patient_ids=patient_ids)
+    coordinates = {label: project(frame, method=method, rehearse=rehearse)
+                   for label, frame in frames.items()}
     common = set.intersection(*(set(c.subject_id) for c in coordinates.values()))
     meta = _patient_ids(metadata).set_index("subject_id")
     rows = []
@@ -155,6 +190,7 @@ def embedding_comparison(stages: dict, metadata: pd.DataFrame, *, method="umap",
         coords["age"] = info.age_at_index.to_numpy()
         coords["sequence_length"] = info.history_event_count.to_numpy()
         rows.append(coords)
+        coordinates[label] = coords.drop(columns=["model", "patient_id", "disease", "ipi_group", "age", "sequence_length"])
     return pd.concat(rows, ignore_index=True).drop(columns="subject_id"), coordinates
 
 
@@ -240,6 +276,7 @@ def main():
                              "show the other half (pipeline rehearsal)")
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())
+    from opera.run.analyse_locked_predictions import read_table
     metadata = read_table(args.patient_metadata)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     comparison, coordinates = embedding_comparison(
@@ -248,7 +285,7 @@ def main():
     maps = config["calibration_maps"]
     map_coords = coordinates[maps["stage"]]
     if maps.get('routed_vectors'):
-        map_coords = project(load_stage(config['stages'][maps['stage']]),
+        map_coords = project(matched_stage_frames(config['stages'], rehearse=args.rehearse_on_tuning)[maps['stage']],
                              method=config.get('method', 'umap'),
                              rehearse=args.rehearse_on_tuning,
                              routed_vectors=maps['routed_vectors'], allow_partial_routed=True)
@@ -288,7 +325,9 @@ def main():
     print(json.dumps({"stages": list(config["stages"]),
                       "patients_compared": int(comparison.patient_id.nunique()),
                       "map_patients": len(coords),
-                      "projection": sorted(set(comparison.projection))}))
+                      "projection": sorted(set(comparison.projection)),
+                      "projection_version": PROJECTION_VERSION,
+                      "projection_fit_split": "tuning" if args.rehearse_on_tuning else "held_out"}))
 
 
 if __name__ == "__main__":

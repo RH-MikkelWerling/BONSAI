@@ -186,7 +186,8 @@ def run(root, *, metadata=None, scores=None):
         state['clinical_'+model] = clinical(root, artifacts, model, metadata, scores)
     state['task_structure'] = task_structure(root, artifacts, env)
     stages = stages_config(root, artifacts)
-    story = root/'exports/story'
+    from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+    story = root/'exports'/f'story_{PROJECTION_VERSION}'
     subprocess.run([sys.executable, '-u', '-m', 'opera.run.finish_story_inputs', '--only', 'embeddings',
         '--stages-config', str(stages), '--patient-metadata', str(metadata), '--survival-predictions',
         find_artifact(artifacts, 'R_EA', 'held_out')['path'], '--output-root', str(story), '--execute'],
@@ -196,7 +197,7 @@ def run(root, *, metadata=None, scores=None):
         raise ValueError('Story embedding export incomplete')
     state['embeddings'] = dict(status='complete', archive=str(story/'download_story.zip'))
     for family in ('joint', 'opera'):
-        output = root/'exports'/f'outcome_grids_{family}'
+        output = root/'exports'/f'outcome_grids_{family}_{PROJECTION_VERSION}'
         archive = output/('download_outcome_grids_joint.zip' if family == 'joint' else 'download_outcome_grids.zip')
         if not (output/'manifest.json').is_file() or not archive_ready(archive):
             subprocess.run([sys.executable, '-u', '-m', 'opera.run.export_outcome_embedding_grids',

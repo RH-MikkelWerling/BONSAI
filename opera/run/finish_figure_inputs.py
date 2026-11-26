@@ -324,7 +324,7 @@ def harvest(repo, national, output):
     (output / 'harvest_report.json').write_text(json.dumps(report, indent=2))
 
 
-def map_config(national, fit, output):
+def map_config(national, fit, output, projection_stages=None):
     exports = verify_exports(national, fit)
     metadata = national.parent / 'clinical_registry_refresh/20261111/prepared_clinical/patient_metadata.parquet'
     if not metadata.is_file(): raise FileNotFoundError(metadata)
@@ -344,7 +344,7 @@ def map_config(national, fit, output):
                 'exports': {s: {k: str(v) for k, v in row.items()} for s, row in exports.items()}}
     immutable(private / 'identity.yaml', identity)
     recipe = {'method': 'umap', 'ipi_group_map': {'low': 'Low', 'medium': 'Intermediate', 'high': 'High'},
-              'stages': {'Adapted OPERA': [str(exports[s]['embedding']) for s in ['tuning', 'held_out']]},
+              'stages': projection_stages or {'Adapted OPERA': [str(exports[s]['embedding']) for s in ['tuning', 'held_out']]},
               'calibration_maps': {'stage': 'Adapted OPERA', 'predictions': str(slim),
                                    'horizon_days': 365, 'outcomes': checks},
               'gallery': {'stage': 'Adapted OPERA', 'predictions': str(slim), 'horizon_days': 365}}

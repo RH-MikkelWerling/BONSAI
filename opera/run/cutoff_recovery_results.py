@@ -327,9 +327,10 @@ def package(root):
                 archive.write(path, f'{directory.name}/plot_tables/{path.name}')
         for name in ('queue_summary.json', 'pipeline_status.json', 'queue_index.csv', 'workload_policy.json'):
             if (root/name).is_file(): archive.write(root/name, name)
-        for pattern in ('clinical/*/download_clinical_*.zip', 'story/download_story.zip',
-                        'outcome_grids_*/download_outcome_grids*.zip', 'deciles/fixed_budget_review.zip',
-                        'decision_curves/download_decision_curves.zip', 'model_exports/download_model_exports.zip',
+        from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+        for pattern in ('clinical/*/download_clinical_*.zip', f'story_{PROJECTION_VERSION}/download_story.zip',
+                        f'outcome_grids_*_{PROJECTION_VERSION}/download_outcome_grids*.zip', 'deciles/fixed_budget_review.zip',
+                        'decision_curves/download_decision_curves.zip', f'model_exports_{PROJECTION_VERSION}/download_model_exports.zip',
                         'task_structure/download_task_structure.zip'):
             for path in (root/'exports').glob(pattern):
                 archive.write(path, 'exports/'+str(path.relative_to(root/'exports')))
@@ -430,7 +431,11 @@ def watch(root, *, execute=False, wait_hours=96, poll_seconds=30, exports=False,
                 continue
             if execute and wait_interpretation:
                 manifest = root/'final_interpretation/interpretation_manifest.json'
-                if not manifest.is_file() or read(manifest).get('status') != 'complete':
+                from opera.run.build_paper_embedding_tables import PROJECTION_VERSION
+                arrows = root/'exports'/f'model_exports_{PROJECTION_VERSION}'/'status.json'
+                if (not manifest.is_file() or read(manifest).get('status') != 'complete'
+                        or not arrows.is_file() or read(arrows).get('status') != 'complete'
+                        or read(arrows).get('projection_version') != PROJECTION_VERSION):
                     state['interpretation'] = {'status': 'waiting'}
                     (root/'pipeline_status.json').write_text(json.dumps(state, indent=2))
                     time.sleep(poll_seconds)
