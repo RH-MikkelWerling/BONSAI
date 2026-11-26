@@ -36,6 +36,18 @@ case "$lane" in
     interpretation=()
     [[ "${OPERA_RECOVERY_IG:-1}" == 1 ]] && interpretation=(--wait-interpretation)
     exec python -u -m opera.run.cutoff_recovery_results --root "$OPERA_RECOVERY_ROOT" --execute --wait-hours 96 --exports "${interpretation[@]}" ;;
+  interpretation)
+    python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
+    exec python -u -m opera.run.run_final_interpretation \
+      --national-root "$OPERA_RECOVERY_ROOT" \
+      --output-dir "$OPERA_RECOVERY_ROOT/final_interpretation" --distributed-ig --execute ;;
+  interpretation-worker)
+    python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
+    exec python -u -m opera.run.interpretation_worker work \
+      --workspace "$OPERA_RECOVERY_ROOT/final_interpretation" --wait-hours 72 ;;
+  interpretation-status)
+    exec python -u -m opera.run.interpretation_worker status \
+      --workspace "$OPERA_RECOVERY_ROOT/final_interpretation" ;;
   status)
     python -m opera.run.cutoff_recovery_worker status --root "$OPERA_RECOVERY_ROOT"
     if [[ -f "$OPERA_RECOVERY_ROOT/pipeline_status.json" ]]; then
@@ -71,5 +83,5 @@ from opera.run.cutoff_recovery_results import package
 package(Path(sys.argv[1]).resolve())
 PY
     ;;
-  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | paper-first-preview | paper-first | epoch20-prepare | epoch20-opera-prepare | epoch20-status | epoch20-results | epoch20 | cohort20 | adapted20 | opera20 | cohort-opera20 | adapted-opera20' >&2; exit 2 ;;
+  *) echo 'Use: plan | prepare | cohort | adapted | worker | results | status | bundle | interpretation | interpretation-worker | interpretation-status | paper-first-preview | paper-first | epoch20-prepare | epoch20-opera-prepare | epoch20-status | epoch20-results | epoch20 | cohort20 | adapted20 | opera20 | cohort-opera20 | adapted-opera20' >&2; exit 2 ;;
 esac

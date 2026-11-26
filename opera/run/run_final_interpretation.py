@@ -87,6 +87,8 @@ def main():
     parser.add_argument('--base-env', type=Path, default=Path('data/paper_256_v3/analysis/local_test_20261109_four_allocations/overnight.env'))
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--pilot-only', action='store_true')
+    parser.add_argument('--distributed-ig', action='store_true',
+                        help='After the pilot, wait for interpretation_worker helpers before collecting IG')
     args = parser.parse_args()
     root, output = args.national_root.resolve(), args.output_dir.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -99,6 +101,9 @@ def main():
             return [*base, action, '--env-file', str(output / 'interpretation.env'), *extra, '--execute']
         commands = [('pilot', command('attributions', '--attribution-max-new-patients', '50'))]
         if not args.pilot_only:
+            if args.distributed_ig:
+                commands += [('ig_workers', [sys.executable, '-u', '-m', 'opera.run.interpretation_worker',
+                                            'wait', '--workspace', str(output)])]
             commands += [('ig', command('attributions')), ('summary', command('attribution-summary')),
                          ('restrictions', command('input-restrictions')), ('figures', command('attribution-figures'))]
         print(json.dumps({'workspace': str(output), 'fit': report['fit'], 'commands': commands}, indent=2), flush=True)
@@ -107,18 +112,32 @@ def main():
         logs = output / 'logs'; logs.mkdir(exist_ok=True)
         receipt = output / 'interpretation_manifest.json'
         def save():
-            receipt.write_text(json.dumps(report, indent=2))
+            temporary = receipt.with_suffix('.json.tmp')
+            temporary.write_text(json.dumps(report, indent=2))
+            os.replace(temporary, receipt)
         environment = {**os.environ, 'OMP_NUM_THREADS': '1', 'OPENBLAS_NUM_THREADS': '1',
                        'MKL_NUM_THREADS': '1', 'OPERA_ANALYSIS_WORKERS': '1',
                        'MPLBACKEND': 'Agg', 'OPERA_PAPER_EXPORT_PLOT_STATE': '1'}
         report['status'] = 'running'; save()
         try:
             for name, cmd in commands:
+                # Queue readiness must be checked on every resume, not treated as
+                # a completed scientific analysis step from an earlier attempt.
+                if name == 'ig_workers':
+                    report['steps'].pop(name, None)
                 if report['steps'].get(name, {}).get('status') == 'complete':
                     continue
                 print(f'Interpretation step: {name}; log: {logs / (name + ".log")}', flush=True)
                 with (logs / (name + '.log')).open('a') as handle:
-                    result = subprocess.run(cmd, stdout=handle, stderr=subprocess.STDOUT, env=environment)
+                    if name == 'restrictions':
+                        # Helpers evaluate separate restrictions; final serial
+                        # dispatcher waits, skips these, then compares once.
+                        with (output / '.restriction-helpers.lock').open('a') as gate:
+                            fcntl.flock(gate, fcntl.LOCK_EX)
+                            result = subprocess.run(cmd, stdout=handle, stderr=subprocess.STDOUT, env=environment,
+                                                    pass_fds=(gate.fileno(),))
+                    else:
+                        result = subprocess.run(cmd, stdout=handle, stderr=subprocess.STDOUT, env=environment)
                 report['steps'][name] = {'status': 'complete' if result.returncode == 0 else 'failed',
                                          'returncode': result.returncode}; save()
                 if result.returncode:
