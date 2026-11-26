@@ -73,6 +73,31 @@ def local_ablations(repo, national):
     return result
 
 
+def embedding_config_name(marker, fit):
+    """Resolve an evaluation's config alias by frozen bytes, not filename equality.
+
+    Recovery evaluates merged queue configs, while interpretation uses a copied
+    R.yaml view of the SAME bytes. The recorded command identifies which name
+    was actually written to the embedding metadata.
+    """
+    command = marker.get('command')
+    if not command:
+        return fit['config'].stem  # Legacy receipt: no alternate alias can be proved.
+    def argument(flag):
+        try:
+            return command[command.index(flag) + 1]
+        except (ValueError, IndexError):
+            raise ValueError(f'Evaluation command lacks {flag}; cannot verify embedding config alias')
+    name = argument('--config-name')
+    if not isinstance(name, str) or Path(name).name != name:
+        raise ValueError('Invalid config name in evaluation command')
+    filename = name if name.endswith('.yaml') else name + '.yaml'
+    path = Path(argument('--config-dir'))/filename
+    if not path.is_file() or sha(path) != fit['row']['config_sha256']:
+        raise ValueError(f'Evaluated config bytes differ from the frozen final model: {path}')
+    return name
+
+
 def verify_exports(national, fit):
     result = {}
     for split in ['tuning', 'held_out']:
@@ -85,9 +110,18 @@ def verify_exports(national, fit):
             raise ValueError(f'Prediction identity changed: {directory}')
         embedding = directory / 'patient_embeddings.npz'
         meta = read(directory / 'patient_embeddings.metadata.json')
-        if (Path(meta['checkpoint']).resolve() != fit['checkpoint'].resolve()
-                or meta['split'] != split or meta['config_name'] != fit['config'].stem):
-            raise ValueError(f'Embedding identity differs from the final model: {directory}')
+        expected_name = embedding_config_name(marker, fit)
+        differences = {}
+        if Path(meta['checkpoint']).resolve() != fit['checkpoint'].resolve():
+            differences['checkpoint'] = dict(actual=meta['checkpoint'], expected=str(fit['checkpoint']))
+        if meta['split'] != split:
+            differences['split'] = dict(actual=meta['split'], expected=split)
+        if meta['config_name'] != expected_name:
+            differences['config_name'] = dict(actual=meta['config_name'], expected=expected_name,
+                                            interpretation_alias=fit['config'].stem)
+        if differences:
+            raise ValueError(f'Embedding identity differs from the final model: {directory}; '
+                             f'{json.dumps(differences, sort_keys=True)}')
         if not embedding.is_file():
             raise FileNotFoundError(embedding)
         result[split] = dict(prediction=prediction, embedding=embedding,
