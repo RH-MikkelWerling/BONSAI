@@ -77,8 +77,8 @@ def main():
     a = p.parse_args()
     thesis_style()
     meta = pd.read_csv(a.grids / "outcome_grid_meta.csv")
-    if not meta.status.eq("complete").all():
-        raise ValueError("Incomplete outcome grids")
+    if not meta.status.isin(["complete", "unsupported_risk_surface"]).all():
+        raise ValueError("Incomplete outcome-grid export")
     domains = od._domain_order()
     meta["d"] = meta.domain.map({d: i for i, d in enumerate(domains)}).fillna(len(domains))
     meta = meta.sort_values(["d", "label"]).reset_index(drop=True)
@@ -131,12 +131,22 @@ def main():
                 # Both surfaces of a pair at one bandwidth, widened as far as this outcome needs for a
                 # typical square to rest on about TARGET_EVENTS expected events: smoothing only one of
                 # them would flatten it and exaggerate the difference. Common outcomes are unchanged.
-                factor = observed_factor(count, r.observed_risk)
-                predicted, _ = widen(count, raw_pred, factor)
-                observed, _ = widen(count, raw, factor)
+                effective_support = getattr(r, 'risk_support_method', '') == 'ipcw_kernel_kish_ess_v1'
+                if effective_support:
+                    # These are ratios of different weighted denominators. Do not
+                    # re-smooth them using all-patient density as a proxy: the
+                    # server already calculated their valid support/matched mask.
+                    factor, predicted, observed = 1., raw_pred, raw
+                else:
+                    factor = observed_factor(count, r.observed_risk)
+                    predicted, _ = widen(count, raw_pred, factor)
+                    observed, _ = widen(count, raw, factor)
                 # Keep the exported outline: blank wherever either exported layer is (suppressed squares).
                 empty = empty | ~np.isfinite(raw_pred) | ~np.isfinite(raw)
-                note = f"; smoothed ×{factor:.0f}" if factor >= 1.5 else ""
+                note = ('; effective support ≥25' if effective_support else
+                        (f"; smoothed ×{factor:.0f}" if factor >= 1.5 else ""))
+                if r.status == 'unsupported_risk_surface':
+                    note = '; insufficient effective support'
                 fig.text(centre, 1 - (top - 0.09) / height, f"{100 * r.observed_risk:.1f}% at 365 days{note}",
                          fontsize=6.6, color=INK2, ha="center", va="bottom")
                 for j, (values, name) in enumerate(((predicted, "predicted"), (observed, "observed"))):

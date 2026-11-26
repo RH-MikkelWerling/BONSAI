@@ -284,7 +284,7 @@ def align_maps(coords, *, reference=None):
 
 
 def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth=0.013, min_support=25.0,
-              reference=None, frame=None):
+              reference=None, frame=None, risk_support="density", export_support=False):
     """Binned, aggregate version of each encoder map, safe to export from the server.
 
     The maps are first aligned to the ``reference`` model (default: the last) by rotation,
@@ -306,6 +306,8 @@ def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth
     No patient-level values leave this function.
     """
     from scipy.ndimage import gaussian_filter
+    if risk_support not in {'density', 'ipcw_ess'}:
+        raise ValueError('Choose density or ipcw_ess risk support')
     surv = survival.set_index("patient_id")
     rows, meta = [], []
     aligned = align_maps(coords, reference=reference)
@@ -363,9 +365,43 @@ def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth
         num, den, n = (gaussian_filter(a, sigma_m) for a in (num, den, n))
         overall = np.sum(hd.weights[use] * hd.target[use]) / max(np.sum(hd.weights[use]), 1e-12)
         support = n * 2 * np.pi * sigma_m ** 2
+        with np.errstate(invalid='ignore', divide='ignore'):
+            density_rule_risk = num / den
+            density_rule_shown = (support >= min_support) & keep & np.isfinite(density_rule_risk)
+        if risk_support == 'ipcw_ess':
+            from opera.visualization.kernel_risk_support import binned_ipcw_surface
+            local_risk, support = binned_ipcw_surface(
+                ix[use], iy[use], hd.target[use], hd.weights[use], grid=grid, sigma=sigma_m)
+        else:
+            with np.errstate(invalid='ignore', divide='ignore'):
+                local_risk = num / den
         with np.errstate(invalid="ignore", divide="ignore"):
-            rel = (num / den) / overall
+            rel = local_risk / overall
         shown = (support >= min_support) & keep
+        if risk_support == 'ipcw_ess':
+            # Add information support without relaxing the previous density mask.
+            shown &= density_rule_shown
+            if export_support:
+                # Coarse aggregate bands cover the full density footprint,
+                # including regions whose observed risk is not supported.
+                bands = np.digitize(support, [5, 10, 20, 25, 50, 100])
+                for a, b in zip(*np.nonzero(keep)):
+                    rows.append((model, 'support_band', '', int(a), int(b), int(bands[a,b])))
+            from opera.visualization.kernel_risk_support import support_coverage
+            meta[-1].update(support_coverage(support, keep, density_rule_shown,
+                                           ix[inside], iy[inside], minimum_count=min_count))
+            meta[-1].update(risk_support_method='ipcw_kernel_kish_ess_v1', min_effective_support=min_support,
+                           density_grid_cells=int(keep.sum()), supported_risk_grid_cells=int(shown.sum()),
+                           informative_patients=int(use.sum()) if use.sum() >= min_count else np.nan,
+                           early_censored_patients=int((inside & ~hd.eligible).sum())
+                           if (inside & ~hd.eligible).sum() >= min_count else np.nan,
+                           supported_max_risk=float(np.nanmax(local_risk[shown])) if shown.any() else np.nan,
+                           supported_extreme_grid_cells=int((shown & (rel >= 4)).sum()),
+                           density_rule_max_risk=float(np.nanmax(density_rule_risk[density_rule_shown]))
+                           if density_rule_shown.any() else np.nan,
+                           density_rule_extreme_grid_cells=int((density_rule_shown & (density_rule_risk >= 4*overall)).sum()),
+                           max_effective_support_in_density_extremes=float(np.max(support[density_rule_shown & (density_rule_risk >= 4*overall)]))
+                           if (density_rule_shown & (density_rule_risk >= 4*overall)).any() else np.nan)
         meta[-1]["observed_risk"] = round(float(overall), 4)  # aggregate: the average shown in titles
         for (a, b) in zip(*np.nonzero(shown & np.isfinite(rel))):
             rows.append((model, "mortality", "", int(a), int(b), round(float(rel[a, b]), 4)))
@@ -378,7 +414,8 @@ def map_grids(coords, survival, *, horizon=365, grid=400, min_count=5, bandwidth
             np.add.at(ps, (ix[ok], iy[ok]), p[ok])
             np.add.at(pn, (ix[ok], iy[ok]), 1)
             meta[-1]["predicted_risk"] = round(float(p[ok].mean()), 4)
-            ps, pn = gaussian_filter(ps, sigma_m), gaussian_filter(pn, sigma_m)
+            boundary = 'constant' if risk_support == 'ipcw_ess' else 'reflect'
+            ps, pn = gaussian_filter(ps, sigma_m, mode=boundary), gaussian_filter(pn, sigma_m, mode=boundary)
             with np.errstate(invalid="ignore", divide="ignore"):
                 prel = (ps / pn) / overall
             for (a, b) in zip(*np.nonzero(shown & np.isfinite(prel))):

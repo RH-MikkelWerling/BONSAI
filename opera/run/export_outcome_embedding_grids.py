@@ -25,7 +25,7 @@ def sha(path):
     return h.hexdigest()
 
 
-def outcome_grids(coords, predictions, reference_meta, *, horizon=365, bandwidth=.009):
+def outcome_grids(coords, predictions, reference_meta, *, horizon=365, bandwidth=.009, risk_support='density'):
     from opera.visualization.encoder_embedding_comparison import map_grids
     p = predictions.copy()
     p['patient_id'] = p.subject_id.astype(str)
@@ -43,10 +43,11 @@ def outcome_grids(coords, predictions, reference_meta, *, horizon=365, bandwidth
         raise ValueError('Invalid outcome follow-up')
     r = reference_meta
     cells, meta = map_grids(c, s, grid=int(r['grid']), horizon=horizon, bandwidth=bandwidth,
-                           frame=[r[k] for k in ['x0', 'x1', 'y0', 'y1']])
+                           frame=[r[k] for k in ['x0', 'x1', 'y0', 'y1']], risk_support=risk_support,
+                           export_support=risk_support == 'ipcw_ess')
     # Density/index layers are not needed for the outcome plates. Retain count
     # for the identical renderer's common background/support mask.
-    cells = cells.loc[cells.layer.isin(['count', 'predicted', 'mortality'])].copy()
+    cells = cells.loc[cells.layer.isin(['count', 'predicted', 'mortality', 'support_band'])].copy()
     meta['horizon_days'] = horizon
     meta['prediction_patients'] = len(p)
     meta['prediction_patients_on_reference_map'] = len(c)
