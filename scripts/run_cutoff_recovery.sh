@@ -40,7 +40,7 @@ case "$lane" in
     python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
     exec python -u -m opera.run.run_final_interpretation \
       --national-root "$OPERA_RECOVERY_ROOT" \
-      --output-dir "$OPERA_RECOVERY_ROOT/final_interpretation" --distributed-ig --execute ;;
+      --output-dir "$OPERA_RECOVERY_ROOT/final_interpretation" --distributed-ig --pilot-new-patients 1 --execute ;;
   interpretation-worker)
     python scripts/check_results_resources.py --minimum-free-gib 48 --require-no-coordinator --require-free-gpu
     exec python -u -m opera.run.interpretation_worker work \

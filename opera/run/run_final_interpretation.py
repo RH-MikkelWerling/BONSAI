@@ -87,9 +87,13 @@ def main():
     parser.add_argument('--base-env', type=Path, default=Path('data/paper_256_v3/analysis/local_test_20261109_four_allocations/overnight.env'))
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--pilot-only', action='store_true')
+    parser.add_argument('--pilot-new-patients', type=int, default=50,
+                        help='Startup cap for additional uncached patients; 1 publishes the plan quickly before distributed IG')
     parser.add_argument('--distributed-ig', action='store_true',
                         help='After the pilot, wait for interpretation_worker helpers before collecting IG')
     args = parser.parse_args()
+    if args.pilot_new_patients < 1:
+        parser.error('--pilot-new-patients must be positive')
     root, output = args.national_root.resolve(), args.output_dir.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     import fcntl
@@ -99,7 +103,7 @@ def main():
         base = [sys.executable, '-u', '-m', 'opera.run.paper_experiments']
         def command(action, *extra):
             return [*base, action, '--env-file', str(output / 'interpretation.env'), *extra, '--execute']
-        commands = [('pilot', command('attributions', '--attribution-max-new-patients', '50'))]
+        commands = [('pilot', command('attributions', '--attribution-max-new-patients', str(args.pilot_new_patients)))]
         if not args.pilot_only:
             if args.distributed_ig:
                 commands += [('ig_workers', [sys.executable, '-u', '-m', 'opera.run.interpretation_worker',
