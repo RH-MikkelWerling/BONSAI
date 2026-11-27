@@ -18,15 +18,20 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=False)
     import matplotlib.pyplot as plt
     from opera.visualization.style import setup_style
+    from opera.run.paper_story_figures import thesis_style
     from opera.visualization.plot_state import render_plot_state
     from opera.visualization.paper_figures import _finish_clinical
     setup_style()
+    thesis_style()
     rows = []
     for source in sources:
         relative = source.relative_to(args.input_dir)
         target = args.output_dir / relative.parent / relative.name.removesuffix('.plot.json')
         target.parent.mkdir(parents=True, exist_ok=True)
         fig = render_plot_state(source)
+        from matplotlib.text import Text
+        for text in fig.findobj(Text):
+            text.set_fontfamily('TeX Gyre Pagella')
         width, height = fig.get_size_inches()
         fig.set_size_inches(args.figure_width, height * args.figure_width / width)
         for ax in fig.axes:

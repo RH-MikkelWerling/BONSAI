@@ -217,15 +217,20 @@ def disease_map(root: Path, out: Path):
     _save(fig, out / "supp_disease_map")
 
 
-def correction_value(root: Path, out: Path):
+def correction_value(root: Path, out: Path, *, cell_effects=None):
     """Correction size against what OPERA's task-specific parts add over the joint model
     (both on the adapted encoder), per outcome and per diagnosis: mean over cells of the
     AUC averaged over horizons. Descriptive; no intervals."""
     from scipy.stats import spearmanr
     from matplotlib.lines import Line2D
     ts = root / "task_structure_R_EA"
-    cells = _cells(root)
-    cells = cells.loc[cells.horizon_days.eq(0)].assign(added=lambda d: d.R_EA - d.J_EA)
+    if cell_effects is None:
+        cells = _cells(root)
+        cells = cells.loc[cells.horizon_days.eq(0)].assign(added=lambda d: d.R_EA - d.J_EA)
+    else:
+        cells = cell_effects.copy()
+        if cells.duplicated(['cohort', 'outcome']).any():
+            raise ValueError('Need one paired all-horizon effect per disease and outcome')
     outcomes = pd.read_csv(ts / "outcome_specialisation.csv")
     outcomes["label"] = outcomes.outcome.map(od._outcome_label)
     outcomes = outcomes.join(cells.groupby("outcome").added.mean(), on="label")

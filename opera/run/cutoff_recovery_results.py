@@ -300,6 +300,7 @@ def reuse_unaffected_summaries(directory, config):
 
 def package(root):
     from opera.run.package_figure_review import PATIENT_COLUMNS, PLOT_TABLES
+    from opera.evaluation.aggregate_export_files import aggregate_export_paths
     target = root/'download_cutoff_recovery.zip'
     temporary = target.with_suffix('.writing')
     with ZipFile(temporary, 'w', ZIP_DEFLATED) as archive:
@@ -308,9 +309,8 @@ def package(root):
             results = directory/'paper_tables' if (directory/'paper_tables').is_dir() else raw_results
             if not (raw_results/'analysis_manifest.json').is_file():
                 continue
-            for name in sorted(AGGREGATES):
-                path = results/name
-                if not path.is_file(): continue
+            for path in aggregate_export_paths(results, AGGREGATES):
+                name = path.name
                 with path.open(newline='') as handle:
                     columns = {c.lower().strip() for c in next(csv.reader(handle), [])}
                 if columns & PATIENT_COLUMNS:
