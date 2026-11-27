@@ -40,6 +40,13 @@ case "${1:-status}" in
     bash "$0" attention
     bash "$0" corrections
     exec bash scripts/run_cutoff_recovery.sh interpretation-worker ;;
+  results-helper)
+    python scripts/check_results_resources.py --minimum-free-gib 96 --require-no-coordinator
+    queues=()
+    for index in {00..08}; do
+      queues+=(--checkpoint-dir "$task_root/analyses/paper_registered_${index}/checkpoints")
+    done
+    exec python -u -m opera.run.results_worker "${queues[@]}" --wait-hours 72 ;;
   cpu)
     # Sequential jobs: avoid holding multiple prepared snapshots in RAM.
     python scripts/check_results_resources.py --minimum-free-gib 96 --require-no-coordinator
@@ -100,5 +107,5 @@ case "${1:-status}" in
     done ;;
   package)
     python scripts/package_paper_extra_checks_20261127.py --root "$task_root" ;;
-  *) echo 'Use: day | cpu | attention | corrections | absolute-risk-summary | status | package' >&2; exit 2 ;;
+  *) echo 'Use: day | results-helper | cpu | attention | corrections | absolute-risk-summary | status | package' >&2; exit 2 ;;
 esac
